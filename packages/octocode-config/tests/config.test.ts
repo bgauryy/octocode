@@ -294,6 +294,43 @@ describe('applyOctocodeEnv', () => {
     ]);
   });
 
+  it('lets a workspace .env only opt out of persistence, never in', () => {
+    const widen: Record<string, string | undefined> = {};
+    const skipped = applyOctocodeEnv(
+      {
+        OCTOCODE_STORAGE_MODE: 'persistent',
+        OCTOCODE_EXTENSION_STORAGE_MODE: 'persistent',
+      },
+      {
+        env: widen,
+        sources: {
+          OCTOCODE_STORAGE_MODE: 'project',
+          OCTOCODE_EXTENSION_STORAGE_MODE: 'project',
+        },
+      }
+    );
+    expect(widen).toEqual({});
+    expect(skipped.skippedProtected.sort()).toEqual([
+      'OCTOCODE_EXTENSION_STORAGE_MODE',
+      'OCTOCODE_STORAGE_MODE',
+    ]);
+
+    const narrow: Record<string, string | undefined> = {};
+    const applied = applyOctocodeEnv(
+      { OCTOCODE_STORAGE_MODE: ' Memory ' },
+      { env: narrow, sources: { OCTOCODE_STORAGE_MODE: 'project' } }
+    );
+    expect(narrow.OCTOCODE_STORAGE_MODE).toBe(' Memory ');
+    expect(applied.skippedProtected).toEqual([]);
+
+    const home: Record<string, string | undefined> = {};
+    applyOctocodeEnv(
+      { OCTOCODE_STORAGE_MODE: 'persistent' },
+      { env: home, sources: { OCTOCODE_STORAGE_MODE: 'global' } }
+    );
+    expect(home.OCTOCODE_STORAGE_MODE).toBe('persistent');
+  });
+
   it('skips already-set (non-empty) keys and reports them', () => {
     const env: Record<string, string | undefined> = { EXISTING: 'keep' };
     const res = applyOctocodeEnv({ EXISTING: 'new' }, { env });
@@ -350,6 +387,26 @@ describe('loadOctocodeEnv', () => {
     writeFileSync(join(home, '.env'), 'GLOBAL_KEY=global\n');
     const { map } = loadOctocodeEnv({ home });
     expect(map.GLOBAL_KEY).toBe('global');
+  });
+
+  it('workspace .env can narrow but never widen a global storage mode', () => {
+    writeFileSync(join(home, '.env'), 'OCTOCODE_STORAGE_MODE=persistent\n');
+    writeFileSync(
+      join(cwd, '.octocode', '.env'),
+      'OCTOCODE_STORAGE_MODE=memory\n'
+    );
+    const narrowed = loadOctocodeEnv({ home, cwd });
+    expect(narrowed.map.OCTOCODE_STORAGE_MODE).toBe('memory');
+    expect(narrowed.sources.OCTOCODE_STORAGE_MODE).toBe('project');
+
+    writeFileSync(join(home, '.env'), 'OCTOCODE_STORAGE_MODE=memory\n');
+    writeFileSync(
+      join(cwd, '.octocode', '.env'),
+      'OCTOCODE_STORAGE_MODE=persistent\n'
+    );
+    const kept = loadOctocodeEnv({ home, cwd });
+    expect(kept.map.OCTOCODE_STORAGE_MODE).toBe('memory');
+    expect(kept.sources.OCTOCODE_STORAGE_MODE).toBe('global');
   });
 
   it('project .env NOT loaded when trusted=false', () => {

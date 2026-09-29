@@ -8,6 +8,7 @@
 use serde::Serialize;
 use tree_sitter::Node;
 
+#[cfg(test)]
 use crate::text::file_extension::get_extension_internal;
 
 use super::languages;
@@ -200,6 +201,11 @@ struct GraphAccumulator {
     /// Bodies of Rust item-level macro calls (`cfg_rt! { mod x; }`) with
     /// their enclosing module scope, re-read as items after the main walk.
     macro_bodies: Vec<(tree_sitter::Range, Vec<String>)>,
+    /// Byte span of each entry of `declarations`, in the same order.
+    declaration_spans: Vec<(usize, usize)>,
+    /// Indices into `imports` of bindings from private Rust `use` items,
+    /// whose uses `rust_import_uses` attributes to declarations.
+    private_use_imports: Vec<usize>,
 }
 
 impl GraphAccumulator {
@@ -215,11 +221,61 @@ impl GraphAccumulator {
             modules: Vec::new(),
             non_reference_tokens: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
+            declaration_spans: Vec::new(),
+            private_use_imports: Vec::new(),
             diagnostics: vec![
                 "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof".to_owned(),
             ],
         }
     }
+}
+
+/// Statement keywords that error recovery turns into declaration names:
+/// `if (x) { .. }` after a syntax error reads as a method `if() {}`.
+const STATEMENT_KEYWORDS: &[&str] = &[
+    "if", "else", "for", "while", "do", "switch", "case", "catch", "try", "finally", "return",
+    "throw", "new", "typeof", "function", "var", "let", "const", "with",
+];
+
+/// Grammars whose error recovery reads a statement as a declaration. In every
+/// other language these words are ordinary names (`fn new`, `def new`,
+/// `def case`), so filtering them silently drops real declarations.
+fn recovers_statements_as_declarations(file_path: &str) -> bool {
+    let extension = file_path.rsplit_once('.').map_or("", |(_, ext)| ext);
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "js" | "jsx"
+            | "mjs"
+            | "cjs"
+            | "ts"
+            | "tsx"
+            | "mts"
+            | "cts"
+            | "vue"
+            | "svelte"
+            | "astro"
+            | "html"
+            | "htm"
+    )
+}
+
+/// In a JS/TS-family file a keyword-named declaration is a recovery artifact
+/// unless it is a class member (`class A { if() {} }` is legal) parsed without
+/// errors around it. Membership comes from the raw node kind: the normalized
+/// declaration kind collapses methods into `function`.
+fn is_recovered_keyword_declaration(node: Node<'_>, name: &str, file_path: &str) -> bool {
+    if !STATEMENT_KEYWORDS.contains(&name) || !recovers_statements_as_declarations(file_path) {
+        return false;
+    }
+    let member = matches!(
+        node.kind(),
+        "method_definition"
+            | "method_signature"
+            | "abstract_method_signature"
+            | "public_field_definition"
+            | "property_signature"
+    );
+    !member || node.has_error() || node.parent().is_some_and(|parent| parent.is_error())
 }
 
 #[cfg(test)]
@@ -228,6 +284,7 @@ pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
         .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
 
+#[cfg(test)]
 pub(crate) fn extract_graph_facts_with_metadata(
     content: &str,
     file_path: &str,
@@ -288,6 +345,8 @@ fn extract_graph_facts_with_metadata_before(
     let mut acc = GraphAccumulator::new(file_path, &ext);
     let mut rust_root_unsupported = (ext == "rs").then_some(true);
     let mut reference_counts = Vec::new();
+    let mut import_uses = None;
+    let rust = ext == "rs";
     if let Some(tree) = super::extractor::parse_before(content, &entry.language, deadline) {
         let root = tree.root_node();
         let line_index = LineIndex::new(content);
@@ -320,6 +379,9 @@ fn extract_graph_facts_with_metadata_before(
                     count: counts.get(&declaration.name).copied().unwrap_or(0),
                 })
                 .collect();
+            import_uses = rust
+                .then(|| rust_import_uses(root, content, &acc, deadline))
+                .flatten();
         }
     } else {
         acc.diagnostics.push(
@@ -333,6 +395,7 @@ fn extract_graph_facts_with_metadata_before(
         declaration.doc_line =
             super::leading_doc_line(&lines, declaration.range.start.line as usize, &ext);
     }
+    let private_use_imports = std::mem::take(&mut acc.private_use_imports);
     let facts = GraphFacts {
         kind: "graphFacts",
         schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
@@ -349,11 +412,120 @@ fn extract_graph_facts_with_metadata_before(
         rust_root_unsupported,
     };
     let facts_json = serde_json::to_string(&facts).ok()?;
-    let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
+    let mut facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
+    if let Some(mut uses) = import_uses {
+        for index in private_use_imports {
+            if let Some(import) = facts.imports.get_mut(index)
+                && let Some(local) = import.local_name.as_deref()
+                && import.imported_name.as_deref() != Some("*")
+            {
+                import.used_in = uses.remove(local).map(|mut users| {
+                    users.sort_unstable();
+                    users
+                });
+            }
+        }
+    }
     Some(super::GraphFactsExtraction {
         facts,
         reference_counts,
     })
+}
+
+/// Where each binding of a private Rust `use` is named, by local name: the id
+/// of the innermost declaration around each name token outside `use` items,
+/// or `IMPORT_USE_MODULE`. Name matching is syntactic, so a shadowing local
+/// only adds uses. Scopes whose code runs without a by-name caller (trait and
+/// inherent `impl` blocks, traits, macro definitions, `#[test]`/`#[cfg(test)]`
+/// or bench items) count as module-level. A name with no use at all is left
+/// out, because a trait brought into scope for its methods is never named;
+/// consumers treat the missing entry as used. `None` when the deadline cut
+/// the walk short.
+fn rust_import_uses(
+    root: Node<'_>,
+    content: &str,
+    acc: &GraphAccumulator,
+    deadline: std::time::Instant,
+) -> Option<std::collections::HashMap<String, Vec<String>>> {
+    let names = acc
+        .private_use_imports
+        .iter()
+        .filter_map(|index| acc.imports.get(*index)?.local_name.as_deref())
+        .filter(|name| *name != "_")
+        .collect::<std::collections::HashSet<_>>();
+    let mut uses: std::collections::HashMap<String, Vec<String>> = Default::default();
+    if names.is_empty() {
+        return Some(uses);
+    }
+    let innermost = |at: usize| {
+        acc.declaration_spans
+            .iter()
+            .zip(&acc.declarations)
+            .filter(|((start, end), _)| *start <= at && at < *end)
+            .min_by_key(|((start, end), _)| end - start)
+            .map_or(crate::graph::IMPORT_USE_MODULE, |(_, declaration)| {
+                declaration.id.as_str()
+            })
+    };
+    let mut record = |name: &str, at: usize, module_level: bool| {
+        if names.contains(name) {
+            let user = if module_level {
+                crate::graph::IMPORT_USE_MODULE
+            } else {
+                innermost(at)
+            };
+            let users = uses.entry(name.to_owned()).or_default();
+            if !users.iter().any(|known| known == user) {
+                users.push(user.to_owned());
+            }
+        }
+    };
+    // (node, inside a module-level scope, parent is a macro token tree)
+    let mut pending = vec![(root, false, false)];
+    let mut cursor = root.walk();
+    let mut steps = 0_u32;
+    while let Some((node, module_level, in_tokens)) = pending.pop() {
+        if polls_deadline(&mut steps) && std::time::Instant::now() >= deadline {
+            return None;
+        }
+        let kind = node.kind();
+        if kind == "use_declaration" {
+            continue;
+        }
+        if is_name_leaf(node) {
+            if let Some(text) = node_text(node, content) {
+                record(text, node.start_byte(), module_level);
+            }
+            continue;
+        }
+        if in_tokens && kind == "string_literal" {
+            for name in node_text(node, content)
+                .map(inline_format_captures)
+                .unwrap_or_default()
+            {
+                record(name, node.start_byte(), module_level);
+            }
+            continue;
+        }
+        let scope = module_level || matches!(kind, "impl_item" | "trait_item" | "macro_definition");
+        // Outer attributes are siblings before their item.
+        let mut test_item = false;
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                "attribute_item" => {
+                    let text = node_text(child, content).unwrap_or_default();
+                    test_item |= text.contains("test") || text.contains("bench");
+                    pending.push((child, scope, false));
+                }
+                "line_comment" | "block_comment" => {}
+                _ => {
+                    pending.push((child, scope || test_item, kind == "token_tree"));
+                    test_item = false;
+                }
+            }
+        }
+    }
+    Some(uses)
 }
 
 /// Per-name counts of identifier-kind tokens that reference a declared name,
@@ -379,8 +551,9 @@ fn count_name_references(
     let rust = acc.ext == "rs";
     let mut pending = vec![root];
     let mut cursor = root.walk();
+    let mut steps = 0_u32;
     while let Some(node) = pending.pop() {
-        if std::time::Instant::now() >= deadline {
+        if polls_deadline(&mut steps) && std::time::Instant::now() >= deadline {
             return None;
         }
         if is_name_leaf(node) {
@@ -410,6 +583,15 @@ fn count_name_references(
         pending.extend(node.named_children(&mut cursor));
     }
     Some(counts)
+}
+
+/// Whether a node walk should read the clock at this step: the first step
+/// and then once per 256 nodes. Per-node work is bounded (no parent climbs),
+/// so a coarse poll overshoots the deadline by at most a few hundred nodes.
+fn polls_deadline(steps: &mut u32) -> bool {
+    let poll = steps.is_multiple_of(256);
+    *steps = steps.wrapping_add(1);
+    poll
 }
 
 /// Identifiers captured by a Rust format string: `name` in `{name}` or
@@ -530,25 +712,33 @@ fn visit_node(
     outer_scope: &[String],
 ) -> bool {
     enum Frame<'tree> {
-        Enter(Node<'tree>, RustContext),
+        /// A node, its carried Rust context, and its depth below the root.
+        Enter(Node<'tree>, RustContext, usize),
         ExitDeclaration,
         ExitModule,
     }
 
     let rust = acc.ext == "rs";
     let mut receivers = receiver::ReceiverTypes::new(&acc.ext, root);
-    let mut frames = vec![Frame::Enter(root, RustContext::default())];
+    let mut frames = vec![Frame::Enter(root, RustContext::default(), 0)];
     let mut declarations: Vec<(String, String)> = Vec::new();
     // Names of the enclosing `mod` items, outermost first.
     let mut module_scope: Vec<String> = outer_scope.to_vec();
     let mut children = Vec::new();
     let mut cursor = root.walk();
+    let mut steps = 0_u32;
+    // Ancestors of the node being entered, root first: the traversal keeps
+    // them so no collector has to climb `Node::parent()`.
+    let mut path: Vec<Node<'_>> = Vec::new();
     while let Some(frame) = frames.pop() {
-        if std::time::Instant::now() >= deadline {
+        if polls_deadline(&mut steps) && std::time::Instant::now() >= deadline {
             return false;
         }
         let (node, mut context) = match frame {
-            Frame::Enter(node, context) => (node, context),
+            Frame::Enter(node, context, depth) => {
+                path.truncate(depth);
+                (node, context)
+            }
             Frame::ExitDeclaration => {
                 declarations.pop();
                 continue;
@@ -577,12 +767,14 @@ fn visit_node(
             rust_node,
             deadline,
         );
+        path.push(node);
         if acc.calls.len() > calls_before
             && let Some(receivers) = receivers.as_mut()
             && let Some(call) = acc.calls.last_mut()
         {
-            call.receiver_type = receivers.receiver_type(node, content);
+            call.receiver_type = receivers.receiver_type(node, &path, content);
         }
+        let depth = path.len();
         if let Some(identity) = identity {
             declarations.push(identity);
             frames.push(Frame::ExitDeclaration);
@@ -608,13 +800,13 @@ fn visit_node(
                 children
                     .iter()
                     .zip(contexts)
-                    .map(|(child, context)| Frame::Enter(*child, context)),
+                    .map(|(child, context)| Frame::Enter(*child, context, depth)),
             );
         } else {
             frames.extend(
                 children
                     .iter()
-                    .map(|child| Frame::Enter(*child, RustContext::default())),
+                    .map(|child| Frame::Enter(*child, RustContext::default(), depth)),
             );
         }
         frames[children_start..].reverse();
@@ -694,6 +886,7 @@ fn collect_node_facts(
     let decl = declaration(node, content).and_then(|(kind, name_token)| {
         node_text(name_token, content)
             .and_then(compact_identifier)
+            .filter(|name| !is_recovered_keyword_declaration(node, name, &acc.file_path))
             .map(|name| {
                 let range = line_index.range(node);
                 let line = range.start.line + 1;
@@ -752,6 +945,8 @@ fn collect_node_facts(
             });
         }
         acc.declarations.push(declaration);
+        acc.declaration_spans
+            .push((node.start_byte(), node.end_byte()));
         heritage::collect_heritage(node, content, line_index, acc, &id);
         Some((id, name))
     } else {
@@ -771,6 +966,7 @@ fn collect_node_facts(
         && node.kind() == "use_declaration"
     {
         if let Some(argument) = node.child_by_field_name("argument") {
+            let first = acc.imports.len();
             collect_rust_imports(
                 argument,
                 rust.module_scope,
@@ -780,6 +976,15 @@ fn collect_node_facts(
                 rust.context.unsupported,
                 deadline,
             );
+            // A `pub use` re-exports: its binding is used by whoever imports
+            // this module, which no local reference shows.
+            let mut cursor = node.walk();
+            if !node
+                .named_children(&mut cursor)
+                .any(|child| child.kind() == "visibility_modifier")
+            {
+                acc.private_use_imports.extend(first..acc.imports.len());
+            }
         }
     } else if let Some(rust) = rust
         && node.kind() == "mod_item"
@@ -1039,6 +1244,44 @@ mod tests {
             .find(|count| &count.declaration_id == id)
             .expect("counted")
             .count
+    }
+
+    /// `used_in` of the Rust `use` binding `local` in `source`.
+    fn rust_import_users(source: &str, local: &str) -> Option<Vec<String>> {
+        let facts = extract_graph_facts_with_metadata(source, "src/app.rs")
+            .expect("graph facts")
+            .facts;
+        let short = |id: &String| id.split(['#', '@']).nth(1).unwrap_or(id).to_owned();
+        facts
+            .imports
+            .into_iter()
+            .find(|import| import.local_name.as_deref() == Some(local))
+            .expect("import")
+            .used_in
+            .map(|users| users.iter().map(short).collect())
+    }
+
+    #[test]
+    fn rust_use_bindings_record_their_enclosing_declarations() {
+        let source = "use crate::util::{run, Shape, Tr, other as alias};\npub use crate::util::exported;\nfn live() { run(); let _: Shape; println!(\"{alias}\"); }\nfn dead() { run(); }\nstatic S: fn() = run;\nimpl Fmt for X { fn go() { alias(); } }\n#[test]\nfn t() { Shape; }\n";
+        assert_eq!(
+            rust_import_users(source, "run"),
+            Some(vec!["S".into(), "dead".into(), "live".into()])
+        );
+        // Test items count as module-level code.
+        assert_eq!(
+            rust_import_users(source, "Shape"),
+            Some(vec!["live".into(), "module".into()])
+        );
+        // The alias is named by an inline format capture and a trait impl.
+        assert_eq!(
+            rust_import_users(source, "alias"),
+            Some(vec!["live".into(), "module".into()])
+        );
+        // Never named (a trait in scope for its methods) or a `pub use`
+        // re-export: unknown.
+        assert_eq!(rust_import_users(source, "Tr"), None);
+        assert_eq!(rust_import_users(source, "exported"), None);
     }
 
     #[test]
@@ -1477,6 +1720,82 @@ mod tests {
         );
     }
 
+    /// `depth` nested blocks, each calling `s.save()` on a typed local.
+    fn deeply_nested_rust_receivers(depth: usize) -> String {
+        let mut source = String::from("fn main() { let s: Store = Store::new(); ");
+        for _ in 0..depth {
+            source.push_str("{ s.save(); ");
+        }
+        source.push_str(&"} ".repeat(depth));
+        source.push('}');
+        source
+    }
+
+    #[test]
+    fn deeply_nested_receiver_lookups_stay_inside_the_deadline() {
+        // A receiver lookup climbed `Node::parent()` (a root-down search per
+        // hop) from every member call to its function: O(depth²) per call.
+        let source = deeply_nested_rust_receivers(1_500);
+        let started = std::time::Instant::now();
+        let graph = facts(&source, "deep_receivers.rs");
+        let elapsed = started.elapsed();
+        let diagnostics = graph["diagnostics"].as_array().unwrap();
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|d| d.as_str().unwrap().contains("deadlineExceeded")),
+            "{diagnostics:?}"
+        );
+        let saves = graph["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|call| call["callee"] == "s.save")
+            .collect::<Vec<_>>();
+        assert_eq!(saves.len(), 1_500);
+        assert!(saves.iter().all(|call| call["receiverType"] == "Store"));
+        assert!(
+            elapsed < super::super::extractor::AST_EXECUTION_TIMEOUT / 2,
+            "took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn receiver_facts_are_unchanged_on_an_ordinary_file() {
+        // Pinned output of the receiver lane on a normal file: locals,
+        // shadowing, nested fns, `self.field`, and a constructor binding.
+        let source = "struct Store { cache: Cache }\nimpl Store {\n    fn run(&self, db: Db) {\n        self.cache.get();\n        db.query();\n        let w = Writer::new();\n        w.flush();\n        {\n            let db = make();\n            db.query();\n        }\n        db.close();\n        fn inner() { w.flush(); }\n    }\n}\n";
+        let graph = facts(source, "store.rs");
+        let receivers = graph["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| {
+                format!(
+                    "{}@{}={}",
+                    call["callee"].as_str().unwrap(),
+                    call["line"],
+                    call.get("receiverType")
+                        .and_then(Value::as_str)
+                        .unwrap_or("-")
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            receivers,
+            vec![
+                "self.cache.get@4=Cache",
+                "db.query@5=Db",
+                "Writer::new@6=-",
+                "w.flush@7=Writer",
+                "make@9=-",
+                "db.query@10=-",
+                "db.close@12=Db",
+                "w.flush@13=-",
+            ]
+        );
+    }
+
     #[test]
     fn deeply_nested_graph_traversal_preserves_calls() {
         let source = format!(
@@ -1679,6 +1998,46 @@ def helper():
     fn facts_json(source: &str, path: &str) -> Value {
         serde_json::from_str(&extract_graph_facts(source, path).expect("graph facts"))
             .expect("facts JSON")
+    }
+
+    fn declared_names(source: &str, path: &str) -> Vec<String> {
+        facts_json(source, path)["declarations"]
+            .as_array()
+            .expect("declarations")
+            .iter()
+            .filter_map(|declaration| declaration["name"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    #[test]
+    fn keyword_named_declarations_survive_outside_the_js_family() {
+        let rust = declared_names(
+            "struct Foo;\nimpl Foo {\n    pub fn new() -> Self { Foo }\n    pub fn build() -> Self { Foo }\n}\n",
+            "a.rs",
+        );
+        for name in ["new", "build"] {
+            assert!(
+                rust.iter().any(|found| found == name),
+                "rust {name}: {rust:?}"
+            );
+        }
+        let python = declared_names(
+            "def new():\n    pass\n\nclass K:\n    def case(self):\n        pass\n",
+            "a.py",
+        );
+        for name in ["new", "case"] {
+            assert!(
+                python.iter().any(|found| found == name),
+                "python {name}: {python:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_named_class_members_stay_legal_in_clean_js() {
+        let js = declared_names("class A {\n  if() {}\n  build() {}\n}\n", "a.js");
+        assert!(js.iter().any(|found| found == "build"), "{js:?}");
+        assert!(js.iter().any(|found| found == "if"), "{js:?}");
     }
 
     /// `(relation, from declaration name, to, line)` for every heritage edge.

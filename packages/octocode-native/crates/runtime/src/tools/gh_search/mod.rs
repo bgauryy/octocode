@@ -10,7 +10,7 @@ use crate::providers::github::{
     CodeSearchRequest, CredentialResolver, ProviderError, ProviderErrorKind, RepositorySearchPage,
     RepositorySearchRequest, RequestContext,
 };
-use crate::tools::local_fetch::ContentScan;
+use crate::security::scan::ContentScan;
 use crate::tools::result::remove_null_fields;
 
 pub use crate::contracts::tool_types::{

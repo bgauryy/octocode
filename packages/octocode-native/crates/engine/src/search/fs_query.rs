@@ -5,9 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use regex::Regex;
 
 use crate::text::file_extension::get_extension_internal;
-use crate::types::{
-    FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult, default_excluded_directories,
-};
+use crate::types::{FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult};
 
 const DEFAULT_LIMIT: usize = 10_000;
 /// Hard ceiling on directory-recursion depth. Symlink cycles are already
@@ -159,9 +157,7 @@ impl CompiledQuery {
             executable: options.executable.unwrap_or(false),
             readable: options.readable.unwrap_or(false),
             writable: options.writable.unwrap_or(false),
-            exclude_dir: options
-                .exclude_dir
-                .unwrap_or_else(default_excluded_directories),
+            exclude_dir: options.exclude_dir.unwrap_or_default(),
             limit: options.limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT),
             warnings,
         })
@@ -855,8 +851,10 @@ mod tests {
     }
 
     #[test]
-    fn generated_directories_are_pruned_by_default() {
-        let root = temp_root("default_excludes");
+    fn omitted_exclusions_prune_no_directory() {
+        // The engine carries no default prune list: the runtime prune policy
+        // (`octocode_native::policy::prune`) hands every walk its names.
+        let root = temp_root("no_default_excludes");
         fs::create_dir_all(root.join("src")).expect("create src");
         fs::create_dir_all(root.join("target/debug")).expect("create target");
         File::create(root.join("src/lib.rs")).expect("create source");
@@ -870,45 +868,13 @@ mod tests {
         })
         .expect("query");
 
-        let paths = result
+        let mut paths = result
             .entries
             .iter()
-            .map(|entry| entry.relative_path.as_str())
+            .map(|entry| entry.relative_path.replace('\\', "/"))
             .collect::<Vec<_>>();
-        assert!(
-            paths.iter().any(|path| path.ends_with("src/lib.rs")),
-            "{paths:?}"
-        );
-        assert!(
-            paths.iter().all(|path| !path.contains("target")),
-            "{paths:?}"
-        );
-        fs::remove_dir_all(root).expect("cleanup");
-    }
-
-    #[test]
-    fn explicit_empty_exclusions_opt_into_generated_directories() {
-        let root = temp_root("include_generated");
-        fs::create_dir_all(root.join("target/debug")).expect("create target");
-        File::create(root.join("target/debug/generated.rs")).expect("create generated source");
-
-        let result = query_file_system_inner(FileSystemQueryOptions {
-            path: root.to_string_lossy().to_string(),
-            recursive: Some(true),
-            entry_type: Some("f".to_owned()),
-            exclude_dir: Some(Vec::new()),
-            ..Default::default()
-        })
-        .expect("query");
-
-        assert!(
-            result
-                .entries
-                .iter()
-                .any(|entry| entry.relative_path.ends_with("target/debug/generated.rs")),
-            "{:?}",
-            result.entries
-        );
+        paths.sort();
+        assert_eq!(paths, ["src/lib.rs", "target/debug/generated.rs"]);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -408,6 +408,8 @@ fn sort_then_cap_retains_deterministic_sorted_prefix() {
             submatches: 1,
             om_matches: Vec::new(),
             sort_time: None,
+            line_weight: 0,
+            demoted: false,
         }
     }
     let make = || {
@@ -891,7 +893,9 @@ fn match_count_order_keeps_the_most_matched_file_past_the_path_prefix() {
 
 #[test]
 fn bounded_retention_matches_a_full_sort() {
-    fn rec(path: String, hits: u32) -> FileRec {
+    // Worker top-k retention must keep the same records as one full sort under
+    // every density order, including relevance's secondary keys.
+    fn rec(path: String, hits: u32, salt: u32) -> FileRec {
         FileRec {
             path,
             entry: FileEntry::new(),
@@ -899,31 +903,77 @@ fn bounded_retention_matches_a_full_sort() {
             submatches: hits,
             om_matches: Vec::new(),
             sort_time: None,
+            line_weight: salt % 5,
+            demoted: salt.is_multiple_of(3),
         }
     }
-    let mut o = opts("/fixture".to_owned(), "p");
-    o.sort = Some("matchCount".into());
-    let all: Vec<(String, u32)> = (0..200u32)
-        .map(|i| (format!("f{:03}", (i * 37) % 200), (i * 13) % 7))
-        .collect();
-    let mut full: Vec<FileRec> = all.iter().map(|(p, h)| rec(p.clone(), *h)).collect();
-    sort_recs(&o, Mode::Normal, &mut full);
-    full.truncate(5);
-    let mut bounded = Vec::new();
-    for (p, h) in &all {
-        retain_into(&o, Mode::Normal, Some(5), &mut bounded, rec(p.clone(), *h));
+    for sort in ["matchCount", "relevance"] {
+        let mut o = opts("/fixture".to_owned(), "p");
+        o.sort = Some(sort.into());
+        let all: Vec<(String, u32, u32)> = (0..200u32)
+            .map(|i| (format!("f{:03}", (i * 37) % 200), (i * 13) % 7, i))
+            .collect();
+        let mut full: Vec<FileRec> = all
+            .iter()
+            .map(|(p, h, salt)| rec(p.clone(), *h, *salt))
+            .collect();
+        sort_recs(&o, Mode::Normal, &mut full);
+        full.truncate(5);
+        let mut bounded = Vec::new();
+        for (p, h, salt) in &all {
+            retain_into(
+                &o,
+                Mode::Normal,
+                Some(5),
+                &mut bounded,
+                rec(p.clone(), *h, *salt),
+            );
+        }
+        sort_and_cap(
+            &{
+                let mut capped = o.clone();
+                capped.max_collected_files = Some(5);
+                capped
+            },
+            Mode::Normal,
+            &mut bounded,
+        );
+        let paths = |recs: &[FileRec]| recs.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
+        assert_eq!(paths(&bounded), paths(&full), "{sort}");
     }
-    sort_and_cap(
-        &{
-            let mut capped = o.clone();
-            capped.max_collected_files = Some(5);
-            capped
-        },
-        Mode::Normal,
-        &mut bounded,
+}
+
+#[test]
+fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
+    let t = TmpDir::new();
+    t.write("a_comment.rs", "// needle here\n");
+    t.write("b_decl.rs", "fn needle() {}\n");
+    t.write("c_tests/x_test.rs", "fn needle() {}\n");
+    t.write("d_two.rs", "// needle\n// needle\n");
+    let mut o = opts(t.path(), "needle");
+    o.sort = Some("relevance".into());
+    let r = search(o.clone()).expect("ok");
+    let names = r
+        .files
+        .iter()
+        .map(|f| f.path.rsplit('/').next().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        ["d_two.rs", "b_decl.rs", "a_comment.rs", "x_test.rs"]
     );
-    let paths = |recs: &[FileRec]| recs.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
-    assert_eq!(paths(&bounded), paths(&full));
+    // Path-list views: source paths first, then path.
+    o.files_only = Some(true);
+    let r = search(o).expect("ok");
+    let names = r
+        .files
+        .iter()
+        .map(|f| f.path.rsplit('/').next().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        ["a_comment.rs", "b_decl.rs", "d_two.rs", "x_test.rs"]
+    );
 }
 
 #[test]

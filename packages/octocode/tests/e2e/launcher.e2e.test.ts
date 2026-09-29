@@ -80,6 +80,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
 
   it('executes a real tool call end-to-end with exit 0 and structured JSON', () => {
     const query = JSON.stringify({
+      goal: 'Find the native delegation entry point.',
       reasoning: 'Launcher e2e: prove the delegation boundary executes tools.',
       path: resolve(__dirname, '..', '..', 'src'),
       searchText: 'delegateToNative',

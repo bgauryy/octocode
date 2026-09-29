@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
+const GOAL = 'test goal';
 const REASONING = 'exercise artifact schema';
 
 function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
   const parsed = ArtifactSearchBulkQueryLocalSchema.parse({
-    queries: [{ reasoning: REASONING, ...query }],
+    queries: [{ goal: GOAL, reasoning: REASONING, ...query }],
   });
   return parsed.queries[0] as Record<string, unknown>;
 }
@@ -13,6 +14,7 @@ function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
 describe('artifactSearch schema', () => {
   it('keeps exact package lookup unpaginated', () => {
     expect(parsedQuery({ type: 'npm', packageName: 'lodash' })).toEqual({
+      goal: 'test goal',
       reasoning: REASONING,
       debug: false,
       type: 'npm',

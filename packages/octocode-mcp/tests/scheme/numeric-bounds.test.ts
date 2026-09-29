@@ -53,6 +53,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
 
   it('local view offsets accept safe integers and reject fractional or unsafe values', () => {
     const query = {
+      goal: 'test goal',
       reasoning: 'exercise offset bounds',
       path: '/fixture.txt',
       chunkType: 'bytes' as const,
@@ -101,6 +102,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
     // The SENTINEL is above the 1e9 line-number cap -> rejected as too_big,
     // and the cap is never the ±MAX_SAFE_INTEGER sentinel.
     const r = SearchPullRequestsLocalSchema.safeParse({
+      goal: 'test goal',
       reasoning: 'exercise patch line bounds',
       owner: 'o',
       repo: 'r',
@@ -130,6 +132,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
 
     // A value exactly at the cap is accepted.
     const ok = SearchPullRequestsLocalSchema.safeParse({
+      goal: 'test goal',
       reasoning: 'exercise patch line bounds',
       owner: 'o',
       repo: 'r',

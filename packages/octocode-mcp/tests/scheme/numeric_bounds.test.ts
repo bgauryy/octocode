@@ -16,6 +16,7 @@ describe.each([
     limit => {
       expect(
         schema.safeParse({
+          goal: 'test goal',
           reasoning: 'exercise limit bounds',
           operation,
           path: '.',
@@ -27,6 +28,7 @@ describe.each([
 
   it('accepts limit at the maximum', () => {
     const result = schema.safeParse({
+      goal: 'test goal',
       reasoning: 'exercise limit bounds',
       operation,
       path: '.',
@@ -39,6 +41,7 @@ describe.each([
   it('accepts an omitted limit', () => {
     expect(
       schema.safeParse({
+        goal: 'test goal',
         reasoning: 'exercise limit bounds',
         operation,
         path: '.',
@@ -53,6 +56,7 @@ describe('structureSearch tree depth bounds', () => {
     maxDepth => {
       expect(
         StructureTreeQuerySchema.safeParse({
+          goal: 'test goal',
           reasoning: 'exercise depth bounds',
           operation: 'tree',
           path: '.',
@@ -66,6 +70,7 @@ describe('structureSearch tree depth bounds', () => {
     'accepts depth at the boundary %s',
     maxDepth => {
       const result = StructureTreeQuerySchema.safeParse({
+        goal: 'test goal',
         reasoning: 'exercise depth bounds',
         operation: 'tree',
         path: '.',
@@ -79,6 +84,7 @@ describe('structureSearch tree depth bounds', () => {
 
 describe('LspSearchQuerySchema depth bound', () => {
   const base = {
+    goal: 'test goal',
     reasoning: 'exercise depth bounds',
     uri: '/tmp/x.ts',
     operation: 'callers',

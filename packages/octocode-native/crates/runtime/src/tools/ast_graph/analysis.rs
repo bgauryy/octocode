@@ -1,7 +1,8 @@
 use super::{algorithms::*, graph::normalize, types::*};
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
+use octocode_engine::graph::IMPORT_USE_MODULE;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -375,7 +376,9 @@ fn dead_code(
     let mut rex: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     for f in &live {
         if let Some(ff) = b.facts.get(f) {
-            for i in &ff.imports {
+            // An import with known users credits its target only once one
+            // of them is live (`declaration_liveness`).
+            for i in ff.imports.iter().filter(|i| i.used_in.is_none()) {
                 if let Some(t) = &i.target {
                     real.insert(binding(t, &i.imported_name));
                 }
@@ -402,6 +405,8 @@ fn dead_code(
         })
         .collect();
     let star_targets = star.keys().cloned().collect::<BTreeSet<_>>();
+    let (mut live_ids, path_named) =
+        declaration_liveness(b, &live, &rootset, &public, &mut real, &rex, &star);
     let components = scc_unsorted(&b.nodes);
     let mut cluster_by = BTreeMap::new();
     let mut clusters = Vec::new();
@@ -424,8 +429,25 @@ fn dead_code(
         if !q.include_tests().unwrap_or(true) && crate::content::is_test_path(file) {
             continue;
         }
-        let live_ids = live_declarations(file, ff, &public, &real, &rex, &star);
-        for d in ff.declarations.iter().filter(|d| d.exported) {
+        let rust = file.ends_with(".rs");
+        let live_ids = live_ids.remove(file.as_str()).unwrap_or_else(|| {
+            live_declarations(
+                file,
+                ff,
+                &public,
+                &real,
+                &rex,
+                &star,
+                rust && rootset.contains(file),
+            )
+        });
+        // A `mod x;` declaration is module structure: the child file's own
+        // liveness is tracked separately.
+        for d in ff
+            .declarations
+            .iter()
+            .filter(|d| d.exported && !(rust && d.kind == "module"))
+        {
             let mut row = if !live.contains(file) {
                 if let Some(id) = cluster_by.get(file) {
                     json!({"file":file,"name":d.name,"kind":d.kind,"line":d.line,"reason":"dead-cluster","clusterId":id})
@@ -443,6 +465,8 @@ fn dead_code(
                     .any(|n| rex.contains_key(&binding(file, n)))
                 {
                     "reexport-chain"
+                } else if rust && path_named.contains(d.name.as_str()) {
+                    "qualified-path-name"
                 } else {
                     ff.reference_basis
                 };
@@ -469,6 +493,142 @@ fn dead_code(
 fn binding(f: &str, n: &str) -> String {
     format!("{f}::{n}")
 }
+
+/// Cross-file liveness per declaration. Two kinds of use credit a binding
+/// `(target file, name)` in `real` only from live code (a live declaration,
+/// module-level code, or a caller the file does not declare):
+/// - an import whose facts name its users (`used_in`); imports without that
+///   fact were credited unconditionally by the caller;
+/// - a Rust qualified-path call (`crate::portable::sanitize()`), which names
+///   an item without a `use`.
+///
+/// Credits can make new declarations live, so files are re-evaluated in
+/// rounds until no binding is added. Returns the final live declaration ids
+/// of every live file, and the Rust callee names that live code reaches only
+/// by an unresolved path: those stay dead candidates, labelled
+/// `qualified-path-name`.
+fn declaration_liveness<'b>(
+    b: &'b BuiltGraph,
+    live: &BTreeSet<String>,
+    rootset: &BTreeSet<String>,
+    public: &BTreeSet<String>,
+    real: &mut BTreeSet<String>,
+    rex: &BTreeMap<String, Vec<(String, String)>>,
+    star: &BTreeMap<String, Vec<String>>,
+) -> (BTreeMap<&'b str, BTreeSet<String>>, BTreeSet<&'b str>) {
+    // A credit on a re-exporting file can make the origin's export live.
+    let mut origins: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for (file, ff) in &b.facts {
+        for target in ff.reexports.iter().filter_map(|r| r.target.as_deref()) {
+            origins.entry(file).or_default().insert(target);
+        }
+    }
+    for (origin, reexporters) in star {
+        if let Some((origin, _)) = b.facts.get_key_value(origin) {
+            for reexporter in reexporters {
+                origins.entry(reexporter).or_default().insert(origin);
+            }
+        }
+    }
+    // Names each file binds (declarations, re-exports, imports), built once
+    // per file on first use.
+    let mut bound_names: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    let mut declares = |file: &'b str, name: &str| {
+        bound_names
+            .entry(file)
+            .or_insert_with(|| {
+                let Some(ff) = b.facts.get(file) else {
+                    return BTreeSet::new();
+                };
+                ff.declarations
+                    .iter()
+                    .flat_map(|d| d.public_names())
+                    .cloned()
+                    .chain(ff.reexports.iter().map(|r| r.local_name.clone()))
+                    .chain(ff.imports.iter().map(|i| {
+                        i.local_name
+                            .clone()
+                            .unwrap_or_else(|| i.imported_name.clone())
+                    }))
+                    .collect()
+            })
+            .contains(name)
+    };
+    let mut live_ids = BTreeMap::new();
+    let mut path_named = BTreeSet::new();
+    let mut dirty = b
+        .facts
+        .keys()
+        .filter(|f| live.contains(*f))
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    while !dirty.is_empty() {
+        let mut credited = BTreeSet::new();
+        for file in std::mem::take(&mut dirty) {
+            let Some((file, ff)) = b.facts.get_key_value(file) else {
+                continue;
+            };
+            let ids = live_declarations(file, ff, public, real, rex, star, rootset.contains(file));
+            let declared = ff
+                .declarations
+                .iter()
+                .map(|d| d.id.as_str())
+                .collect::<BTreeSet<_>>();
+            let is_live = |id: &str| ids.contains(id) || !declared.contains(id);
+            for import in &ff.imports {
+                let (Some(target), Some(users)) = (&import.target, &import.used_in) else {
+                    continue;
+                };
+                if users
+                    .iter()
+                    .any(|user| user == IMPORT_USE_MODULE || is_live(user))
+                    && real.insert(binding(target, &import.imported_name))
+                {
+                    credited.insert(target.as_str());
+                }
+            }
+            let calls = if file.ends_with(".rs") {
+                ff.calls.as_slice()
+            } else {
+                &[]
+            };
+            for call in calls {
+                let Some((_, name)) = call.callee.rsplit_once("::") else {
+                    continue;
+                };
+                if !call.caller_id.as_deref().is_none_or(is_live) || name.is_empty() {
+                    continue;
+                }
+                match &call.target {
+                    Some(target) => {
+                        if !declares(target, name) {
+                            path_named.insert(name);
+                        }
+                        if real.insert(binding(target, name)) {
+                            credited.insert(target.as_str());
+                        }
+                    }
+                    None => {
+                        path_named.insert(name);
+                    }
+                }
+            }
+            live_ids.insert(file.as_str(), ids);
+        }
+        let mut pending = credited.into_iter().collect::<Vec<_>>();
+        let mut seen = BTreeSet::new();
+        while let Some(file) = pending.pop() {
+            if !seen.insert(file) {
+                continue;
+            }
+            if live.contains(file) {
+                dirty.insert(file);
+            }
+            pending.extend(origins.get(file).into_iter().flatten().copied());
+        }
+    }
+    (live_ids, path_named)
+}
 /// Declaration ids of `file` that are live: reachable over syntactic call and
 /// containment edges from the file's roots. Roots are exported declarations
 /// consumed through an import or re-export chain, declarations that escape as
@@ -483,6 +643,7 @@ fn live_declarations(
     real: &BTreeSet<String>,
     rex: &BTreeMap<String, Vec<(String, String)>>,
     star: &BTreeMap<String, Vec<String>>,
+    entry: bool,
 ) -> BTreeSet<String> {
     fn consumed(
         file: &str,
@@ -572,7 +733,9 @@ fn live_declarations(
             .reference_counts
             .get(&d.id)
             .is_none_or(|count| *count > 0);
-        if is_consumed || escapes {
+        // A Rust root's top-level `fn main` is where the program starts.
+        let is_entry = entry && d.name == "main" && d.parent.is_none();
+        if is_consumed || escapes || is_entry {
             mark(&d.id, &mut live, &mut pending)
         }
     }
@@ -1203,7 +1366,7 @@ fn add_next(
         // against the lspSearch anchored-query schema, whose serialization
         // requires every defaulted field; emit exactly those contract fields.
         let uri = root.join(file).to_string_lossy().into_owned();
-        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":uri,"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"debug":false,"goal":q.goal(),"reasoning":q.reasoning()},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
+        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":uri,"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"debug":false},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
     }
     if !next.is_empty() {
         base.insert("next".into(), Value::Object(next));

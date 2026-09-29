@@ -11,37 +11,57 @@ use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 
 #[tokio::test]
-async fn ordinary_tools_accept_optional_trace_context() {
+async fn ordinary_tools_require_trace_context() {
     let workspace = Workspace::new();
     let path = workspace.write("reasoning.txt", "ok\n");
     let runtime = workspace.runtime(&[]);
     let path = path.to_string_lossy().into_owned();
 
-    let outcome = runtime
+    // The contract requires `goal` and `reasoning` on every query.
+    let error = runtime
         .execute(
             "reasoning-omitted".into(),
             "localFetch".into(),
             json!({"path":path}),
         )
         .await
-        .expect("trace context is optional");
-    assert_eq!(
-        outcome.structured_content["results"][0]["data"]["content"],
-        "ok\n"
+        .expect_err("trace context is required");
+    assert_eq!(error.code, "invalidInput");
+    let details = serde_json::to_string(&error.payload).expect("payload");
+    assert!(
+        details.contains("goal: Missing required field: goal"),
+        "{details}"
+    );
+    assert!(
+        details.contains("reasoning: Missing required field: reasoning"),
+        "{details}"
     );
 
-    let outcome = runtime
+    let error = runtime
         .execute(
             "reasoning-blank".into(),
             "localFetch".into(),
             json!({"path":path,"goal": "test", "reasoning":"   "}),
         )
         .await
-        .expect("blank trace context is harmless");
-    assert_eq!(
-        outcome.structured_content["results"][0]["data"]["content"],
-        "ok\n"
+        .expect_err("blank reasoning is rejected");
+    assert_eq!(error.code, "invalidInput");
+    let details = serde_json::to_string(&error.payload).expect("payload");
+    assert!(
+        details.contains("reasoning: String does not match required pattern"),
+        "{details}"
     );
+
+    // A runtime-emitted continuation inherits the brief instead.
+    let follow_up = runtime
+        .execute(
+            "follow-up".into(),
+            "localFetch".into(),
+            json!({"path":path,"followUp":true}),
+        )
+        .await
+        .expect("a followUp continuation needs no brief");
+    assert_eq!(follow_up.structured_content["results"][0]["data"]["content"], "ok\n");
 
     let outcome = runtime
         .execute(
@@ -671,7 +691,7 @@ async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
     )
     .await
     .expect("astSearch symbols");
-    let path = row_data(&symbols)["declarations"][0]["path"]
+    let path = row_data(&symbols)["files"][0]["path"]
         .as_str()
         .unwrap_or_else(|| panic!("symbol row path: {}", symbols.structured_content));
     assert!(
@@ -866,5 +886,194 @@ async fn local_fetch_redacted_content_is_marked_not_verbatim() {
         "{}",
         row_data(&outcome)
     );
+    runtime.close().await;
+}
+
+/// Every local walk prunes one default directory set, and a caller
+/// `excludeDir` adds to it rather than replacing it. `localSearch` (search-safe)
+/// also prunes tool-config directories such as `.github`; structure and AST
+/// walks (syntax-visible) keep them.
+#[tokio::test]
+async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
+    let workspace = Workspace::new();
+    let source = "pub fn needle() {}\n";
+    workspace.write("src/lib.rs", source);
+    let pruned = [
+        "node_modules",
+        "target",
+        "dist",
+        "coverage",
+        ".venv",
+        "__pycache__",
+        "DerivedData",
+        "secrets",
+        "extra",
+    ];
+    for dir in pruned {
+        workspace.write(&format!("{dir}/lib.rs"), source);
+    }
+    workspace.write(".github/lib.rs", source);
+    let runtime = workspace.runtime(&[]);
+    let root = workspace.workspace.clone();
+    let exclude = json!(["extra"]);
+    let workspace_name = root
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    let paths_of = |outcome: &octocode_native::runtime::ToolOutcome, key: &str| -> Vec<String> {
+        let data = row_data(outcome);
+        let rows = data[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("{key} rows: {}", outcome.structured_content));
+        let mut paths = rows
+            .iter()
+            .filter_map(|row| row.as_str().or_else(|| row["path"].as_str()))
+            .map(|path| path.split(' ').next().unwrap_or(path).replace('\\', "/"))
+            .filter(|path| path.ends_with(".rs"))
+            .map(|path| {
+                // Rows are relative to `base`, the workspace's parent.
+                path.strip_prefix(&format!("{}/", root.to_string_lossy()))
+                    .or_else(|| path.strip_prefix(&format!("{workspace_name}/")))
+                    .unwrap_or(&path)
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths
+    };
+    let syntax_visible = vec![".github/lib.rs".to_owned(), "src/lib.rs".to_owned()];
+
+    let searched = call(
+        &runtime,
+        "localSearch",
+        json!({"path":root,"searchText":"needle","hidden":true,"excludeDir":exclude}),
+    )
+    .await
+    .expect("localSearch");
+    assert_eq!(paths_of(&searched, "files"), ["src/lib.rs"]);
+
+    let files = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"files","path":root,"names":["*.rs"],"entryType":"f","excludeDir":exclude}),
+    )
+    .await
+    .expect("structureSearch files");
+    assert_eq!(
+        paths_of(&files, "files"),
+        syntax_visible,
+        "{:?}",
+        files.structured_content
+    );
+
+    let tree = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"tree","path":root,"hidden":true,"excludeDir":exclude}),
+    )
+    .await
+    .expect("structureSearch tree");
+    let rendered = serde_json::to_string(row_data(&tree)).expect("json");
+    for dir in pruned {
+        assert!(
+            !rendered.contains(&format!("{dir}/")),
+            "{dir} in {rendered}"
+        );
+    }
+    assert!(
+        rendered.contains(".github/") && rendered.contains("src/"),
+        "{rendered}"
+    );
+
+    let matched = call(
+        &runtime,
+        "astSearch",
+        json!({"operation":"match","path":root,"langType":"rust","pattern":"pub fn needle() {}","hidden":true,"excludeDir":exclude}),
+    )
+    .await
+    .expect("astSearch match");
+    assert_eq!(
+        paths_of(&matched, "files"),
+        syntax_visible,
+        "{:?}",
+        matched.structured_content
+    );
+
+    let symbols = call(
+        &runtime,
+        "astSearch",
+        json!({"operation":"symbols","path":root,"excludeDir":exclude}),
+    )
+    .await
+    .expect("astSearch symbols");
+    let symbol_paths = paths_of(&symbols, "files");
+    assert!(
+        symbol_paths
+            .iter()
+            .all(|path| path == "src/lib.rs" || path == ".github/lib.rs")
+            && symbol_paths.contains(&"src/lib.rs".to_owned()),
+        "{symbol_paths:?}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn continuations_carry_follow_up_instead_of_the_brief_and_replay() {
+    let workspace = Workspace::new();
+    for name in ["a", "b", "c"] {
+        workspace.write(&format!("{name}.txt"), "needle\n");
+    }
+    let runtime = workspace.runtime(&[]);
+    let first = runtime
+        .execute(
+            "page-1".into(),
+            "localSearch".into(),
+            json!({"path":workspace.workspace,"searchText":"needle","pageSize":1,
+                "goal":"Find every needle file for the audit.","reasoning":"List files one page at a time."}),
+        )
+        .await
+        .expect("first page");
+    let next = &first.structured_content["results"][0]["data"]["next"]["nextPage"];
+    let query = next["query"].clone();
+    assert_eq!(query["followUp"], true, "{next}");
+    assert!(query.get("goal").is_none() && query.get("reasoning").is_none(), "{next}");
+    let second = runtime
+        .execute("page-2".into(), next["tool"].as_str().unwrap().into(), query)
+        .await
+        .expect("the continuation replays unchanged");
+    assert_eq!(second.structured_content["results"][0]["data"]["files"].as_array().map(Vec::len), Some(1));
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn default_excludes_false_walks_dependency_directories() {
+    let workspace = Workspace::new();
+    workspace.write("src/app.rs", "fn needle() {}\n");
+    workspace.write("node_modules/dep/index.js", "function needle() {}\n");
+    let runtime = workspace.runtime(&[]);
+    let names = |outcome: &octocode_native::runtime::ToolOutcome| {
+        serde_json::to_string(&outcome.structured_content).unwrap_or_default()
+    };
+    let pruned = call(&runtime, "localSearch", json!({"path":workspace.workspace,"searchText":"needle"}))
+        .await
+        .expect("default prune");
+    assert!(!names(&pruned).contains("node_modules"), "{}", names(&pruned));
+    let all = call(
+        &runtime,
+        "localSearch",
+        json!({"path":workspace.workspace,"searchText":"needle","defaultExcludes":false}),
+    )
+    .await
+    .expect("defaults off");
+    assert!(names(&all).contains("node_modules"), "{}", names(&all));
+    let tree = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"files","path":workspace.workspace,"defaultExcludes":false}),
+    )
+    .await
+    .expect("structure defaults off");
+    assert!(names(&tree).contains("index.js"), "{}", names(&tree));
     runtime.close().await;
 }

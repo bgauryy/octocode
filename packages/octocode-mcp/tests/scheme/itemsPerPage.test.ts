@@ -15,6 +15,7 @@ const q0 = (
 describe('Unified public pagination fields', () => {
   it('ghSearchRepo uses pageSize per page and does not expose a total limit', () => {
     const query = q0(GitHubSearchRepoBulkQuerySchema, {
+      goal: 'test goal',
       reasoning: 'exercise pagination fields',
       keywords: ['x'],
       page: 3,
@@ -25,6 +26,7 @@ describe('Unified public pagination fields', () => {
       GitHubSearchRepoBulkQuerySchema.safeParse({
         queries: [
           {
+            goal: 'test goal',
             reasoning: 'exercise pagination fields',
             limit: 10,
           },
@@ -35,6 +37,7 @@ describe('Unified public pagination fields', () => {
       GitHubSearchRepoBulkQuerySchema.safeParse({
         queries: [
           {
+            goal: 'test goal',
             reasoning: 'exercise pagination fields',
             itemsPerPage: 10,
           },
@@ -45,6 +48,7 @@ describe('Unified public pagination fields', () => {
 
   it('structureSearch files uses limit as the total cap and pageSize per page', () => {
     const query = q0(StructureSearchBulkQuerySchema, {
+      goal: 'test goal',
       reasoning: 'exercise pagination fields',
       operation: 'files',
       path: '.',
@@ -59,6 +63,7 @@ describe('Unified public pagination fields', () => {
 
   it('localSearch text uses pageSize without redundant cap aliases', () => {
     const base = {
+      goal: 'test goal',
       reasoning: 'exercise pagination fields',
       path: '.',
       searchText: 'needle',
@@ -81,6 +86,7 @@ describe('Unified public pagination fields', () => {
 
   it('astTopology distinguishes limit from pageSize', () => {
     const query = q0(AstTopologyBulkQuerySchema, {
+      goal: 'test goal',
       reasoning: 'exercise pagination fields',
       analysis: 'cycles',
       path: '.',
@@ -93,6 +99,7 @@ describe('Unified public pagination fields', () => {
 
   it('artifactSearch exposes cursor and pageSize only for keyword discovery', () => {
     const keywordQuery = q0(ArtifactSearchBulkQueryLocalSchema, {
+      goal: 'test goal',
       reasoning: 'exercise pagination fields',
       type: 'npm',
       keywords: ['hono'],
@@ -105,6 +112,7 @@ describe('Unified public pagination fields', () => {
     }
 
     const exactQuery = q0(ArtifactSearchBulkQueryLocalSchema, {
+      goal: 'test goal',
       reasoning: 'exercise pagination fields',
       type: 'npm',
       packageName: 'hono',

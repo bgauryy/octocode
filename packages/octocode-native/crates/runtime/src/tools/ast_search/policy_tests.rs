@@ -1,8 +1,8 @@
-use super::execute_ast;
+use super::{AstResult, AstSearchQuery, execute_ast};
 use crate::{
     policy::path::{PathPolicy, PathPolicyConfig},
     security::ContentSecurity,
-    tools::local_fetch::CancellationCheck,
+    tools::cancel::CancellationCheck,
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -25,6 +25,17 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+/// Tests speak JSON rows; the runtime owns the typed parse.
+fn execute_row(
+    query: serde_json::Value,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancellation: &dyn CancellationCheck,
+) -> AstResult {
+    let query: AstSearchQuery = serde_json::from_value(query).expect("typed astSearch row");
+    execute_ast(&query, paths, security, cancellation)
+}
+
 struct Active;
 impl CancellationCheck for Active {
     fn check(&self) -> Result<(), String> {
@@ -46,7 +57,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let symbols = execute_ast(
+    let symbols = execute_row(
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":root.0}),
         &paths,
         &security,
@@ -55,12 +66,12 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     .expect("symbols");
     assert_eq!(symbols["filesScanned"], 1);
     assert_eq!(symbols["filesSkipped"], 0);
-    assert_eq!(symbols["declarations"][0]["name"], "visible");
+    assert_eq!(symbols["files"][0]["declarations"][0]["name"], "visible");
 
     std::fs::write(root.0.join(".aws/hidden.ts"), "oldCall(secret);\n").expect("hidden ast");
     std::fs::write(root.0.join(".env.ts"), "oldCall(ignored);\n").expect("ignored ast");
     std::fs::write(root.0.join("visible.ts"), "oldCall(visible);\n").expect("visible ast");
-    let matches = execute_ast(
+    let matches = execute_row(
         json!({
             "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"typescript",
             "pattern":"oldCall($A)","hidden":true
@@ -93,7 +104,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     .expect("policy");
     let security = ContentSecurity::new();
 
-    let missing = execute_ast(
+    let missing = execute_row(
         json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"const $A = $B"}),
         &paths,
         &security,
@@ -108,7 +119,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     assert!(guidance.contains("trailing semicolons"), "{guidance}");
     assert!(guidance.contains("operation:\"syntaxTree\""), "{guidance}");
 
-    let found = execute_ast(
+    let found = execute_row(
         json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"const $A = $B;"}),
         &paths,
         &security,
@@ -131,7 +142,7 @@ fn directory_prefilter_skips_are_aggregated_once() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let result = execute_ast(
+    let result = execute_row(
         json!({
             "operation":"match","goal":"test","reasoning":"test",
             "path":root.0,
@@ -179,7 +190,7 @@ fn cancellation_interrupts_descendant_traversal() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let error = execute_ast(
+    let error = execute_row(
         json!({
             "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust",
             "pattern":"source"
@@ -210,7 +221,7 @@ fn match_directory_scan_truncation_is_surfaced_not_silent() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let out = execute_ast(
+    let out = execute_row(
         json!({
             "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust",
             "pattern":"pub fn source() {}","maxFiles":1
@@ -257,7 +268,7 @@ fn match_continuation_rejects_stale_snapshot() {
         std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("file");
     }
     let (paths, security) = simple_policy(&root.0);
-    let page1 = execute_ast(
+    let page1 = execute_row(
         json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2}),
         &paths,
         &security,
@@ -266,7 +277,7 @@ fn match_continuation_rejects_stale_snapshot() {
     .expect("page1");
     let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
     std::fs::write(root.0.join("e.rs"), "pub fn source() {}\n").expect("mutate corpus");
-    let page2 = execute_ast(
+    let page2 = execute_row(
         json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
@@ -285,7 +296,7 @@ fn run(
     query: serde_json::Value,
 ) -> Result<serde_json::Value, super::AstError> {
     let (paths, security) = simple_policy(root);
-    execute_ast(query, &paths, &security, &Active)
+    execute_row(query, &paths, &security, &Active)
 }
 
 #[test]
@@ -527,8 +538,12 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
     let next_query = result["next"]["nextPage"]["query"].clone();
     let next = run(&root.0, next_query).expect("next page");
     let names = [
-        result["declarations"][0]["name"].as_str().unwrap_or(""),
-        next["declarations"][0]["name"].as_str().unwrap_or(""),
+        result["files"][0]["declarations"][0]["name"]
+            .as_str()
+            .unwrap_or(""),
+        next["files"][0]["declarations"][0]["name"]
+            .as_str()
+            .unwrap_or(""),
     ];
     assert!(names.contains(&"Widget"), "{result} {next}");
     assert!(names.contains(&"Plain"), "{result} {next}");
@@ -570,7 +585,15 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"kinds":["functoin"]}),
     )
     .expect_err("unknown kind");
-    assert_eq!(error.code, "ast.symbols.invalidKind");
+    // An `.input.invalid` code is an input rejection: CLI exit 2 and a
+    // "correct the field" hint, never "broaden the query".
+    assert_eq!(error.code, "ast.symbols.input.invalid");
+    assert!(crate::runtime::response::is_invalid_input_code(&error.code));
+    assert!(
+        error.message.contains("function, impl"),
+        "{}",
+        error.message
+    );
     let ok = run(
         &root.0,
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"kinds":["function"]}),
@@ -631,39 +654,57 @@ fn single_file_symbols_are_compact_and_path_free() {
         .iter()
         .find(|r| r["name"] == "run" && r["line"] == 3)
         .expect("run in impl A");
-    assert_eq!(run_a["character"], 7, "{run_a}");
-    assert_eq!(run_a["id"], "run@3:7", "{run_a}");
     assert!(run_a.get("endLine").is_none(), "{run_a}");
-    assert_eq!(run_a["parent"], impl_a["id"], "{out}");
-    // Same name on one line stays distinguishable by column.
-    let line5_runs = rows
-        .iter()
-        .filter(|r| r["name"] == "run" && r["line"] == 5)
-        .count();
-    assert_eq!(line5_runs, 1, "{out}");
-    let mut ids = rows
-        .iter()
-        .filter_map(|r| r["id"].as_str())
-        .collect::<Vec<_>>();
-    let total = ids.len();
-    ids.sort_unstable();
-    ids.dedup();
-    assert_eq!(ids.len(), total, "ids must be unique: {out}");
-    let notes = out["diagnostics"]
-        .as_array()
-        .expect("diagnostics")
-        .iter()
-        .filter(|d| {
-            d["message"]
-                .as_str()
-                .is_some_and(|m| m.contains("syntax-only"))
-        })
-        .count();
-    assert_eq!(notes, 1, "{out}");
+    // A parent is named, not referenced by an id; `struct A` + `impl A`
+    // differ by kind, so no parentLine is needed.
+    assert_eq!(run_a["parent"], "A", "{out}");
+    assert!(run_a.get("parentLine").is_none(), "{run_a}");
+    for row in rows {
+        for dropped in ["id", "character"] {
+            assert!(row.get(dropped).is_none(), "{dropped} in {row}");
+        }
+    }
+    // One page has nothing to pin, and the static syntax-only caveat is in
+    // the tool description, not every response.
+    assert!(out.get("snapshot").is_none(), "{out}");
+    assert!(
+        !out.to_string().contains("syntax-only"),
+        "static caveat repeated: {out}"
+    );
 }
 
 #[test]
-fn directory_symbols_keep_row_paths_and_emit_the_syntax_note_once() {
+fn symbols_keep_column_and_parent_line_only_when_ambiguous() {
+    let root = Fixture::new();
+    let source = root.0.join("twins.rs");
+    std::fs::write(
+        &source,
+        "struct A;\nimpl A {\n    fn one() {}\n}\nimpl A {\n    fn two() {}\n}\nfn x() {} fn x() {}\n",
+    )
+    .expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source}),
+    )
+    .expect("symbols");
+    let rows = out["declarations"].as_array().expect("declarations");
+    let two = rows.iter().find(|r| r["name"] == "two").expect("two");
+    assert_eq!(two["parent"], "A", "{out}");
+    assert_eq!(
+        two["parentLine"], 5,
+        "two impl A blocks need the line: {out}"
+    );
+    let twins = rows
+        .iter()
+        .filter(|r| r["name"] == "x" && r["line"] == 8)
+        .collect::<Vec<_>>();
+    assert_eq!(twins.len(), 2, "{out}");
+    assert_ne!(twins[0]["character"], twins[1]["character"], "{out}");
+    assert!(twins.iter().all(|r| r["character"].is_u64()), "{out}");
+}
+
+#[test]
+fn directory_symbols_keep_row_paths_without_static_notes() {
     let root = Fixture::new();
     std::fs::write(root.0.join("a.rs"), "fn a() {}\n").expect("a");
     std::fs::write(root.0.join("b.rs"), "fn b() {}\n").expect("b");
@@ -672,12 +713,20 @@ fn directory_symbols_keep_row_paths_and_emit_the_syntax_note_once() {
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":root.0}),
     )
     .expect("symbols");
-    let rows = out["declarations"].as_array().expect("declarations");
-    assert_eq!(rows.len(), 2, "{out}");
-    assert!(rows.iter().all(|r| r["path"].is_string()), "{out}");
+    assert!(out.get("declarations").is_none(), "{out}");
+    let files = out["files"].as_array().expect("files");
+    assert_eq!(files.len(), 2, "{out}");
+    for file in files {
+        assert!(file["path"].is_string(), "{out}");
+        let rows = file["declarations"].as_array().expect("rows");
+        assert_eq!(rows.len(), 1, "{out}");
+        assert!(
+            rows[0].get("path").is_none(),
+            "path written once per file: {out}"
+        );
+    }
     let diagnostics = out["diagnostics"].as_array().expect("diagnostics");
-    assert_eq!(diagnostics.len(), 1, "{out}");
-    assert!(diagnostics[0].get("path").is_none(), "{out}");
+    assert!(diagnostics.is_empty(), "{out}");
 }
 
 #[test]
@@ -792,4 +841,46 @@ fn yaml_rule_compile_errors_get_a_rule_hint_not_a_pattern_hint() {
     let hint = error.hints.join(" ");
     assert!(hint.contains("rule"), "{hint}");
     assert!(!hint.contains("add `;`"), "{hint}");
+}
+
+#[test]
+fn flow_js_symbols_list_hooks_and_mark_a_recovered_parse_partial() {
+    let root = Fixture::new();
+    let source = root.0.join("Hooks.js");
+    std::fs::write(
+        &source,
+        "// @flow\nimport type {D} from 'd';\ntype Dispatch<A> = A => void;\n\
+         export function useState<S>(init: (() => S) | S): [S, Dispatch<S>] {\n  if (x) {\n    y();\n  }\n  return z;\n}\n\
+         export function useRef<T>(v: T): {current: T} {\n  if (x) {\n    y();\n  }\n  return z;\n}\n",
+    )
+    .expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source}),
+    )
+    .expect("symbols");
+    let names: Vec<&str> = out["declarations"]
+        .as_array()
+        .expect("declarations")
+        .iter()
+        .filter_map(|d| d["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"useState") && names.contains(&"useRef"),
+        "{out}"
+    );
+    assert!(!names.contains(&"if"), "{out}");
+    let recovered = out["diagnostics"].as_array().is_some_and(|ds| {
+        ds.iter().any(|d| {
+            d["message"]
+                .as_str()
+                .is_some_and(|m| m.starts_with("tree-sitter recovered"))
+        })
+    });
+    // A recovered parse is a partial inventory, never a complete one.
+    assert!(
+        recovered,
+        "the Flow type alias forces a recovered parse: {out}"
+    );
+    assert_eq!(out["isPartial"], json!(true), "{out}");
 }

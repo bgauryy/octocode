@@ -20,6 +20,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant, SystemTime};
 
+use super::relevance;
 use crate::error::{Error, Result, Status};
 use grep_matcher::Matcher;
 #[cfg(feature = "pcre2")]
@@ -260,6 +261,8 @@ struct MatchWork {
     materialize_line: bool,
     enumerate_submatches: bool,
     collect_spans: bool,
+    /// Sum [`relevance::line_weight`] over matched lines.
+    weigh_lines: bool,
 }
 
 fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
@@ -267,7 +270,17 @@ fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
         materialize_line: mode == Mode::Normal,
         enumerate_submatches: mode != Mode::CountLines,
         collect_spans: mode == Mode::Normal && only_matching,
+        weigh_lines: false,
     }
+}
+
+/// Views that report per-file matches; path-list views carry no density.
+fn lists_match_density(mode: Mode) -> bool {
+    !matches!(mode, Mode::FilesOnly | Mode::FilesWithoutMatch)
+}
+
+fn ranks_by_relevance(opts: &RipgrepSearchOptions) -> bool {
+    opts.sort.as_deref() == Some("relevance")
 }
 
 fn resolve_mode(opts: &RipgrepSearchOptions) -> Mode {
@@ -296,6 +309,10 @@ struct FileRec {
     om_matches: Vec<RipgrepMatch>,
     /// Metadata timestamp captured for non-path sort keys.
     sort_time: Option<SystemTime>,
+    /// `relevance` only: summed [`relevance::line_weight`] of matched lines.
+    line_weight: u32,
+    /// `relevance` only: a test, generated, or vendored path below the root.
+    demoted: bool,
 }
 
 /// Everything one search accumulated. Totals (`files_matched`, `submatches`,
@@ -456,6 +473,8 @@ struct CollectSink<'a, M: Matcher> {
     /// Absolute offset of the first NUL byte when the file was quit as binary.
     /// The searcher stops there, so bytes after it are unsearched.
     binary_offset: Option<u64>,
+    /// Summed [`relevance::line_weight`] (only with `work.weigh_lines`).
+    line_weight: u32,
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
@@ -479,6 +498,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             stop,
             deadline_hit: false,
             binary_offset: None,
+            line_weight: 0,
         }
     }
 }
@@ -501,6 +521,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         let line_number = mat.line_number().unwrap_or(0) as u32;
         let bytes = mat.bytes();
         let mut count: u32 = 0;
+        let mut first_start = None;
 
         if self.work.collect_spans {
             let line_cow = String::from_utf8_lossy(bytes);
@@ -513,6 +534,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             matcher
                 .find_iter(bytes, |m| {
                     count = count.saturating_add(1);
+                    first_start.get_or_insert(m.start());
                     if count <= MAX_ONLY_MATCHING_PER_LINE {
                         let (start, end) =
                             (lossy_offset(bytes, m.start()), lossy_offset(bytes, m.end()));
@@ -550,13 +572,10 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 });
             }
         } else if self.work.enumerate_submatches {
-            let mut first_byte_col = None;
             self.matcher
                 .find_iter(bytes, |matched| {
                     count = count.saturating_add(1);
-                    if first_byte_col.is_none() {
-                        first_byte_col = Some(matched.start());
-                    }
+                    first_start.get_or_insert(matched.start());
                     true
                 })
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -565,7 +584,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 let line_text = strip_trailing_newline(line_cow.into_owned());
                 let column = byte_to_char_offset_inner(
                     &line_text,
-                    lossy_offset(bytes, first_byte_col.unwrap_or(0)).min(line_text.len()),
+                    lossy_offset(bytes, first_start.unwrap_or(0)).min(line_text.len()),
                 ) as u32;
                 self.entry.raw_matches.push(RawMatch {
                     line_text,
@@ -575,6 +594,20 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             }
         }
 
+        if self.work.weigh_lines {
+            // Count-lines never enumerates submatches: find the first one here.
+            let first = match first_start {
+                Some(start) => start,
+                None => self
+                    .matcher
+                    .find(bytes)
+                    .map_err(|error| std::io::Error::other(error.to_string()))?
+                    .map_or(0, |matched| matched.start()),
+            };
+            self.line_weight = self
+                .line_weight
+                .saturating_add(relevance::line_weight(bytes, first));
+        }
         self.submatches = self.submatches.saturating_add(count.max(1));
         self.matched_lines = self.matched_lines.saturating_add(1);
         Ok(true)
@@ -830,6 +863,7 @@ struct FileOutcome {
     span_cap_reached: bool,
     deadline_hit: bool,
     binary: bool,
+    line_weight: u32,
 }
 
 impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
@@ -842,6 +876,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             span_cap_reached: sink.span_cap_reached,
             deadline_hit: sink.deadline_hit,
             binary: sink.binary_offset.is_some(),
+            line_weight: sink.line_weight,
         }
     }
 }
@@ -950,6 +985,8 @@ fn collect<M: Matcher + Sync>(
     let mut walk_builder = build_walk_builder(opts)?;
     if preserves_traversal_order(opts) {
         walk_builder.threads(1);
+    } else if let Some(threads) = opts.walk_threads {
+        walk_builder.threads(threads as usize);
     }
 
     walk_builder.build_parallel().run(|| {
@@ -969,7 +1006,12 @@ fn collect<M: Matcher + Sync>(
             prefix_searcher: None,
             context_lines,
             // `mode`/`only_matching` are invariant for the whole search.
-            work: match_work(mode, only_matching),
+            work: MatchWork {
+                weigh_lines: ranks_by_relevance(opts)
+                    && lists_match_density(mode)
+                    && !opts.invert_match.unwrap_or(false),
+                ..match_work(mode, only_matching)
+            },
             match_window,
             deadline,
             stop: &state.stop,
@@ -1083,6 +1125,14 @@ fn collect<M: Matcher + Sync>(
                 submatches: outcome.submatches,
                 om_matches: outcome.om_matches,
                 sort_time: capture_sort_time(opts, &dent),
+                line_weight: outcome.line_weight,
+                demoted: ranks_by_relevance(opts)
+                    && relevance::is_demoted_path(
+                        &path
+                            .strip_prefix(&opts.path)
+                            .unwrap_or(path)
+                            .to_string_lossy(),
+                    ),
             });
             WalkState::Continue
         })
@@ -1127,6 +1177,10 @@ fn rank_weight(opts: &RipgrepSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
 /// * `modified` / `accessed` / `created`: ascending timestamp.
 /// * `matchCount`: descending [`rank_weight`] (the most-matched files survive
 ///   the collection cap).
+/// * `relevance`: descending [`rank_weight`], then source paths before test,
+///   generated, and vendored paths, then descending summed line weight
+///   (declaration > code > comment/string), see [`relevance`]. Path-list views
+///   have no per-file density: source paths first, then path.
 /// * default and `path`: lexicographic by full path, matching `rg --sort path`.
 fn compare_recs(
     opts: &RipgrepSearchOptions,
@@ -1142,6 +1196,12 @@ fn compare_recs(
         Some("matchCount") => rank_weight(opts, mode, b)
             .cmp(&rank_weight(opts, mode, a))
             .then_with(|| a.path.cmp(&b.path)),
+        Some("relevance") if lists_match_density(mode) => rank_weight(opts, mode, b)
+            .cmp(&rank_weight(opts, mode, a))
+            .then_with(|| a.demoted.cmp(&b.demoted))
+            .then_with(|| b.line_weight.cmp(&a.line_weight))
+            .then_with(|| a.path.cmp(&b.path)),
+        Some("relevance") => a.demoted.cmp(&b.demoted).then_with(|| a.path.cmp(&b.path)),
         _ => a.path.cmp(&b.path),
     };
     if opts.sort_reverse.unwrap_or(false) {

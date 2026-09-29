@@ -363,7 +363,17 @@ containing that SHA.
 ```
 
 Request selected PR patches instead of every patch for large PRs, and leave
-commit diffs off until the relevant commit is known.
+commit diffs off until the relevant commit is known. PRs with more than 100
+changed files do not offer `next.getAllPatches`. Changed-file rows mark files
+that GitHub returned without a patch as `patchUnavailable`. The value is
+`tooLarge` when the line counts are still known, `binary` for a binary file,
+or `omitted` when GitHub returned no patch and no counts (for example, past
+the PR's diff budget). An `omitted` file with 0/0 may still have changed.
+Renames carry `previousPath`, and a pure rename's patch is `""`. GitHub
+lists at most 3000 files. Past that limit the file page reports
+`countScope: "partial"` and `providerLimit.reason: "providerFileListLimit"`.
+Continuation replays (`followUp: true`) repeat only the identity header,
+not labels, dates, body preview, or the follow-up menu, unless `debug: true`.
 
 PR details accept `minify:"none"` or `"standard"`. `none` preserves selected
 body, discussion/inline comments, reviews, and all/selected patch text after
@@ -658,7 +668,7 @@ matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
 | `langType` | Ripgrep language/type filter such as `ts`, `js`, `py`, `go`. |
 | `include` | Glob patterns to include. |
 | `exclude` | Glob patterns to exclude. |
-| `excludeDir` | Directory names to skip. |
+| `excludeDir` | Directory names to skip, added to the default prune (dependency, build, cache, credential, and editor/CI config directories such as `node_modules`, `target`, `.git`, `secrets`, `.github`). `defaultExcludes: false` turns the default prune off. |
 | `hidden` | Include hidden files. |
 | `noIgnore` | Ignore `.gitignore` and `.ignore` files. |
 | `sort` | `relevance` (default), `traversal`, `matchCount`, `path`, `modified`, `accessed`, or `created`. |
@@ -670,7 +680,7 @@ Normal results include matched files and match snippets with line and column inf
 
 Coverage and limits:
 
-- `relevance` (default) and `matchCount` keep the 10,000 most-matched files across every searched file. `stats` totals count all matched files; `capReason:"maxCollectedFiles"` marks the trimmed list.
+- `relevance` (default) orders by match count, then source paths before test/generated/vendored paths, then declaration hits before code and comment/string hits, then path; `files`/`filesWithout` have no count and order by source paths first, then path. `relevance` and `matchCount` keep the 10,000 highest-ranked files across every searched file. `stats` totals count all matched files; `capReason:"maxCollectedFiles"` marks the trimmed list.
 - If no file under `path` can be read, the call fails with `errorCode:"fileAccessFailed"` (exit 5). If some paths are unreadable, the result sets `isPartial` and `terminalLimit`, and `stats.errorCount`/`firstError` report the failures. Zero matches in that result do not prove absence.
 - A file with a NUL byte is searched up to that byte, and matches before it are kept. `capped` is true, `capReason` includes `binaryQuit`, a `binaryFileSkipped` warning is added, and the result is `isPartial` (with `terminalLimit` when no other continuation exists): no text tool reads past the NUL, so the kept matches are not the file's full set and an empty result does not prove absence.
 - Match values whose secret-shaped text was replaced by `[REDACTED…]` placeholders carry a `redactedMatches` warning; those values are not verbatim source.
@@ -736,7 +746,13 @@ depth), so deeply nested files do not hit the deadline on `stopBy: end`. A
 file that still exceeds the deadline is reported as a
 `structural.match.deadline` diagnostic, never as zero matches.
 
-`operation:"symbols"` rows carry `docStartLine` when a comment block sits directly above the declaration (JSDoc, `///`, `#` in Python). It marks a JS/TS declaration `exported` by its local
+`operation:"symbols"` rows are `{name, kind, line}` plus only what adds information:
+- `endLine` when the declaration spans lines, and `startLine` when attributes or decorators start before the name line.
+- `docStartLine` when a comment block sits directly above (JSDoc, `///`, `#` in Python).
+- `parent`: the containing declaration's name. It stays meaningful when a `kinds`/`name` filter drops the parent row. `parentLine` is added only when two containers share that name and kind (two `impl A` blocks).
+- `character` only when two declarations of the same kind share a name and line.
+
+`line` feeds `lspSearch` as `symbolName` + `lineHint`. A single-file outline returns top-level `declarations`. A directory outline returns `files: [{path, declarations}]`, the same grouping as `match`, so each path is written once. `snapshot` appears only on paginated results. It marks a JS/TS declaration `exported` by its local
 binding. When it is exported under another name, `exportedAs` lists the public
 names: `export { foo as bar }` gives `foo` with `exportedAs: ["bar"]`, and
 `export default function foo` gives `exportedAs: ["default"]`.
@@ -791,7 +807,7 @@ Bounded directory outline (no parser) for understanding shape, ownership, and fi
 | `limit` | Hard pre-pagination cap. Max 10000. |
 | `entryType` | `f` for files only, `d` for directories only; omit for both. |
 | `extensions` | Only include files with selected extensions. |
-| `excludeDir` | Directory names to prune. |
+| `excludeDir` | Directory names to prune, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). `defaultExcludes: false` turns the default prune off. |
 | `hidden` | Include hidden files and directories. |
 | `snapshot` | Copy from `next` when paging. |
 
@@ -836,7 +852,7 @@ Metadata search for files and directories.
 | `empty` | Empty files/directories only. |
 | `permissions` | Permission string filter. |
 | `access` | Permission predicate: `executable`, `readable`, or `writable`. |
-| `excludeDir` | Directory names to skip. |
+| `excludeDir` | Directory names to prune, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). `defaultExcludes: false` turns the default prune off. |
 | `detail` | `basic` (default), `modified` (adds `modifiedMs`, Unix milliseconds), or `full` (also adds exact size and line count). |
 | `sort` | Sort by `modified`, `name`, `path`, `size`, or `lines`. |
 | `page` | Result page. |
@@ -925,7 +941,7 @@ Cross-file resolution covers JavaScript/TypeScript ESM and binding-safe CommonJS
 
 Dependency traversal also reports immediate dominators, topological layers, and transitively redundant condensation-DAG edges. Cycle results distinguish runtime import candidates (`runtimeCycle`) from other topology SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
 
-Inside a reachable file, `deadCode` keeps an export live when an import or re-export chain consumes one of its public names (`import foo from` consumes `default`), or when it is reachable over same-file call and containment edges from a live declaration, a module-level call, or a declaration that escapes as a value. A value escape is a syntax-aware reference other than the declaration itself, an export clause, or a call target; comments and string literals never count. JS/TS counts the resolved references of each declaration's own symbol, so a same-named local elsewhere does not keep it live; other languages count identifier tokens by name. `unreferenced-export` rows name the basis in `viaHeuristic`: `reexport-chain`, `semantic-references` (JS/TS), or `syntax-references`. Callers are keyed by declaration identity, so a method `run` and a function `run` do not share liveness, and an uncalled private caller does not keep its callees live. Rows for exports renamed at the export site carry `exportedAs`. When graph extraction for a file hits its deadline, the facts gathered so far are kept and the file carries a `graph.traversal.deadlineExceeded` diagnostic, so a missing edge there is not evidence of absence.
+Inside a reachable file, `deadCode` keeps an export live when an import or re-export chain consumes one of its public names (`import foo from` consumes `default`), or when it is reachable over same-file call and containment edges from a live declaration, a module-level call, or a declaration that escapes as a value. A value escape is a syntax-aware reference other than the declaration itself, an export clause, or a call target; comments and string literals never count. JS/TS counts the resolved references of each declaration's own symbol, so a same-named local elsewhere does not keep it live; other languages count identifier tokens by name. `unreferenced-export` rows name the basis in `viaHeuristic`: `reexport-chain`, `semantic-references` (JS/TS), `syntax-references`, or `qualified-path-name`. `qualified-path-name` marks a Rust export kept live only because a `module::name` call names it without resolving to its file. A qualified call from a live caller that resolves through the calling file's `use`/`mod` binding credits the export exactly. Callers are keyed by declaration identity, so a method `run` and a function `run` do not share liveness, and an uncalled private caller does not keep its callees live. Rows for exports renamed at the export site carry `exportedAs`. When graph extraction for a file hits its deadline, the facts gathered so far are kept and the file carries a `graph.traversal.deadlineExceeded` diagnostic, so a missing edge there is not evidence of absence.
 
 #### Best for
 
@@ -949,7 +965,7 @@ Use `astTopology` to discover repository-scale file topology and candidate reach
 | `depth` | Traversal depth for `dependencies` and `dependents`. Default 1, max 50. |
 | `entrypoints` | Roots for `reachability` and `deadCode`; omit to detect `package.json` `main`, `exports`, and `bin`. |
 | `includeTests` | Treat tests as roots for `reachability` and `deadCode`. Default `true`. |
-| `excludeDir` | Directory names to prune. Defaults to `node_modules`, `dist`, `build`, `out`, `coverage`, `.git`, `target`, `.next`, and `.cache`. |
+| `excludeDir` | Directory names to prune, added to the default prune shared with structureSearch and astSearch (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). |
 | `maxFiles` | Cap on files scanned. Max 50000. The scan stops and warns past this bound. |
 | `limit` | Result cap before pagination. Max 5000. |
 | `page` | Result page. Max 1000. |

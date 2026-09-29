@@ -556,6 +556,7 @@ fn source_type_follows_the_full_path() {
         source_type_for(
             &crate::text::file_extension::get_extension_internal(p, true, "ts"),
             p,
+            "",
         )
     };
     assert!(st("a.cjs").is_commonjs(), ".cjs is CommonJS");
@@ -839,7 +840,11 @@ fn top_level_iife_bodies_are_outlined_as_module_scope() {
 fn declarations_only_matches_full_graph_facts_declarations() {
     let source = "import { a } from './a';\nexport class Panel { draw() { return a(); } }\nexport function helper(n) { return n; }\nconst local = () => helper(1);\nexport default function main() { local(); }\n";
     for path in ["mod.ts", "mod.js", "mod.tsx"] {
-        let full = graph(source, path);
+        let mut full = graph(source, path);
+        // Import uses come from the semantic pass the light path skips.
+        for import in full["imports"].as_array_mut().expect("imports") {
+            import.as_object_mut().expect("import").remove("usedIn");
+        }
         let light: Value =
             serde_json::from_str(&extract_declarations(source, path).expect("declarations"))
                 .expect("json");

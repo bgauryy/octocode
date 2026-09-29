@@ -1,6 +1,9 @@
 pub use crate::contracts::tool_types::AstSearchQuerySymbols;
+use crate::policy::prune::DefaultsFlag;
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::{path::PathPolicy, prune::PruneMode},
+    security::ContentSecurity,
+    tools::cancel::CancellationCheck,
 };
 use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
 use serde_json::{Value, json};
@@ -75,7 +78,7 @@ pub fn execute_symbols(
         .find(|kind| !DECLARATION_KINDS.contains(&kind.as_str()))
     {
         return Err(super::AstError::new(
-            "ast.symbols.invalidKind",
+            "ast.symbols.input.invalid",
             format!(
                 "Unknown declaration kind \"{unknown}\". Use one of: {}.",
                 DECLARATION_KINDS.join(", ")
@@ -151,7 +154,7 @@ pub fn execute_symbols(
         let r = octocode_engine::portable::scan_graph_facts_filtered(
             GraphFactsScanOptions {
                 path: p.canonical.to_string_lossy().into_owned(),
-                exclude_dir: q.exclude_dir(),
+                exclude_dir: Some(PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults())),
                 max_files: Some(q.max_files()),
                 max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
                 language_globs: q.language_globs().map(|map| {
@@ -186,7 +189,7 @@ pub fn execute_symbols(
     // A single-file query hoists `path` to the top level instead of repeating it.
     let per_row_path = !meta.is_file();
     let mut declarations = vec![];
-    let mut syntax_only_note = false;
+    let mut recovered = false;
     for (path, raw) in &entries {
         let Ok(v) = serde_json::from_str::<Value>(raw) else {
             skipped += 1;
@@ -195,14 +198,17 @@ pub fn execute_symbols(
         };
         if let Some(ds) = v["diagnostics"].as_array() {
             for m in ds.iter().filter_map(Value::as_str) {
-                if is_linking_only(m) {
+                // The syntax-only caveat is static and already in the tool
+                // description; repeating it costs every call.
+                if is_linking_only(m) || m == SYNTAX_ONLY_NOTE {
                     continue;
-                } else if m == SYNTAX_ONLY_NOTE {
-                    syntax_only_note = true;
-                } else if per_row_path {
-                    diagnostics.push(json!({"path":path,"message":m}));
                 } else {
-                    diagnostics.push(json!({"message":m}));
+                    recovered |= m.starts_with(RECOVERED_PARSE_NOTE_PREFIX);
+                    if per_row_path {
+                        diagnostics.push(json!({"path":path,"message":m}));
+                    } else {
+                        diagnostics.push(json!({"message":m}));
+                    }
                 }
             }
         }
@@ -221,10 +227,6 @@ pub fn execute_symbols(
                 declarations.push(row)
             }
         }
-    }
-    // The static syntax-only caveat is identical for every file: emit it once.
-    if syntax_only_note {
-        diagnostics.insert(0, json!({"message":SYNTAX_ONLY_NOTE}));
     }
     let snapshot = super::syntax::digest(&json!([
         q.path,
@@ -252,6 +254,7 @@ pub fn execute_symbols(
         files_scanned: entries.len(),
         skipped,
         truncated,
+        recovered,
     };
     Ok(render_page(q, &set))
 }
@@ -265,6 +268,9 @@ struct SymbolSet {
     files_scanned: usize,
     skipped: u32,
     truncated: bool,
+    /// A parser recovered from syntax errors: the declarations are a partial
+    /// view of the source, not a complete inventory.
+    recovered: bool,
 }
 
 fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
@@ -276,6 +282,7 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         files_scanned,
         skipped,
         truncated,
+        recovered,
     } = set;
     let (skipped, truncated) = (*skipped, *truncated);
     if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
@@ -286,8 +293,21 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
     let start = (page - 1) * size;
     let more = start + size < declarations.len();
     let incomplete = truncated || skipped > 0;
-    let mut out = json!({"operation":"symbols","path":path,"snapshot":snapshot,"declarations":declarations.get(start..(start+size).min(declarations.len())).unwrap_or(&[]),"totalDeclarations":declarations.len(),"filesScanned":files_scanned,"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete});
+    let rows = declarations
+        .get(start..(start + size).min(declarations.len()))
+        .unwrap_or(&[]);
+    let mut out = json!({"operation":"symbols","path":path,"totalDeclarations":declarations.len(),"filesScanned":files_scanned,"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete||*recovered});
+    // A directory outline groups rows under their file, like `match` results,
+    // so each path is written once instead of on every declaration.
+    if rows.iter().any(|row| row.get("path").is_some()) {
+        out["files"] = Value::Array(group_by_file(rows));
+    } else {
+        out["declarations"] = json!(rows);
+    }
+    // The snapshot only pins later pages to the same source; a single page
+    // has nothing to pin.
     if more || page > 1 {
+        out["snapshot"] = json!(snapshot);
         out["pagination"] = json!({"currentPage":page,"totalPages":declarations.len().div_ceil(size).max(1),"hasMore":more});
     }
     if incomplete {
@@ -308,6 +328,28 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
     }
     out
 }
+/// Consecutive rows of one file become `{path, declarations}`; rows arrive in
+/// path order, so each file appears once per page.
+fn group_by_file(rows: &[Value]) -> Vec<Value> {
+    let mut files: Vec<Value> = Vec::new();
+    for row in rows {
+        let mut row = row.clone();
+        let path = row
+            .as_object_mut()
+            .and_then(|fields| fields.remove("path"))
+            .unwrap_or(Value::Null);
+        match files.last_mut() {
+            Some(file) if file["path"] == path => {
+                if let Some(list) = file["declarations"].as_array_mut() {
+                    list.push(row);
+                }
+            }
+            _ => files.push(json!({"path":path,"declarations":[row]})),
+        }
+    }
+    files
+}
+
 fn limit(path: &str) -> Value {
     json!({"status":"error","path":path,"errorCode":"ast.source.limit","error":"Source exceeds the native parser byte limit.","complete":false,"terminalLimit":true})
 }
@@ -319,87 +361,106 @@ fn is_linking_only(message: &str) -> bool {
         || message.starts_with("unsupported Rust inner conditional or custom crate attributes")
 }
 
+/// Engine diagnostic for a tree-sitter parse that recovered from syntax errors.
+const RECOVERED_PARSE_NOTE_PREFIX: &str = "tree-sitter recovered from parse errors";
+
 /// Static engine caveat attached to every tree-sitter graph-facts file.
 const SYNTAX_ONLY_NOTE: &str =
     "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof";
 
 /// Projects engine declaration facts (one file) onto compact response rows.
 ///
-/// Positions mirror lspSearch document symbols: `line` (1-based) and
-/// `character` (0-based) anchor the declaration NAME, so they feed back as
-/// `symbolName`+`lineHint` or a zero-based `position`; `endLine` (1-based) is
-/// the end of the declaration and is omitted when equal to `line`;
-/// `startLine` appears only when the declaration starts before its name line
-/// (decorators, attributes); `docStartLine` is the first line of the comment
-/// block directly above, when present. `id` is `name@line:character`, unique within its
-/// file (`path`); `parent` uses the same scheme. `exported` appears only when
-/// true, with `exportedAs` listing public names that differ from `name`. Rows are returned in input order, one per engine declaration.
+/// `line` (1-based) anchors the declaration NAME, so a row feeds lspSearch as
+/// `symbolName`+`lineHint`; `character` (0-based) appears only when another
+/// declaration of the same kind shares that name and line, so the column is
+/// the only difference. `endLine` (1-based) ends the declaration and is omitted when
+/// equal to `line`; `startLine` appears only when the declaration starts
+/// before its name line (decorators, attributes); `docStartLine` is the first
+/// line of the comment block directly above, when present. `parent` names the
+/// containing declaration and stays meaningful when a `kinds` or `name`
+/// filter drops the parent row; `parentLine` is added only when another
+/// declaration in the file has the same name and kind (two `impl A` blocks). `exported` appears only when true, with
+/// `exportedAs` listing public names that differ from `name`. Rows are
+/// returned in input order, one per engine declaration.
 fn compact_declarations(raw: &[Value]) -> Vec<Value> {
     let pos = |d: &Value, range: &str, edge: &str, field: &str| {
         d.pointer(&format!("/{range}/{edge}/{field}"))
             .and_then(Value::as_u64)
     };
-    let mut seen = std::collections::HashSet::new();
-    let mut ids = std::collections::HashMap::new();
-    let mut rows = Vec::with_capacity(raw.len());
-    for d in raw {
-        let name = d["name"].as_str().unwrap_or("");
+    let anchors: Vec<(&str, u64, u64)> = raw
+        .iter()
+        .map(|d| {
+            let anchor = if d.get("selectionRange").is_some() {
+                "selectionRange"
+            } else {
+                "range"
+            };
+            let line = pos(d, anchor, "start", "line")
+                .map(|l| l + 1)
+                .or_else(|| d["line"].as_u64())
+                .unwrap_or(0);
+            let character = pos(d, anchor, "start", "character").unwrap_or(0);
+            (d["name"].as_str().unwrap_or(""), line, character)
+        })
+        .collect();
+    let mut per_name_kind = std::collections::HashMap::<(&str, &str), usize>::new();
+    let mut per_name_line = std::collections::HashMap::<(&str, u64, &str), usize>::new();
+    for (d, (name, line, _)) in raw.iter().zip(&anchors) {
         let kind = d["kind"].as_str().unwrap_or("");
-        let anchor = if d.get("selectionRange").is_some() {
-            "selectionRange"
-        } else {
-            "range"
-        };
-        let line = pos(d, anchor, "start", "line")
-            .map(|l| l + 1)
-            .or_else(|| d["line"].as_u64())
-            .unwrap_or(0);
-        let character = pos(d, anchor, "start", "character").unwrap_or(0);
-        let mut id = format!("{name}@{line}:{character}");
-        if !seen.insert(id.clone()) {
-            id = format!("{id}:{kind}");
-            let base = id.clone();
-            let mut n = 2;
-            while !seen.insert(id.clone()) {
-                id = format!("{base}#{n}");
-                n += 1;
-            }
-        }
-        if let Some(engine_id) = d["id"].as_str() {
-            ids.insert(engine_id.to_owned(), id.clone());
-        }
-        let mut row = json!({"id":id,"name":name,"kind":kind,"line":line,"character":character});
-        if let Some(start) = pos(d, "range", "start", "line").map(|l| l + 1)
-            && start < line
-        {
-            row["startLine"] = json!(start);
-        }
-        if let Some(doc) = d["docLine"].as_u64() {
-            row["docStartLine"] = json!(doc + 1);
-        }
-        if let Some(end) = pos(d, "range", "end", "line").map(|l| l + 1)
-            && end != line
-        {
-            row["endLine"] = json!(end);
-        }
-        if d["exported"].as_bool() == Some(true) {
-            row["exported"] = json!(true);
-            // Public names when exported under another name (`export { foo
-            // as bar }`, `export default function foo`).
-            if let Some(public) = d.get("exportedAs").filter(|v| v.is_array()) {
-                row["exportedAs"] = public.clone();
-            }
-        }
-        rows.push(row);
+        *per_name_kind.entry((name, kind)).or_default() += 1;
+        *per_name_line.entry((name, *line, kind)).or_default() += 1;
     }
-    for (d, row) in raw.iter().zip(rows.iter_mut()) {
-        if let Some(parent) = d["parent"].as_str() {
-            // Parents precede children in engine preorder; an unknown parent id
-            // (never expected) is dropped rather than leaking the absolute path.
-            if let Some(compact) = ids.get(parent) {
-                row["parent"] = json!(compact);
+    let by_engine_id: std::collections::HashMap<&str, usize> = raw
+        .iter()
+        .enumerate()
+        .filter_map(|(index, d)| Some((d["id"].as_str()?, index)))
+        .collect();
+    raw.iter()
+        .zip(&anchors)
+        .map(|(d, &(name, line, character))| {
+            let kind = d["kind"].as_str().unwrap_or("");
+            let mut row = json!({"name":name,"kind":kind,"line":line});
+            if per_name_line.get(&(name, line, kind)).copied().unwrap_or(0) > 1 {
+                row["character"] = json!(character);
             }
-        }
-    }
-    rows
+            if let Some(start) = pos(d, "range", "start", "line").map(|l| l + 1)
+                && start < line
+            {
+                row["startLine"] = json!(start);
+            }
+            if let Some(doc) = d["docLine"].as_u64() {
+                row["docStartLine"] = json!(doc + 1);
+            }
+            if let Some(end) = pos(d, "range", "end", "line").map(|l| l + 1)
+                && end != line
+            {
+                row["endLine"] = json!(end);
+            }
+            if d["exported"].as_bool() == Some(true) {
+                row["exported"] = json!(true);
+                // Public names when exported under another name (`export { foo
+                // as bar }`, `export default function foo`).
+                if let Some(public) = d.get("exportedAs").filter(|v| v.is_array()) {
+                    row["exportedAs"] = public.clone();
+                }
+            }
+            // Parents precede children in engine preorder; an unknown parent
+            // (never expected) is dropped rather than leaking an engine id.
+            if let Some(&index) = d["parent"].as_str().and_then(|id| by_engine_id.get(id))
+                && let Some(&(parent, parent_line, _)) = anchors.get(index)
+            {
+                row["parent"] = json!(parent);
+                let parent_kind = raw[index]["kind"].as_str().unwrap_or("");
+                if per_name_kind
+                    .get(&(parent, parent_kind))
+                    .copied()
+                    .unwrap_or(0)
+                    > 1
+                {
+                    row["parentLine"] = json!(parent_line);
+                }
+            }
+            row
+        })
+        .collect()
 }

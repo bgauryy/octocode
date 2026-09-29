@@ -30,7 +30,6 @@ pub struct HistoryPage {
     pub incomplete_results: bool,
     pub items: Vec<Value>,
     pub provider_page: usize,
-    pub skipped_pull_request_pages: usize,
     pub warnings: Vec<String>,
     pub listed: bool,
     pub has_more: bool,
@@ -42,26 +41,11 @@ impl Default for HistoryPage {
             incomplete_results: false,
             items: Vec::new(),
             provider_page: 1,
-            skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: false,
             has_more: false,
         }
     }
-}
-#[derive(Clone, Debug)]
-pub struct IssueListRequest {
-    pub owner: String,
-    pub repo: String,
-    pub state: Option<String>,
-    pub assignee: Option<String>,
-    pub author: Option<String>,
-    pub mentions: Option<String>,
-    pub labels: Option<Vec<String>>,
-    pub sort: Option<String>,
-    pub order: Option<String>,
-    pub page: usize,
-    pub per_page: usize,
 }
 #[derive(Clone, Debug)]
 pub struct PullListRequest {
@@ -75,19 +59,6 @@ pub struct PullListRequest {
     pub page: usize,
     pub per_page: usize,
 }
-// GitHub's /issues endpoint returns issues and pull requests interleaved, so
-// finding a page with real issues can require walking past many PR-only
-// pages. A small budget here pushes that walk onto the *caller*: each
-// exhausted budget returns `hasMore:true` pointing at the next unwalked
-// provider page, so a caller mechanically following `next.nextPage` (the
-// documented usage pattern — see the `page` field's "copy from next.*
-// unchanged" schema description) needs one round trip per skipped page. For
-// repos with a high PR-to-issue ratio that can mean hundreds of external
-// tool calls before `hasMore` ever goes false. Doing more of that walk
-// server-side, inside a single call, cuts the number of external round
-// trips this can take by the same factor while keeping single-call latency
-// bounded (worst case is this many sequential lightweight REST requests).
-pub(crate) const MAX_PR_ONLY_PAGES_TO_SKIP: usize = 25;
 impl<R: CredentialResolver> GitHubTransport<R> {
     pub async fn list_commits(
         &self,
@@ -136,7 +107,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             incomplete_results: false,
             items,
             provider_page: r.page,
-            skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: true,
             has_more,
@@ -170,128 +140,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             }
             Err(error) => Err(error),
         }
-    }
-    pub async fn list_issues(
-        &self,
-        request: &IssueListRequest,
-        context: &RequestContext,
-    ) -> Result<HistoryPage, ProviderError> {
-        // `page` is a per_page-sized window over GitHub's raw issue+PR list.
-        // Fetch whole windows in batches of up to 100 raw rows (the largest
-        // multiple of per_page), so skipping PR-only windows is usually free
-        // instead of one provider request per tiny window.
-        let window = request.per_page.clamp(1, 100);
-        let windows_per_batch = 100 / window;
-        let batch_size = window * windows_per_batch;
-        let mut provider_page = request.page.max(1);
-        let mut skipped = 0usize;
-        let mut batch: Option<(usize, Vec<Value>, bool)> = None;
-        loop {
-            let batch_page = (provider_page - 1) / windows_per_batch + 1;
-            if batch
-                .as_ref()
-                .is_none_or(|(page, _, _)| *page != batch_page)
-            {
-                let (raw, next) = self
-                    .issue_batch(request, batch_page, batch_size, context)
-                    .await?;
-                batch = Some((batch_page, raw, next));
-            }
-            let Some((_, raw, next)) = batch.as_ref() else {
-                unreachable!("batch fetched above");
-            };
-            let offset = ((provider_page - 1) % windows_per_batch) * window;
-            let window_end = offset + window;
-            let items: Vec<Value> = raw
-                .iter()
-                .skip(offset)
-                .take(window)
-                .filter(|item| item.get("pull_request").is_none_or(Value::is_null))
-                .cloned()
-                .collect();
-            let last_has_more = raw.len() > window_end || *next;
-            if !items.is_empty() || !last_has_more || skipped >= MAX_PR_ONLY_PAGES_TO_SKIP {
-                let mut warnings = Vec::new();
-                if skipped > 0 {
-                    warnings.push(format!(
-                        "Skipped {skipped} pull-request-only page{}; results and pagination now reflect page {provider_page}.",
-                        if skipped == 1 { "" } else { "s" }
-                    ));
-                }
-                if items.is_empty() && last_has_more {
-                    warnings.push(format!(
-                        "This page contained only pull requests (the GitHub issues endpoint returns both; PRs are filtered out) — follow pagination.nextPage. {}",
-                        if skipped >= MAX_PR_ONLY_PAGES_TO_SKIP {
-                            format!("The useful-page scan reached its {MAX_PR_ONLY_PAGES_TO_SKIP}-page skip budget.")
-                        } else {
-                            "Later pages may contain issues.".into()
-                        }
-                    ));
-                }
-                return Ok(HistoryPage {
-                    total_count: 0,
-                    incomplete_results: false,
-                    items,
-                    provider_page,
-                    skipped_pull_request_pages: skipped,
-                    warnings,
-                    listed: true,
-                    has_more: last_has_more,
-                });
-            }
-            skipped += 1;
-            provider_page += 1;
-        }
-    }
-    /// One raw `/issues` provider page (issues and PRs) plus its next link.
-    async fn issue_batch(
-        &self,
-        request: &IssueListRequest,
-        page: usize,
-        per_page: usize,
-        context: &RequestContext,
-    ) -> Result<(Vec<Value>, bool), ProviderError> {
-        let mut url = self
-            .endpoint()
-            .rest(&["repos", &request.owner, &request.repo, "issues"])?;
-        {
-            let mut q = url.query_pairs_mut();
-            q.append_pair("page", &page.to_string())
-                .append_pair("per_page", &per_page.to_string());
-            let state = match request.state.as_deref() {
-                Some("open") | Some("closed") => request.state.as_deref().unwrap_or("all"),
-                _ => "all",
-            };
-            q.append_pair("state", state);
-            if let Some(sort) = request.sort.as_deref()
-                && matches!(sort, "created" | "updated" | "comments")
-            {
-                q.append_pair("sort", sort);
-            }
-            if let Some(order) = &request.order {
-                q.append_pair("direction", order);
-            }
-            if let Some(assignee) = &request.assignee {
-                q.append_pair("assignee", assignee);
-            }
-            if let Some(author) = &request.author {
-                q.append_pair("creator", author);
-            }
-            if let Some(mentions) = &request.mentions {
-                q.append_pair("mentioned", mentions);
-            }
-            if let Some(labels) = &request.labels {
-                q.append_pair("labels", &labels.join(","));
-            }
-        }
-        let response = self.execute(RequestSpec::get(url), context).await?;
-        let raw: Vec<Value> = serde_json::from_slice(&response.body).map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Decode,
-                "invalid GitHub issue list response",
-            )
-        })?;
-        Ok((raw, response.next.is_some()))
     }
     pub async fn list_pull_requests(
         &self,
@@ -343,7 +191,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             incomplete_results: false,
             items,
             provider_page: request.page,
-            skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: true,
             has_more,
@@ -411,7 +258,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 .cloned()
                 .unwrap_or_default(),
             provider_page: request.page,
-            skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: false,
             has_more: false,

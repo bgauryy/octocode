@@ -321,11 +321,7 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
 /// the request (not the whole file), otherwise the file's default view.
 pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
     let path = query.uri().map(uri_to_path).unwrap_or_default();
-    let mut read = json!({
-        "path": path,
-        "goal": query.goal(),
-        "reasoning": "Read the source directly because semantic navigation is unavailable."
-    });
+    let mut read = json!({ "path": path });
     if let Some(symbol) = query.symbol_name().filter(|name| !name.trim().is_empty()) {
         read["matchString"] = json!(symbol);
         read["matchStringCaseSensitive"] = json!(true);
@@ -333,6 +329,7 @@ pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
     }
     value["next"]["readFile"] = json!({
         "tool": "localFetch",
+        "why": "Read the source directly because semantic navigation is unavailable.",
         "query": read,
         "confidence": "exact"
     });

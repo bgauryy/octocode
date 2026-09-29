@@ -1,11 +1,23 @@
-use super::execute_structure;
+use super::{StructureResult, StructureSearchQuery, execute_structure};
 use crate::{
     policy::path::{PathPolicy, PathPolicyConfig},
     security::ContentSecurity,
-    tools::local_fetch::CancellationCheck,
+    tools::cancel::CancellationCheck,
 };
 use serde_json::{Value, json};
 use std::path::PathBuf;
+
+/// Tests speak JSON rows; the runtime owns the typed parse.
+fn execute_row(
+    query: Value,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancellation: &dyn CancellationCheck,
+) -> StructureResult {
+    let query: StructureSearchQuery =
+        serde_json::from_value(query).expect("typed structureSearch row");
+    execute_structure(&query, paths, security, cancellation)
+}
 
 struct Fixture(PathBuf);
 impl Fixture {
@@ -41,9 +53,9 @@ fn simple_policy(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
     (paths, ContentSecurity::new())
 }
 
-fn run(root: &std::path::Path, query: Value) -> super::StructureResult {
+fn run(root: &std::path::Path, query: Value) -> StructureResult {
     let (paths, security) = simple_policy(root);
-    execute_structure(query, &paths, &security, &Active)
+    execute_row(query, &paths, &security, &Active)
 }
 
 #[test]
@@ -59,6 +71,30 @@ fn invalid_time_filters_are_rejected_instead_of_skipped() {
         assert_eq!(error.code, "invalidInput");
         assert!(error.message.contains(field), "{}", error.message);
     }
+}
+
+#[test]
+fn invalid_size_filter_is_invalid_input_not_an_execution_failure() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("source.rs"), "source\n").expect("source");
+    let error = run(
+        &root.0,
+        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"size":{"greater":"10zz"}}),
+    )
+    .expect_err("an unparsable size must be rejected");
+    assert_eq!(error.code, "invalidInput", "{error:?}");
+    assert!(error.message.contains("10zz"), "{}", error.message);
+}
+
+#[test]
+fn missing_path_is_not_found() {
+    let root = Fixture::new();
+    let error = run(
+        &root.0,
+        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0.join("nope")}),
+    )
+    .expect_err("missing path");
+    assert_eq!(error.code, "structure.policy.notFound", "{error:?}");
 }
 
 #[test]
@@ -79,6 +115,7 @@ fn modified_and_full_detail_return_the_file_modification_time() {
         if detail == "basic" {
             assert!(out["files"][0].get("modifiedMs").is_none());
         } else {
+            assert!(out["files"][0]["modifiedMs"].is_i64(), "{out}");
             let actual = out["files"][0]["modifiedMs"].as_f64().expect("modifiedMs");
             assert!((actual - modified).abs() < 1.0, "{out}");
         }
@@ -126,7 +163,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
         json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"hidden":true}),
     )
     .expect("tree");
-    assert_eq!(tree["entries"], json!(["visible.rs (21.0B)"]), "{tree}");
+    assert_eq!(tree["entries"], json!(["visible.rs (21B)"]), "{tree}");
 }
 
 #[test]
@@ -145,7 +182,7 @@ fn cancellation_interrupts_descendant_traversal() {
     std::fs::write(root.0.join("source.rs"), "source").expect("source");
     let (paths, security) = simple_policy(&root.0);
     for operation in ["files", "tree"] {
-        let error = execute_structure(
+        let error = execute_row(
             json!({"operation":operation,"goal": "test", "reasoning":"test","path":root.0}),
             &paths,
             &security,
@@ -169,7 +206,7 @@ fn escaped_links_are_pruned_before_line_counting() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let files = execute_structure(
+    let files = execute_row(
         json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
         &paths,
         &security,
@@ -187,7 +224,7 @@ fn files_path_sort_is_lexicographic_and_stable() {
     }
     let (paths, security) = simple_policy(&root.0);
     let run = || {
-        let out = execute_structure(
+        let out = execute_row(
             json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","sort":"path"}),
             &paths,
             &security,
@@ -216,7 +253,7 @@ fn files_continuation_rejects_stale_snapshot() {
         std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
     }
     let (paths, security) = simple_policy(&root.0);
-    let page1 = execute_structure(
+    let page1 = execute_row(
         json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2}),
         &paths,
         &security,
@@ -225,7 +262,7 @@ fn files_continuation_rejects_stale_snapshot() {
     .expect("page1");
     let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
     // Happy path: the freshly emitted snapshot must be accepted on page 2.
-    let good = execute_structure(
+    let good = execute_row(
         json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
@@ -238,7 +275,7 @@ fn files_continuation_rejects_stale_snapshot() {
     );
     assert_eq!(good["pagination"]["currentPage"], json!(2));
     std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
-    let page2 = execute_structure(
+    let page2 = execute_row(
         json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
@@ -314,7 +351,7 @@ fn tree_outlines_in_path_order_with_bounded_depth() {
         json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"maxDepth":0}),
     )
     .expect("top");
-    assert_eq!(top["entries"], json!(["README.md (0.0B)", "src/"]), "{top}");
+    assert_eq!(top["entries"], json!(["README.md (0B)", "src/"]), "{top}");
     assert!(top.get("pagination").is_none(), "{top}");
     let all = run(
         &root.0,
@@ -324,15 +361,15 @@ fn tree_outlines_in_path_order_with_bounded_depth() {
     assert_eq!(
         all["entries"],
         json!([
-            "README.md (0.0B)",
+            "README.md (0B)",
             "src/",
             "src/deep/",
-            "src/deep/leaf.rs (1.0B)",
-            "src/lib.rs (2.0B)"
+            "src/deep/leaf.rs (1B)",
+            "src/lib.rs (2B)"
         ]),
         "{all}"
     );
-    assert_eq!(all["summary"], "5 entries (3 files, 2 dirs, 3.0B)");
+    assert_eq!(all["summary"], "5 entries (3 files, 2 dirs, 3B)");
     let dirs = run(
         &root.0,
         json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"maxDepth":5,"entryType":"d"}),
@@ -359,7 +396,7 @@ fn tree_pages_through_next_and_rejects_stale_snapshots() {
     let page2 = run(&root.0, next["query"].clone()).expect("page2");
     assert_eq!(
         page2["entries"],
-        json!(["f2.txt (1.0B)", "f3.txt (1.0B)"]),
+        json!(["f2.txt (1B)", "f3.txt (1B)"]),
         "{page2}"
     );
     std::fs::write(root.0.join("f9.txt"), "x").expect("mutate");
@@ -375,8 +412,10 @@ fn old_ast_shapes_are_not_structure_queries() {
         json!({"operation":"syntaxTree","goal": "test", "reasoning":"test","path":root.0}),
         json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"langType":"rust"}),
     ] {
-        let error = run(&root.0, retired).expect_err("not a structureSearch query");
-        assert_eq!(error.code, "structure.input.invalid");
+        assert!(
+            serde_json::from_value::<StructureSearchQuery>(retired).is_err(),
+            "not a structureSearch query"
+        );
     }
 }
 

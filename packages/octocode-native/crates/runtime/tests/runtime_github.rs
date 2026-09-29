@@ -381,22 +381,18 @@ async fn gh_search_history_commits_lists_via_rest() {
 }
 
 #[tokio::test]
-async fn gh_search_history_issues_lists_via_rest() {
+async fn gh_search_history_issues_list_via_issue_search() {
+    // Plain issue listings page `is:issue` search results: GitHub's REST
+    // /issues list interleaves pull requests, which left pages short.
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"full_name":"a/b","default_branch":"main"})),
-        )
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/issues"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"number": 42, "title": "Memory leak in parser", "state": "open",
-             "user": {"login": "alice"}, "labels": [], "pull_request": null}
-        ])))
+        .and(path("/api/v3/search/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 1,
+            "incomplete_results": false,
+            "items": [{"number": 42, "title": "Memory leak in parser", "state": "open",
+                       "user": {"login": "alice"}, "labels": []}]
+        })))
         .mount(&server)
         .await;
 
@@ -421,6 +417,18 @@ async fn gh_search_history_issues_lists_via_rest() {
         rendered.contains("Memory leak"),
         "expected issue in {rendered}"
     );
+    let requests = server.received_requests().await.expect("recorded");
+    let q = requests
+        .iter()
+        .find(|r| r.url.path() == "/api/v3/search/issues")
+        .and_then(|r| {
+            r.url
+                .query_pairs()
+                .find(|(k, _)| k == "q")
+                .map(|(_, v)| v.into_owned())
+        })
+        .expect("issue search request");
+    assert!(q.contains("repo:a/b") && q.contains("is:issue"), "{q}");
     runtime.close().await;
 }
 

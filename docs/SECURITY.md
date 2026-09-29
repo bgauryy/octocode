@@ -36,6 +36,16 @@ The runtime scans untrusted provider and filesystem content before rendering it.
 
 The Rust implementation is the only production scanner. `patterns.rs` is its source of truth; a test-only complete regex set verifies that the optimized literal prescan does not lose matches.
 
+### Classification egress
+
+`clasify` sends data to the configured classification provider (`OCTOCODE_CLASSIFICATION_API_HOST`, default Jev); nothing leaves when no key is set. Each request carries:
+- the captured evidence, after the same output sanitization as a direct tool call, including a search page's absolute `base`;
+- the matrix `goal` and `reasoning`;
+- the question text;
+- a `read` descriptor naming the tool and its query (search text, paths, repositories).
+
+The `read` query passes the input security policy before it is sent: a query the policy rejects is dropped, and secrets in it are redacted. Paging tokens (`snapshot`, `cursor`) are removed. Treat everything in a clasify matrix as disclosed to that provider.
+
 ## Filesystem policy
 
 Every local operation resolves through `packages/octocode-native/crates/runtime/src/policy/path.rs`.

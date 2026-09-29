@@ -54,6 +54,10 @@ fn walk_error(error: impl ToString) -> StructureError {
         "structure.policy.permissionDenied"
     } else if lower.contains("invalid") && lower.contains("regex") {
         "structure.query.invalidPattern"
+    } else if lower.starts_with("invalid ") {
+        // The engine rejects a malformed filter value (`size`, `time`, ...)
+        // before walking: caller input, like the typed time-filter checks.
+        "invalidInput"
     } else {
         "structure.execution.failed"
     };
@@ -63,7 +67,7 @@ fn walk_error(error: impl ToString) -> StructureError {
 fn allow_discovery(
     path: &std::path::Path,
     paths: &crate::policy::path::PathPolicy,
-    cancel: &dyn crate::tools::local_fetch::CancellationCheck,
+    cancel: &dyn crate::tools::cancel::CancellationCheck,
 ) -> Result<bool, String> {
     cancel
         .check()
@@ -105,15 +109,15 @@ fn continuation(query: &impl serde::Serialize, changes: Value) -> Value {
     json!({"tool":"structureSearch","query":query,"confidence":"exact"})
 }
 
+/// Execute one typed row. The runtime parses the validated row with its
+/// shared `parse_query`, so a shape mismatch has one code across tools.
 pub fn execute_structure(
-    query: Value,
+    query: &StructureSearchQuery,
     paths: &crate::policy::path::PathPolicy,
     security: &crate::security::ContentSecurity,
-    cancellation: &dyn crate::tools::local_fetch::CancellationCheck,
+    cancellation: &dyn crate::tools::cancel::CancellationCheck,
 ) -> StructureResult {
-    let query: StructureSearchQuery = serde_json::from_value(query)
-        .map_err(|error| StructureError::new("structure.input.invalid", error.to_string()))?;
-    match &query {
+    match query {
         StructureSearchQuery::Tree(query) => {
             tree::execute_tree(query, paths, security, cancellation)
         }

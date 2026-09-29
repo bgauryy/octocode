@@ -18,9 +18,9 @@ pub use model::{
     Evidence, EvidenceId, EvidenceSource, GraphBuildMetrics, GraphBuildReceipt, GraphCompleteness,
     GraphFactCall, GraphFactCommonJs, GraphFactDeclaration, GraphFactEdge, GraphFactExport,
     GraphFactImport, GraphFactRustModule, GraphFactsDocument, GraphFactsTypedEntry,
-    GraphFactsTypedScanResult, GraphPosition, GraphRange, NodeId, NodeKind, SemanticObservation,
-    SemanticObservationInput, SemanticOperation, SemanticOutcome, SemanticRelationInput,
-    ServerReceipt, SnapshotMetadata, SymbolAnchor,
+    GraphFactsTypedScanResult, GraphPosition, GraphRange, IMPORT_USE_MODULE, NodeId, NodeKind,
+    SemanticObservation, SemanticObservationInput, SemanticOperation, SemanticOutcome,
+    SemanticRelationInput, ServerReceipt, SnapshotMetadata, SymbolAnchor,
 };
 pub use policy::{
     BaselineReport, BoundaryRule, BoundaryViolation, ComponentRule, Severity,

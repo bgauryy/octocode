@@ -1,7 +1,7 @@
 //! Changed files: selection filters, path scopes, per-file shaping and the
 //! shared patch char window.
 use super::HistoryItemRequest;
-use super::util::{minified_view, needle, paginate_text, str_at, string, usize_at};
+use super::util::{minified_view, needle, str_at, string, usize_at};
 use super::window::WindowState;
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
@@ -93,8 +93,7 @@ pub(super) fn shape_pr_files(
         .filter(|file| filter.matches(file))
         .collect::<Vec<_>>();
     let (slice, page) = state.paginate(filtered, query.file_page(), query.page_size());
-    let files_on_page = slice.len();
-    let shaped = slice
+    let slice = slice
         .into_iter()
         .map(|mut file| {
             if let Some((additions, deletions)) =
@@ -110,12 +109,29 @@ pub(super) fn shape_pr_files(
                 );
                 file["patch"] = Value::String(filtered_patch);
             }
-            let mut shaped = shape_file(&file, patch_mode != "none", query, files_on_page);
-            if let Some(name) = shaped.as_object_mut().and_then(|v| v.remove("filename")) {
-                shaped["path"] = name;
-            }
-            if let Some(shaped) = shaped.as_object_mut() {
-                shaped.remove("previousFilename");
+            file
+        })
+        .collect::<Vec<_>>();
+    // The patch continuation narrows the selection to the unfinished files,
+    // so its cursor is relative to the first of them.
+    let patches = shape_patch_page(
+        slice,
+        patch_mode != "none",
+        query,
+        PatchCursor::FirstUnfinished,
+    );
+    let shaped = patches
+        .rows
+        .into_iter()
+        .map(|mut shaped| {
+            if let Some(fields) = shaped.as_object_mut() {
+                if let Some(name) = fields.remove("filename") {
+                    fields.insert("path".into(), name);
+                }
+                // A rename's origin path (PR rows use the `path` vocabulary).
+                if let Some(previous) = fields.remove("previousFilename") {
+                    fields.insert("previousPath".into(), previous);
+                }
             }
             shaped
         })
@@ -123,26 +139,14 @@ pub(super) fn shape_pr_files(
     if !shaped.is_empty() {
         row["changedFiles"] = Value::Array(shaped);
     }
-    // Every file on the page shares one char window, so one continuation
-    // covers them all; list each unfinished file, not just the first.
-    if patch_mode != "none" {
-        let unfinished = row
-            .get("changedFiles")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|v| v.pointer("/patchPagination/hasMore") == Some(&json!(true)))
-            .collect::<Vec<_>>();
-        if let Some(first) = unfinished.first() {
-            let mut patch_page = first["patchPagination"].clone();
-            patch_page["files"] = json!(
-                unfinished
-                    .iter()
-                    .filter_map(|v| str_at(v, "/path"))
-                    .collect::<Vec<_>>()
-            );
-            pagination.insert("patches".into(), patch_page);
-        }
+    // One continuation covers the page's patch stream; it lists every
+    // unfinished file (the cut one plus those not yet started).
+    if patch_mode != "none"
+        && let Some(cursor) = shaped_cursor(row.get("changedFiles"))
+    {
+        let mut patch_page = cursor;
+        patch_page["files"] = json!(patches.unfinished);
+        pagination.insert("patches".into(), patch_page);
     }
     pagination.insert("changedFiles".into(), page);
     selection_requested && !selected_path_matched && state.exhausted
@@ -163,61 +167,217 @@ fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
     }
 }
 
-/// Shape one changed file. `files_on_page` splits the per-page patch budget
-/// so a page of patches fits one automatic response page; the shared
-/// `charOffset` continuation keeps every file lossless.
-pub(super) fn shape_file(
-    file: &Value,
-    include_patch: bool,
-    query: &HistoryItemRequest,
-    files_on_page: usize,
-) -> Value {
-    let mut out = json!({"filename":str_at(file,"/filename").unwrap_or(""),"status":string(file.get("status")),"additions":usize_at(file,"/additions"),"deletions":usize_at(file,"/deletions"),"previousFilename":file.get("previous_filename")});
-    if include_patch {
-        if let Some(patch) = file.get("patch").and_then(Value::as_str) {
-            let patch = history_patch_view(patch, query);
-            let (text, page) = paginate_text(
-                &patch,
-                query.char_offset(),
-                Some(patch_window(
-                    query.char_length(),
-                    files_on_page,
-                    query.auto_page_chars,
-                )),
-            );
-            out["patch"] = json!(text);
-            if query.char_offset().unwrap_or(0) > 0 || page["hasMore"] == true {
-                out["patchPagination"] = page;
-            }
-        } else {
-            out["isPartial"] = json!(true);
-            out["terminalLimit"] = json!(true);
-            out["patchUnavailable"] = json!({"reason":"providerOmittedPatch"});
-        }
-    }
-    remove_nulls(&mut out);
-    out
+/// How a patch page's continuation cursor (`nextCharOffset`) is counted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PatchCursor {
+    /// Offset into the whole page's patch stream; the continuation repeats
+    /// the same file page (commit and compare).
+    Page,
+    /// Offset into the stream of the unfinished files only; the continuation
+    /// narrows the file selection to them (pull requests).
+    FirstUnfinished,
 }
 
-/// Shape a page of files with one shared patch window.
+/// A page of changed files sharing one patch char window.
+pub(super) struct PatchPage {
+    pub(super) rows: Vec<Value>,
+    /// Files whose patch is not fully delivered yet, in page order.
+    pub(super) unfinished: Vec<String>,
+}
+
+fn file_metadata(file: &Value) -> Value {
+    json!({"filename":str_at(file,"/filename").unwrap_or(""),"status":string(file.get("status")),"additions":usize_at(file,"/additions"),"deletions":usize_at(file,"/deletions"),"previousFilename":file.get("previous_filename")})
+}
+
+/// Extensions GitHub never diffs as text.
+const BINARY_EXTENSIONS: &[&str] = &[
+    "7z", "a", "avi", "bin", "bmp", "bz2", "class", "db", "dll", "dylib", "eot", "exe", "flac",
+    "gif", "gz", "ico", "jar", "jpeg", "jpg", "lib", "mov", "mp3", "mp4", "node", "o", "ogg",
+    "otf", "pdf", "png", "psd", "pyc", "rlib", "so", "sqlite", "tgz", "tiff", "ttf", "war", "wasm",
+    "wav", "webm", "webp", "woff", "woff2", "xz", "zip",
+];
+
+/// Why a changed file has no provider patch, or `None` when there is nothing
+/// to diff (a pure rename). `tooLarge`: GitHub omits a single oversized diff
+/// but still counts its lines. `binary`: a binary extension. `omitted`:
+/// GitHub sent neither patch nor line counts — binary, empty, or past the
+/// PR's total diff budget — so `additions`/`deletions` of 0 are not evidence
+/// of an unchanged file; read the file at `sourceSha` instead.
+pub(super) fn missing_patch_reason(file: &Value) -> Option<&'static str> {
+    let changes = usize_at(file, "/additions") + usize_at(file, "/deletions");
+    if changes > 0 {
+        return Some("tooLarge");
+    }
+    if str_at(file, "/status") == Some("renamed") {
+        return None;
+    }
+    let name = str_at(file, "/filename").unwrap_or("");
+    let binary = name
+        .rsplit_once('.')
+        .is_some_and(|(_, ext)| BINARY_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()));
+    Some(if binary { "binary" } else { "omitted" })
+}
+
+/// Inventory rows flag files GitHub sent without a patch. Only REST entries
+/// (which carry a blob `sha`) say anything about patches; GraphQL file nodes
+/// never include one.
+fn inventory_patch_flag(row: &mut Value, file: &Value) {
+    if file.get("patch").is_none()
+        && file.get("sha").is_some()
+        && let Some(reason) = missing_patch_reason(file)
+    {
+        row["patchUnavailable"] = json!(reason);
+    }
+}
+
+/// Shape a page of changed files. Patches are packed whole, in file order,
+/// into one char window over the page's concatenated patch stream: small
+/// patches arrive complete, and only the file that crosses the window end is
+/// cut. `charOffset` is that stream position, so a patch larger than the
+/// window continues inside the same file and completed files are not
+/// re-emitted. The first window also lists files not reached yet (metadata
+/// only), so the page's file list is visible up front.
+pub(super) fn shape_patch_page(
+    files: Vec<Value>,
+    include_patch: bool,
+    query: &HistoryItemRequest,
+    cursor_mode: PatchCursor,
+) -> PatchPage {
+    if !include_patch {
+        let rows = files
+            .iter()
+            .map(|file| {
+                let mut row = file_metadata(file);
+                inventory_patch_flag(&mut row, file);
+                remove_nulls(&mut row);
+                row
+            })
+            .collect();
+        return PatchPage {
+            rows,
+            unfinished: Vec::new(),
+        };
+    }
+    let views = files
+        .iter()
+        .map(|file| {
+            file.get("patch")
+                .and_then(Value::as_str)
+                .map(|patch| history_patch_view(patch, query))
+        })
+        .collect::<Vec<_>>();
+    let lengths = views
+        .iter()
+        .map(|view| view.as_deref().map_or(0, |v| v.chars().count()))
+        .collect::<Vec<_>>();
+    let total = lengths.iter().sum::<usize>();
+    let offset = query.char_offset().unwrap_or(0).min(total);
+    let end = (offset + patch_window(query.char_length(), query.auto_page_chars)).min(total);
+    let first_window = offset == 0;
+    // Stream start of every file, and of the first file not fully delivered.
+    let starts = lengths
+        .iter()
+        .scan(0usize, |acc, len| {
+            let start = *acc;
+            *acc += len;
+            Some(start)
+        })
+        .collect::<Vec<_>>();
+    let cursor_file = (0..files.len()).find(|&i| lengths[i] > 0 && starts[i] + lengths[i] > end);
+    let cursor = cursor_file.map(|i| match cursor_mode {
+        PatchCursor::Page => end,
+        PatchCursor::FirstUnfinished => end - starts[i],
+    });
+    let mut rows = Vec::new();
+    let mut unfinished = Vec::new();
+    for (i, (file, view)) in files.iter().zip(&views).enumerate() {
+        let (start, len) = (starts[i], lengths[i]);
+        let mut row = file_metadata(file);
+        match view {
+            // Binary or oversized files have no patch: nothing to window, so
+            // they are reported once, on the first window.
+            None => {
+                if !first_window {
+                    continue;
+                }
+                match missing_patch_reason(file) {
+                    // A pure rename changes no content: its diff is empty.
+                    None => row["patch"] = json!(""),
+                    Some(reason) => {
+                        row["isPartial"] = json!(true);
+                        row["terminalLimit"] = json!(true);
+                        row["patchUnavailable"] = json!(reason);
+                    }
+                }
+            }
+            Some(_) if len == 0 => {
+                if !first_window {
+                    continue;
+                }
+                row["patch"] = json!("");
+            }
+            Some(view) => {
+                if start + len <= offset {
+                    continue; // delivered by an earlier window
+                }
+                let local_start = offset.saturating_sub(start);
+                let local_end = end.saturating_sub(start).min(len);
+                let is_cursor = cursor_file == Some(i);
+                let started = local_end > local_start;
+                if local_end < len {
+                    unfinished.push(str_at(file, "/filename").unwrap_or("").to_owned());
+                }
+                // Files not reached yet are listed on the first window only.
+                if !started && !is_cursor && !first_window {
+                    continue;
+                }
+                if started || is_cursor {
+                    let text = view
+                        .chars()
+                        .skip(local_start)
+                        .take(local_end.saturating_sub(local_start))
+                        .collect::<String>();
+                    row["patch"] = json!(text);
+                }
+                let cut = local_end < len;
+                if cut || local_start > 0 {
+                    let taken = local_end.saturating_sub(local_start);
+                    let mut page = json!({"charOffset":local_start,"charLength":taken,"totalChars":len,"hasMore":cut});
+                    if is_cursor && let Some(cursor) = cursor {
+                        page["nextCharOffset"] = json!(cursor);
+                    }
+                    row["patchPagination"] = page;
+                }
+            }
+        }
+        remove_nulls(&mut row);
+        rows.push(row);
+    }
+    PatchPage { rows, unfinished }
+}
+
+/// The patch window row that carries the continuation cursor.
+fn shaped_cursor(rows: Option<&Value>) -> Option<Value> {
+    rows.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|row| row.pointer("/patchPagination/nextCharOffset").is_some())
+        .map(|row| row["patchPagination"].clone())
+}
+
+/// Shape a commit or comparison file page (see [`shape_patch_page`]).
 pub(super) fn shape_files(
     files: Vec<Value>,
     include_patch: bool,
     query: &HistoryItemRequest,
 ) -> Value {
-    let count = files.len();
-    Value::Array(
-        files
-            .into_iter()
-            .map(|v| shape_file(&v, include_patch, query, count))
-            .collect(),
-    )
+    Value::Array(shape_patch_page(files, include_patch, query, PatchCursor::Page).rows)
 }
 
-/// Patch characters one page carries across all its files by default, and the
-/// ceiling for an explicit `charLength`, as shares of the effective automatic
-/// response page (`output.pagination.defaultCharLength`, 1k–50k). A page of
-/// patches plus row metadata then fits one response page, so
+/// Patch characters one call carries across a page's files by default, and
+/// the ceiling for an explicit `charLength`, as shares of the effective
+/// automatic response page (`output.pagination.defaultCharLength`, 1k–50k).
+/// A window of patches plus row metadata then fits one response page, so
 /// responsePagination rarely splits the row; when it does, the row's `next.*`
 /// rides only its last `rowPart`.
 const PATCH_DEFAULT_PAGE: usize = 8_000;
@@ -225,20 +385,15 @@ const PATCH_PAGE_BUDGET: usize = 12_000;
 /// Page assumed when the runtime did not supply one (direct callers, tests).
 const FALLBACK_AUTO_PAGE: usize = 20_000;
 
-fn patch_window(
-    char_length: Option<usize>,
-    files_on_page: usize,
-    auto_page: Option<usize>,
-) -> usize {
-    let files = files_on_page.max(1);
+fn patch_window(char_length: Option<usize>, auto_page: Option<usize>) -> usize {
     let page = auto_page
         .filter(|page| *page > 0)
         .unwrap_or(FALLBACK_AUTO_PAGE);
     let default = PATCH_DEFAULT_PAGE.min(page * 2 / 5);
     let budget = PATCH_PAGE_BUDGET.min(page * 3 / 5);
     match char_length {
-        Some(length) => length.min((budget / files).max(1)),
-        None => (default / files).max(1),
+        Some(length) => length.clamp(1, budget.max(1)),
+        None => default.max(1),
     }
 }
 
@@ -289,43 +444,224 @@ mod tests {
             .expect("patch query fixture should be valid")
     }
 
+    fn file(name: &str, patch: &str) -> Value {
+        json!({"filename":name,"status":"modified","patch":patch})
+    }
+
+    fn window(fields: Value) -> HistoryItemRequest {
+        let base = json!({
+            "operation":"commit","goal":"test","reasoning":"test",
+            "owner":"a","repo":"b","ref":"abc","includeDiff":true
+        });
+        HistoryItemRequest::from_row(super::super::util::merge(base, fields))
+            .expect("commit window fixture should be valid")
+    }
+
+    /// Follow a commit page's `nextCharOffset` cursor to the end and return
+    /// (calls, per-file reassembled patches, files reported patchless).
+    fn follow_commit_page(
+        files: &[Value],
+        char_length: Option<usize>,
+    ) -> (usize, HashMap<String, String>, Vec<String>) {
+        let mut offset = 0usize;
+        let mut calls = 0;
+        let mut patches = HashMap::<String, String>::new();
+        let mut patchless = Vec::new();
+        loop {
+            calls += 1;
+            assert!(calls < 1_000, "cursor did not advance");
+            let mut fields = json!({"charOffset":offset});
+            if let Some(length) = char_length {
+                fields["charLength"] = json!(length);
+            }
+            let page = shape_patch_page(files.to_vec(), true, &window(fields), PatchCursor::Page);
+            for row in &page.rows {
+                let name = str_at(row, "/filename").unwrap_or("").to_owned();
+                if row.get("patchUnavailable").is_some() {
+                    patchless.push(name.clone());
+                }
+                if let Some(text) = row.get("patch").and_then(Value::as_str) {
+                    patches.entry(name).or_default().push_str(text);
+                }
+            }
+            let Some(next) = shaped_cursor(Some(&Value::Array(page.rows)))
+                .and_then(|p| p["nextCharOffset"].as_u64())
+            else {
+                return (calls, patches, patchless);
+            };
+            assert!(next as usize > offset, "cursor must advance");
+            offset = next as usize;
+        }
+    }
+
+    /// D5: the page budget is not split evenly across files. Small patches
+    /// arrive whole, a patch larger than the window continues inside the same
+    /// file, and the call count is the stream length over the window.
     #[test]
-    fn multi_file_patch_continuation_survives_a_completed_first_file() {
+    fn commit_patches_pack_whole_files_and_continue_inside_a_large_one() {
+        let mut files = (0..29)
+            .map(|i| file(&format!("small{i}.rs"), &"s".repeat(300)))
+            .collect::<Vec<_>>();
+        files.insert(3, file("big.rs", &"b".repeat(35_000)));
+        let first = shape_patch_page(files.clone(), true, &window(json!({})), PatchCursor::Page);
+        // The first three small files arrive whole, not as 266-char slices.
+        for row in &first.rows[..3] {
+            assert_eq!(row["patch"].as_str().map(str::len), Some(300), "{row}");
+            assert!(row.get("patchPagination").is_none(), "{row}");
+        }
+        let big = &first.rows[3];
+        assert_eq!(big["patchPagination"]["charOffset"], 0);
+        assert_eq!(
+            big["patchPagination"]["charLength"],
+            PATCH_DEFAULT_PAGE - 900
+        );
+        assert_eq!(big["patchPagination"]["nextCharOffset"], PATCH_DEFAULT_PAGE);
+        // The rest of the page is listed (metadata only) on the first window.
+        assert_eq!(first.rows.len(), 30);
+        assert!(first.rows[4].get("patch").is_none());
+        assert_eq!(first.unfinished.len(), 27);
+
+        let second = shape_patch_page(
+            files.clone(),
+            true,
+            &window(json!({"charOffset":PATCH_DEFAULT_PAGE})),
+            PatchCursor::Page,
+        );
+        // Completed files are not re-emitted; the big patch continues in place.
+        assert_eq!(second.rows.len(), 1);
+        assert_eq!(second.rows[0]["filename"], "big.rs");
+        assert_eq!(
+            second.rows[0]["patchPagination"]["charOffset"],
+            PATCH_DEFAULT_PAGE - 900
+        );
+
+        let total: usize = 29 * 300 + 35_000;
+        let (calls, patches, _) = follow_commit_page(&files, None);
+        assert_eq!(calls, total.div_ceil(PATCH_DEFAULT_PAGE));
+        assert_eq!(patches["big.rs"], "b".repeat(35_000));
+        for i in 0..29 {
+            assert_eq!(patches[&format!("small{i}.rs")], "s".repeat(300));
+        }
+    }
+
+    #[test]
+    fn single_file_and_three_hundred_file_commits_stay_lossless() {
+        let one = vec![file("only.rs", &"x".repeat(20_000))];
+        let (calls, patches, _) = follow_commit_page(&one, None);
+        assert_eq!(calls, 3);
+        assert_eq!(patches["only.rs"], "x".repeat(20_000));
+
+        let many = (0..300)
+            .map(|i| file(&format!("f{i}.rs"), &format!("+{i}\n")))
+            .collect::<Vec<_>>();
+        let page = shape_patch_page(many.clone(), true, &window(json!({})), PatchCursor::Page);
+        assert_eq!(page.rows.len(), 300);
+        assert!(page.unfinished.is_empty());
+        assert!(shaped_cursor(Some(&Value::Array(page.rows))).is_none());
+        let (calls, patches, _) = follow_commit_page(&many, Some(50));
+        assert!(calls > 1);
+        for (i, source) in many.iter().enumerate() {
+            assert_eq!(
+                patches[&format!("f{i}.rs")],
+                source["patch"].as_str().unwrap_or("")
+            );
+        }
+    }
+
+    #[test]
+    fn binary_files_are_reported_once_and_never_block_the_cursor() {
+        let files = vec![
+            file("a.rs", &"a".repeat(10)),
+            json!({"filename":"logo.png","status":"added"}),
+            file("b.rs", &"b".repeat(10)),
+            json!({"filename":"tail.bin","status":"added"}),
+        ];
+        let (calls, patches, patchless) = follow_commit_page(&files, Some(4));
+        assert_eq!(calls, 5);
+        assert_eq!(patchless, ["logo.png", "tail.bin"]);
+        assert_eq!(patches["a.rs"], "a".repeat(10));
+        assert_eq!(patches["b.rs"], "b".repeat(10));
+        let only_binary = vec![json!({"filename":"logo.png","status":"added"})];
+        let page = shape_patch_page(only_binary, true, &window(json!({})), PatchCursor::Page);
+        assert_eq!(page.rows[0]["patchUnavailable"], "binary");
+        assert!(page.unfinished.is_empty());
+    }
+
+    #[test]
+    fn missing_patches_name_why_github_sent_none() {
+        let file = |name: &str, status: &str, additions: u64| json!({"filename":name,"status":status,"additions":additions,"deletions":0});
+        assert_eq!(
+            missing_patch_reason(&file("src/checker.ts", "modified", 9)),
+            Some("tooLarge")
+        );
+        assert_eq!(
+            missing_patch_reason(&file("app/favicon.ICO", "modified", 0)),
+            Some("binary")
+        );
+        assert_eq!(
+            missing_patch_reason(&file("src/core.ts", "modified", 0)),
+            Some("omitted")
+        );
+        assert_eq!(
+            missing_patch_reason(&file("src/new.rs", "renamed", 0)),
+            None
+        );
+    }
+
+    #[test]
+    fn pull_request_patch_cursor_is_relative_to_the_narrowed_selection() {
         let query = patch_query(2);
         let mut row = json!({});
         let mut pagination = Map::new();
-        let files = vec![
-            json!({"filename":"short.rs","status":"modified","patch":"ABCD"}),
-            json!({"filename":"long.rs","status":"modified","patch":"abcdefgh"}),
-        ];
-
+        let files = vec![file("short.rs", "ABCD"), file("long.rs", "abcdefgh")];
         let no_match = shape_pr_files(
             &mut row,
             &mut pagination,
-            files,
+            files.clone(),
             WindowState::COMPLETE,
             &query,
             None,
             "all",
         );
-
         assert!(!no_match);
         assert_eq!(row["changedFiles"][0]["patch"], "CD");
         assert_eq!(row["changedFiles"][0]["patchPagination"]["hasMore"], false);
-        assert_eq!(row["changedFiles"][1]["patch"], "cd");
-        assert_eq!(pagination["patches"]["hasMore"], true);
-        assert_eq!(pagination["patches"]["nextCharOffset"], 4);
+        assert_eq!(pagination["patches"]["files"], json!(["long.rs"]));
+        // The continuation selects only long.rs, whose stream starts at 0.
+        assert_eq!(pagination["patches"]["nextCharOffset"], 0);
 
-        let source = json!({"filename":"long.rs","status":"modified","patch":"abcdefgh"});
-        let rebuilt = [0, 2, 4, 6]
-            .into_iter()
-            .filter_map(|offset| {
-                shape_file(&source, true, &patch_query(offset), 1)["patch"]
-                    .as_str()
-                    .map(str::to_owned)
-            })
-            .collect::<String>();
-        assert_eq!(rebuilt.as_bytes(), b"abcdefgh");
+        // Follow the narrowed continuation (selection = unfinished files,
+        // charOffset = cursor) and rebuild every patch losslessly.
+        let mut selection = files.clone();
+        let mut offset = 0;
+        let mut rebuilt = HashMap::<String, String>::new();
+        for _ in 0..100 {
+            let page = shape_patch_page(
+                selection.clone(),
+                true,
+                &patch_query(offset),
+                PatchCursor::FirstUnfinished,
+            );
+            for row in &page.rows {
+                if let Some(text) = row.get("patch").and_then(Value::as_str) {
+                    rebuilt
+                        .entry(str_at(row, "/filename").unwrap_or("").to_owned())
+                        .or_default()
+                        .push_str(text);
+                }
+            }
+            let Some(next) = shaped_cursor(Some(&Value::Array(page.rows))) else {
+                break;
+            };
+            offset = next["nextCharOffset"].as_u64().unwrap_or(0) as usize;
+            selection.retain(|f| {
+                page.unfinished
+                    .iter()
+                    .any(|name| Some(name.as_str()) == str_at(f, "/filename"))
+            });
+        }
+        assert_eq!(rebuilt["short.rs"], "ABCD");
+        assert_eq!(rebuilt["long.rs"], "abcdefgh");
     }
 
     #[test]
@@ -398,7 +734,7 @@ mod tests {
         let mut pagination = Map::new();
         let files = vec![
             json!({"filename":"a.rs","status":"modified","patch":"ABCD"}),
-            json!({"filename":"done.rs","status":"modified","patch":"x"}),
+            json!({"filename":"next.rs","status":"modified","patch":"x"}),
             json!({"filename":"b.rs","status":"modified","patch":"abcdef"}),
         ];
         shape_pr_files(
@@ -410,7 +746,10 @@ mod tests {
             None,
             "all",
         );
-        assert_eq!(pagination["patches"]["files"], json!(["a.rs", "b.rs"]));
+        assert_eq!(
+            pagination["patches"]["files"],
+            json!(["a.rs", "next.rs", "b.rs"])
+        );
         let request: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"patches":{"mode":"all"}},"filePage":2
@@ -423,7 +762,7 @@ mod tests {
         let next = &out["next"]["continuePatch"]["query"];
         assert_eq!(
             next["content"]["patches"],
-            json!({"mode":"selected","files":["a.rs","b.rs"]}),
+            json!({"mode":"selected","files":["a.rs","next.rs","b.rs"]}),
             "{out}"
         );
         assert_eq!(next["filePage"], 1);
@@ -432,30 +771,29 @@ mod tests {
     }
 
     #[test]
-    fn patch_window_splits_the_page_budget_across_files() {
-        assert_eq!(patch_window(None, 1, None), PATCH_DEFAULT_PAGE);
-        assert_eq!(patch_window(None, 30, None), PATCH_DEFAULT_PAGE / 30);
-        assert_eq!(patch_window(Some(50_000), 30, None), PATCH_PAGE_BUDGET / 30);
-        assert_eq!(patch_window(Some(2), 30, None), 2);
-        assert_eq!(patch_window(None, 1, Some(50_000)), PATCH_DEFAULT_PAGE);
+    fn patch_window_is_one_budget_for_the_whole_page() {
+        assert_eq!(patch_window(None, None), PATCH_DEFAULT_PAGE);
+        assert_eq!(patch_window(Some(50_000), None), PATCH_PAGE_BUDGET);
+        assert_eq!(patch_window(Some(2), None), 2);
+        assert_eq!(patch_window(None, Some(50_000)), PATCH_DEFAULT_PAGE);
     }
 
     /// H4: at `defaultCharLength` 1000 the patch window shrinks with the page,
     /// so a page of patches still fits one automatic response page.
     #[test]
     fn patch_window_derives_from_the_effective_auto_page() {
-        assert_eq!(patch_window(None, 1, Some(1_000)), 400);
-        assert_eq!(patch_window(None, 4, Some(1_000)), 100);
-        assert_eq!(patch_window(Some(5_000), 1, Some(1_000)), 600);
+        assert_eq!(patch_window(None, Some(1_000)), 400);
+        assert_eq!(patch_window(Some(5_000), Some(1_000)), 600);
         let mut query = patch_request(json!({"charOffset":0}));
         query.auto_page_chars = Some(1_000);
         let patch = "+x\n".repeat(2_000);
-        let shaped = shape_file(
-            &json!({"filename":"a.rs","status":"modified","patch":patch}),
+        let page = shape_patch_page(
+            vec![json!({"filename":"a.rs","status":"modified","patch":patch})],
             true,
             &query,
-            1,
+            PatchCursor::FirstUnfinished,
         );
+        let shaped = &page.rows[0];
         let text = shaped["patch"].as_str().expect("patch");
         assert!(text.encode_utf16().count() <= 400, "{}", text.len());
         assert_eq!(shaped["patchPagination"]["hasMore"], true);

@@ -1,6 +1,8 @@
 pub use crate::contracts::tool_types::{AstSearchQueryMatchPattern, AstSearchQueryMatchRule};
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::{path::PathPolicy, prune::PruneMode},
+    security::ContentSecurity,
+    tools::cancel::CancellationCheck,
 };
 use octocode_engine::structural::{
     StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
@@ -57,6 +59,10 @@ impl MatchQuery<'_> {
     }
     pub fn exclude_dir(self) -> Option<Vec<String>> {
         either_form!(self, exclude_dir => non_empty(exclude_dir))
+    }
+    pub fn default_excludes(self) -> bool {
+        use crate::policy::prune::DefaultsFlag;
+        either_form!(self, default_excludes => default_excludes.defaults())
     }
     pub fn hidden(self) -> Option<bool> {
         either_form!(self, hidden => *hidden)
@@ -240,7 +246,9 @@ fn execute_match_inner(
                         })
                     }),
                     exclude: q.exclude(),
-                    exclude_dir: q.exclude_dir(),
+                    exclude_dir: Some(
+                        PruneMode::SyntaxVisible.directories(&q.exclude_dir().unwrap_or_default(), q.default_excludes()),
+                    ),
                     hidden: q.hidden(),
                     no_ignore: q.no_ignore(),
                     max_depth: q.max_depth().map(|depth| depth.saturating_add(1)),

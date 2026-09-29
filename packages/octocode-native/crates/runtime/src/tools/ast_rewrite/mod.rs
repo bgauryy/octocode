@@ -1,5 +1,5 @@
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -90,12 +90,6 @@ impl AstRewriteQuery {
             Self::Rule { .. } => "rule",
         }
     }
-    pub fn goal(&self) -> Option<&str> {
-        Some(either_kind!(self, goal => goal.as_str()))
-    }
-    pub fn reasoning(&self) -> &str {
-        either_kind!(self, reasoning => reasoning.as_str())
-    }
     pub fn path(&self) -> &str {
         either_kind!(self, path => path.as_str())
     }
@@ -113,6 +107,10 @@ impl AstRewriteQuery {
             Self::Pattern { rewrite, .. } => Some(rewrite),
             Self::Rule { .. } => None,
         }
+    }
+    pub fn default_excludes(&self) -> bool {
+        use crate::policy::prune::DefaultsFlag;
+        either_kind!(self, default_excludes => default_excludes.defaults())
     }
     pub fn include(&self) -> Option<Vec<String>> {
         either_kind!(self, include => include
@@ -164,36 +162,31 @@ impl AstRewriteQuery {
     }
 }
 
-/// A parsed astRewrite row.
+/// A parsed astRewrite row. The runtime parses it with its shared
+/// `parse_query`, so a shape mismatch has one code across tools.
 #[derive(Clone, Debug)]
 pub struct RewriteRequest {
     query: AstRewriteQuery,
-    /// The row's ast-grep rule JSON (`rule`, `constraints`, `utils`,
-    /// `transform`, `fix`), forwarded verbatim. typify models the record
-    /// fields as `HashMap`s, whose iteration order would make the rule config
-    /// and the preview snapshot digest nondeterministic.
-    rule_json: Map<String, Value>,
+    /// The validated row as received. Security validation reads it, and the
+    /// ast-grep rule JSON (`rule`, `constraints`, `utils`, `transform`, `fix`)
+    /// is forwarded from it verbatim: typify models those record fields as
+    /// `HashMap`s, whose iteration order would make the rule config and the
+    /// preview snapshot digest nondeterministic.
+    row: Value,
+}
+
+impl<'de> Deserialize<'de> for RewriteRequest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let row = Value::deserialize(deserializer)?;
+        let query = serde_json::from_value(row.clone()).map_err(serde::de::Error::custom)?;
+        Ok(Self { query, row })
+    }
 }
 
 impl RewriteRequest {
-    pub fn from_row(row: Value) -> Result<Self, serde_json::Error> {
-        let rule_json = row
-            .as_object()
-            .map(|object| {
-                ["rule", "constraints", "utils", "transform", "fix"]
-                    .into_iter()
-                    .filter_map(|key| Some((key.to_owned(), object.get(key)?.clone())))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(Self {
-            query: serde_json::from_value(row)?,
-            rule_json,
-        })
-    }
     fn rule_field(&self, key: &str) -> Option<&Value> {
         (self.query.rule_kind() == "rule")
-            .then(|| self.rule_json.get(key))
+            .then(|| self.row.get(key))
             .flatten()
     }
     pub fn rule(&self) -> Option<&Value> {
@@ -371,7 +364,7 @@ fn recovery_hint(code: &str) -> Option<&'static str> {
 /// Execute one canonical structural-rewrite query. Domain failures are returned
 /// as typed result values so bulk callers retain per-query diagnostics.
 pub fn execute_ast_rewrite_with_options(
-    query: Value,
+    query: RewriteRequest,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancellation: &dyn CancellationCheck,
@@ -384,22 +377,20 @@ pub fn execute_ast_rewrite_with_options(
 }
 
 fn execute(
-    query_value: Value,
+    query: RewriteRequest,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancellation: &dyn CancellationCheck,
     options: &AstRewriteRuntimeOptions,
 ) -> Result<Value, RewriteError> {
     cancellation.check().map_err(cancelled)?;
-    let checked = security.validate_input_parameters(&query_value);
+    let checked = security.validate_input_parameters(&query.row);
     if !checked.is_valid {
         return Err(RewriteError::new(
             "ast.rewrite.security_validation_failed",
             checked.warnings.join("; "),
         ));
     }
-    let query = RewriteRequest::from_row(query_value)
-        .map_err(|error| RewriteError::new("ast.rewrite.input_invalid", error.to_string()))?;
     validate_query(&query)?;
     if query.apply() && !options.allow_apply {
         return Err(RewriteError::new(
@@ -530,7 +521,7 @@ fn execute(
 fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
     if query.path().trim().is_empty() || query.lang_type().trim().is_empty() {
         return Err(RewriteError::new(
-            "ast.rewrite.input_invalid",
+            "ast.rewrite.input.invalid",
             "path and langType must not be blank.",
         ));
     }
@@ -542,13 +533,13 @@ fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
     }
     if query.max_files() > 50_000 {
         return Err(RewriteError::new(
-            "ast.rewrite.input_invalid",
+            "ast.rewrite.input.invalid",
             "maxFiles must be between 1 and 50000.",
         ));
     }
     if query.max_matches() > 100_000 {
         return Err(RewriteError::new(
-            "ast.rewrite.input_invalid",
+            "ast.rewrite.input.invalid",
             "maxMatches must be between 1 and 100000.",
         ));
     }
@@ -559,7 +550,7 @@ fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
         .is_some_and(|pattern| pattern.trim().is_empty())
     {
         return Err(RewriteError::new(
-            "ast.rewrite.input_invalid",
+            "ast.rewrite.input.invalid",
             "The selected ruleKind is missing its required rewrite fields.",
         ));
     }
@@ -599,7 +590,7 @@ fn engine_error(error: String) -> RewriteError {
         .map(|(tag, _)| tag);
     let code = match tag {
         Some("structural.rewrite.invalid" | "structural.rewrite.json") => {
-            "ast.rewrite.input_invalid"
+            "ast.rewrite.input.invalid"
         }
         Some("structural.rewrite.matchLimit") => "ast.rewrite.match_limit",
         _ => "ast.rewrite.execution_failed",
@@ -665,7 +656,7 @@ fn run_scan(
     let config = analyzer.config();
     let max_files = u32::try_from(query.max_files()).map_err(|_| {
         RewriteError::new(
-            "ast.rewrite.input_invalid",
+            "ast.rewrite.input.invalid",
             "maxFiles exceeds the native engine limit.",
         )
     })?;
@@ -673,11 +664,14 @@ fn run_scan(
         octocode_engine::structural::StructuralRewriteFilesOptions {
             path: target.to_string_lossy().into_owned(),
             rule_config_json: serde_json::to_string(config).map_err(|error| {
-                RewriteError::new("ast.rewrite.input_invalid", error.to_string())
+                RewriteError::new("ast.rewrite.input.invalid", error.to_string())
             })?,
             include: query.include().clone(),
             exclude: query.exclude().clone(),
-            exclude_dir: None,
+            exclude_dir: Some(
+                crate::policy::prune::PruneMode::SyntaxVisible
+                    .directories(&[], query.default_excludes()),
+            ),
             hidden: Some(false),
             no_ignore: Some(false),
             max_depth: None,
@@ -1407,6 +1401,88 @@ fn create_private_dir_all(path: &Path) -> Result<(), RewriteError> {
     Ok(())
 }
 
+/// Unchanged lines shown around each hunk of the preview patch.
+const PATCH_CONTEXT: usize = 3;
+/// Edit-distance budget for the line diff. Past it the changed region is shown
+/// as one replaced block: still a correct patch, just not minimal.
+const PATCH_MAX_EDITS: usize = 4096;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LineOp {
+    Equal,
+    Delete,
+    Insert,
+}
+
+/// Myers shortest edit script over lines. `None` when the script needs more
+/// than `max_edits` insertions plus deletions. Memory is O(D²) in the edit
+/// count, not O(N·M) in the file size.
+fn line_diff(old: &[&str], new: &[&str], max_edits: usize) -> Option<Vec<LineOp>> {
+    let (n, m) = (old.len() as isize, new.len() as isize);
+    let limit = (old.len() + new.len()).min(max_edits) as isize;
+    let offset = limit + 1;
+    let mut v = vec![0isize; (2 * offset + 1) as usize];
+    // trace[d] holds v[-(d+1)..=(d+1)] as it was before step d.
+    let mut trace: Vec<Vec<isize>> = Vec::new();
+    let mut found = false;
+    'search: for d in 0..=limit {
+        trace.push(v[(offset - d - 1) as usize..=(offset + d + 1) as usize].to_vec());
+        let mut k = -d;
+        while k <= d {
+            let at = |k: isize| (offset + k) as usize;
+            let mut x = if k == -d || (k != d && v[at(k - 1)] < v[at(k + 1)]) {
+                v[at(k + 1)]
+            } else {
+                v[at(k - 1)] + 1
+            };
+            let mut y = x - k;
+            while x < n && y < m && old[x as usize] == new[y as usize] {
+                x += 1;
+                y += 1;
+            }
+            v[at(k)] = x;
+            if x >= n && y >= m {
+                found = true;
+                break 'search;
+            }
+            k += 2;
+        }
+    }
+    if !found {
+        return None;
+    }
+    let mut ops = Vec::with_capacity(old.len() + new.len());
+    let (mut x, mut y) = (n, m);
+    for (d, snapshot) in trace.iter().enumerate().rev() {
+        let d = d as isize;
+        let get = |k: isize| snapshot[(k + d + 1) as usize];
+        let k = x - y;
+        let prev_k = if k == -d || (k != d && get(k - 1) < get(k + 1)) {
+            k + 1
+        } else {
+            k - 1
+        };
+        let prev_x = get(prev_k);
+        let prev_y = prev_x - prev_k;
+        while x > prev_x && y > prev_y {
+            ops.push(LineOp::Equal);
+            x -= 1;
+            y -= 1;
+        }
+        if d > 0 {
+            ops.push(if x == prev_x {
+                LineOp::Insert
+            } else {
+                LineOp::Delete
+            });
+            x = prev_x;
+            y = prev_y;
+        }
+    }
+    ops.reverse();
+    Some(ops)
+}
+
 fn create_unified_patch(path: &str, before: &str, after: &str) -> String {
     if before == after {
         return String::new();
@@ -1428,45 +1504,74 @@ fn create_unified_patch(path: &str, before: &str, after: &str) -> String {
     {
         suffix += 1;
     }
-    let context_start = prefix.saturating_sub(3);
-    let old_end = old
-        .len()
-        .min(old.len().saturating_sub(suffix).saturating_add(3));
-    let leading = &old[context_start..prefix];
-    let removed = &old[prefix..old.len().saturating_sub(suffix)];
-    let added = &new[prefix..new.len().saturating_sub(suffix)];
-    let trailing = &old[old.len().saturating_sub(suffix)..old_end];
+    let old_mid = &old[prefix..old.len() - suffix];
+    let new_mid = &new[prefix..new.len() - suffix];
+    let middle = line_diff(old_mid, new_mid, PATCH_MAX_EDITS).unwrap_or_else(|| {
+        let mut block = vec![LineOp::Delete; old_mid.len()];
+        block.extend(std::iter::repeat_n(LineOp::Insert, new_mid.len()));
+        block
+    });
+    // Whole-file script, each op with the old/new line index it consumes.
+    let mut ops = Vec::with_capacity(prefix + middle.len() + suffix);
+    let (mut oi, mut ni) = (0usize, 0usize);
+    for op in std::iter::repeat_n(LineOp::Equal, prefix)
+        .chain(middle)
+        .chain(std::iter::repeat_n(LineOp::Equal, suffix))
+    {
+        ops.push((op, oi, ni));
+        match op {
+            LineOp::Equal => {
+                oi += 1;
+                ni += 1;
+            }
+            LineOp::Delete => oi += 1,
+            LineOp::Insert => ni += 1,
+        }
+    }
+    // Group changes whose unchanged gap fits inside two contexts into one hunk.
+    let mut groups: Vec<(usize, usize)> = Vec::new();
+    for (index, (op, _, _)) in ops.iter().enumerate() {
+        if *op == LineOp::Equal {
+            continue;
+        }
+        match groups.last_mut() {
+            Some(group) if index - group.1 <= 2 * PATCH_CONTEXT + 1 => group.1 = index,
+            _ => groups.push((index, index)),
+        }
+    }
     let mut patch = String::new();
     patch.push_str(&format!("--- a/{path}\n"));
     patch.push_str(&format!("+++ b/{path}\n"));
-    patch.push_str(&format!(
-        "@@ -{},{} +{},{} @@\n",
-        context_start + 1,
-        leading.len() + removed.len() + trailing.len(),
-        context_start + 1,
-        leading.len() + added.len() + trailing.len()
-    ));
-    let mut push_line = |marker: char, line: &str| {
-        patch.push(marker);
-        patch.push_str(line);
-        if !line.ends_with('\n') {
-            // A line without a trailing newline (final line of a no-EOF-newline
-            // file) still needs to terminate the diff row it lives on.
-            patch.push('\n');
-            patch.push_str("\\ No newline at end of file\n");
+    for (first, last) in groups {
+        let lo = first.saturating_sub(PATCH_CONTEXT);
+        let hi = (last + PATCH_CONTEXT).min(ops.len() - 1);
+        let hunk = &ops[lo..=hi];
+        let old_count = hunk.iter().filter(|(op, ..)| *op != LineOp::Insert).count();
+        let new_count = hunk.iter().filter(|(op, ..)| *op != LineOp::Delete).count();
+        // An empty side names the line before the hunk (unified-diff rule).
+        let start = |index: usize, count: usize| if count == 0 { index } else { index + 1 };
+        patch.push_str(&format!(
+            "@@ -{},{} +{},{} @@\n",
+            start(hunk[0].1, old_count),
+            old_count,
+            start(hunk[0].2, new_count),
+            new_count
+        ));
+        for &(op, oi, ni) in hunk {
+            let (marker, line) = match op {
+                LineOp::Equal => (' ', old[oi]),
+                LineOp::Delete => ('-', old[oi]),
+                LineOp::Insert => ('+', new[ni]),
+            };
+            patch.push(marker);
+            patch.push_str(line);
+            if !line.ends_with('\n') {
+                // A line without a trailing newline (final line of a no-EOF-newline
+                // file) still needs to terminate the diff row it lives on.
+                patch.push('\n');
+                patch.push_str("\\ No newline at end of file\n");
+            }
         }
-    };
-    for line in leading {
-        push_line(' ', line);
-    }
-    for line in removed {
-        push_line('-', line);
-    }
-    for line in added {
-        push_line('+', line);
-    }
-    for line in trailing {
-        push_line(' ', line);
     }
     patch
 }
@@ -1477,6 +1582,18 @@ mod tests {
     use super::*;
     use crate::policy::path::PathPolicyConfig;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Tests speak JSON rows; the runtime owns the typed parse.
+    fn rewrite_row(
+        query: Value,
+        paths: &PathPolicy,
+        security: &ContentSecurity,
+        cancellation: &dyn CancellationCheck,
+        options: &AstRewriteRuntimeOptions,
+    ) -> Value {
+        let query: RewriteRequest = serde_json::from_value(query).expect("typed astRewrite row");
+        execute_ast_rewrite_with_options(query, paths, security, cancellation, options)
+    }
 
     #[test]
     fn overlap_error_identifies_ranges_and_how_to_narrow_the_preview() {
@@ -1525,6 +1642,49 @@ mod tests {
         assert!(patch.contains("-b\r\n"), "patch was: {patch:?}");
         assert!(patch.contains("+B\r\n"), "patch was: {patch:?}");
         assert!(patch.starts_with("--- a/f.txt\n+++ b/f.txt\n@@ "));
+    }
+
+    #[test]
+    fn unified_patch_is_minimal_with_separate_hunks_and_context() {
+        let before = "fn a() {\n    fill_goal(next, goal);\n    x();\n    y();\n    z();\n    w();\n    v();\n    u();\n    t();\n    fill_goal(next, goal);\n}\n";
+        let after = before.replace("fill_goal(", "fill_goal2(");
+        let patch = create_unified_patch("a.rs", before, &after);
+        assert_eq!(
+            patch,
+            "--- a/a.rs\n+++ b/a.rs\n\
+             @@ -1,5 +1,5 @@\n fn a() {\n-    fill_goal(next, goal);\n+    fill_goal2(next, goal);\n     x();\n     y();\n     z();\n\
+             @@ -7,5 +7,5 @@\n     v();\n     u();\n     t();\n-    fill_goal(next, goal);\n+    fill_goal2(next, goal);\n }\n"
+        );
+    }
+
+    #[test]
+    fn unified_patch_merges_near_changes_and_counts_pure_insertions() {
+        // Changes 6 lines apart share one hunk: only the two changed lines are
+        // marked, the lines between them are context.
+        let before = "a\nb\nc\nd\ne\nf\ng\nh\n";
+        let after = "A\nb\nc\nd\ne\nf\ng\nH\n";
+        let patch = create_unified_patch("f", before, after);
+        assert!(
+            patch.contains("@@ -1,8 +1,8 @@\n-a\n+A\n b\n c\n d\n e\n f\n g\n-h\n+H\n"),
+            "{patch}"
+        );
+        assert_eq!(patch.matches("@@ -").count(), 1, "{patch}");
+        let inserted = create_unified_patch("f", "a\nb\n", "a\nx\nb\n");
+        assert!(
+            inserted.contains("@@ -1,2 +1,3 @@\n a\n+x\n b\n"),
+            "{inserted}"
+        );
+        let appended = create_unified_patch("f", "", "x\n");
+        assert!(appended.contains("@@ -0,0 +1,1 @@\n+x\n"), "{appended}");
+    }
+
+    #[test]
+    fn line_diff_over_budget_falls_back_to_a_replaced_block() {
+        assert!(line_diff(&["a\n", "b\n"], &["c\n", "d\n"], 1).is_none());
+        assert_eq!(
+            line_diff(&["a\n", "b\n"], &["a\n", "c\n"], 8),
+            Some(vec![LineOp::Equal, LineOp::Delete, LineOp::Insert])
+        );
     }
 
     #[test]
@@ -1597,7 +1757,7 @@ mod tests {
         let mut broken = query(&root);
         // Unbalanced replacement: splices cleanly but no longer parses.
         broken["rewrite"] = json!("newCall($A");
-        let result = execute_ast_rewrite_with_options(
+        let result = rewrite_row(
             broken.clone(),
             &policy,
             &security,
@@ -1608,14 +1768,7 @@ mod tests {
 
         // The removed escape hatch is rejected rather than silently ignored.
         broken["allowSyntaxRegression"] = json!(true);
-        let rejected = execute_ast_rewrite_with_options(
-            broken,
-            &policy,
-            &security,
-            &Active,
-            &Default::default(),
-        );
-        assert_eq!(rejected["errorCode"], "ast.rewrite.input_invalid");
+        assert!(serde_json::from_value::<RewriteRequest>(broken).is_err());
     }
 
     /// Each matched file is parsed once by the scan and once staged; the
@@ -1628,13 +1781,7 @@ mod tests {
         let mut preview = query(&root);
         preview["pageSize"] = json!(10);
         staged::take_parses();
-        let first = execute_ast_rewrite_with_options(
-            preview,
-            &policy,
-            &security,
-            &Active,
-            &Default::default(),
-        );
+        let first = rewrite_row(preview, &policy, &security, &Active, &Default::default());
         assert_eq!(first["totalMatches"], 3, "{first}");
         assert_eq!(staged::take_parses(), 4, "2 files × (scan + staged)");
         let mut apply = first["next"]["apply"]["query"].clone();
@@ -1643,8 +1790,7 @@ mod tests {
             allow_apply: true,
             ..Default::default()
         };
-        let applied =
-            execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &options);
+        let applied = rewrite_row(apply, &policy, &security, &Active, &options);
         assert_eq!(applied["mode"], "apply", "{applied}");
         assert_eq!(
             staged::take_parses(),
@@ -1656,7 +1802,7 @@ mod tests {
     #[test]
     fn complete_preview_offers_an_executable_guarded_apply() {
         let (root, policy, security) = fixture();
-        let first = execute_ast_rewrite_with_options(
+        let first = rewrite_row(
             query(&root),
             &policy,
             &security,
@@ -1665,7 +1811,7 @@ mod tests {
         );
         // A partial preview page never offers apply.
         assert!(first["next"].get("apply").is_none(), "{}", first["next"]);
-        let last = execute_ast_rewrite_with_options(
+        let last = rewrite_row(
             first["next"]["nextPage"]["query"].clone(),
             &policy,
             &security,
@@ -1679,10 +1825,9 @@ mod tests {
             allow_apply: true,
             ..Default::default()
         };
-        let applied =
-            execute_ast_rewrite_with_options(apply.clone(), &policy, &security, &Active, &options);
+        let applied = rewrite_row(apply.clone(), &policy, &security, &Active, &options);
         assert_eq!(applied["mode"], "apply", "{applied}");
-        let replay = execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &options);
+        let replay = rewrite_row(apply, &policy, &security, &Active, &options);
         assert_eq!(
             replay["errorCode"], "ast.rewrite.snapshot_changed",
             "{replay}"
@@ -1692,7 +1837,7 @@ mod tests {
     #[test]
     fn preview_continuation_is_lossless_and_apply_is_hash_guarded() {
         let (root, policy, security) = fixture();
-        let first = execute_ast_rewrite_with_options(
+        let first = rewrite_row(
             query(&root),
             &policy,
             &security,
@@ -1702,7 +1847,7 @@ mod tests {
         assert_eq!(first["mode"], "preview");
         assert_eq!(first["totalMatches"], 2);
         assert_eq!(first["matches"].as_array().map(Vec::len), Some(1));
-        let second = execute_ast_rewrite_with_options(
+        let second = rewrite_row(
             first["next"]["nextPage"]["query"].clone(),
             &policy,
             &security,
@@ -1723,7 +1868,7 @@ mod tests {
             first["files"][0]["path"].as_str().expect("path"):
                 first["files"][0]["beforeHash"].clone()
         });
-        let applied = execute_ast_rewrite_with_options(
+        let applied = rewrite_row(
             apply,
             &policy,
             &security,
@@ -1744,7 +1889,7 @@ mod tests {
     #[test]
     fn stale_source_postcondition_and_cancellation_never_mutate() {
         let (root, policy, security) = fixture();
-        let preview = execute_ast_rewrite_with_options(
+        let preview = rewrite_row(
             query(&root),
             &policy,
             &security,
@@ -1761,7 +1906,7 @@ mod tests {
                 preview["files"][0]["beforeHash"].clone()
         });
         assert_eq!(
-            execute_ast_rewrite_with_options(
+            rewrite_row(
                 apply,
                 &policy,
                 &security,
@@ -1774,7 +1919,7 @@ mod tests {
             "ast.rewrite.snapshot_changed"
         );
         assert_eq!(
-            execute_ast_rewrite_with_options(
+            rewrite_row(
                 query(&root),
                 &policy,
                 &security,
@@ -1796,7 +1941,7 @@ mod tests {
         let (root, policy, security) = fixture();
         let mut preview_query = query(&root);
         preview_query["pageSize"] = json!(100);
-        let preview = execute_ast_rewrite_with_options(
+        let preview = rewrite_row(
             preview_query.clone(),
             &policy,
             &security,
@@ -1812,7 +1957,7 @@ mod tests {
                 preview["files"][0]["beforeHash"].clone()
         });
         apply["postconditions"] = json!([{"kind":"remainingMatches","equals":0}]);
-        let failed = execute_ast_rewrite_with_options(
+        let failed = rewrite_row(
             apply,
             &policy,
             &security,
@@ -1848,7 +1993,7 @@ mod tests {
         fs::write(root.join("b.ts"), "const third = oldCall(3);\n").expect("write b");
         let mut preview_query = query(&root);
         preview_query["pageSize"] = json!(2);
-        let first = execute_ast_rewrite_with_options(
+        let first = rewrite_row(
             preview_query.clone(),
             &policy,
             &security,
@@ -1867,7 +2012,7 @@ mod tests {
         assert!(first.get("executable").is_none(), "{first}");
         assert!(first.get("isolation").is_none(), "{first}");
 
-        let second = execute_ast_rewrite_with_options(
+        let second = rewrite_row(
             first["next"]["nextPage"]["query"].clone(),
             &policy,
             &security,
@@ -1888,8 +2033,7 @@ mod tests {
         };
         let mut wrong = apply.clone();
         wrong["expectedHashes"]["a.ts"] = json!("0".repeat(64));
-        let mismatch =
-            execute_ast_rewrite_with_options(wrong, &policy, &security, &Active, &options);
+        let mismatch = rewrite_row(wrong, &policy, &security, &Active, &options);
         assert_eq!(
             mismatch["errorCode"], "ast.rewrite.hash_mismatch",
             "{mismatch}"
@@ -1905,8 +2049,7 @@ mod tests {
             "{mismatch}"
         );
 
-        let applied =
-            execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &options);
+        let applied = rewrite_row(apply, &policy, &security, &Active, &options);
         assert_eq!(applied["transaction"]["committed"], true, "{applied}");
         assert!(
             applied["transaction"].get("beforeHashes").is_none(),
@@ -1932,7 +2075,7 @@ mod tests {
     fn preview_pages_send_each_file_patch_once_and_reference_it_afterward() {
         let (root, policy, security) = fixture();
         // pageSize 1 over a.ts's two matches: both pages touch a.ts.
-        let first = execute_ast_rewrite_with_options(
+        let first = rewrite_row(
             query(&root),
             &policy,
             &security,
@@ -1944,7 +2087,7 @@ mod tests {
         assert!(first_file["patch"].as_str().is_some(), "{first}");
         let patch_bytes = first_file["patchBytes"].clone();
 
-        let second = execute_ast_rewrite_with_options(
+        let second = rewrite_row(
             first["next"]["nextPage"]["query"].clone(),
             &policy,
             &security,
@@ -2065,7 +2208,7 @@ mod tests {
     #[test]
     fn embedded_engine_supports_inline_rules_without_an_executable() {
         let (root, policy, security) = fixture();
-        let result = execute_ast_rewrite_with_options(
+        let result = rewrite_row(
             json!({
                 "path":root,
                 "langType":"typescript",

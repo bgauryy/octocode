@@ -358,8 +358,11 @@ pub(super) fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Val
     use sha2::{Digest, Sha256};
     let mut scope = query.to_row();
     if let Some(object) = scope.as_object_mut() {
-        for field in ["goal", "reasoning", "debug", "page", "snapshot"] {
-            object.remove(field);
+        for field in crate::runtime::cursor::INTENT_FIELDS
+            .iter()
+            .chain(&["page", "snapshot"])
+        {
+            object.remove(*field);
         }
     }
     // Canonical form: a continuation lists the query's fields in a

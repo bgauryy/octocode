@@ -50,11 +50,17 @@ pub(super) fn compare_identity(
         .rsplit('/')
         .next()
         .and_then(|tail| tail.split_once("..."));
+    // The permalink spells both sides `owner:abbrev`; the echo keeps the
+    // requested form (an `owner:` prefix only when the caller wrote one) and
+    // expands an abbreviation to the full SHA it uniquely names.
     let expand = |requested: &str, parsed: Option<&str>| {
         let candidate = parsed.unwrap_or(requested);
         let abbrev = candidate.rsplit(':').next().unwrap_or(candidate);
+        let prefix = requested
+            .rsplit_once(':')
+            .map_or(String::new(), |(owner, _)| format!("{owner}:"));
         if abbrev.len() == 40 {
-            return candidate.to_owned();
+            return format!("{prefix}{abbrev}");
         }
         let mut known = Vec::new();
         if let Some(sha) = raw.pointer("/base_commit/sha").and_then(Value::as_str) {
@@ -76,6 +82,9 @@ pub(super) fn compare_identity(
                 known.push(sha);
             }
         }
+        // base_commit and merge_base_commit are often the same commit.
+        known.sort_unstable();
+        known.dedup();
         let matches: Vec<_> = known
             .into_iter()
             .filter(|sha| {
@@ -84,7 +93,6 @@ pub(super) fn compare_identity(
             })
             .collect();
         if matches.len() == 1 {
-            let prefix = &candidate[..candidate.len().saturating_sub(abbrev.len())];
             format!("{prefix}{}", matches[0])
         } else {
             requested.to_owned()
@@ -209,6 +217,34 @@ mod tests {
         let (base, head) = compare_identity(&raw, "main", "feature");
         assert!(base.starts_with("abc1234"));
         assert!(head.starts_with("def5678"));
+    }
+
+    /// D10: GitHub's permalink spells both sides `owner:abbrev`; the echo
+    /// must keep the caller's bare-SHA form on both sides, and a base that is
+    /// both base_commit and merge_base_commit still expands.
+    #[test]
+    fn compare_identity_echoes_the_requested_form_without_owner_prefix() {
+        let base_sha = "af20f667fd2536c9502f69d99fe6bdedfcc839cb";
+        let head_sha = "c265e3f9413161c900cbf4aa70d451b8e6b3920a";
+        let raw = json!({
+            "permalink_url": "https://github.com/o/r/compare/o:af20f66...o:c265e3f",
+            "base_commit": {"sha": base_sha},
+            "merge_base_commit": {"sha": base_sha},
+            "commits": [{"sha": head_sha}]
+        });
+        assert_eq!(
+            compare_identity(&raw, base_sha, head_sha),
+            (base_sha.to_owned(), head_sha.to_owned())
+        );
+        assert_eq!(
+            compare_identity(&raw, "af20f66", "c265e3f"),
+            (base_sha.to_owned(), head_sha.to_owned())
+        );
+        // A caller-written fork prefix is kept.
+        assert_eq!(
+            compare_identity(&raw, base_sha, "fork:c265e3f").1,
+            format!("fork:{head_sha}")
+        );
     }
 
     #[test]

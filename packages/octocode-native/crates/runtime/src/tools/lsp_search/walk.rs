@@ -17,7 +17,7 @@ use super::render::{as_array, decode_uri_path, symbol_kind_name, uri_to_path};
 use super::source::item_uri_is_authorized;
 use super::{LspSearchQuery, cancellable};
 use crate::policy::path::PathPolicy;
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use futures_util::StreamExt;
 use octocode_engine::error::Error as EngineError;
 use octocode_engine::lsp::client::NativeLspClient;

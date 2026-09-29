@@ -687,8 +687,14 @@ async fn read_bounded(
 ) -> Result<Bytes, ProviderError> {
     let mut stream = response.bytes_stream();
     let mut result = BytesMut::new();
-    while let Some(chunk) = tokio::select! { _ = context.cancellation.cancelled() => return Err(ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")), chunk = stream.next() => chunk }
-    {
+    // The send phase is bounded by the request deadline; a body that stalls
+    // after the headers must be too, not only by the outer runtime timeout.
+    let deadline = tokio::time::Instant::from_std(context.deadline);
+    while let Some(chunk) = tokio::select! {
+        _ = context.cancellation.cancelled() => return Err(ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")),
+        _ = tokio::time::sleep_until(deadline) => return Err(ProviderError::new(ProviderErrorKind::Timeout, "GitHub response body deadline exceeded")),
+        chunk = stream.next() => chunk,
+    } {
         let chunk = chunk.map_err(|_| {
             ProviderError::new(
                 ProviderErrorKind::Transport,
@@ -851,5 +857,36 @@ mod response_error_tests {
             Bytes::from_static(br#"{"message":"Validation Failed"}"#),
         );
         assert_eq!(&*bare.message, "Validation Failed");
+    }
+
+    #[tokio::test]
+    async fn a_body_that_stalls_after_the_headers_hits_the_request_deadline() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                // Promise 1000 bytes, send 5, then go silent.
+                let _ = socket
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 1000\r\n\r\nhello")
+                    .await;
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+        let response = reqwest::get(format!("http://{addr}/"))
+            .await
+            .expect("headers arrive");
+        let context = RequestContext::with_timeout(Duration::from_millis(300), 1 << 20);
+        let started = Instant::now();
+        let error = read_bounded(response, &context)
+            .await
+            .expect_err("stalled body times out");
+        assert_eq!(error.kind, ProviderErrorKind::Timeout);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "bounded by the deadline"
+        );
     }
 }

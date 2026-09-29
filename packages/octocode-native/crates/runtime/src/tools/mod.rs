@@ -2,6 +2,7 @@ pub mod artifact_search;
 pub mod ast_graph;
 pub mod ast_rewrite;
 pub mod ast_search;
+pub mod cancel;
 pub mod clasify;
 pub mod gh_clone_repo;
 pub mod gh_get_file_content;

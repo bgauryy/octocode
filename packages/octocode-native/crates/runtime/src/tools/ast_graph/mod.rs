@@ -8,7 +8,7 @@ pub mod store;
 mod types;
 
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
 
 pub use types::{AstGraphError, AstGraphResult, AstTopologyQuery, GraphAnalysis};
@@ -110,8 +110,16 @@ mod drift_tests {
             std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
             std::fs::write(path, text).expect("write");
         };
-        write("Cargo.toml", "[package]\nname = \"app\"\nversion = \"0.1.0\"\n");
-        write("src/lib.rs", "pub mod tools;\npub mod portable;\npub mod api;\n");
+        write(
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        );
+        // Only a live caller credits a qualified-path callee, so the root
+        // calls `handle`, which calls the two items by path.
+        write(
+            "src/lib.rs",
+            "pub mod tools;\npub mod portable;\npub mod api;\npub fn start() { api::handle(); }\n",
+        );
         write("src/tools/mod.rs", "pub mod inner;\n");
         write("src/tools/inner.rs", "pub fn used() {}\n");
         write("src/portable.rs", "pub fn sanitize() {}\n");
@@ -127,9 +135,18 @@ mod drift_tests {
             .iter()
             .map(|row| row["name"].as_str().unwrap_or_default().to_owned())
             .collect::<Vec<_>>();
-        assert!(!names.contains(&"inner".to_owned()), "a `mod` declaration is not an export: {names:?}");
-        assert!(!names.contains(&"sanitize".to_owned()), "called by qualified path: {names:?}");
-        assert!(!names.contains(&"used".to_owned()), "called by qualified path: {names:?}");
+        assert!(
+            !names.contains(&"inner".to_owned()),
+            "a `mod` declaration is not an export: {names:?}"
+        );
+        assert!(
+            !names.contains(&"sanitize".to_owned()),
+            "called by qualified path: {names:?}"
+        );
+        assert!(
+            !names.contains(&"used".to_owned()),
+            "called by qualified path: {names:?}"
+        );
     }
 
     #[test]
@@ -706,6 +723,119 @@ mod dead_code_root_tests {
     }
 
     #[test]
+    fn importing_the_public_alias_keeps_the_local_declaration_live() {
+        // `export { foo as bar }`: importing `bar` consumes `foo`, and the
+        // unrelated local `bar` is not exported.
+        let dead = dead_exports(&[
+            (
+                "mod.ts",
+                "export function kept() { return 1 }\nfunction foo() { return 2 }\nfunction bar() { return 3 }\nexport { foo as bar }\n",
+            ),
+            ("main.ts", "import { bar } from './mod'\nbar()\n"),
+        ]);
+        assert_eq!(dead, vec![("kept".to_owned(), Value::Null)]);
+    }
+
+    /// Rows of a Cargo fixture as `(file, name, viaHeuristic)`.
+    fn rust_dead_rows(files: &[(&str, &str)]) -> Vec<(String, String, Value)> {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        for (name, content) in files {
+            let path = root.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        let out = run(
+            json!({"goal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"rustWorkspace":"cargo"}),
+            root,
+        )
+        .expect("dead code result");
+        out["results"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|r| {
+                (
+                    r["file"].as_str().unwrap().to_owned(),
+                    r["name"].as_str().unwrap().to_owned(),
+                    r.get("viaHeuristic").cloned().unwrap_or(Value::Null),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rust_unreachable_caller_does_not_keep_its_qualified_path_callee_live() {
+        // `buried` is never called, so `crate::portable::secret()` inside it
+        // credits nothing; `used` is called from the live `handle`.
+        let rows = rust_dead_rows(&[
+            (
+                "src/lib.rs",
+                "pub mod api;\npub mod portable;\npub fn start() { api::handle(); }\n",
+            ),
+            (
+                "src/api.rs",
+                "pub fn handle() { crate::portable::used(); }\nfn buried() { crate::portable::secret(); }\n",
+            ),
+            ("src/portable.rs", "pub fn used() {}\npub fn secret() {}\n"),
+        ]);
+        assert_eq!(
+            rows,
+            vec![(
+                "src/portable.rs".to_owned(),
+                "secret".to_owned(),
+                json!("syntax-references")
+            )]
+        );
+    }
+
+    #[test]
+    fn rust_qualified_calls_resolve_through_the_imported_binding() {
+        // `h::run()` names `run` in the file `use crate::helper as h` binds;
+        // the same-named `run` elsewhere is not credited by it.
+        let rows = rust_dead_rows(&[
+            (
+                "src/main.rs",
+                "mod helper;\nmod other;\nuse crate::helper as h;\nfn main() { h::run(); }\n",
+            ),
+            ("src/helper.rs", "pub fn run() {}\npub fn idle() {}\n"),
+            ("src/other.rs", "pub fn run() {}\n"),
+        ]);
+        let names = rows
+            .iter()
+            .map(|(file, name, _)| format!("{file}:{name}"))
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["src/helper.rs:idle", "src/other.rs:run"]);
+    }
+
+    #[test]
+    fn rust_unresolved_qualified_name_credit_is_only_a_heuristic() {
+        // `unknown::sanitize()` cannot be resolved to a file: the name match
+        // no longer proves `sanitize` live, it labels the candidate.
+        let rows = rust_dead_rows(&[
+            (
+                "src/lib.rs",
+                "pub mod portable;\npub fn start() { unknown::sanitize(); }\n",
+            ),
+            ("src/portable.rs", "pub fn sanitize() {}\n"),
+        ]);
+        assert_eq!(
+            rows,
+            vec![(
+                "src/portable.rs".to_owned(),
+                "sanitize".to_owned(),
+                json!("qualified-path-name")
+            )]
+        );
+    }
+
+    #[test]
     fn default_import_keeps_the_default_export_declaration_live() {
         // `import foo from` consumes the module's default export.
         let def =
@@ -791,6 +921,147 @@ mod dead_code_root_tests {
             out["results"][0]["viaHeuristic"], "semantic-references",
             "{out}"
         );
+    }
+
+    #[test]
+    fn import_used_only_in_an_unreachable_function_does_not_keep_its_target_live() {
+        // `buried` is never called: its `helper()` is the only use of the
+        // import, so the import credits nothing.
+        let helper = "export function helper() { return 1 }\n";
+        let dead = dead_exports(&[
+            ("helper.ts", helper),
+            (
+                "app.ts",
+                "import { helper } from './helper'\nexport function start() { return 1 }\nfunction buried() { return helper() }\n",
+            ),
+            ("main.ts", "import { start } from './app'\nstart()\n"),
+        ]);
+        assert_eq!(dead, vec![("helper".to_owned(), Value::Null)]);
+        // The same import used from the live `start` keeps `helper` live.
+        let dead = dead_exports(&[
+            ("helper.ts", helper),
+            (
+                "app.ts",
+                "import { helper } from './helper'\nexport function start() { return helper() }\nfunction buried() { return helper() }\n",
+            ),
+            ("main.ts", "import { start } from './app'\nstart()\n"),
+        ]);
+        assert!(dead.is_empty(), "{dead:?}");
+    }
+
+    #[test]
+    fn import_used_as_a_value_by_a_live_declaration_keeps_its_target_live() {
+        // Value, type and export-clause uses credit the import too.
+        let dead = dead_exports(&[
+            (
+                "helper.ts",
+                "export function cb() { return 1 }\nexport interface Shape {}\nexport function passed() { return 2 }\n",
+            ),
+            (
+                "app.ts",
+                "import { cb, Shape, passed } from './helper'\nexport function start(s: Shape) { return register(cb) }\nexport { passed }\n",
+            ),
+            (
+                "main.ts",
+                "import { start, passed } from './app'\nstart(passed)\n",
+            ),
+        ]);
+        assert!(dead.is_empty(), "{dead:?}");
+    }
+
+    #[test]
+    fn namespace_default_and_reexported_imports_stay_live() {
+        let dead = dead_exports(&[
+            (
+                "lib.ts",
+                "export default function run() { return 1 }\nexport function viaNs() { return 2 }\nexport function viaChain() { return 3 }\nexport function viaClause() { return 4 }\n",
+            ),
+            ("barrel.ts", "export { viaChain } from './lib'\n"),
+            (
+                "clause.ts",
+                "import { viaClause } from './lib'\nexport { viaClause }\n",
+            ),
+            (
+                "app.ts",
+                "import run from './lib'\nimport * as ns from './lib'\nexport function start() { run(); return ns.viaNs() }\n",
+            ),
+            (
+                "main.ts",
+                "import { start } from './app'\nimport { viaChain } from './barrel'\nimport { viaClause } from './clause'\nstart(); viaChain(); viaClause()\n",
+            ),
+        ]);
+        assert!(dead.is_empty(), "{dead:?}");
+        // A namespace import cannot be resolved to one member: even from an
+        // unreachable function it keeps the whole module public.
+        let dead = dead_exports(&[
+            ("lib.ts", "export function viaNs() { return 2 }\n"),
+            (
+                "app.ts",
+                "import * as ns from './lib'\nexport function start() { return 1 }\nfunction buried() { return ns.viaNs() }\n",
+            ),
+            ("main.ts", "import { start } from './app'\nstart()\n"),
+        ]);
+        assert!(dead.is_empty(), "{dead:?}");
+    }
+
+    #[test]
+    fn rust_use_binding_only_in_an_unreachable_fn_does_not_keep_its_target_live() {
+        let main = "mod app;\nmod util;\nfn main() { app::start(); }\n";
+        let rows = rust_dead_rows(&[
+            ("src/main.rs", main),
+            (
+                "src/app.rs",
+                "use crate::util::run;\npub fn start() {}\nfn buried() { run(); }\n",
+            ),
+            ("src/util.rs", "pub fn run() {}\n"),
+        ]);
+        assert_eq!(
+            rows,
+            vec![(
+                "src/util.rs".to_owned(),
+                "run".to_owned(),
+                json!("syntax-references")
+            )]
+        );
+        // Used from the live `start`, or straight from `main`: live.
+        let rows = rust_dead_rows(&[
+            ("src/main.rs", main),
+            (
+                "src/app.rs",
+                "use crate::util::run;\npub fn start() { run(); }\nfn buried() { run(); }\n",
+            ),
+            ("src/util.rs", "pub fn run() {}\n"),
+        ]);
+        assert!(rows.is_empty(), "{rows:?}");
+        let rows = rust_dead_rows(&[
+            (
+                "src/main.rs",
+                "mod util;\nuse crate::util::run;\nfn main() { run(); }\n",
+            ),
+            ("src/util.rs", "pub fn run() {}\n"),
+        ]);
+        assert!(rows.is_empty(), "{rows:?}");
+    }
+
+    #[test]
+    fn rust_uses_that_cannot_be_ordered_by_liveness_stay_conservative() {
+        // A `pub use` re-exports, a trait impl method and a test run without
+        // a by-name caller: each use keeps its target live.
+        let rows = rust_dead_rows(&[
+            (
+                "src/lib.rs",
+                "pub mod app;\nmod util;\npub use crate::util::exported;\n",
+            ),
+            (
+                "src/app.rs",
+                "use crate::util::{fmt_helper, test_helper};\nstruct Shown;\nimpl std::fmt::Display for Shown {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { fmt_helper(f) }\n}\n#[cfg(test)]\nmod tests {\n    use super::*;\n    #[test]\n    fn t() { test_helper(); }\n}\n#[test]\nfn direct() { test_helper(); }\n",
+            ),
+            (
+                "src/util.rs",
+                "pub fn exported() {}\npub fn fmt_helper(_: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) }\npub fn test_helper() {}\n",
+            ),
+        ]);
+        assert!(rows.is_empty(), "{rows:?}");
     }
 
     #[test]

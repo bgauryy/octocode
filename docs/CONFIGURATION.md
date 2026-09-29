@@ -317,6 +317,8 @@ Both home and project `.env` files block these infrastructure and security contr
 | `GH_HOST` | GitHub CLI host selection |
 | `OCTOCODE_HOME` | Configuration home selection |
 
+`OCTOCODE_STORAGE_MODE` and `OCTOCODE_EXTENSION_STORAGE_MODE` (and their `storage.mode` / `extension.storage.mode` fields) are home-trusted: a workspace `.env` or `.octocode/.octocoderc` cannot turn disk persistence on. A workspace may still set them to `memory` to opt that project out of persistence; a `persistent` value from a workspace is ignored with a `workspace_config_protected` warning. Set them in the global config, the global `.env`, or the process environment.
+
 Classification credentials (`OCTOCODE_CLASSIFICATION_API`, alias `OCTOCODE_JEV_KEY`), provider type, and API host follow the `.env` fallback order. The credential stays out of resolved configuration output. Set `OCTOCODE_CLASSIFICATION_API=` in the process environment to disable classification for that process.
 
 ---

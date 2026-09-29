@@ -1755,10 +1755,21 @@ fn scan_mentions(
     stems: &BTreeSet<String>,
     names: &BTreeSet<String>,
 ) -> (Mentions, Mentions, bool) {
-    let mut stem_hits = Mentions::new();
-    let mut name_hits = Mentions::new();
-    let mut budget = MENTION_MAX_TOTAL;
-    let mut truncated = false;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    // Each key keeps its 3 lexicographically smallest files, so the result is
+    // deterministic whatever order the parallel walk visits files in.
+    type Hits = BTreeMap<String, BTreeSet<String>>;
+    let found = Mutex::new((Hits::new(), Hits::new()));
+    let budget = AtomicU64::new(MENTION_MAX_TOTAL);
+    let truncated = AtomicBool::new(false);
+    let keep = |map: &mut Hits, key: &str, file: &str| {
+        let files = map.entry(key.to_owned()).or_default();
+        files.insert(file.to_owned());
+        if files.len() > 3 {
+            files.pop_last();
+        }
+    };
     let walker = ignore::WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
@@ -1767,56 +1778,85 @@ fn scan_mentions(
             !entry.file_type().is_some_and(|kind| kind.is_dir())
                 || !MENTION_SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref())
         })
-        .build();
-    let record = |map: &mut Mentions, key: &str, file: &str| {
-        let files = map.entry(key.to_owned()).or_default();
-        if files.len() < 3 && !files.iter().any(|f| f == file) {
-            files.push(file.to_owned());
-        }
+        .build_parallel();
+    walker.run(|| {
+        let found = &found;
+        let budget = &budget;
+        let truncated = &truncated;
+        Box::new(move |entry| {
+            let Ok(entry) = entry else {
+                return ignore::WalkState::Continue;
+            };
+            if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+                return ignore::WalkState::Continue;
+            }
+            let size = entry.metadata().map_or(0, |meta| meta.len());
+            if size > MENTION_MAX_FILE {
+                return ignore::WalkState::Continue;
+            }
+            if budget
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                    left.checked_sub(size)
+                })
+                .is_err()
+            {
+                truncated.store(true, Ordering::Relaxed);
+                return ignore::WalkState::Quit;
+            }
+            let Ok(bytes) = std::fs::read(entry.path()) else {
+                return ignore::WalkState::Continue;
+            };
+            if bytes.iter().take(8192).any(|byte| *byte == 0) {
+                return ignore::WalkState::Continue;
+            }
+            let rel = entry.path().strip_prefix(root).map_or_else(
+                |_| entry.path().to_string_lossy().into_owned(),
+                |path| path.to_string_lossy().replace('\\', "/"),
+            );
+            let text = String::from_utf8_lossy(&bytes);
+            let mut local = (Vec::<&str>::new(), Vec::<&str>::new());
+            for token in text.split(|c: char| !(c.is_alphanumeric() || "_$./@-".contains(c))) {
+                if token.is_empty() {
+                    continue;
+                }
+                if token.contains(['/', '.']) {
+                    let last = token.rsplit('/').next().unwrap_or(token);
+                    let stem = last.split('.').next().unwrap_or(last);
+                    if stems.contains(stem) {
+                        local.0.push(stem);
+                    }
+                }
+                for part in token.split(['.', '/', '-', '@']) {
+                    if names.contains(part) {
+                        local.1.push(part);
+                    }
+                }
+            }
+            if (!local.0.is_empty() || !local.1.is_empty())
+                && let Ok(mut guard) = found.lock()
+            {
+                let (stem_hits, name_hits) = &mut *guard;
+                for stem in local.0 {
+                    keep(stem_hits, stem, &rel);
+                }
+                for name in local.1 {
+                    keep(name_hits, name, &rel);
+                }
+            }
+            ignore::WalkState::Continue
+        })
+    });
+    let (stem_hits, name_hits) = found.into_inner().unwrap_or_default();
+    let flatten = |hits: Hits| -> Mentions {
+        hits.into_iter()
+            .map(|(key, files)| (key, files.into_iter().collect()))
+            .collect()
     };
-    for entry in walker.flatten() {
-        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-            continue;
-        }
-        let size = entry.metadata().map_or(0, |meta| meta.len());
-        if size > MENTION_MAX_FILE {
-            continue;
-        }
-        if size > budget {
-            truncated = true;
-            break;
-        }
-        budget -= size;
-        let Ok(bytes) = std::fs::read(entry.path()) else {
-            continue;
-        };
-        if bytes.iter().take(8192).any(|byte| *byte == 0) {
-            continue;
-        }
-        let rel = entry.path().strip_prefix(root).map_or_else(
-            |_| entry.path().to_string_lossy().into_owned(),
-            |path| path.to_string_lossy().replace('\\', "/"),
-        );
-        let text = String::from_utf8_lossy(&bytes);
-        for token in text.split(|c: char| !(c.is_alphanumeric() || "_$./@-".contains(c))) {
-            if token.is_empty() {
-                continue;
-            }
-            if token.contains(['/', '.']) {
-                let last = token.rsplit('/').next().unwrap_or(token);
-                let stem = last.split('.').next().unwrap_or(last);
-                if stems.contains(stem) {
-                    record(&mut stem_hits, stem, &rel);
-                }
-            }
-            for part in token.split(['.', '/', '-', '@']) {
-                if names.contains(part) {
-                    record(&mut name_hits, part, &rel);
-                }
-            }
-        }
-    }
-    (stem_hits, name_hits, truncated)
+    (
+        flatten(stem_hits),
+        flatten(name_hits),
+        truncated.load(Ordering::Relaxed),
+    )
 }
 
 fn file_stem(path: &str) -> String {

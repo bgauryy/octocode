@@ -19,8 +19,8 @@ fn cursor_scope(query: &ArtifactSearchQuery) -> Result<String, ArtifactError> {
     if let Some(object) = value.as_object_mut() {
         // Caller intent and diagnostics do not change which results a page
         // holds; a replayed page may restate them freely.
-        for meta in ["goal", "reasoning", "debug", "cursor"] {
-            object.remove(meta);
+        for meta in crate::runtime::cursor::INTENT_FIELDS.iter().chain(&["cursor"]) {
+            object.remove(*meta);
         }
         // Removing optional fields can reorder a preserve_order JSON map.
         // Scope identity depends on values, not the presence of a cursor.
@@ -314,6 +314,12 @@ mod cursor_signing_tests {
         );
         let continued_scope = cursor_scope(&continued).expect("continuation scope");
         assert_eq!(continued_scope, scope);
+        // A followUp replay carries no brief; the page scope is unchanged.
+        let follow_up = crate::providers::artifact::artifact_query(
+            json!({"cursor": continued.cursor(), "followUp": true}),
+            Some(&keyword_query(&["http"])),
+        );
+        assert_eq!(cursor_scope(&follow_up).expect("followUp scope"), scope);
         assert_eq!(
             cursor::verify_state(key, &continued_scope, continued.cursor().expect("cursor"))
                 .expect("issued continuation verifies"),

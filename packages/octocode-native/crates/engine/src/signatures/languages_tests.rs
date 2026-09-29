@@ -390,6 +390,31 @@ fn signature_outline_descends_into_top_level_iifes() {
 }
 
 #[test]
+fn deeply_nested_iife_outline_stays_inside_the_deadline() {
+    // Every body capture climbed `Node::parent()` (a root-down search per
+    // hop) through each enclosing IIFE wrapper.
+    let depth = 400;
+    let mut source = String::new();
+    for level in 0..depth {
+        source.push_str(&format!(
+            "(function(){{\nfunction helper{level}(n) {{\n  return n + SECRET_BODY_LINE;\n}}\n"
+        ));
+    }
+    source.push_str(&"})();\n".repeat(depth));
+    let started = std::time::Instant::now();
+    let outline =
+        crate::signatures::extract_signatures_inner(&source, "nested.js").expect("outline");
+    let elapsed = started.elapsed();
+    assert!(outline.contains("function helper0(n)"), "{outline}");
+    assert!(outline.contains("function helper399(n)"), "{outline}");
+    assert!(!outline.contains("SECRET_BODY_LINE"), "{outline}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "took {elapsed:?}"
+    );
+}
+
+#[test]
 fn c_family_function_names_come_from_the_declarator_not_the_return_type() {
     let names = |source: &str, path: &str| -> Vec<String> {
         let facts: serde_json::Value = serde_json::from_str(
@@ -519,4 +544,34 @@ fn csharp_outlines_namespaces_records_properties_and_delegates() {
         .find(|d| d["name"] == "Person")
         .unwrap();
     assert_eq!(person["docLine"], 2, "/// XML doc attaches to the record");
+}
+
+#[test]
+fn go_type_declarations_emit_each_spec_once_without_self_parents() {
+    let source = "package main\ntype engineMetrics struct {\n  n int\n}\ntype (\n  ErrA string\n  ErrB string\n)\n";
+    let facts: serde_json::Value = serde_json::from_str(
+        &crate::signatures::extract_graph_facts_inner(source, "main.go").expect("facts"),
+    )
+    .expect("json");
+    let rows: Vec<(String, Option<String>)> = facts["declarations"]
+        .as_array()
+        .expect("declarations")
+        .iter()
+        .filter(|d| d["kind"] == "type")
+        .map(|d| {
+            (
+                d["name"].as_str().unwrap_or_default().to_owned(),
+                d["parent"].as_str().map(str::to_owned),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("engineMetrics".to_owned(), None),
+            ("ErrA".to_owned(), None),
+            ("ErrB".to_owned(), None),
+        ],
+        "{facts}"
+    );
 }

@@ -1,5 +1,5 @@
 use super::CloneError;
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::ffi::OsString;
 use std::fmt;

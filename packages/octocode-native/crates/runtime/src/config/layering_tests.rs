@@ -175,6 +175,88 @@ fn workspace_storage_mode_flows_into_inherited_extension_mode() {
     assert!(!is_persistent_storage_enabled_for_extension(&out.resolved));
 }
 
+fn protected_storage_diagnostics(out: &ConfigOutput, path: &str) -> usize {
+    out.diagnostics
+        .iter()
+        .filter(|d| d.code == "workspace_config_protected" && d.field_path.as_deref() == Some(path))
+        .count()
+}
+
+#[test]
+fn workspace_cannot_widen_storage_persistence_through_rc_or_env() {
+    let out = resolve(Layers {
+        global_rc: Some(
+            r#"{"storage":{"mode":"memory"},"extension":{"storage":{"mode":"memory"}}}"#,
+        ),
+        project_rc: Some(
+            r#"{"storage":{"mode":"persistent"},"extension":{"storage":{"mode":"persistent"}}}"#,
+        ),
+        project_env: Some(
+            "OCTOCODE_STORAGE_MODE=persistent\nOCTOCODE_EXTENSION_STORAGE_MODE=persistent",
+        ),
+        ..NONE
+    });
+    assert!(!is_persistent_storage_enabled(&out.resolved));
+    assert!(!is_persistent_storage_enabled_for_extension(&out.resolved));
+    assert_eq!(protected_storage_diagnostics(&out, "storage.mode"), 1);
+    assert_eq!(
+        protected_storage_diagnostics(&out, "extension.storage.mode"),
+        1
+    );
+    for key in ["OCTOCODE_STORAGE_MODE", "OCTOCODE_EXTENSION_STORAGE_MODE"] {
+        assert!(
+            out.dotenv.skipped_protected.iter().any(|k| k == key),
+            "{key}"
+        );
+        assert_eq!(
+            out.env_value(key),
+            None,
+            "{key} leaked into the effective env"
+        );
+    }
+}
+
+#[test]
+fn workspace_may_still_opt_out_of_storage_persistence() {
+    let rc = resolve(Layers {
+        global_rc: Some(
+            r#"{"storage":{"mode":"persistent"},"extension":{"storage":{"mode":"persistent"}}}"#,
+        ),
+        project_rc: Some(
+            r#"{"storage":{"mode":"memory"},"extension":{"storage":{"mode":"memory"}}}"#,
+        ),
+        ..NONE
+    });
+    assert!(!is_persistent_storage_enabled(&rc.resolved));
+    assert!(!is_persistent_storage_enabled_for_extension(&rc.resolved));
+    assert_eq!(protected_storage_diagnostics(&rc, "storage.mode"), 0);
+    assert_eq!(
+        protected_storage_diagnostics(&rc, "extension.storage.mode"),
+        0
+    );
+
+    let env = resolve(Layers {
+        global_env: Some("OCTOCODE_STORAGE_MODE=persistent"),
+        project_env: Some("OCTOCODE_STORAGE_MODE= Memory "),
+        ..NONE
+    });
+    assert!(!is_persistent_storage_enabled(&env.resolved));
+    assert!(env.dotenv.skipped_protected.is_empty());
+}
+
+#[test]
+fn global_layers_still_set_storage_persistence() {
+    let out = resolve(Layers {
+        global_env: Some("OCTOCODE_STORAGE_MODE=memory"),
+        global_rc: Some(r#"{"extension":{"storage":{"mode":"persistent"}}}"#),
+        ..NONE
+    });
+    assert!(!is_persistent_storage_enabled(&out.resolved));
+    assert!(is_persistent_storage_enabled_for_extension(&out.resolved));
+    assert!(out.dotenv.skipped_protected.is_empty());
+    assert_eq!(protected_storage_diagnostics(&out, "storage.mode"), 0);
+}
+
 #[test]
 fn unparseable_workspace_file_is_skipped_with_a_warning_and_global_applies() {
     for (label, text) in [("parse error", "{not json"), ("not an object", "[1,2]")] {

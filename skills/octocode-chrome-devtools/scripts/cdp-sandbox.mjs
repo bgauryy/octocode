@@ -155,6 +155,16 @@ const SCRIPT_ENV_ALLOWLIST = [
   'WEBMCP_INPUT',
   'WEBMCP_FRAME',
   'WEBMCP_WAIT_MS',
+  // cdp-checks knobs: which page to measure and how long to observe it. None of these carry secrets.
+  'MEASURE_URL',
+  'MEASURE_EXISTING',
+  'PERF_WAIT_MS',
+  'PERF_SLOW_RESOURCE_MS',
+  'NET_WAIT_MS',
+  'NET_SLOW_MS',
+  'STORAGE_WAIT_MS',
+  'STEALTH_CHECK_URL',
+  'AFFILIATES_CHECK_URL',
 ];
 const scriptEnv = Object.fromEntries(
   SCRIPT_ENV_ALLOWLIST

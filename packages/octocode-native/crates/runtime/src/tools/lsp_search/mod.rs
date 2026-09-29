@@ -17,7 +17,7 @@
 //! Public output coordinates are one-based lines and one-based UTF-16
 //! columns (see [`locations`]); only the `position` input is zero-based.
 use crate::policy::path::PathPolicy;
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file_with_options,
     default_server_for_workspace_root_with_options, workspace_root_representative_source,
@@ -85,12 +85,6 @@ fn u32_of_signed(value: i64) -> u32 {
 impl LspSearchQuery {
     pub fn operation(&self) -> String {
         each_shape!(self, operation => operation.to_string())
-    }
-    pub fn goal(&self) -> &str {
-        each_shape!(self, goal => goal.as_str())
-    }
-    pub fn reasoning(&self) -> &str {
-        each_shape!(self, reasoning => reasoning.as_str())
     }
     pub fn uri(&self) -> Option<&str> {
         match self {

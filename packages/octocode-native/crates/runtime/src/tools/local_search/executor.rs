@@ -1,11 +1,11 @@
 use super::types::*;
 use crate::canonical_json::canonicalize;
-use crate::policy::discovery::{
-    DISCOVERY_IGNORED_FILE_EXTENSIONS, DISCOVERY_IGNORED_FILE_NAMES, DISCOVERY_IGNORED_FOLDER_NAMES,
-};
+use crate::policy::discovery::{DISCOVERY_IGNORED_FILE_EXTENSIONS, DISCOVERY_IGNORED_FILE_NAMES};
 use crate::policy::path::PathPolicy;
+use crate::policy::prune::DefaultsFlag;
+use crate::policy::prune::PruneMode;
 use crate::security::ContentSecurity;
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use octocode_engine::{
     portable::{RipgrepPathFilter, search_ripgrep_cancellable},
     types::RipgrepSearchOptions,
@@ -48,6 +48,7 @@ pub fn execute_local_search(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
+    walk_threads: Option<u32>,
 ) -> Result<LocalSearchResult, LocalSearchError> {
     cancel.check().map_err(cancelled)?;
     if query.search_text.is_empty() {
@@ -87,7 +88,12 @@ pub fn execute_local_search(
     let validated = paths
         .validate(query.path.as_str())
         .map_err(|error| LocalSearchError {
-            code: error.local_error_code("fileAccessFailed"),
+            // A missing search root is not-found (exit 3), not an I/O failure.
+            code: if error.code == crate::policy::PolicyErrorCode::NotFound {
+                "pathNotFound"
+            } else {
+                error.local_error_code("fileAccessFailed")
+            },
             message: error.message,
             hints: vec![],
             next: None,
@@ -106,15 +112,13 @@ pub fn execute_local_search(
             | LocalSearchQuerySort::Created
             | LocalSearchQuerySort::Path
     );
-    // Match-density orders must choose the collection cap's survivors by match
+    // Match-count order must choose the collection cap's survivors by match
     // count across every searched file; path-list views rank by path.
-    let density_sort = matches!(
-        requested_sort,
-        LocalSearchQuerySort::Relevance | LocalSearchQuerySort::MatchCount
-    ) && !matches!(
-        view,
-        LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
-    );
+    let count_sort = requested_sort == LocalSearchQuerySort::MatchCount
+        && !matches!(
+            view,
+            LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
+        );
     let options = RipgrepSearchOptions {
         path: validated.canonical.to_string_lossy().into_owned(),
         pattern: query.search_text.to_string(),
@@ -147,31 +151,22 @@ pub fn execute_local_search(
                 .collect(),
         ),
         exclude_dir: Some(
-            query
-                .exclude_dir
-                .clone()
-                .into_iter()
-                .chain(
-                    DISCOVERY_IGNORED_FOLDER_NAMES
-                        .iter()
-                        .map(|s| (*s).to_owned()),
-                )
-                .collect(),
+            PruneMode::SearchSafe
+                .directories(&query.exclude_dir, query.default_excludes.defaults()),
         ),
         no_ignore: query.no_ignore,
         hidden: query.hidden,
         max_depth: query.max_depth(),
-        sort: if requested_sort == LocalSearchQuerySort::Traversal {
-            Some("traversal".into())
-        } else {
-            Some(if path_sort {
-                format!("{requested_sort:?}").to_lowercase()
-            } else if density_sort {
-                "matchCount".into()
-            } else {
-                "path".into()
-            })
-        },
+        // The engine owns the relevance order (count, then source before
+        // test/generated paths, then declaration > code > comment/string
+        // hits, then path) so its top-k and cap keep the same survivors.
+        sort: Some(match requested_sort {
+            LocalSearchQuerySort::Traversal => "traversal".into(),
+            LocalSearchQuerySort::Relevance => "relevance".into(),
+            _ if path_sort => format!("{requested_sort:?}").to_lowercase(),
+            _ if count_sort => "matchCount".into(),
+            _ => "path".into(),
+        }),
         sort_reverse: query.reverse,
         max_snippet_chars: Some(effective_match_content_length(query)),
         classify_matches: Some(false),
@@ -190,6 +185,9 @@ pub fn execute_local_search(
         // Use the engine default per-file byte ceiling (skips pathological
         // multi-GB files, surfaced as a maxFileSize diagnostic).
         max_file_bytes: None,
+        // The batch's share of the cores (see `BatchBudget`); `None` walks
+        // on every core.
+        walk_threads,
     };
     // Classify an invalid pattern from the engine's typed validation result
     // (not from search error text) before walking the tree.
@@ -202,9 +200,7 @@ pub fn execute_local_search(
         if !checked.valid {
             return Err(invalid_regex(
                 query,
-                checked
-                    .error
-                    .unwrap_or_else(|| "invalid regex pattern".to_owned()),
+                regex_error_message(&query.search_text, checked.error.as_deref()),
             ));
         }
     }
@@ -350,19 +346,18 @@ pub fn execute_local_search(
                 .cmp(&a.match_count)
                 .then_with(|| a.path.cmp(&b.path))
         }),
-        LocalSearchQuerySort::Relevance => rank_relevance(&mut parsed.files, view),
-        LocalSearchQuerySort::Traversal => {}
         _ => {}
     }
-    // Engine-side time sorts already honour `reverse`; every order the runtime
-    // (re)establishes — path, matchCount, relevance (the default), traversal —
-    // is reversed here, as the schema promises ("after sort, before pagination").
+    // Engine-side time and relevance sorts already honour `reverse`; every
+    // order the runtime (re)establishes — path, matchCount, traversal — is
+    // reversed here, as the schema promises ("after sort, before pagination").
     if query.reverse.unwrap_or(false)
         && !matches!(
             requested_sort,
             LocalSearchQuerySort::Modified
                 | LocalSearchQuerySort::Accessed
                 | LocalSearchQuerySort::Created
+                | LocalSearchQuerySort::Relevance
         )
     {
         parsed.files.reverse();
@@ -990,6 +985,23 @@ impl RipgrepPathFilter for PolicyFilter {
     }
 }
 
+/// The engine compiles `searchText` inside its own wrapper group, so the raw
+/// parse error echoes that internal pattern. Report the caller's pattern and
+/// the parser's reason instead.
+fn regex_error_message(search_text: &str, raw: Option<&str>) -> String {
+    let reason = raw
+        .and_then(|raw| {
+            raw.lines()
+                .rev()
+                .find_map(|line| line.trim().strip_prefix("error:"))
+                .map(str::trim)
+                .or_else(|| Some(raw.trim()))
+        })
+        .filter(|reason| !reason.is_empty())
+        .unwrap_or("invalid regex pattern");
+    format!("Invalid regex searchText `{search_text}`: {reason}")
+}
+
 /// `invalidRegex` with a literal-search repair continuation.
 fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError {
     // The caller's own fields, not the runtime-normalized ones: a fresh
@@ -1024,31 +1036,6 @@ fn cancelled(message: String) -> LocalSearchError {
         hints: vec![],
         next: None,
     }
-}
-
-/// Relevance ordering for the match-bearing views.
-///
-/// Heuristic-free and fully deterministic: files with more matches rank
-/// higher, ties broken by ascending path (a total order, so page 1 never varies
-/// run-to-run). No path, language, or view boosts apply; match density is the
-/// only signal.
-fn rank_relevance(
-    files: &mut [octocode_engine::types::RipgrepFile],
-    view: LocalSearchQueryResultView,
-) {
-    // Path-list views carry no per-file match-density signal — order by path.
-    if matches!(
-        view,
-        LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
-    ) {
-        files.sort_by(|a, b| a.path.cmp(&b.path));
-        return;
-    }
-    files.sort_by(|a, b| {
-        b.match_count
-            .cmp(&a.match_count)
-            .then_with(|| a.path.cmp(&b.path))
-    });
 }
 
 /// Default ±context window per match row: the hit line alone, except the
@@ -1377,6 +1364,20 @@ mod merge_tests {
 #[cfg(test)]
 mod repair_tests {
     use super::*;
+
+    #[test]
+    fn invalid_regex_message_shows_the_callers_pattern_not_the_wrapper() {
+        let message = regex_error_message(
+            "(",
+            Some("regex parse error:\n    (?:()\n    ^\nerror: unclosed group"),
+        );
+        assert_eq!(message, "Invalid regex searchText `(`: unclosed group");
+        assert!(!message.contains("(?:"));
+        assert_eq!(
+            regex_error_message("[", None),
+            "Invalid regex searchText `[`: invalid regex pattern"
+        );
+    }
 
     #[test]
     fn invalid_regex_repair_keeps_only_caller_fields() {

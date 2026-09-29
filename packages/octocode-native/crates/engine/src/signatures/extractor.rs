@@ -113,67 +113,72 @@ pub(crate) fn parse_ranges_before(
     })
 }
 
-/// The outermost parenthesized expression wrapping `node` (or `node`).
-fn skip_parens<'t>(mut node: tree_sitter::Node<'t>) -> tree_sitter::Node<'t> {
-    while let Some(parent) = node.parent()
-        && parent.kind() == "parenthesized_expression"
-    {
-        node = parent;
+/// Index in `chain` (strict ancestors, root first) of the outermost
+/// parenthesized expression wrapping the node at `index` (or `index`).
+fn skip_parens(chain: &[tree_sitter::Node<'_>], mut index: usize) -> usize {
+    while index > 0 && chain[index - 1].kind() == "parenthesized_expression" {
+        index -= 1;
     }
-    node
+    index
 }
 
 /// Whether `body` is the body of a function expression invoked immediately
 /// by a top-level statement (or one nested in such a body): `(function(){…})()`, `(() => {…})()`,
 /// `!function(){…}()`, or `(function(){…}).call(this)`.
-fn is_top_level_iife_body(body: tree_sitter::Node<'_>) -> bool {
-    let Some(function) = body.parent() else {
-        return false;
-    };
-    if !matches!(
-        function.kind(),
-        "function_expression" | "function" | "arrow_function"
-    ) {
-        return false;
+///
+/// Reads `body`'s ancestors from one root-down descent: a `Node::parent()`
+/// climb repeats that descent for every hop.
+fn is_top_level_iife_body(root: tree_sitter::Node<'_>, body: tree_sitter::Node<'_>) -> bool {
+    let mut chain = super::nodes::ancestors(root, body);
+    // `chain[i - 1]` is the parent of `chain[i]`; the body's parent is last.
+    while let Some(function_index) = chain.len().checked_sub(1) {
+        let function = chain[function_index];
+        if !matches!(
+            function.kind(),
+            "function_expression" | "function" | "arrow_function"
+        ) {
+            return false;
+        }
+        let mut callee = skip_parens(&chain, function_index);
+        if let Some(member) = callee.checked_sub(1)
+            && chain[member].kind() == "member_expression"
+            && chain[member]
+                .child_by_field_name("object")
+                .is_some_and(|object| object.id() == chain[callee].id())
+        {
+            callee = skip_parens(&chain, member);
+        }
+        let Some(call) = callee
+            .checked_sub(1)
+            .filter(|call| chain[*call].kind() == "call_expression")
+        else {
+            return false;
+        };
+        if chain[call]
+            .child_by_field_name("function")
+            .is_none_or(|function| function.id() != chain[callee].id())
+        {
+            return false;
+        }
+        let mut statement = skip_parens(&chain, call);
+        while statement > 0 && chain[statement - 1].kind() == "unary_expression" {
+            statement = skip_parens(&chain, statement - 1);
+        }
+        // At file level, or directly inside another such IIFE body (legacy bundles
+        // nest wrappers: `(function(){ (function(){ function api(){} })(); })()`).
+        let Some(scope) = statement
+            .checked_sub(2)
+            .filter(|_| chain[statement - 1].kind() == "expression_statement")
+        else {
+            return false;
+        };
+        match chain[scope].kind() {
+            "program" => return true,
+            "statement_block" => chain.truncate(scope),
+            _ => return false,
+        }
     }
-    let mut callee = skip_parens(function);
-    if let Some(member) = callee
-        .parent()
-        .filter(|parent| parent.kind() == "member_expression")
-        && member
-            .child_by_field_name("object")
-            .is_some_and(|object| object.id() == callee.id())
-    {
-        callee = skip_parens(member);
-    }
-    let Some(call) = callee
-        .parent()
-        .filter(|parent| parent.kind() == "call_expression")
-    else {
-        return false;
-    };
-    if call
-        .child_by_field_name("function")
-        .is_none_or(|function| function.id() != callee.id())
-    {
-        return false;
-    }
-    let mut statement = skip_parens(call);
-    while let Some(parent) = statement.parent()
-        && parent.kind() == "unary_expression"
-    {
-        statement = skip_parens(parent);
-    }
-    // At file level, or directly inside another such IIFE body (legacy bundles
-    // nest wrappers: `(function(){ (function(){ function api(){} })(); })()`).
-    statement
-        .parent()
-        .filter(|parent| parent.kind() == "expression_statement")
-        .and_then(|expression| expression.parent())
-        .is_some_and(|scope| {
-            scope.kind() == "program"
-                || (scope.kind() == "statement_block" && is_top_level_iife_body(scope))
-        })
+    false
 }
 
 /// [`parse_with_deadline`] for callers that treat every failure alike.
@@ -272,7 +277,7 @@ fn extract_with_limits(
                 let node = capture.node;
                 // A top-level IIFE body is the module's real scope (UMD
                 // wrappers, legacy bundles): outline inside it, don't drop it.
-                if is_top_level_iife_body(node) {
+                if is_top_level_iife_body(tree.root_node(), node) {
                     continue;
                 }
                 let start = node.start_position().row;

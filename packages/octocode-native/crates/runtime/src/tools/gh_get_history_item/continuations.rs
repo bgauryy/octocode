@@ -63,6 +63,9 @@ pub(super) const BODY_PREVIEW_CHARS: usize = 500;
 /// A diff at most this many changed lines reads in one all-patches call, so a
 /// separate file-list-only fetch would only repeat its file list.
 const SMALL_DIFF_LINES: u64 = 100;
+/// Above this many changed files every-patch reads cost one call per file
+/// page and patch window; review starts from the file inventory instead.
+const LARGE_PR_FILES: u64 = 100;
 
 /// Per-row menu of first-page fetches for content the call did not request.
 ///
@@ -131,10 +134,12 @@ pub(super) fn pr_next_menu(
                 call(json!({"patches":{"mode":"selected","files":[path]}})),
             );
         }
-        next.insert(
-            "getAllPatches".into(),
-            call(json!({"patches":{"mode":"all"}})),
-        );
+        if changed_files.is_none_or(|files| files <= LARGE_PR_FILES) {
+            next.insert(
+                "getAllPatches".into(),
+                call(json!({"patches":{"mode":"all"}})),
+            );
+        }
     }
     if content.and_then(|v| v.get("comments")).is_none() && !no_comments {
         next.insert(
@@ -711,6 +716,22 @@ mod tests {
             names(&pr_next_menu(&query, None, "none", None, &empty)),
             ["getReviews", "getCommits"]
         );
+    }
+
+    #[test]
+    fn large_pr_menu_routes_to_the_inventory_not_every_patch() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
+        }))
+        .expect("query");
+        let large = json!({"body":"","changed_files":656,"additions":282_700,"deletions":284_842});
+        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &large);
+        assert!(menu.get("getAllPatches").is_none(), "{menu}");
+        assert!(menu.get("getChangedFiles").is_some(), "{menu}");
+        assert!(menu.get("getSelectedPatches").is_some(), "{menu}");
+        let medium = json!({"body":"","changed_files":100,"additions":900,"deletions":10});
+        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &medium);
+        assert!(menu.get("getAllPatches").is_some(), "{menu}");
     }
 
     #[test]

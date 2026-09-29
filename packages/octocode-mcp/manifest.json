@@ -76,7 +76,7 @@
     },
     {
       "name": "astTopology",
-      "description": "Analyze local dependency topology, cycles, reachability, dead code, and drift"
+      "description": "Analyze local dependency topology, cycles, reachability, dead code, and drift (beta: requires OCTOCODE_BETA)"
     },
     {
       "name": "localFetch",
@@ -88,7 +88,7 @@
     },
     {
       "name": "clasify",
-      "description": "Apply typed questions to unread resources without returning their bodies."
+      "description": "Apply typed questions to unread resources without returning their bodies (conditional: requires OCTOCODE_CLASSIFICATION_API)"
     }
   ],
   "keywords": [

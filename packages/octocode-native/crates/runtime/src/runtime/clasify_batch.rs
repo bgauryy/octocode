@@ -45,6 +45,9 @@ const MAX_EXPANDED_CELLS: usize = 25;
 /// Row `data` fields that route the host (continuations, scan diagnostics,
 /// follow-up hints) rather than carry evidence. They are withheld from the
 /// provider and excluded from the `maxChars` evidence budget.
+#[path = "clasify_items.rs"]
+mod items;
+
 const CONTROL_FIELDS: [&str; 3] = ["next", "diagnostics", "hints"];
 
 /// Counting semaphore for blocking capture workers; waits observe the
@@ -292,6 +295,39 @@ fn provider_state(source: &Value, state: Value) -> Value {
     }
 }
 
+/// One candidate split from a list page: its row without the list's paging
+/// metadata or snippet highlight offsets, which do not inform its verdict.
+fn candidate_state(source: &Value, state: Value) -> Value {
+    let mut payload = provider_state(source, state);
+    let data = if payload.get("base").is_some() {
+        &mut payload["data"]
+    } else {
+        &mut payload
+    };
+    if let Some(fields) = data.as_object_mut() {
+        fields.remove("pagination");
+        fields.remove("effectiveQuery");
+        for file in fields
+            .get_mut("files")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            for matched in file
+                .get_mut("matches")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(matched) = matched.as_object_mut() {
+                    matched.remove("matchIndices");
+                }
+            }
+        }
+    }
+    payload
+}
+
 fn is_candidate_search(source: &Value) -> bool {
     matches!(
         source.get("tool").and_then(Value::as_str),
@@ -353,13 +389,17 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
 fn local_candidate_read(candidate: &Value, max_bytes: usize) -> Option<Value> {
     let file = candidate.pointer("/results/0/data/files/0")?;
     let path = candidate_identity(&json!({"tool":"localSearch"}), candidate, file)?;
-    let line = file
+    let lines = file
         .get("matches")
         .and_then(Value::as_array)
-        .and_then(|matches| matches.first())
-        .and_then(|matched| matched.get("line"))
-        .and_then(Value::as_u64)
-        .unwrap_or(1);
+        .map(|matches| {
+            matches
+                .iter()
+                .filter_map(|matched| matched.get("line").and_then(Value::as_u64))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let line = densest_match_line(lines).unwrap_or(1);
     let start = line.saturating_sub(HYDRATED_LINE_RADIUS).max(1);
     let end = line.saturating_add(HYDRATED_LINE_RADIUS);
     Some(json!({
@@ -376,9 +416,78 @@ fn local_candidate_read(candidate: &Value, max_bytes: usize) -> Option<Value> {
     }))
 }
 
+/// Center of the densest run of match lines that fits one hydrated window.
+/// The first match is often an incidental hit (a constant, a comment) far
+/// from the cluster that holds the declaration and its uses.
+fn densest_match_line(mut lines: Vec<u64>) -> Option<u64> {
+    lines.sort_unstable();
+    let (first, last) = densest_run(&lines, HYDRATED_LINE_RADIUS * 2)?;
+    Some(first + (last - first) / 2)
+}
+
+/// First and last line of the longest run of sorted `lines` spanning at most
+/// `width` lines.
+fn densest_run(lines: &[u64], width: u64) -> Option<(u64, u64)> {
+    let mut best = (0, 0);
+    let mut first = 0;
+    for last in 0..lines.len() {
+        while lines[last] - lines[first] > width {
+            first += 1;
+        }
+        if last - first > best.1 - best.0 {
+            best = (first, last);
+        }
+    }
+    Some((*lines.get(best.0)?, *lines.get(best.1)?))
+}
+
 fn utf16_slice(value: &str, start: usize, end: usize) -> Option<String> {
     let text = value.encode_utf16().collect::<Vec<_>>();
     String::from_utf16(text.get(start..end)?).ok()
+}
+
+/// Longest matched line used verbatim as a read anchor; longer (minified)
+/// lines fall back to the matched term.
+const MAX_ANCHOR_LINE_CHARS: usize = 160;
+
+/// Literal anchor for one GitHub snippet: the line holding the most matched
+/// terms, trimmed. A bare keyword recurs across the file, so anchoring on it
+/// reads every occurrence instead of the hit.
+fn github_match_anchor(matched: &Value) -> Option<String> {
+    let value = matched.get("value")?.as_str()?;
+    let ranges = matched.get("matchIndices")?.as_array()?;
+    let line_of = |range: &Value| -> Option<usize> {
+        if let Some(offset) = range.get("lineOffset").and_then(Value::as_u64) {
+            return usize::try_from(offset).ok();
+        }
+        let start = usize::try_from(range.get("start")?.as_u64()?).ok()?;
+        Some(utf16_slice(value, 0, start)?.matches('\n').count())
+    };
+    let mut counts = Vec::<(usize, usize)>::new();
+    for line in ranges.iter().filter_map(line_of) {
+        match counts.iter_mut().find(|(seen, _)| *seen == line) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((line, 1)),
+        }
+    }
+    let densest = counts
+        .iter()
+        .fold(None::<(usize, usize)>, |best, &(line, count)| match best {
+            Some((_, top)) if top >= count => best,
+            _ => Some((line, count)),
+        })
+        .map(|(line, _)| line);
+    let line = densest
+        .and_then(|line| value.split('\n').nth(line))
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && line.chars().count() <= MAX_ANCHOR_LINE_CHARS);
+    if let Some(line) = line {
+        return Some(line.to_owned());
+    }
+    let range = ranges.first()?;
+    let start = usize::try_from(range.get("start")?.as_u64()?).ok()?;
+    let end = usize::try_from(range.get("end")?.as_u64()?).ok()?;
+    utf16_slice(value, start, end).filter(|value| !value.trim().is_empty())
 }
 
 fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Option<(Value, bool)> {
@@ -396,13 +505,7 @@ fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Option<(Value, 
         .get("matches")
         .and_then(Value::as_array)
         .and_then(|matches| matches.first())
-        .and_then(|matched| {
-            let value = matched.get("value")?.as_str()?;
-            let range = matched.get("matchIndices")?.as_array()?.first()?;
-            let start = usize::try_from(range.get("start")?.as_u64()?).ok()?;
-            let end = usize::try_from(range.get("end")?.as_u64()?).ok()?;
-            utf16_slice(value, start, end).filter(|value| !value.trim().is_empty())
-        });
+        .and_then(github_match_anchor);
     let anchored = anchor.is_some();
     if let Some(anchor) = anchor {
         query["matchString"] = json!(anchor);
@@ -426,13 +529,11 @@ fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option
         .pointer("/query/goal")
         .and_then(Value::as_str)
         .is_none_or(|text| text.trim().is_empty())
-    {
-        if let Some(goal) = source
+        && let Some(goal) = source
             .pointer("/query/goal")
             .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
-        {
-            read["query"]["goal"] = goal.clone();
-        }
+    {
+        read["query"]["goal"] = goal.clone();
     }
     Some((read, anchored))
 }
@@ -465,7 +566,8 @@ fn bounded_search_source(
     source: &Value,
     candidate_limit: usize,
 ) -> Result<Value, ClassificationError> {
-    if !is_candidate_search(source) || candidate_limit == 0 {
+    let list = items::is_paged_list(source);
+    if !(is_candidate_search(source) || list) || candidate_limit == 0 {
         return Ok(source.clone());
     }
     let mut bounded = source.clone();
@@ -479,15 +581,20 @@ fn bounded_search_source(
                 "Pass one ordinary localSearch or ghSearchCode query.",
             )
         })?;
-    let original_size = query
-        .get("pageSize")
-        .and_then(Value::as_u64)
-        .unwrap_or_else(|| default_search_page_size(source));
+    let page = query.get("page").and_then(Value::as_u64).unwrap_or(1);
+    let original_size = match query.get("pageSize").and_then(Value::as_u64) {
+        Some(size) => size,
+        // A list tool's first page starts at offset 0 under any page size.
+        None if list && page <= 1 => u64::MAX,
+        // A later page with an unknown default cannot be re-paged safely;
+        // the expanded-cell check still bounds provider work.
+        None if list => return Ok(bounded),
+        None => default_search_page_size(source),
+    };
     let limit = u64::try_from(candidate_limit).unwrap_or(u64::MAX);
     if original_size <= limit {
         return Ok(bounded);
     }
-    let page = query.get("page").and_then(Value::as_u64).unwrap_or(1);
     let offset = page.saturating_sub(1).saturating_mul(original_size);
     if offset % limit != 0 {
         return Err(ClassificationError::new(
@@ -499,7 +606,10 @@ fn bounded_search_source(
         ));
     }
     query.insert("pageSize".into(), json!(limit));
-    query.insert("page".into(), json!(offset / limit + 1));
+    // artifactSearch pages by cursor and has no page field to rewrite.
+    if source.get("tool").and_then(Value::as_str) != Some("artifactSearch") {
+        query.insert("page".into(), json!(offset / limit + 1));
+    }
     Ok(bounded)
 }
 
@@ -549,6 +659,41 @@ fn assessed_payload_chars(source: &Value, state: &Value) -> usize {
                 .sum()
         })
         .unwrap_or_else(|| logical_chars(state))
+}
+
+/// The read a host runs for a kept search candidate: the same anchored
+/// window hydration would judge, without the provider byte budget.
+fn host_read(source: &Value, candidate: &Value) -> Option<Value> {
+    let (mut read, _) = candidate_read(source, candidate, MAX_HYDRATED_CHARS)?;
+    let query = read.get_mut("query")?.as_object_mut()?;
+    query.remove("chunkType");
+    query.remove("chunkSize");
+    query.remove("goal");
+    query.remove("reasoning");
+    query.insert("followUp".into(), json!(true));
+    read["confidence"] = json!("high");
+    Some(read)
+}
+
+/// One list candidate as its own page: narrowed evidence, its identity, and
+/// the read that fetches it.
+fn item_page(source: &Value, item: items::Item) -> CapturedPage {
+    let mut context = super::clasify_context::candidate_receipt(source, &item.state);
+    if let Some(receipt_source) = context.get_mut("source").and_then(Value::as_object_mut) {
+        if let Some(path) = item.path {
+            receipt_source.insert("path".into(), json!(path));
+        }
+        if let Some(identity) = item.item {
+            receipt_source.insert("item".into(), json!(identity));
+        }
+    }
+    if let Some(read) = item.read {
+        super::clasify_context::attach_read(&mut context, read);
+    }
+    CapturedPage::Ready {
+        state: candidate_state(source, item.state),
+        context,
+    }
 }
 
 fn hydrate_candidate(
@@ -761,10 +906,13 @@ fn capture_resource(
                     }
                     if !hydrated {
                         pages.extend(candidates.into_iter().map(|candidate| {
-                            let context =
+                            let mut context =
                                 super::clasify_context::candidate_receipt(&source, &candidate);
+                            if let Some(read) = host_read(&source, &candidate) {
+                                super::clasify_context::attach_read(&mut context, read);
+                            }
                             CapturedPage::Ready {
-                                state: provider_state(&source, candidate),
+                                state: candidate_state(&source, candidate),
                                 context,
                             }
                         }));
@@ -781,6 +929,17 @@ fn capture_resource(
                     )?;
                     pages.extend(hydrated_pages);
                     remaining = next;
+                    break;
+                }
+                // Split only when every candidate fits the cell budget; a
+                // larger list falls through and is judged as one page.
+                if let Some(items) = items::split(&source, &state)
+                    .filter(|items| items.len() <= candidate_limit.max(1))
+                {
+                    remaining = receipt
+                        .as_ref()
+                        .and_then(super::clasify_context::continuation);
+                    pages.extend(items.into_iter().map(|item| item_page(&source, item)));
                     break;
                 }
                 let state_chars = assessed_payload_chars(&source, &state);
@@ -934,27 +1093,39 @@ fn prefilter_windows(
         .as_array()
         .cloned()
         .unwrap_or_else(|| vec![scope.clone()]);
-    let mut density = std::collections::BTreeMap::<u64, usize>::new();
-    for range in &ranges {
-        if let (Some(start), Some(end)) = (range["startLine"].as_u64(), range["endLine"].as_u64()) {
-            for line in start..=end {
-                *density
-                    .entry((line - 1) / PREFILTER_WINDOW_LINES)
-                    .or_default() += 1;
-            }
-        }
+    let mut hits = ranges
+        .iter()
+        .filter_map(|range| Some(range["startLine"].as_u64()?..=range["endLine"].as_u64()?))
+        .flatten()
+        .collect::<Vec<_>>();
+    hits.sort_unstable();
+    hits.dedup();
+    // Center each window on its densest run of hits: a fixed bucket grid cuts
+    // a hit near a boundary away from the lines that introduce it.
+    let span = PREFILTER_WINDOW_LINES - 1;
+    let mut windows = Vec::new();
+    while windows.len() < PREFILTER_WINDOWS
+        && let Some((first, last)) = densest_run(&hits, span - 1)
+    {
+        let center = first + (last - first) / 2;
+        let end = (center.saturating_sub(PREFILTER_WINDOW_LINES / 2).max(1) + span).min(total);
+        let start = end.saturating_sub(span).max(1);
+        windows.push((start, end));
+        hits.retain(|line| *line < start || *line > end);
     }
-    if density.is_empty() {
+    if windows.is_empty() {
         return Ok(None);
     }
-    let mut buckets = density.into_iter().collect::<Vec<_>>();
-    buckets.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    buckets.truncate(PREFILTER_WINDOWS);
-    buckets.sort_by_key(|(bucket, _)| *bucket);
+    windows.sort_unstable();
+    // Later windows hold only hits outside earlier ones, so trimming an
+    // overlap keeps every hit exactly once.
+    for index in 1..windows.len() {
+        windows[index].0 = windows[index].0.max(windows[index - 1].1 + 1);
+    }
     Ok(Some(
-        buckets
+        windows
             .into_iter()
-            .map(|(bucket, _)| {
+            .map(|(start, end)| {
                 let mut window = resource.clone();
                 if let Some(object) = window.as_object_mut() {
                     object.remove("prefilter");
@@ -963,8 +1134,8 @@ fn prefilter_windows(
                 if let Some(object) = query.as_object_mut() {
                     object.remove("fullContent");
                 }
-                query["startLine"] = json!(bucket * PREFILTER_WINDOW_LINES + 1);
-                query["endLine"] = json!(((bucket + 1) * PREFILTER_WINDOW_LINES).min(total));
+                query["startLine"] = json!(start);
+                query["endLine"] = json!(end);
                 window
             })
             .collect(),
@@ -996,7 +1167,67 @@ fn coalesce_pages(pages: Vec<CapturedPage>) -> Vec<CapturedPage> {
     output
 }
 
+/// Judgments already made in this process for the exact same provider input.
+static JUDGMENTS: clasify::cache::JudgmentCache = clasify::cache::JudgmentCache::new();
+
+/// One provider page, answered from [`JUDGMENTS`] when this exact state and
+/// question set was judged before (a resumed `next.clasify`, a repeated
+/// matrix, or an identical page judged concurrently in the same call). A
+/// replay reports no usage because no request was made. Only a fully
+/// successful answer set is stored. The key covers what the provider sees;
+/// correlation IDs are never sent, so they do not split it.
 async fn assess_provider_page(
+    state: &Value,
+    questions: &[Value],
+    config: &ProviderConfig<'_>,
+    budget: &crate::providers::RequestBudget,
+    gate: &GateLease,
+) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
+    let endpoint = format!("{}/{}", config.base_url, config.endpoint_path);
+    let provider_questions = questions
+        .iter()
+        .map(|question| question["question"].clone())
+        .collect::<Vec<_>>();
+    let key = clasify::cache::key(&endpoint, config.model, state, &provider_questions);
+    let flight = JUDGMENTS.flight(&key);
+    let assessed = {
+        let _turn = flight.lock().await;
+        match JUDGMENTS.get(&key) {
+            Some(answers) => (answers.into_iter().map(Ok).collect(), None),
+            None => request_and_store(state, questions, config, budget, gate, key).await,
+        }
+    };
+    drop(flight);
+    JUDGMENTS.land(&key);
+    assessed
+}
+
+async fn request_and_store(
+    state: &Value,
+    questions: &[Value],
+    config: &ProviderConfig<'_>,
+    budget: &crate::providers::RequestBudget,
+    gate: &GateLease,
+    key: [u8; 32],
+) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
+    let (answers, usage) = request_provider_page(state, questions, config, budget, gate).await;
+    if answers.iter().all(Result::is_ok) {
+        let stored = answers
+            .iter()
+            .filter_map(|answer| answer.as_ref().ok().cloned())
+            .map(|mut answer| {
+                if let Some(fields) = answer.as_object_mut() {
+                    fields.remove("usage");
+                }
+                answer
+            })
+            .collect();
+        JUDGMENTS.put(key, stored);
+    }
+    (answers, usage)
+}
+
+async fn request_provider_page(
     state: &Value,
     questions: &[Value],
     config: &ProviderConfig<'_>,
@@ -1070,13 +1301,14 @@ enum PublicAnswerPlan {
     Failed(ClassificationError),
 }
 
-/// Put the caller's goal and next-read reason on the evidence sent to Jev.
-/// An evidence object gains the missing sibling keys. A string, array, or
-/// object that already uses either name is wrapped so a judged field is kept.
-fn with_briefs(state: Value, reasoning: &str, goal: &str) -> Value {
+/// Put the caller's goal, next-read reason, and the read that produced the
+/// evidence on the state sent to Jev. An evidence object gains the missing
+/// sibling keys. A string, array, or object that already uses any of those
+/// names is wrapped so a judged field is kept.
+fn with_briefs(state: Value, reasoning: &str, goal: &str, read: Option<Value>) -> Value {
     let reasoning = reasoning.trim();
     let goal = goal.trim();
-    if reasoning.is_empty() && goal.is_empty() {
+    if reasoning.is_empty() && goal.is_empty() && read.is_none() {
         return state;
     }
     let mut briefs = serde_json::Map::new();
@@ -1086,8 +1318,11 @@ fn with_briefs(state: Value, reasoning: &str, goal: &str) -> Value {
     if !goal.is_empty() {
         briefs.insert("goal".into(), Value::String(goal.to_owned()));
     }
+    if let Some(read) = read {
+        briefs.insert("read".into(), read);
+    }
     match state {
-        Value::Object(mut map) if !map.contains_key("reasoning") && !map.contains_key("goal") => {
+        Value::Object(mut map) if briefs.keys().all(|key| !map.contains_key(key)) => {
             map.extend(briefs);
             Value::Object(map)
         }
@@ -1096,6 +1331,36 @@ fn with_briefs(state: Value, reasoning: &str, goal: &str) -> Value {
             Value::Object(briefs)
         }
     }
+}
+
+fn secured_read(mut read: Value, security: &crate::security::ContentSecurity) -> Option<Value> {
+    let checked = security.validate_input_parameters(read.get("query")?);
+    if !checked.is_valid {
+        return None;
+    }
+    read["query"] = Value::Object(checked.sanitized_params);
+    Some(read)
+}
+
+/// The read request behind a page, as the judge needs it: which tool and
+/// what it asked for (search text, symbol, keywords, path). Opaque paging
+/// tokens are dropped; a read brief is kept only when it adds to the matrix
+/// brief. Supplied values have no read.
+fn read_brief(resource: &Value, goal: &str, reasoning: &str) -> Option<Value> {
+    let context = resource.get("context")?;
+    let tool = context.get("tool")?.as_str()?;
+    let mut query = context.get("query")?.as_object()?.clone();
+    query.retain(|key, value| match key.as_str() {
+        "snapshot" | "cursor" | "diagnosticSnapshot" => false,
+        "goal" => value
+            .as_str()
+            .is_some_and(|text| text.trim() != goal.trim()),
+        "reasoning" => value
+            .as_str()
+            .is_some_and(|text| text.trim() != reasoning.trim()),
+        _ => true,
+    });
+    Some(json!({"tool":tool,"query":query}))
 }
 
 /// Attach the caller's search goal to one provider question. Public questions
@@ -1152,6 +1417,7 @@ fn inherit_call_brief(resource: &mut Value, goal: &str, reasoning: &str) {
 
 async fn assess_page(
     state: &Value,
+    read: Option<Value>,
     questions: &[Value],
     goal: &str,
     reasoning: &str,
@@ -1168,7 +1434,7 @@ async fn assess_page(
         Some(Err(error)) => (state.clone(), LocatedPage::default(), Some(error)),
         None => (state.clone(), LocatedPage::default(), None),
     };
-    let provider_state = with_briefs(provider_state, reasoning, goal);
+    let provider_state = with_briefs(provider_state, reasoning, goal, read);
     let mut provider_questions = Vec::new();
     let mut plans = Vec::with_capacity(questions.len());
     for question in questions {
@@ -1425,12 +1691,17 @@ fn execute_query(
                         continue;
                     };
                     let state = state.clone();
+                    // The read request leaves the host with the evidence, so it
+                    // passes the same input policy as the context read itself.
+                    let read = read_brief(resource.resource, &goal, &reasoning)
+                        .and_then(|read| secured_read(read, &dispatcher.security));
                     let config = &config;
                     let goal = goal.clone();
                     let reasoning = reasoning.clone();
                     pending.push(async move {
                         let (answers, usage) = assess_page(
                             &state,
+                            read,
                             resolved_questions,
                             &goal,
                             &reasoning,
@@ -1638,7 +1909,62 @@ fn normalize_ids(queries: &mut [Value]) {
     }
 }
 
+/// Finished clasify output: the sanitized `{"queries": rows}` envelope and
+/// what the response stage needs besides it.
+pub(super) struct Receipts {
+    pub structured: Value,
+    pub source_digest: Option<String>,
+    pub failure: Option<super::engine::FailureKind>,
+}
+
+/// Clasify's entry: evaluate every matrix under the provider scheduler and
+/// return the finished `{"queries": rows}` envelope. Rows are receipts, not
+/// ordinary result rows: no result-row shaping, minimizing, path compaction,
+/// or cross-tool handoff. Rejected input rows keep their input positions.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn execute(
+    queries: &[Value],
+    rejected_rows: Vec<(usize, Value)>,
+    dispatcher: &DomainDispatcher,
+    context: &ExecutionContext,
+    timeout: Duration,
+    config: ProviderConfig<'_>,
+    record_usage: impl FnOnce(ClassificationUsage),
+) -> Result<Receipts, ExecutionError> {
+    let evaluated = {
+        let _enter = dispatcher.handle.enter();
+        let evaluation = ExecutionContext {
+            deadline: context.deadline.min(std::time::Instant::now() + timeout),
+            ..context.clone()
+        };
+        evaluate(queries, dispatcher, &evaluation, config, record_usage)?
+    };
+    let mut rows = Vec::with_capacity(queries.len());
+    let mut source_digest = None;
+    let mut failure = None;
+    let mut evaluated = evaluated.into_iter();
+    for _ in queries {
+        context.check()?;
+        let result = evaluated.next().ok_or(ExecutionError::WorkerFailed)?;
+        context.check()?;
+        if queries.len() == 1 {
+            source_digest = result.source_digest;
+        }
+        failure = failure.or(result.failure);
+        rows.push(result.data);
+    }
+    super::engine::merge_rejected_rows(&mut rows, rejected_rows);
+    let mut structured = json!({"queries": rows});
+    // Email redaction is GitHub-only; receipts get the shared field sanitizer.
+    super::response::sanitize_fields(&mut structured, &dispatcher.security, context)?;
+    Ok(Receipts {
+        structured,
+        source_digest,
+        failure,
+    })
+}
+
+fn evaluate(
     queries: &[Value],
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
@@ -1858,6 +2184,16 @@ mod tests {
         assert_eq!(read["query"]["endLine"], 150);
         assert_eq!(read["query"]["chunkSize"], 12_000);
 
+        // An incidental first hit must not pull the window away from the
+        // cluster that holds the declaration and its uses.
+        let clustered = json!({"base":"/repo","results":[{"data":{"files":[{
+            "path":"src/a.rs","matches":[{"line":21},{"line":283},{"line":288},
+                {"line":293},{"line":294},{"line":507}]
+        }]}}]});
+        let read = local_candidate_read(&clustered, 12_000).expect("clustered read");
+        assert_eq!(read["query"]["startLine"], 228);
+        assert_eq!(read["query"]["endLine"], 348);
+
         let github = json!({"results":[{"data":{"files":[{
             "owner":"o","repo":"r","path":"src/a.rs","matches":[{
                 "value":"fn needle() {}", "matchIndices":[{"start":3,"end":9}]
@@ -1865,11 +2201,93 @@ mod tests {
         }]}}]});
         let (mut read, anchored) = github_candidate_read(&github, 8_000).expect("github read");
         assert!(anchored);
-        assert_eq!(read["query"]["matchString"], "needle");
+        assert_eq!(read["query"]["matchString"], "fn needle() {}");
         assert_eq!(read["query"]["chunkSize"], 8_000);
         let hydrated = json!({"results":[{"data":{"files":[{"commitSha":"abc123"}]}}]});
         pin_github_read(&mut read, &hydrated);
         assert_eq!(read["query"]["branch"], "abc123");
+    }
+
+    #[test]
+    fn candidate_pages_drop_list_paging_and_highlight_offsets() {
+        let history = json!({"tool":"ghSearchHistory","query":{"operation":"pullRequest"}});
+        let item = json!({"results":[{"data":{
+            "type":"pullRequests","pullRequests":[{"number":7,"title":"mpsc: release permits"}],
+            "effectiveQuery":"mpsc is:pr","pagination":{"currentPage":1,"hasMore":true}
+        }}]});
+        assert_eq!(
+            candidate_state(&history, item),
+            json!({"type":"pullRequests","pullRequests":[{"number":7,"title":"mpsc: release permits"}]})
+        );
+        let code = json!({"tool":"ghSearchCode","query":{"owner":"o"}});
+        let hit = json!({"results":[{"data":{"files":[{"owner":"o","repo":"r","path":"a.rs",
+            "matches":[{"value":"acquire(n)","matchIndices":[{"start":0,"end":7}]}]}],
+            "pagination":{"currentPage":1}}}]});
+        assert_eq!(
+            candidate_state(&code, hit),
+            json!({"files":[{"owner":"o","repo":"r","path":"a.rs","matches":[{"value":"acquire(n)"}]}]})
+        );
+    }
+
+    #[test]
+    fn github_candidate_read_anchors_on_the_densest_matched_line() {
+        // A bare keyword ("semaphore") recurs across the file, so anchoring on
+        // it reads every occurrence; the matched line is the hit itself.
+        let value = "        }\n\n        let guard = WakeReceiverOnDrop { chan: &self.chan };\n        let result = self.chan.semaphore().semaphore.acquire(n).await;\n\n        match result {";
+        let github = json!({"results":[{"data":{"files":[{
+            "owner":"o","repo":"r","path":"src/bounded.rs","matches":[{
+                "value":value,
+                "matchIndices":[
+                    {"start":103,"end":112,"lineOffset":3},
+                    {"start":115,"end":124,"lineOffset":3},
+                    {"start":125,"end":132,"lineOffset":3}
+                ]
+            }]
+        }]}}]});
+        let (read, anchored) = github_candidate_read(&github, 8_000).expect("github read");
+        assert!(anchored);
+        assert_eq!(
+            read["query"]["matchString"],
+            "let result = self.chan.semaphore().semaphore.acquire(n).await;"
+        );
+        // Without lineOffset the line is derived from the match start; an
+        // overlong (minified) line falls back to the matched term.
+        let long = format!("{} needle {}", "x".repeat(300), "y".repeat(300));
+        let github = json!({"results":[{"data":{"files":[{
+            "owner":"o","repo":"r","path":"a.min.js","matches":[
+                {"value":format!("a\n{long}"),"matchIndices":[{"start":303,"end":309}]}
+            ]
+        }]}}]});
+        let (read, _) = github_candidate_read(&github, 8_000).expect("minified read");
+        assert_eq!(read["query"]["matchString"], "needle");
+    }
+
+    #[test]
+    fn list_tools_bound_their_first_page_to_the_cell_budget() {
+        let repos =
+            json!({"tool":"ghSearchRepo","query":{"goal":"g","reasoning":"r","keywords":["x"]}});
+        let bounded = bounded_search_source(&repos, 6).expect("first page");
+        assert_eq!(bounded["query"]["pageSize"], 6);
+        assert_eq!(bounded["query"]["page"], 1);
+        let packages = json!({"tool":"artifactSearch","query":{
+            "goal":"g","reasoning":"r","type":"npm","keywords":["x"],"cursor":"c","pageSize":20
+        }});
+        let bounded = bounded_search_source(&packages, 5).expect("cursor page");
+        assert_eq!(bounded["query"]["pageSize"], 5);
+        assert!(
+            bounded["query"].get("page").is_none(),
+            "cursor tools have no page"
+        );
+        let later = json!({"tool":"ghSearchHistory","query":{"operation":"issue","page":3}});
+        assert_eq!(
+            bounded_search_source(&later, 5).expect("unknown default"),
+            later
+        );
+        let symbols = json!({"tool":"astSearch","query":{"operation":"symbols","path":"/r"}});
+        assert_eq!(
+            bounded_search_source(&symbols, 5).expect("grouped"),
+            symbols
+        );
     }
 
     #[test]
@@ -1919,28 +2337,75 @@ mod tests {
             file,
             "  The next read is the writer.  ",
             "  The function that writes the continuation.  ",
+            None,
         );
         assert_eq!(tagged["reasoning"], "The next read is the writer.");
         assert_eq!(tagged["goal"], "The function that writes the continuation.");
         assert_eq!(tagged["path"], "a.rs");
         assert_eq!(tagged["content"], "fn a() {}\n");
         assert_eq!(
-            with_briefs(json!("plain"), "why", "what"),
+            with_briefs(json!("plain"), "why", "what", None),
             json!({"reasoning":"why","goal":"what","evidence":"plain"})
         );
         assert_eq!(
-            with_briefs(json!(["a", "b"]), "why", "what")["evidence"],
+            with_briefs(json!(["a", "b"]), "why", "what", None)["evidence"],
             json!(["a", "b"])
         );
         let existing = with_briefs(
             json!({"goal": "test", "reasoning":"field","content":"x"}),
             "why",
             "what",
+            None,
         );
         assert_eq!(existing["reasoning"], "why");
         assert_eq!(existing["goal"], "what");
         assert_eq!(existing["evidence"]["reasoning"], "field");
-        assert_eq!(with_briefs(json!({"a":1}), "   ", "   "), json!({"a":1}));
+        assert_eq!(
+            with_briefs(json!({"a":1}), "   ", "   ", None),
+            json!({"a":1})
+        );
+    }
+
+    #[test]
+    fn read_briefs_pass_the_input_security_policy() {
+        let security = crate::security::ContentSecurity;
+        let read = json!({"tool":"localSearch","query":{"path":"/repo","searchText":"retry"}});
+        assert_eq!(secured_read(read.clone(), &security), Some(read));
+        let leaky = json!({"tool":"localSearch","query":{
+            "path":"/repo","searchText":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+        }});
+        let secured = secured_read(leaky, &security);
+        assert!(
+            secured.is_none_or(|read| !read
+                .to_string()
+                .contains("ghp_abcdefghijklmnopqrstuvwxyz0123456789")),
+            "a token in the read query never reaches the provider"
+        );
+    }
+
+    #[test]
+    fn provider_state_names_the_read_that_produced_the_evidence() {
+        let resource = json!({"id":"hits","context":{"tool":"localSearch","query":{
+            "path":"/repo","searchText":"Retry-After","snapshot":"opaque",
+            "goal":"Find retries.","reasoning":"Only snippets name the retry file."
+        }}});
+        let read = read_brief(&resource, "Find retries.", "Screen first.").expect("tool read");
+        assert_eq!(
+            read,
+            json!({"tool":"localSearch","query":{
+                "path":"/repo","searchText":"Retry-After",
+                "reasoning":"Only snippets name the retry file."
+            }})
+        );
+        let state = with_briefs(
+            json!({"files":[]}),
+            "Screen first.",
+            "Find retries.",
+            Some(read),
+        );
+        assert_eq!(state["read"]["query"]["searchText"], "Retry-After");
+        assert_eq!(state["goal"], "Find retries.");
+        assert!(read_brief(&json!({"context":{"value":"x"}}), "g", "r").is_none());
     }
 
     #[test]

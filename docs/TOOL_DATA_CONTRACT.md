@@ -36,7 +36,7 @@ and include those contracts in drift detection. Responses still carry matching
 
 ## Requests and result rows
 
-Each call uses one tool and an outer `queries` array of 1–5 queries. Independent queries can batch; a query that needs a prior result must wait for that result. Required `goal` and `reasoning` are the call brief, shared by every query in the batch, and do not supply missing runtime fields.
+Each call uses one tool and an outer `queries` array of 1–5 queries. Independent queries can batch; a query that needs a prior result must wait for that result. Each query carries its own required `goal` and `reasoning`; they state the decision and do not supply missing runtime fields.
 
 For example, this is a `localFetch` request. Substitute an observed path and line range:
 
@@ -45,6 +45,7 @@ For example, this is a `localFetch` request. Substitute an observed path and lin
 {
   "queries": [
     {
+      "goal": "Read the parser range needed for the claim",
       "reasoning": "Read the exact parser range needed for the current claim.",
       "path": "/ABS/repo/src/parser.ts",
       "startLine": 20,
@@ -61,12 +62,26 @@ MCP returns the envelope under `structuredContent`; CLI JSON/compact output expo
 |---|---|
 | `results[].index` | Zero-based input position. Preserve it when a batch has mixed outcomes. |
 | `results[].status` | Successful nonempty rows normally omit it. `empty` and `error` are distinct outcomes; inspect the reason and evidence before interpreting either. |
-| `results[].cache` | `1` indicates a cached primary response. It does not establish current source freshness. |
+| `results[].cache` | Debug only. `1` indicates a cached primary response. It does not establish current source freshness. |
 | `results[].meta.evidence` | `kind` and `confidence` describe evidence provenance and strength. They do not promise complete coverage. |
 | `results[].meta.diagnostics` | Optional diagnostic codes, hints, and partial state. |
 | `results[].data` | Operation-specific payload, pagination, coverage, errors, and `next` calls. |
 | `base`, `shared` | Presentation compression metadata described below. |
 | `responsePagination` | Optional pagination of the rendered aggregate text, independent of row-level result pages. |
+
+### Minimal by default
+
+Rows carry the answer and what the next call needs. With `debug: true` a query also receives:
+- `meta`;
+- `cache`;
+- each tool's scan and provider fields (for example `searchEngine`, `filesScanned`, `modified`, byte counts, `effectiveQuery`, the lspSearch `lsp` receipt and `workspaceRoot`, topology `coverage.diagnostics`);
+- info-level diagnostics;
+- the top-level `snapshot`;
+- request echoes (`operation`, `type`, `owner`, `repo` equal to the query);
+- `false`/`0` defaults;
+- pagination of a finished single page.
+
+These are never dropped: open pagination (`hasMore`, or a page after the first), every `next` continuation (continuations carry their own `snapshot`), warnings and errors, scan scope on an empty search, and confidence signals such as topology `completeness` and `confidence`. Error rows are always complete. The runtime owns this projection (`minimize_row`); each tool declares its debug-only fields.
 
 An outer `isError:false` does not establish that every row succeeded. Never infer success, absence, or completeness from a missing field. `answerReady` and `complete` are not universal members of `meta.evidence`; inspect the actual operation's pagination, coverage, truncation, and terminal-limit fields.
 
@@ -93,6 +108,8 @@ Copy the returned target and query. Follow every independent partial surface rel
 |---|---|---|
 | `results[].data.next.<name>` | Normally one tool query. | Call the named tool with `{ "queries": [next.query] }`. Check the returned shape rather than guessing from the next-call name. |
 | `responsePagination.next` | A complete outer request, including its own `queries`. | Pass `next.query` as the tool arguments. Do not wrap that envelope inside another `queries` array. |
+
+Every `next.*` query except `next.clasify` carries `followUp: true` instead of `goal` and `reasoning`: a continuation serves the decision of the query that produced it, so the brief is not repeated on each page or retyped on replay. Run it unchanged. A query you write yourself still needs its own `goal` and `reasoning`; the runtime rejects a new query without them. Clasify continuations keep their briefs because clasify sends them to its provider.
 
 The CLI accepts the returned query or envelope through `<next.tool> '<next.query JSON>'`. A numeric cursor alone is not a complete continuation. Preserve the returned operation, scope, revision, filters, bounds, and unrelated pagination axes.
 

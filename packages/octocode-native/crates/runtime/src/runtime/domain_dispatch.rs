@@ -23,94 +23,138 @@ pub(super) struct DomainDispatcher {
     pub home: PathBuf,
     pub handle: tokio::runtime::Handle,
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
-    pub local_views: Arc<crate::tools::gh_get_file_content::SanitizedViewMemo>,
+    pub local_views: Arc<crate::security::scan::SanitizedViewMemo>,
     pub lsp_execution_config: LspExecutionConfig,
     pub available_tools: Vec<&'static str>,
 }
 
 impl DomainDispatcher {
+    /// Every route matches the enum exhaustively, so a new tool fails to
+    /// compile until it is routed. The runtime resolves the wire name once.
     pub fn execute(
         &self,
-        tool: &str,
+        tool: ToolId,
         query: &Value,
         context: &ExecutionContext,
     ) -> Result<dispatch::DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
         context.check()?;
-        if matches!(ToolId::from_name(tool), Some(id) if id.is_github()) {
-            return match self.github_services.get_or_init(|| {
-                github::GitHubServices::new(
-                    self.config.clone(),
-                    self.home.clone(),
-                    self.github_cache.clone(),
-                )
-            }) {
-                Ok(services) => services.execute_query(
-                    tool,
+        match tool {
+            ToolId::GhSearchRepo
+            | ToolId::GhSearchCode
+            | ToolId::GhStructure
+            | ToolId::GhGetFileContent
+            | ToolId::GhSearchHistory
+            | ToolId::GhGetHistoryItem
+            | ToolId::GhCloneRepo => self.execute_github(tool, query, context),
+            ToolId::ArtifactSearch => self.execute_artifact(query, context),
+            ToolId::LspSearch => self.execute_lsp(query, context),
+            ToolId::LocalSearch
+            | ToolId::LocalFetch
+            | ToolId::StructureSearch
+            | ToolId::AstSearch
+            | ToolId::AstTopology
+            | ToolId::AstRewrite => self.execute_local(tool, query, context),
+            // Clasify runs its own batch (`clasify_batch`), never a domain row.
+            ToolId::Clasify => Err(ExecutionError::WorkerFailed),
+        }
+    }
+
+    fn execute_github(
+        &self,
+        tool: ToolId,
+        query: &Value,
+        context: &ExecutionContext,
+    ) -> Result<dispatch::DomainResult, ExecutionError> {
+        match self.github_services.get_or_init(|| {
+            github::GitHubServices::new(
+                self.config.clone(),
+                self.home.clone(),
+                self.github_cache.clone(),
+            )
+        }) {
+            Ok(services) => services.execute_query(
+                tool,
+                query,
+                context,
+                &self.security,
+                &self.regex,
+                &self.handle,
+                &self.paths,
+            ),
+            Err(error) => Ok(github::provider_error(error.clone())),
+        }
+    }
+
+    fn execute_artifact(
+        &self,
+        query: &Value,
+        context: &ExecutionContext,
+    ) -> Result<dispatch::DomainResult, ExecutionError> {
+        self.handle.block_on(async {
+            Ok(
+                match crate::tools::artifact_search::execute(
                     query,
-                    context,
-                    &self.security,
-                    &self.regex,
-                    &self.handle,
-                    &self.paths,
-                ),
-                Err(error) => Ok(github::provider_error(error.clone())),
-            };
-        }
-        if tool == "artifactSearch" {
-            return self.handle.block_on(async {
-                Ok(
-                    match crate::tools::artifact_search::execute(
-                        query,
-                        context.deadline,
-                        context.cancellation.clone(),
-                        self.config.resolved.network.allow_private_registry,
-                        Some(&self.home),
-                        self.config.revision,
-                        self.config.resolved.storage.mode == "persistent",
-                    )
-                    .await
-                    {
-                        Ok(data) => dispatch::value_result(data),
-                        Err(error) => dispatch::provider_failure(
-                            error.message,
-                            error.code,
-                            error.hints,
-                            error.status,
-                        ),
-                    },
-                )
-            });
-        }
-        if tool == "lspSearch" {
-            return self.handle.block_on(async {
-                match crate::tools::lsp_search::execute(
-                    query.clone(),
-                    context,
-                    &self.lsp_pool,
-                    &self.paths,
-                    &self.lsp_execution_config,
+                    context.deadline,
+                    context.cancellation.clone(),
+                    self.config.resolved.network.allow_private_registry,
+                    Some(&self.home),
+                    self.config.revision,
+                    self.config.resolved.storage.mode == "persistent",
                 )
                 .await
                 {
-                    Ok(data) => Ok(dispatch::value_result(data)),
-                    Err(failure) => {
-                        // A cancelled/expired request is a runtime outcome,
-                        // not a provider failure.
-                        context.check()?;
-                        let mut result = dispatch::provider_failure(
-                            failure.message,
-                            failure.code.into(),
-                            vec![failure.hint.into()],
-                            None,
-                        );
-                        result.data["retryable"] = serde_json::json!(failure.retryable);
-                        Ok(result)
-                    }
+                    Ok(data) => dispatch::value_result(data),
+                    Err(error) => dispatch::provider_failure(
+                        error.message,
+                        error.code,
+                        error.hints,
+                        error.status,
+                    ),
+                },
+            )
+        })
+    }
+
+    fn execute_lsp(
+        &self,
+        query: &Value,
+        context: &ExecutionContext,
+    ) -> Result<dispatch::DomainResult, ExecutionError> {
+        self.handle.block_on(async {
+            match crate::tools::lsp_search::execute(
+                query.clone(),
+                context,
+                &self.lsp_pool,
+                &self.paths,
+                &self.lsp_execution_config,
+            )
+            .await
+            {
+                Ok(data) => Ok(dispatch::value_result(data)),
+                Err(failure) => {
+                    // A cancelled/expired request is a runtime outcome,
+                    // not a provider failure.
+                    context.check()?;
+                    let mut result = dispatch::provider_failure(
+                        failure.message,
+                        failure.code.into(),
+                        vec![failure.hint.into()],
+                        None,
+                    );
+                    result.data["retryable"] = serde_json::json!(failure.retryable);
+                    Ok(result)
                 }
-            });
-        }
-        let tool = tool.to_owned();
+            }
+        })
+    }
+
+    fn execute_local(
+        &self,
+        tool: ToolId,
+        query: &Value,
+        context: &ExecutionContext,
+    ) -> Result<dispatch::DomainResult, ExecutionError> {
         let query = query.clone();
         let paths = self.paths.clone();
         let security = self.security.clone();
@@ -123,7 +167,7 @@ impl DomainDispatcher {
         self.handle.block_on(async {
             tokio::task::spawn_blocking(move || {
                 dispatch::execute_local(
-                    &tool,
+                    tool,
                     &query,
                     &paths,
                     &security,

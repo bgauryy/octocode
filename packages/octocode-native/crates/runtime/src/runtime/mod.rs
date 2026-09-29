@@ -2,6 +2,7 @@
 
 mod clasify_batch;
 mod clasify_context;
+mod clasify_handoff;
 mod clasify_locate;
 mod clasify_output;
 mod continuations;

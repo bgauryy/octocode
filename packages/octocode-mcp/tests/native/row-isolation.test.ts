@@ -20,6 +20,7 @@ const schema = rowIsolatingSchema(
 const row = (extra: Record<string, unknown> = {}) => ({
   path: '/repo',
   searchText: 'needle',
+  goal: 'test goal',
   reasoning: 'Find needles.',
   ...extra,
 });

@@ -20,6 +20,7 @@ const env = {
   ENABLE_LOCAL: 'true',
   WORKSPACE_ROOT: fixture,
   ALLOWED_PATHS: fixture,
+  NODE_ENV: 'development',
   OCTOCODE_NATIVE_BINDING: addon,
   OCTOCODE_REGEX_WORKER: regexWorker,
 };

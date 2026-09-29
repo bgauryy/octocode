@@ -168,6 +168,23 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
                 issues.extend(error.issues);
                 continue;
             }
+            let missing = missing_brief(tool_name, query);
+            if !missing.is_empty() {
+                for field in missing {
+                    let mut at = path.clone();
+                    at.push(field.to_owned());
+                    issues.push(ValidationIssue {
+                        rule_id: "schema.required".to_owned(),
+                        path: at,
+                        message: format!(
+                            "Missing required field: {field} (a new query states it; only a next.* continuation with followUp: true inherits it)"
+                        ),
+                        schema: None,
+                        received: None,
+                    });
+                }
+                continue;
+            }
             let scoped = serde_json::json!({"queries":[query]});
             if let Err(mut error) = apply_validation_rules(&tool["rules"], &scoped) {
                 for issue in &mut error.issues {
@@ -213,6 +230,25 @@ pub fn validate_query(tool_name: &str, query: Value) -> Result<Value, ContractVa
                 received: None,
             }],
         })
+}
+
+/// A new query states its own `goal` and `reasoning`. A runtime-emitted
+/// continuation (`followUp: true`) serves the decision of the query that
+/// produced it and omits them. Clasify forwards its briefs to the provider,
+/// so its own schema keeps them required.
+fn missing_brief(tool_name: &str, query: &Value) -> Vec<&'static str> {
+    if tool_name == "clasify" || query.get("followUp") == Some(&Value::Bool(true)) {
+        return Vec::new();
+    }
+    ["goal", "reasoning"]
+        .into_iter()
+        .filter(|field| {
+            query
+                .get(*field)
+                .and_then(Value::as_str)
+                .is_none_or(|text| text.trim().is_empty())
+        })
+        .collect()
 }
 
 fn strip_queries_prefix(mut error: ContractValidationError) -> ContractValidationError {

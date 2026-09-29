@@ -5,7 +5,7 @@ mod process;
 
 use crate::policy::{PolicyErrorCode, path::PathPolicy};
 use crate::providers::github::{GitHubEndpoint, ResolvedCredential};
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
@@ -93,6 +93,8 @@ pub struct CloneResult {
 pub struct CloneError {
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hints: Vec<String>,
 }
 
 impl CloneError {
@@ -100,7 +102,24 @@ impl CloneError {
         Self {
             code: code.into(),
             message: message.into(),
+            hints: Vec::new(),
         }
+    }
+}
+
+/// The repository metadata lookup returned 404: name the repository instead
+/// of the internal-sounding `clone.defaultBranchUnavailable` that cloning
+/// without metadata would report.
+pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
+    let (owner, repo) = (&query.owner, &query.repo);
+    CloneError {
+        hints: vec![format!(
+            "Verify the owner/repo spelling and that {owner}/{repo} exists and is accessible with your credentials."
+        )],
+        ..CloneError::new(
+            "clone.repositoryNotFound",
+            format!("Repository not found: {owner}/{repo}"),
+        )
     }
 }
 

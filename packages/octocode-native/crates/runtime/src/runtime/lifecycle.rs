@@ -41,6 +41,9 @@ pub struct ExecutionContext {
     pub cancellation: CancellationToken,
     pub deadline: Instant,
     pub output_bytes: usize,
+    /// This query's share of the cores for parallel directory walks, set by
+    /// the batch budget when several queries walk at once. `None` = all cores.
+    pub walk_threads: Option<u32>,
 }
 
 impl ExecutionContext {
@@ -199,6 +202,7 @@ impl RequestRuntime {
                 cancellation: token,
                 deadline: Instant::now() + self.inner.limits.timeout,
                 output_bytes: self.inner.limits.output_bytes,
+                walk_threads: None,
             },
         })
     }

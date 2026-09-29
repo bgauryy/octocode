@@ -219,7 +219,7 @@ export function loadOctocodeEnv({
       if (!v.trim()) continue;
       // A workspace value for a protected key is dropped later; it must not
       // also evict the trusted home value for that key.
-      if (k in map && isProtectedKey(k)) continue;
+      if (k in map && isProtectedKey(k) && !workspaceMayNarrow(k, v)) continue;
       map[k] = v;
       sources[k] = 'project';
     }
@@ -234,6 +234,21 @@ export interface ApplyOctocodeEnvOptions {
 
 /** Present-but-blank in the process env disables every classification feature. */
 export const CLASSIFICATION_KILL_SWITCH = 'OCTOCODE_CLASSIFICATION_API';
+
+/**
+ * Persistence switches a workspace `.env` may only turn off. They are
+ * home-trusted (a checked-out repository must not widen where octocode
+ * writes), but `memory` narrows what the trusted layers allow, so a project
+ * that opts out of disk persistence keeps working. Mirrors the native resolver.
+ */
+export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {
+  OCTOCODE_STORAGE_MODE: 'memory',
+  OCTOCODE_EXTENSION_STORAGE_MODE: 'memory',
+};
+
+export function workspaceMayNarrow(key: string, value: string): boolean {
+  return WORKSPACE_NARROW_ONLY_ENV[key] === value.trim().toLowerCase();
+}
 
 export interface ApplyOctocodeEnvResult {
   applied: string[];
@@ -281,7 +296,9 @@ export function applyOctocodeEnv(
     const trustedHomeKey =
       sources[key] === 'global' &&
       (HOME_TRUSTED_ENV_KEYS as readonly string[]).includes(key);
-    if (isProtectedKey(key) && !trustedHomeKey) {
+    const narrowsPersistence =
+      sources[key] === 'project' && workspaceMayNarrow(key, value);
+    if (isProtectedKey(key) && !trustedHomeKey && !narrowsPersistence) {
       skippedProtected.push(key);
       continue;
     }

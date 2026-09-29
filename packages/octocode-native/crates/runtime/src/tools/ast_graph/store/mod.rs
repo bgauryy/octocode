@@ -23,7 +23,7 @@ mod workspace;
 use super::graph::{BuildExtras, build_graph_with};
 use super::types::AstTopologyQuery;
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
 use serde_json::{Value, json};
 use std::{
@@ -40,8 +40,9 @@ const LATEST_FILE: &str = "latest";
 const MANIFEST_KIND: &str = "octocode.graph";
 const DEFAULT_MAX_FILES: u32 = 50_000;
 const DEFAULT_KEEP: usize = 3;
-/// Environment and tool-output directories pruned on top of the shared
-/// defaults and `.gitignore` (hidden directories are never scanned).
+/// Environment and tool-output directories the ingest prunes on top of the
+/// shared syntax-visible policy and `.gitignore` (hidden directories are never
+/// scanned).
 const INGEST_EXCLUDES: &[&str] = &[
     "venv",
     "__pycache__",
@@ -366,19 +367,6 @@ pub fn ingest(
     GraphOutput::ok(receipt)
 }
 
-/// Directories pruned by every ingest (mirrors the scan defaults).
-const SCAN_EXCLUDES: &[&str] = &[
-    "node_modules",
-    "dist",
-    "build",
-    "out",
-    "coverage",
-    ".git",
-    "target",
-    ".next",
-    ".cache",
-];
-
 /// The latest snapshot of `root` when nothing it covers changed: same scan
 /// options, same octocode and format version, the same file set (with the
 /// ingest's exclusions and `.gitignore`), and identical content digests.
@@ -416,11 +404,14 @@ fn reuse_current(
         .map(|node| tables.str(node.key))
         .collect::<std::collections::BTreeSet<_>>();
     let extensions = octocode_engine::signatures::graph_facts::graph_fact_extensions();
-    let excluded = SCAN_EXCLUDES
+    let requested = INGEST_EXCLUDES
         .iter()
-        .chain(INGEST_EXCLUDES)
         .map(|name| (*name).to_owned())
         .chain(options.exclude_dir.iter().cloned())
+        .collect::<Vec<_>>();
+    let excluded = crate::policy::prune::PruneMode::SyntaxVisible
+        .directories(&requested, true)
+        .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(true)

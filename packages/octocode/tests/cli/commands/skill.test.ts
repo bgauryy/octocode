@@ -509,6 +509,82 @@ describe('skill command', () => {
     expect(parsed.summary.failed).toBe(0);
   });
 
+  describe('remove safety for user-owned directories', () => {
+    it('refuses a real user directory at a platform target without --force', () => {
+      const dir = path.join(
+        getPlatformSkillsDir('claude'),
+        'octocode-research'
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'mine.txt'), 'user data');
+      run(['remove', 'octocode-research'], { json: true });
+      expect(process.exitCode).toBe(EXIT.GENERAL);
+      const parsed = loggedJson<{
+        success: boolean;
+        skills: Array<{ targets: Array<{ status: string; error?: string }> }>;
+      }>();
+      expect(parsed.success).toBe(false);
+      expect(
+        parsed.skills[0]?.targets.some(
+          t => t.status === 'failed' && /--force/.test(t.error ?? '')
+        )
+      ).toBe(true);
+      expect(fs.existsSync(path.join(dir, 'mine.txt'))).toBe(true);
+    });
+
+    it('deletes the real directory when --force is passed', () => {
+      const dir = path.join(
+        getPlatformSkillsDir('claude'),
+        'octocode-research'
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'mine.txt'), 'user data');
+      run(['remove', 'octocode-research'], { json: true, force: true });
+      expect(process.exitCode).toBeUndefined();
+      expect(fs.existsSync(dir)).toBe(false);
+    });
+
+    it('removes an Octocode --mode copy install that matches the canonical copy without --force', () => {
+      const store = path.join(
+        isolated.home,
+        '.octocode',
+        'skills',
+        'octocode-research'
+      );
+      fs.mkdirSync(store, { recursive: true });
+      fs.writeFileSync(path.join(store, 'SKILL.md'), 'same bytes');
+      const dir = path.join(
+        getPlatformSkillsDir('claude'),
+        'octocode-research'
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), 'same bytes');
+      run(['remove', 'octocode-research'], { json: true, platform: 'claude' });
+      expect(process.exitCode).toBeUndefined();
+      expect(fs.existsSync(dir)).toBe(false);
+      expect(fs.existsSync(path.join(store, 'SKILL.md'))).toBe(true);
+    });
+
+    it('unlinks a symlink into the canonical store and keeps the store copy', () => {
+      const store = path.join(
+        isolated.home,
+        '.octocode',
+        'skills',
+        'octocode-research'
+      );
+      fs.mkdirSync(store, { recursive: true });
+      fs.writeFileSync(path.join(store, 'SKILL.md'), 'x');
+      const linkDir = getPlatformSkillsDir('claude');
+      fs.mkdirSync(linkDir, { recursive: true });
+      const link = path.join(linkDir, 'octocode-research');
+      fs.symlinkSync(store, link, 'dir');
+      run(['remove', 'octocode-research'], { json: true, platform: 'claude' });
+      expect(process.exitCode).toBeUndefined();
+      expect(fs.existsSync(link)).toBe(false);
+      expect(fs.existsSync(path.join(store, 'SKILL.md'))).toBe(true);
+    });
+  });
+
   it('rejects path-traversal skill names on remove instead of resolving them', () => {
     run(['remove', '../../canary'], { json: true });
     expect(process.exitCode).toBe(EXIT.GENERAL);

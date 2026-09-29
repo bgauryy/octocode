@@ -21,53 +21,6 @@ pub const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
     ".gnupg",
 ];
 
-/// Directories localSearch prunes at any depth: dependency, build, and tool
-/// caches. Names that are routinely real source (`output/`, `cache/`,
-/// `vendor/`, `release/`, `tmp/`, …) are deliberately absent: pruning them
-/// silently hid source files the syntax tools still saw (nlohmann's
-/// `detail/output/`, Django's `core/cache/`). Sensitive directories stay
-/// blocked by the read policy (`SENSITIVE_DIRECTORY_NAMES`) regardless.
-pub const DISCOVERY_IGNORED_FOLDER_NAMES: &[&str] = &[
-    ".git",
-    ".ssh",
-    ".aws",
-    ".docker",
-    ".azure",
-    ".kube",
-    ".terraform",
-    "secrets",
-    ".password-store",
-    ".github",
-    ".vscode",
-    ".devcontainer",
-    ".config",
-    ".cargo",
-    ".yarn",
-    "dist",
-    "build",
-    "out",
-    "target",
-    "node_modules",
-    ".cache",
-    ".tmp",
-    ".pytest_cache",
-    ".tox",
-    ".venv",
-    ".mypy_cache",
-    ".next",
-    ".svelte-kit",
-    ".turbo",
-    "__pycache__",
-    ".gradle",
-    ".m2",
-    ".idea",
-    ".vs",
-    ".history",
-    "coverage",
-    ".nyc_output",
-    "DerivedData",
-];
-
 pub const DISCOVERY_IGNORED_FILE_NAMES: &[&str] = &[
     "package-lock.json",
     ".secrets",
@@ -221,7 +174,11 @@ mod tests {
 
     #[test]
     fn discovery_and_access_lists_cover_sensitive_paths() {
-        assert!(DISCOVERY_IGNORED_FOLDER_NAMES.contains(&".ssh"));
+        assert!(
+            crate::policy::prune::PruneMode::SyntaxVisible
+                .defaults()
+                .any(|name| name == ".ssh")
+        );
         assert!(
             DISCOVERY_IGNORED_FILE_EXTENSIONS
                 .iter()

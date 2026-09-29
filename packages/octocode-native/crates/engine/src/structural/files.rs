@@ -1,4 +1,6 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+use std::collections::HashMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -16,7 +18,7 @@ use super::types::{
     structural_query_fingerprint,
 };
 use crate::signatures::languages;
-use crate::types::{RipgrepFile, RipgrepSearchOptions, default_excluded_directories};
+use crate::types::{RipgrepFile, RipgrepSearchOptions};
 
 pub fn search_files(
     options: StructuralSearchFilesOptions,
@@ -33,9 +35,7 @@ pub fn search_files(
 
     let include = options.include.unwrap_or_default();
     let exclude = options.exclude.unwrap_or_default();
-    let exclude_dir = options
-        .exclude_dir
-        .unwrap_or_else(default_excluded_directories);
+    let exclude_dir = options.exclude_dir.unwrap_or_default();
     let hidden = options.hidden;
     let no_ignore = options.no_ignore;
     let max_depth = options.max_depth;
@@ -381,7 +381,7 @@ pub fn search_files_detailed_filtered_with_extension(
     check_root_exists(&root)?;
     let include = include.unwrap_or_default();
     let exclude = exclude.unwrap_or_default();
-    let exclude_dir = exclude_dir.unwrap_or_else(default_excluded_directories);
+    let exclude_dir = exclude_dir.unwrap_or_default();
     let max_files = max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = max_file_bytes
         .map(|n| n as u64)
@@ -1200,9 +1200,7 @@ pub fn rewrite_files(
 
     let include = options.include.unwrap_or_default();
     let exclude = options.exclude.unwrap_or_default();
-    let exclude_dir = options
-        .exclude_dir
-        .unwrap_or_else(default_excluded_directories);
+    let exclude_dir = options.exclude_dir.unwrap_or_default();
     let max_files = options.max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = options
         .max_file_bytes

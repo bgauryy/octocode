@@ -1,6 +1,6 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -169,119 +169,147 @@ fn decode_raw(token: &str) -> Result<Vec<u8>, CursorError> {
     Ok(bytes)
 }
 
-/// Deserialize bytes, verify scope / contract / expiry.
-fn deserialize_and_check<T: DeserializeOwned + CursorFields>(
-    bytes: &[u8],
-    scope: &str,
-) -> Result<T, CursorError> {
-    let cursor: T = serde_json::from_slice(bytes).map_err(|_| CursorError::Invalid)?;
-    if cursor.version() != 1 {
-        return Err(CursorError::Invalid);
-    }
-    if cursor.contract() != crate::contracts::contract_fingerprint() {
-        return Err(CursorError::StaleContract);
-    }
-    if cursor.scope() != scope {
-        return Err(CursorError::ChangedScope);
-    }
-    if cursor.expires_at() < now()? {
-        return Err(CursorError::Expired);
-    }
-    Ok(cursor)
-}
-
-/// Accessor trait so `deserialize_and_check` can read the common header fields.
-trait CursorFields {
-    fn version(&self) -> u32;
-    fn contract(&self) -> &str;
-    fn scope(&self) -> &str;
-    fn expires_at(&self) -> u64;
-}
-
-// ── Universal cursor (all tools, no file-system source SHA) ───────────────
+// ── Resume cursor: one token, one kind discriminator ─────────────────────
 //
-// Encodes any (tool, query) pair. Scope-locked, contract-locked, 24 h TTL.
-// Suitable for GitHub, LSP, AST, artifact, and any remote tool.
+// Every token carries the same header (scope-, contract- and TTL-locked) and a
+// `kind`. A universal token encodes any (tool, query) pair; a read token
+// (localFetch / localSearch) also pins the source digest checked at resume.
+// A token is decoded once, so each kind reports its own failure.
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum CursorKind {
+    Universal,
+    Read,
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct UniversalCursor {
+struct CursorPayload {
     version: u32,
     contract: String,
     scope: String,
     expires_at: u64,
-    pub tool: String,
-    pub query: Value,
+    kind: CursorKind,
+    tool: String,
+    query: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_sha256: Option<String>,
 }
 
-impl CursorFields for UniversalCursor {
-    fn version(&self) -> u32 {
-        self.version
-    }
-    fn contract(&self) -> &str {
-        &self.contract
-    }
-    fn scope(&self) -> &str {
-        &self.scope
-    }
-    fn expires_at(&self) -> u64 {
-        self.expires_at
-    }
+/// A decoded `{cursor}` token.
+pub enum Cursor {
+    /// Any tool: GitHub, LSP, AST, artifact, and other remote tools.
+    Universal { tool: String, query: Value },
+    /// A file-backed read that must still match its source at resume.
+    Read(ReadCursor),
 }
 
-impl UniversalCursor {
-    /// Test-only: responses carry replayable `query` continuations, not tokens.
-    #[cfg(test)]
-    pub fn create(tool: &str, query: Value, scope: String) -> Result<String, CursorError> {
-        encode_to_token(&Self {
-            version: 1,
-            contract: crate::contracts::contract_fingerprint().into(),
-            scope,
-            expires_at: now()? + TOKEN_LIFETIME.as_secs(),
-            tool: tool.into(),
-            query,
-        })
-    }
-
-    pub fn decode(token: &str, scope: &str) -> Result<Self, CursorError> {
-        let bytes = decode_raw(token)?;
-        let cursor: Self = deserialize_and_check(&bytes, scope)?;
-        if cursor.tool.is_empty() || !cursor.query.is_object() {
-            return Err(CursorError::Invalid);
-        }
-        Ok(cursor)
-    }
-}
-
-// ── File-backed read cursor (localFetch / localSearch) ────────────────────
-//
-// Adds `source_sha256` for file-integrity verification at resume time.
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// File-backed read cursor (localFetch / localSearch).
 pub struct ReadCursor {
-    version: u32,
-    contract: String,
-    scope: String,
-    expires_at: u64,
     pub tool: String,
     pub query: Value,
     pub source_sha256: String,
 }
 
-impl CursorFields for ReadCursor {
-    fn version(&self) -> u32 {
-        self.version
+impl Cursor {
+    /// Test-only: responses carry replayable `query` continuations, not tokens.
+    #[cfg(test)]
+    pub fn universal(tool: &str, query: Value, scope: String) -> Result<String, CursorError> {
+        encode(scope, CursorKind::Universal, tool, query, None)
     }
-    fn contract(&self) -> &str {
-        &self.contract
+
+    /// Test-only: localFetch continuations carry `snapshot`, not tokens.
+    #[cfg(test)]
+    pub fn read(
+        tool: &str,
+        query: Value,
+        source_sha256: String,
+        scope: String,
+    ) -> Result<String, CursorError> {
+        let read = ReadCursor::checked(tool.into(), query, source_sha256)?;
+        encode(
+            scope,
+            CursorKind::Read,
+            &read.tool,
+            read.query,
+            Some(read.source_sha256),
+        )
     }
-    fn scope(&self) -> &str {
-        &self.scope
+
+    pub fn decode(token: &str, scope: &str) -> Result<Self, CursorError> {
+        let bytes = decode_raw(token)?;
+        let payload: CursorPayload =
+            serde_json::from_slice(&bytes).map_err(|_| CursorError::Invalid)?;
+        if payload.version != 1 {
+            return Err(CursorError::Invalid);
+        }
+        if payload.contract != crate::contracts::contract_fingerprint() {
+            return Err(CursorError::StaleContract);
+        }
+        if payload.scope != scope {
+            return Err(CursorError::ChangedScope);
+        }
+        if payload.expires_at < now()? {
+            return Err(CursorError::Expired);
+        }
+        if payload.tool.is_empty() || !payload.query.is_object() {
+            return Err(CursorError::Invalid);
+        }
+        match (payload.kind, payload.source_sha256) {
+            (CursorKind::Universal, None) => Ok(Self::Universal {
+                tool: payload.tool,
+                query: payload.query,
+            }),
+            (CursorKind::Read, Some(source_sha256)) => {
+                ReadCursor::checked(payload.tool, payload.query, source_sha256).map(Self::Read)
+            }
+            _ => Err(CursorError::Invalid),
+        }
     }
-    fn expires_at(&self) -> u64 {
-        self.expires_at
+
+    /// Source-digest check; only read cursors carry one.
+    pub fn verify_source(
+        &self,
+        paths: &crate::policy::path::PathPolicy,
+    ) -> Result<(), CursorError> {
+        match self {
+            Self::Universal { .. } => Ok(()),
+            Self::Read(read) => read.verify_source(paths),
+        }
     }
+
+    /// The resumed tool name and query.
+    pub fn into_parts(self) -> (String, Value) {
+        match self {
+            Self::Universal { tool, query } | Self::Read(ReadCursor { tool, query, .. }) => {
+                (tool, query)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+fn encode(
+    scope: String,
+    kind: CursorKind,
+    tool: &str,
+    query: Value,
+    source_sha256: Option<String>,
+) -> Result<String, CursorError> {
+    if tool.is_empty() || !query.is_object() {
+        return Err(CursorError::Invalid);
+    }
+    encode_to_token(&CursorPayload {
+        version: 1,
+        contract: crate::contracts::contract_fingerprint().into(),
+        scope,
+        expires_at: now()? + TOKEN_LIFETIME.as_secs(),
+        kind,
+        tool: tool.into(),
+        query,
+        source_sha256,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -294,6 +322,11 @@ pub enum CursorError {
     SourceUnavailable,
     Timeout,
 }
+
+/// Request fields that state intent or diagnostics, never which results a
+/// page holds: a replayed continuation may carry them differently (a
+/// `followUp` replay drops the brief), so every page digest ignores them.
+pub const INTENT_FIELDS: [&str; 4] = ["goal", "reasoning", "debug", "followUp"];
 
 pub fn scope_digest(value: &Value) -> Result<String, CursorError> {
     let bytes = serde_json::to_vec(value).map_err(|_| CursorError::Invalid)?;
@@ -308,15 +341,10 @@ fn now() -> Result<u64, CursorError> {
 }
 
 impl ReadCursor {
-    /// Test-only: localFetch continuations carry `snapshot`, not tokens.
-    #[cfg(test)]
-    pub fn create(
-        tool: &str,
-        query: Value,
-        source_sha256: String,
-        scope: String,
-    ) -> Result<String, CursorError> {
-        if !matches!(tool, "localFetch" | "localSearch")
+    /// Only localFetch / localSearch read cursors exist, and a localSearch
+    /// cursor's snapshot is its source digest.
+    fn checked(tool: String, query: Value, source_sha256: String) -> Result<Self, CursorError> {
+        if !matches!(tool.as_str(), "localFetch" | "localSearch")
             || !query.is_object()
             || source_sha256.is_empty()
         {
@@ -325,32 +353,11 @@ impl ReadCursor {
         if tool == "localSearch" && query["snapshot"].as_str() != Some(&source_sha256) {
             return Err(CursorError::Invalid);
         }
-        encode_to_token(&Self {
-            version: 1,
-            contract: crate::contracts::contract_fingerprint().into(),
-            scope,
-            expires_at: now()? + TOKEN_LIFETIME.as_secs(),
-            tool: tool.into(),
+        Ok(Self {
+            tool,
             query,
             source_sha256,
         })
-    }
-
-    pub fn decode(token: &str, scope: &str) -> Result<Self, CursorError> {
-        let bytes = decode_raw(token)?;
-        let cursor: Self = deserialize_and_check(&bytes, scope)?;
-        if !matches!(cursor.tool.as_str(), "localFetch" | "localSearch")
-            || !cursor.query.is_object()
-            || cursor.source_sha256.is_empty()
-        {
-            return Err(CursorError::Invalid);
-        }
-        if cursor.tool == "localSearch"
-            && cursor.query["snapshot"].as_str() != Some(&cursor.source_sha256)
-        {
-            return Err(CursorError::Invalid);
-        }
-        Ok(cursor)
     }
 
     pub fn verify_source(
@@ -395,13 +402,18 @@ mod tests {
     #[test]
     fn universal_tokens_round_trip_without_granting_execution_authority() {
         let query = serde_json::json!({"operation":"symbols","path":"/workspace"});
-        let token =
-            UniversalCursor::create("astSearch", query.clone(), "scope".into()).expect("cursor");
-        let cursor = UniversalCursor::decode(&token, "scope").expect("decode");
-        assert_eq!(cursor.tool, "astSearch");
-        assert_eq!(cursor.query, query);
+        let token = Cursor::universal("astSearch", query.clone(), "scope".into()).expect("cursor");
+        let Ok(Cursor::Universal {
+            tool,
+            query: decoded,
+        }) = Cursor::decode(&token, "scope")
+        else {
+            panic!("universal token decodes as the universal kind");
+        };
+        assert_eq!(tool, "astSearch");
+        assert_eq!(decoded, query);
         assert!(matches!(
-            UniversalCursor::decode(&token, "other-scope"),
+            Cursor::decode(&token, "other-scope"),
             Err(CursorError::ChangedScope)
         ));
     }
@@ -409,17 +421,45 @@ mod tests {
     #[test]
     fn read_tokens_round_trip_with_their_row_source_digest() {
         let query = serde_json::json!({"path":"/workspace/a.rs","offset":10});
-        let token = ReadCursor::create(
+        let token = Cursor::read(
             "localFetch",
             query.clone(),
             "digest-a".into(),
             "scope".into(),
         )
         .expect("read cursor");
-        let cursor = ReadCursor::decode(&token, "scope").expect("decode read cursor");
+        let Ok(Cursor::Read(cursor)) = Cursor::decode(&token, "scope") else {
+            panic!("read token decodes as the read kind");
+        };
         assert_eq!(cursor.tool, "localFetch");
         assert_eq!(cursor.query, query);
         assert_eq!(cursor.source_sha256, "digest-a");
+    }
+
+    #[test]
+    fn a_kind_without_its_matching_digest_field_is_invalid() {
+        let payload = |kind: CursorKind, source_sha256: Option<String>| {
+            encode_to_token(&CursorPayload {
+                version: 1,
+                contract: crate::contracts::contract_fingerprint().into(),
+                scope: "scope".into(),
+                expires_at: now().expect("clock") + TOKEN_LIFETIME.as_secs(),
+                kind,
+                tool: "localFetch".into(),
+                query: serde_json::json!({"path":"/workspace/a.rs"}),
+                source_sha256,
+            })
+            .expect("token")
+        };
+        for token in [
+            payload(CursorKind::Universal, Some("digest".into())),
+            payload(CursorKind::Read, None),
+        ] {
+            assert!(matches!(
+                Cursor::decode(&token, "scope"),
+                Err(CursorError::Invalid)
+            ));
+        }
     }
 
     #[test]
@@ -446,11 +486,11 @@ mod tests {
     #[test]
     fn corrupt_and_foreign_tokens_are_rejected_before_file_access() {
         assert!(matches!(
-            ReadCursor::decode("not:a:token", "scope"),
+            Cursor::decode("not:a:token", "scope"),
             Err(CursorError::Invalid)
         ));
         assert!(matches!(
-            ReadCursor::decode(&"x".repeat(200_000), "scope"),
+            Cursor::decode(&"x".repeat(200_000), "scope"),
             Err(CursorError::Invalid)
         ));
     }

@@ -180,9 +180,47 @@ For a quick diagnostic before a full agent A/B, replace host tokens with
 host-visible response bytes and divide the bytes avoided by provider input
 tokens. This is a transport proxy, not proof of model-context savings.
 
-## Scout over search candidates
+## Search → clasify → read handoff
 
-One unread `localSearch` or GitHub `ghSearchCode` resource fans its returned file entries into independent pages.
+A `localSearch` or `ghSearchCode` page that lists at least eight files carries `next.clasify`: one `locate` matrix over its five top-ranked files (`localFetch` / `ghGetFileContent`, whole file, the search goal as the target). Run it unchanged, then read only the returned windows. Narrow pages and non-hit views (`filesWithout`, `countLines`, `countMatches`, `matchOnly`, `invertMatch`) carry no handoff. The handoff is dropped by the same availability filter as every cross-tool `next`, so it never appears while Clasify is disabled. No judgment cache exists: every call re-reads and re-judges. Within a call a resource's capture is reused for all its questions, a continuation that repeats is stopped as a loop, and duplicate paths in one search page collapse; identical resources listed twice are read twice. GitHub reads use the same cache as direct calls.
+
+## Scout over list candidates
+
+One unread list resource fans its returned candidates into independent pages. Each page carries its identity and `next.read`, the executable fetch for that one candidate:
+
+| Resource | One page per | `source` | `next.read` |
+|---|---|---|---|
+| `localSearch`, `ghSearchCode` | file | `path` | `localFetch` window around the densest match cluster / `ghGetFileContent` anchored on the match |
+| `astSearch` `match` / `symbols` | file (a directory outline is already grouped per file) | `path` | `localFetch` window around the matched lines |
+| `lspSearch` references | file (locations grouped) | `path` | `localFetch` window around the references |
+| `ghSearchRepo` | repository | `item` `owner/repo` | `ghStructure` |
+| `ghSearchHistory` | pull request / issue / commit | `item` `owner/repo#n` or `owner/repo@sha` | `ghGetHistoryItem` |
+| `artifactSearch` keyword discovery | package | `item` `type:name` | `artifactSearch` exact lookup |
+
+Bare path lists (`structureSearch` `files`/`tree`, `ghStructure`) stay one page: a name alone is judged better comparatively, so ask a `choice` over the listed paths (measured: judged one by one, every file scored 0.16–0.20 on content questions). Cells are pages × questions (≤25), so clasify lowers the list's `pageSize` to fit; later pages continue through `next.clasify`.
+
+### Sufficiency first: read only what is missing
+
+Match the question to what a page carries. Content (snippets, symbols, references, PR or commit text, package descriptions) suits `contribution` + `sufficient`. Bare metadata (repository names, titles) suits a routing `noul` such as "this repository likely implements X", compared across pages. Measured on the MCP TypeScript SDK search: `contribution` over repository metadata scored the official SDK 0.17, the same as unrelated repositories. Over package descriptions, it put `ajv` first at 0.78.
+
+Ask relevance and sufficiency in one matrix, then act per page:
+
+- `sufficient` high: the captured snippet or metadata already states the answer. Use it; skip the read.
+- relevant (`contribution`/custom `noul`) high and `sufficient` low: run `next.read` unchanged.
+- relevance low: skip the candidate. A low score is not absence; widen the search before concluding.
+
+The same check works before a large fetch: send the `localFetch`, `ghGetFileContent`, or `ghGetHistoryItem` request as the resource with `sufficient` plus the deciding question. Clasify reads it, returns the verdict (and locate windows when asked), and the host fetches only when evidence is still missing.
+
+```json
+{"goal":"Find how the SDK rejects invalid tool arguments.","reasoning":"Pick which PRs to read.",
+ "resources":[{"id":"prs","context":{"tool":"ghSearchHistory","query":{"operation":"pullRequest","owner":"modelcontextprotocol","repo":"typescript-sdk","keywords":["validation"],"pageSize":5}}}],
+ "questions":[{"id":"rel","questionType":"contribution","target":"Runtime validation of tool call arguments"},
+              {"id":"enough","questionType":"sufficient","target":"How invalid tool arguments are rejected"}]}
+```
+
+### Search file chunks
+
+For `localSearch` and `ghSearchCode`, file entries can also be hydrated into bounded chunks.
 
 - Omit `candidateEvidence`, or use `"search"`, to judge only returned paths, snippets, and metadata.
 - Use `"fileChunks"` only for an explicit experiment where snippets cannot route the next read.
@@ -231,7 +269,7 @@ Constrain the search before classification:
 4. Follow `next.clasify` only when later search pages remain relevant to the stated decision.
 5. Execute `next.read` for the candidate that changes the action; a bounded chunk does not cover the rest of the file.
 
-Local hydration reads a bounded region around the first stable match. If no stable anchor exists, the page records that only the opening chunk was assessed.
+Local hydration reads a bounded region around the densest cluster of matches. If no stable anchor exists, the page records that only the opening chunk was assessed.
 
 ### Large GitHub repositories
 

@@ -1,5 +1,6 @@
 //! Validated, bounded tool context; never re-enters public request admission.
 use super::{ExecutionContext, domain_dispatch::DomainDispatcher, response};
+use crate::tools::id::ToolId;
 use crate::{
     contracts::{self, PrepareOptions},
     tools::clasify::{is_context_tool, transport::ClassificationError},
@@ -147,6 +148,12 @@ pub(super) fn resolve(
         ];
         return Err(ContextFailure::from(unavailable));
     }
+    let id = ToolId::from_name(tool).ok_or_else(|| {
+        ContextFailure::from(error(
+            "invalidClassificationContext",
+            "Only read tools can provide classification context.",
+        ))
+    })?;
     let prepared = prepare(tool, &source["query"]).map_err(ContextFailure::from)?;
     let checked_input = dispatcher.security.validate_input_parameters(&prepared);
     if !checked_input.is_valid {
@@ -156,7 +163,7 @@ pub(super) fn resolve(
         )));
     }
     let prepared = Value::Object(checked_input.sanitized_params);
-    let result = dispatcher.execute(tool, &prepared, context).map_err(|_| {
+    let result = dispatcher.execute(id, &prepared, context).map_err(|_| {
         ContextFailure::from(error(
             "classificationContextFailed",
             format!("Context tool {tool} could not complete."),
@@ -165,17 +172,17 @@ pub(super) fn resolve(
     checked(context).map_err(ContextFailure::from)?;
     let failed = result.failure.is_some() || result.status == Some("error");
     let empty = result.status == Some("empty");
-    let mut row = response::result_row(tool, 0, &prepared, result.data, result.status);
+    let mut row = response::result_row(id, 0, &prepared, result.data, result.status);
     response::attach_diagnostics(&mut row, result.diagnostics);
     if result.cache {
         row["cache"] = json!(1);
     }
-    response::apply_hint_policy(&mut row, tool, &prepared);
+    response::apply_hint_policy(&mut row, id, &prepared);
     let mut state = response::envelope(vec![row]);
-    response::attach_query_base(&mut state, tool, &prepared);
+    response::attach_query_base(&mut state, id, &prepared);
     response::finalize_output_fields(
         &mut state,
-        tool,
+        id,
         &dispatcher.security,
         context,
         dispatcher.config.resolved.output.redact_emails,
@@ -186,10 +193,18 @@ pub(super) fn resolve(
             "Context output sanitization failed.",
         ))
     })?;
-    contracts::validate_output(tool, &state).map_err(|_| {
+    // Same central rule as the public path: a continuation inherits its row's
+    // goal, so search-type context tools (readTopMatch) validate like direct calls.
+    super::continuations::mark_follow_ups(&mut state);
+    contracts::validate_output(tool, &state).map_err(|violation| {
+        // Name the violated field (never the received value) so the defect is
+        // reportable instead of an opaque failure.
+        let detail = violation.issues.first().map_or_else(String::new, |issue| {
+            format!(" at /{}: {}", issue.path.join("/"), issue.message)
+        });
         ContextFailure::from(error(
             "classificationContextContractViolation",
-            format!("Context tool {tool} returned invalid output."),
+            format!("Context tool {tool} returned invalid output{detail}."),
         ))
     })?;
     if empty {
@@ -408,11 +423,13 @@ fn page_view(state: &Value) -> Option<Value> {
 
 fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
     let data = state.pointer("/results/0/data").unwrap_or(&Value::Null);
-    let file = data
-        .get("files")
-        .and_then(Value::as_array)
-        .and_then(|files| files.first())
-        .unwrap_or(data);
+    // A page listing several files has no single source; name one only when
+    // the page is that file.
+    let file = match data.get("files").and_then(Value::as_array) {
+        Some(files) if files.len() == 1 => &files[0],
+        Some(_) => &Value::Null,
+        None => data,
+    };
     let mut source = json!({"evidenceHash":evidence_hash});
     if let Some(path) = file.get("path").and_then(Value::as_str) {
         let identity = match tool {
@@ -742,6 +759,19 @@ fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_context_continuations_are_follow_ups() {
+        let mut state = json!({"results":[{"index":0,"data":{"next":{
+            "readTopMatch":{"tool":"ghGetFileContent","query":{"reasoning":"r","path":"a.rs"}}
+        }}}]});
+        super::super::continuations::mark_follow_ups(&mut state);
+        assert_eq!(
+            state["results"][0]["data"]["next"]["readTopMatch"]["query"],
+            json!({"path":"a.rs","followUp":true})
+        );
+    }
+
     #[test]
     fn disjoint_match_windows_keep_each_source_range() {
         let state = json!({"results":[{"data":{

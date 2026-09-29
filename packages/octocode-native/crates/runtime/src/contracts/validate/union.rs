@@ -70,6 +70,7 @@ pub(super) fn validate(
     if non_aborted.len() == 1 {
         let mut issues = non_aborted[0].clone();
         annotate_sibling_branch_fields(&mut issues, root, branches, value);
+        annotate_forbidden_fields(&mut issues, root, branches, value, path);
         return Err(ContractValidationError {
             // Preserve the original unknown-field path and knownFields schema.
             // The stable error projector uses both to produce an actionable
@@ -95,6 +96,7 @@ pub(super) fn validate(
     };
     widen_literal_issues(&mut selected, &allowed);
     annotate_sibling_selectors(&mut selected, root, branches, value, path);
+    annotate_forbidden_fields(&mut selected, root, branches, value, path);
     // Branch scoring may group key errors for parity, but the selected branch
     // must retain individual paths and schemas for precise diagnostics.
     Err(ContractValidationError { issues: selected })
@@ -338,6 +340,56 @@ fn annotate_sibling_selectors(
     }
 }
 
+/// A `{"not":{}}` property forbids the field in its branch. When a sibling
+/// branch allows that field but forbids fields the caller also sent, the
+/// fields are mutually exclusive: name them instead of the bare `not` rule.
+fn annotate_forbidden_fields(
+    issues: &mut [ValidationIssue],
+    root: &Value,
+    branches: &[Value],
+    value: &Value,
+    path: &[String],
+) {
+    let forbids = |schema: &Value| {
+        schema
+            .get("not")
+            .is_some_and(|not| not == &Value::Object(Default::default()))
+    };
+    for item in issues
+        .iter_mut()
+        .filter(|item| item.rule_id == "schema.not" && item.path.len() == path.len() + 1)
+    {
+        let Some(field) = item.path.last() else {
+            continue;
+        };
+        let mut conflicts: Vec<String> = Vec::new();
+        for branch in branches.iter().map(|branch| branch_object(root, branch)) {
+            let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
+                continue;
+            };
+            if properties.get(field).is_none_or(&forbids) {
+                continue;
+            }
+            for (name, schema) in properties {
+                if forbids(schema) && value.get(name).is_some() && !conflicts.contains(name) {
+                    conflicts.push(name.clone());
+                }
+            }
+        }
+        if conflicts.is_empty() {
+            continue;
+        }
+        item.message = format!(
+            "`{field}` cannot be combined with {}: they are mutually exclusive, send one or the other",
+            conflicts
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+}
+
 fn group_unknown_fields(issues: Vec<ValidationIssue>) -> Vec<ValidationIssue> {
     let mut result = Vec::new();
     let mut consumed = vec![false; issues.len()];
@@ -410,5 +462,29 @@ mod tests {
             assert_eq!(error.issues[0].path, ["questions", "0", field]);
             assert_eq!(error.issues[0].rule_id, "schema.required");
         }
+    }
+
+    #[test]
+    fn forbidden_field_names_the_mutually_exclusive_fields() {
+        let error = prepare_many_and_validate(
+            "lspSearch",
+            json!({"queries":[{
+                "goal":"g","reasoning":"r","operation":"definition",
+                "uri":"/tmp/a.rs","symbolName":"finish","lineHint":3,
+                "position":{"line":3,"character":1}
+            }]}),
+            PrepareOptions::default(),
+        )
+        .expect_err("position conflicts with symbolName/lineHint");
+        let message = error
+            .issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(!message.contains("forbidden schema"), "{message}");
+        assert!(message.contains("mutually exclusive"), "{message}");
+        assert!(message.contains("`symbolName`"), "{message}");
+        assert!(message.contains("`lineHint`"), "{message}");
     }
 }

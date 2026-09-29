@@ -18,7 +18,7 @@ use super::inferred_project::{TS_LANGUAGE_IDS, word_pattern};
 use super::recovery::{get_locations, resolve_definition_chain, snippet_identity};
 use super::render::uri_to_path;
 use super::source::SourceCache;
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use crate::tools::local_search::PolicyFilter;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
 use octocode_engine::portable::search_ripgrep_cancellable;

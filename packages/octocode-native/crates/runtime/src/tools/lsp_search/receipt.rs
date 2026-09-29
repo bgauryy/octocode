@@ -164,6 +164,15 @@ pub(super) fn attach_provider_context(
             lsp.insert("receipt".into(), receipt);
         }
     }
+    // The provider receipt answers "how", not "what": a healthy language-server
+    // answer omits it unless `debug` asks. A degraded source stays visible.
+    if !debug
+        && envelope.get("lsp").is_some_and(|lsp| {
+            lsp["serverAvailable"] == true && lsp.get("source").is_none_or(|source| source == "lsp")
+        })
+    {
+        envelope.shift_remove("lsp");
+    }
     if anchored {
         let mut ordered = serde_json::Map::new();
         for key in ["type", "uri", "resolvedSymbol", "lsp"] {
@@ -172,7 +181,9 @@ pub(super) fn attach_provider_context(
             }
         }
         ordered.append(envelope);
-        ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
+        if debug {
+            ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
+        }
         *envelope = ordered;
     }
 }

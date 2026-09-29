@@ -32,6 +32,7 @@ export const sharedBuildOptions = {
   loader: { '.md': 'text' },
   define: {
     'process.env.NODE_ENV': '"production"',
+    __OCTOCODE_BUNDLED__: 'true',
   },
   logLevel: 'info',
 };

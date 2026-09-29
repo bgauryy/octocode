@@ -1,5 +1,6 @@
 use super::extraction::line_count;
 use super::types::*;
+use crate::security::scan::ContentScan;
 fn utf16(s: &str) -> usize {
     s.encode_utf16().count()
 }

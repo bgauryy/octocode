@@ -158,7 +158,7 @@ async function loadPresentation(
     const drift =
       `Contract drift: @octocodeai/octocode-core fingerprint ${catalog.fingerprint.slice(0, 12)}… ` +
       `does not match the native runtime fingerprint ${machine.fingerprint.slice(0, 12)}…. ` +
-      'Reinstall matching octocode packages (in the repo: `yarn contracts:regen` and rebuild native), or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to bypass (ignored when NODE_ENV=production).';
+      'Reinstall matching octocode packages (in the repo: `yarn contracts:regen` and rebuild native), or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to bypass (ignored in production builds, including the bundled CLI, which is compiled with NODE_ENV=production).';
     // Same gate as the MCP server: the override is a local-iteration aid and
     // never applies in production.
     if (

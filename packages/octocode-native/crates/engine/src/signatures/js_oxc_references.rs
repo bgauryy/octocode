@@ -65,6 +65,77 @@ pub(super) fn value_reference_counts(
         .collect()
 }
 
+/// Fill `used_in` of every named and default import binding: for each
+/// resolved reference to the binding's symbol, the id of the innermost
+/// declaration whose range contains it, or `IMPORT_USE_MODULE` outside every
+/// declaration (module-level code and export clauses). All reference kinds
+/// count (calls, values, types, JSX). Namespace imports, `import x =`
+/// bindings and bindings without a resolvable symbol keep `used_in` absent.
+pub(super) fn record_import_uses(
+    semantic: &Semantic<'_>,
+    line_index: &LineIndex<'_>,
+    facts: &mut crate::graph::GraphFactsDocument,
+) {
+    let crate::graph::GraphFactsDocument {
+        declarations,
+        imports,
+        ..
+    } = facts;
+    let mut targets = imports
+        .iter_mut()
+        .filter(|import| {
+            import
+                .imported_name
+                .as_deref()
+                .is_some_and(|name| name != "*")
+        })
+        .filter_map(|import| {
+            let start = import.local_range.as_ref()?.start.clone();
+            Some((line_index.byte_offset(start.line, start.character), import))
+        })
+        .peekable();
+    if targets.peek().is_none() {
+        return;
+    }
+    let scoping = semantic.scoping();
+    let nodes = semantic.nodes();
+    let symbols_by_start: HashMap<u32, _> = scoping
+        .symbol_ids()
+        .map(|symbol| (scoping.symbol_span(symbol).start, symbol))
+        .collect();
+    let spans = declarations
+        .iter()
+        .map(|declaration| {
+            let range = &declaration.range;
+            (
+                line_index.byte_offset(range.start.line, range.start.character),
+                line_index.byte_offset(range.end.line, range.end.character),
+                declaration.id.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (start, import) in targets {
+        let Some(&symbol) = symbols_by_start.get(&start) else {
+            continue;
+        };
+        let mut users = scoping
+            .get_resolved_references(symbol)
+            .map(|reference| {
+                let at = nodes.kind(reference.node_id()).span().start;
+                spans
+                    .iter()
+                    .filter(|(start, end, _)| *start <= at && at < *end)
+                    .min_by_key(|(start, end, _)| end - start)
+                    .map_or(crate::graph::IMPORT_USE_MODULE, |(_, _, id)| *id)
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        users.sort_unstable();
+        users.dedup();
+        import.used_in = Some(users);
+    }
+}
+
 /// A resolved identifier reference that is neither an export clause nor a
 /// call target.
 fn is_value_use(nodes: &AstNodes<'_>, node_id: NodeId) -> bool {
@@ -139,6 +210,36 @@ mod tests {
             .find(|count| &count.declaration_id == id)
             .expect("counted")
             .count
+    }
+
+    #[test]
+    fn import_bindings_record_their_enclosing_declarations() {
+        let facts = super::super::js_oxc::extract_graph_facts_with_metadata(
+            "import { run, Shape } from './a'\nimport def from './b'\nimport * as ns from './c'\nimport { unused } from './d'\nexport function live(s: Shape) { return run() }\nfunction dead() { return [run, def, ns.x] }\nexport { def }\n",
+            "app.ts",
+        )
+        .expect("graph facts")
+        .facts;
+        let users = |local: &str| {
+            facts
+                .imports
+                .iter()
+                .find(|import| import.local_name.as_deref() == Some(local))
+                .expect("import")
+                .used_in
+                .as_ref()
+                .map(|users| {
+                    users
+                        .iter()
+                        .map(|id| id.split(['#', '@']).nth(1).unwrap_or(id).to_owned())
+                        .collect::<Vec<_>>()
+                })
+        };
+        assert_eq!(users("run"), Some(vec!["dead".into(), "live".into()]));
+        assert_eq!(users("Shape"), Some(vec!["live".into()]));
+        assert_eq!(users("def"), Some(vec!["dead".into(), "module".into()]));
+        assert_eq!(users("unused"), Some(vec![]));
+        assert_eq!(users("ns"), None, "namespace imports stay unknown");
     }
 
     #[test]

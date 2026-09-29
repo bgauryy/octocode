@@ -12,6 +12,8 @@ pub use validation::validate_request;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::scan::ContentScan;
+    use crate::tools::cancel::{CancellationCheck, NeverCancel};
     use sha2::Digest;
     use std::fs;
     use std::path::{Path, PathBuf};

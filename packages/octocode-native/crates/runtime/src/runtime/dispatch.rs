@@ -3,11 +3,14 @@ use super::{ExecutionContext, ExecutionError, FailureKind};
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
 use crate::tools::ast_graph::{AstTopologyQuery, execute_topology};
-use crate::tools::ast_rewrite::{AstRewriteRuntimeOptions, execute_ast_rewrite_with_options};
-use crate::tools::ast_search::execute_ast;
+use crate::tools::ast_rewrite::{
+    AstRewriteRuntimeOptions, RewriteRequest, execute_ast_rewrite_with_options,
+};
+use crate::tools::ast_search::{AstSearchQuery, execute_ast};
+use crate::tools::id::ToolId;
 use crate::tools::local_fetch::{LocalFetchQuery, LocalFetchRegex, execute_local_fetch_with_regex};
 use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_search};
-use crate::tools::structure_search::execute_structure;
+use crate::tools::structure_search::{StructureSearchQuery, execute_structure};
 use serde_json::{Value, json};
 
 pub(super) struct DomainResult {
@@ -19,64 +22,92 @@ pub(super) struct DomainResult {
     pub failure: Option<FailureKind>,
 }
 
+impl DomainResult {
+    /// A tool's own payload. A payload that reports `status: "error"` is an
+    /// execution failure, the same rule for every tool.
+    pub(super) fn payload(data: Value, status: Option<&'static str>) -> Self {
+        Self {
+            diagnostics: Default::default(),
+            cache: false,
+            data,
+            status,
+            source_digest: None,
+            failure: (status == Some("error")).then_some(FailureKind::Execution),
+        }
+    }
+
+    /// The one error row: `error`, `errorCode`, then `hints` (when any) and
+    /// `next` (when any). Arms add context fields to `data` afterwards.
+    pub(super) fn failure(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        hints: Vec<String>,
+        next: Option<Value>,
+        kind: FailureKind,
+    ) -> Self {
+        let mut data = json!({"error": message.into(), "errorCode": code.into()});
+        if !hints.is_empty() {
+            data["hints"] = json!(hints);
+        }
+        if let Some(next) = next {
+            data["next"] = next;
+        }
+        Self {
+            diagnostics: Default::default(),
+            cache: false,
+            data,
+            status: Some("error"),
+            source_digest: None,
+            failure: Some(kind),
+        }
+    }
+}
+
+/// Execute one local-filesystem row. The caller routes by [`ToolId`]; a tool
+/// outside the local family is a routing bug, not a row error.
 pub(super) fn execute_local(
-    tool: &str,
+    tool: ToolId,
     query: &Value,
     paths: &PathPolicy,
     security: &ContentSecurity,
     context: &ExecutionContext,
     regex: &LocalFetchRegex,
-    views: &crate::tools::gh_get_file_content::SanitizedViewMemo,
+    views: &crate::security::scan::SanitizedViewMemo,
     allow_ast_rewrite_apply: bool,
 ) -> Result<DomainResult, ExecutionError> {
-    // Generated query types carry the meta fields, so each tool parses the
-    // validated row as-is.
-    match tool {
-        "localFetch" => {
-            let request: LocalFetchQuery = match parse_query(query.clone()) {
+    // Generated query types carry the meta fields, so every tool parses the
+    // validated row as-is through `parse_query`.
+    macro_rules! parsed {
+        ($type:ty) => {
+            match parse_query::<$type>(query.clone()) {
                 Ok(request) => request,
                 Err(row) => return Ok(*row),
-            };
-            let scan = crate::tools::gh_get_file_content::MemoizedScan::new(security, views);
+            }
+        };
+    }
+    match tool {
+        ToolId::LocalFetch => {
+            let request = parsed!(LocalFetchQuery);
+            let scan = crate::security::scan::MemoizedScan::new(security, views);
             let result = execute_local_fetch_with_regex(&request, paths, &scan, context, regex);
             let status = match result.status.as_str() {
                 "error" => Some("error"),
                 "empty" => Some("empty"),
                 _ => None,
             };
-            let failure = (status == Some("error")).then_some(if result.resource_missing {
-                FailureKind::NotFound
-            } else {
-                FailureKind::Execution
-            });
-            let mut data =
-                serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
-            if status != Some("error")
-                && let Some(kind) = crate::content::classify_file_type(&result.path)
-            {
-                use crate::content::FileType;
-                data["fileType"] = json!(match kind {
-                    FileType::Code => "code",
-                    FileType::Config => "config",
-                    FileType::Lock => "lock",
-                    FileType::Doc => "doc",
-                });
+            let missing = result.resource_missing;
+            let source_digest = result.source_sha256.clone();
+            let data = serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
+            let mut row = DomainResult::payload(data, status);
+            row.source_digest = source_digest;
+            if missing && row.failure.is_some() {
+                row.failure = Some(FailureKind::NotFound);
             }
-            Ok(DomainResult {
-                diagnostics: Default::default(),
-                cache: false,
-                data,
-                status,
-                source_digest: result.source_sha256,
-                failure,
-            })
+            Ok(row)
         }
-        "localSearch" => {
-            let request: LocalSearchQuery = match parse_query(query.clone()) {
-                Ok(request) => request,
-                Err(row) => return Ok(*row),
-            };
-            match execute_local_search(&request, paths, security, context) {
+        ToolId::LocalSearch => {
+            let request = parsed!(LocalSearchQuery);
+            match execute_local_search(&request, paths, security, context, context.walk_threads) {
                 Ok(mut result) => {
                     for file in &mut result.files {
                         file.path = result
@@ -86,70 +117,70 @@ pub(super) fn execute_local(
                             .into_owned();
                     }
                     let status = (result.status == SearchStatus::Empty).then_some("empty");
+                    let source_digest = result.source_snapshot.clone();
                     let data =
                         serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
-                    Ok(DomainResult {
-                        diagnostics: Default::default(),
-                        cache: false,
-                        data,
-                        status,
-                        source_digest: result.source_snapshot,
-                        failure: None,
-                    })
+                    let mut row = DomainResult::payload(data, status);
+                    row.source_digest = source_digest;
+                    Ok(row)
                 }
-                Err(error) => {
-                    let mut data =
-                        json!({"error":error.message,"errorCode":error.code,"hints":error.hints});
-                    if let Some(next) = error.next {
-                        data["next"] = *next;
-                    }
-                    Ok(DomainResult {
-                        diagnostics: Default::default(),
-                        cache: false,
-                        data,
-                        status: Some("error"),
-                        source_digest: None,
-                        failure: Some(FailureKind::Execution),
-                    })
-                }
+                Err(error) => Ok(DomainResult::failure(
+                    error.code,
+                    error.message,
+                    error.hints,
+                    error.next.map(|next| *next),
+                    error_failure(error.code),
+                )),
             }
         }
-        "structureSearch" => match execute_structure(query.clone(), paths, security, context) {
-            Ok(data) => Ok(value_result(data)),
-            Err(error) => Ok(domain_error(
-                json!({"error":error.message,"errorCode":error.code}),
-                None,
-            )),
-        },
-        "astSearch" => match execute_ast(query.clone(), paths, security, context) {
-            Ok(data) => Ok(value_result(data)),
-            Err(error) => Ok(domain_error(
-                json!({"error":error.message,"errorCode":error.code,"hints":error.hints}),
-                error.next,
-            )),
-        },
-        "astTopology" => {
-            let request: AstTopologyQuery = match parse_query(query.clone()) {
-                Ok(request) => request,
-                Err(row) => return Ok(*row),
-            };
-            match execute_topology(&request, paths, security, context) {
-                Ok(data) => Ok(value_result(data)),
-                Err(error) => {
-                    let mut data = json!({"error":error.message,"errorCode":error.code});
-                    if !error.hints.is_empty() {
-                        data["hints"] = json!(error.hints);
+        ToolId::StructureSearch => {
+            let request = parsed!(StructureSearchQuery);
+            Ok(
+                match execute_structure(&request, paths, security, context) {
+                    Ok(data) => value_result(data),
+                    Err(error) => {
+                        let kind = error_failure(&error.code);
+                        DomainResult::failure(error.code, error.message, Vec::new(), None, kind)
                     }
-                    if let Some(next) = error.next {
-                        data["next"] = *next;
-                    }
-                    Ok(domain_error(data, None))
-                }
-            }
+                },
+            )
         }
-        "astRewrite" => {
+        ToolId::AstSearch => {
+            let request = parsed!(AstSearchQuery);
+            Ok(match execute_ast(&request, paths, security, context) {
+                Ok(data) => value_result(data),
+                Err(error) => {
+                    let kind = error_failure(&error.code);
+                    DomainResult::failure(
+                        error.code,
+                        error.message,
+                        error.hints,
+                        error.next.map(|next| *next),
+                        kind,
+                    )
+                }
+            })
+        }
+        ToolId::AstTopology => {
+            let request = parsed!(AstTopologyQuery);
+            Ok(match execute_topology(&request, paths, security, context) {
+                Ok(data) => value_result(data),
+                Err(error) => {
+                    let kind = error_failure(&error.code);
+                    DomainResult::failure(
+                        error.code,
+                        error.message,
+                        error.hints,
+                        error.next.map(|next| *next),
+                        kind,
+                    )
+                }
+            })
+        }
+        ToolId::AstRewrite => {
+            let request = parsed!(RewriteRequest);
             let data = execute_ast_rewrite_with_options(
-                query.clone(),
+                request,
                 paths,
                 security,
                 context,
@@ -160,7 +191,16 @@ pub(super) fn execute_local(
             );
             Ok(value_result(data))
         }
-        _ => Err(ExecutionError::WorkerFailed),
+        ToolId::GhSearchRepo
+        | ToolId::GhSearchCode
+        | ToolId::GhStructure
+        | ToolId::GhGetFileContent
+        | ToolId::GhSearchHistory
+        | ToolId::GhGetHistoryItem
+        | ToolId::GhCloneRepo
+        | ToolId::ArtifactSearch
+        | ToolId::LspSearch
+        | ToolId::Clasify => Err(ExecutionError::WorkerFailed),
     }
 }
 
@@ -174,24 +214,25 @@ pub(super) fn parse_query<T: serde::de::DeserializeOwned>(
 }
 
 pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
-    domain_error(
-        json!({
-            "error": "Check the query fields.",
-            "errorCode": "invalidInput",
-            "hints": [format!("Query does not match the runtime type: {error}.")],
-            "retryable": false
-        }),
+    let mut row = DomainResult::failure(
+        "invalidInput",
+        "Check the query fields.",
+        vec![format!("Query does not match the runtime type: {error}.")],
         None,
-    )
+        FailureKind::Execution,
+    );
+    row.data["retryable"] = json!(false);
+    row
 }
 
+/// A tool payload whose own `status` field selects the row status.
 pub(super) fn value_result(data: Value) -> DomainResult {
     let status = match data.get("status").and_then(Value::as_str) {
         Some("error") => Some("error"),
         Some("empty") => Some("empty"),
         _ => None,
     };
-    domain_value(data, status)
+    DomainResult::payload(data, status)
 }
 
 pub(super) fn provider_failure(
@@ -218,44 +259,41 @@ pub(super) fn provider_failure(
             .into(),
         );
     }
-    let mut data = json!({"error":message,"errorCode":code,"hints":hints,"retryable":retryable});
+    let kind = error_failure(&code);
+    let mut row = DomainResult::failure(code, message, hints, None, kind);
+    row.data["retryable"] = json!(retryable);
     // Structured callers need the upstream HTTP status to distinguish e.g. a
     // registry 404 from a 429 without parsing prose (optional — absence is
     // valid).
     if let Some(status) = http_status {
-        data["httpStatus"] = json!(status);
+        row.data["httpStatus"] = json!(status);
     }
-    domain_error(data, None)
+    row
 }
 
-fn domain_value(data: Value, status: Option<&'static str>) -> DomainResult {
-    DomainResult {
-        diagnostics: Default::default(),
-        cache: false,
-        data,
-        status,
-        source_digest: None,
-        failure: (status == Some("error")).then_some(FailureKind::Execution),
-    }
-}
-
-fn domain_error(mut data: Value, next: Option<Box<Value>>) -> DomainResult {
-    if let Some(next) = next {
-        data["next"] = *next;
-    }
-    DomainResult {
-        diagnostics: Default::default(),
-        cache: false,
-        data,
-        status: Some("error"),
-        source_digest: None,
-        failure: Some(FailureKind::Execution),
+/// A missing local path is not-found (like a GitHub 404), not an execution
+/// failure; every other domain error stays an execution failure.
+fn error_failure(code: &str) -> FailureKind {
+    if super::response::is_not_found_code(code) {
+        FailureKind::NotFound
+    } else {
+        FailureKind::Execution
     }
 }
 
 #[cfg(test)]
 mod provider_failure_tests {
     use super::*;
+
+    #[test]
+    fn missing_local_path_is_not_found_other_errors_are_execution() {
+        assert_eq!(
+            error_failure("structure.policy.notFound"),
+            FailureKind::NotFound
+        );
+        assert_eq!(error_failure("pathNotFound"), FailureKind::NotFound);
+        assert_eq!(error_failure("fileAccessFailed"), FailureKind::Execution);
+    }
 
     #[test]
     fn typed_parse_failure_is_a_row_error_not_a_worker_failure() {
@@ -267,6 +305,105 @@ mod provider_failure_tests {
         let row = parse_query::<Offset>(json!({"offset": 1.5})).expect_err("fraction");
         assert_eq!(row.status, Some("error"));
         assert_eq!(row.data["errorCode"], "invalidInput");
+    }
+
+    #[test]
+    fn every_error_row_has_one_shape() {
+        let next = json!({"retry": {"tool": "localSearch", "query": {"path": "/r"}}});
+        let row = DomainResult::failure(
+            "pathNotFound",
+            "Path does not exist: /r",
+            vec!["Verify the path exists.".into()],
+            Some(next.clone()),
+            FailureKind::NotFound,
+        );
+        assert_eq!(row.status, Some("error"));
+        assert_eq!(row.failure, Some(FailureKind::NotFound));
+        let keys: Vec<&str> = row
+            .data
+            .as_object()
+            .expect("record")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["error", "errorCode", "hints", "next"]);
+        assert_eq!(row.data["next"], next);
+
+        let bare =
+            DomainResult::failure("x.failed", "failed", vec![], None, FailureKind::Execution);
+        assert_eq!(
+            bare.data,
+            json!({"error": "failed", "errorCode": "x.failed"})
+        );
+        assert_eq!(bare.failure, Some(FailureKind::Execution));
+    }
+
+    /// A tool payload that reports `status: "error"` is an execution failure
+    /// on every path, including the GitHub history arms.
+    #[test]
+    fn error_status_payload_is_an_execution_failure() {
+        let failed = value_result(json!({"status": "error", "error": "compare failed"}));
+        assert_eq!(failed.status, Some("error"));
+        assert_eq!(failed.failure, Some(FailureKind::Execution));
+        let empty = value_result(json!({"status": "empty"}));
+        assert_eq!((empty.status, empty.failure), (Some("empty"), None));
+        let ok = value_result(json!({"items": []}));
+        assert_eq!((ok.status, ok.failure), (None, None));
+    }
+
+    /// Contract validation already passed, so a row the typed parse rejects
+    /// is core/native drift. Every local tool reports it with one code.
+    #[test]
+    fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let path = root.path().to_string_lossy().into_owned();
+        let paths = PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("path policy");
+        let security = ContentSecurity::new();
+        let context = ExecutionContext {
+            cancellation: tokio_util::sync::CancellationToken::new(),
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+            output_bytes: 16_000,
+            walk_threads: None,
+        };
+        let views = crate::security::scan::SanitizedViewMemo::default();
+        for (tool, query) in [
+            (ToolId::LocalFetch, json!({"path": 5})),
+            (ToolId::LocalSearch, json!({"path": path, "searchText": 5})),
+            (
+                ToolId::StructureSearch,
+                json!({"operation": "syntaxTree", "path": path}),
+            ),
+            (ToolId::AstSearch, json!({"path": path})),
+            (ToolId::AstTopology, json!({"path": 5})),
+            (
+                ToolId::AstRewrite,
+                json!({"path": path, "langType": "typescript", "ruleKind": "pattern",
+                       "pattern": "a($A)", "rewrite": "b($A)", "allowSyntaxRegression": true}),
+            ),
+        ] {
+            let row = execute_local(
+                tool,
+                &query,
+                &paths,
+                &security,
+                &context,
+                &LocalFetchRegex::default(),
+                &views,
+                false,
+            )
+            .unwrap_or_else(|_| panic!("{tool} returns a row"));
+            assert_eq!(row.status, Some("error"), "{tool}");
+            assert_eq!(
+                row.data["errorCode"], "invalidInput",
+                "{tool}: {}",
+                row.data
+            );
+            assert_eq!(row.failure, Some(FailureKind::Execution), "{tool}");
+        }
     }
 
     #[test]

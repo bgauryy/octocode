@@ -8,11 +8,12 @@ use super::engine::{FailureKind, ToolOutcome};
 use super::{ExecutionContext, ExecutionError};
 use crate::contracts::{self, ContractValidationError};
 use crate::response::{ResponseInput, ResponsePageOptions, ResponsePager, ResponsePagerConfig};
+use crate::tools::id::ToolId;
 use serde_json::Value;
 
 pub(super) struct StageInput {
-    pub tool: String,
-    /// Sanitized, reranked envelope: `{results}` or clasify `{queries}`.
+    pub tool: ToolId,
+    /// Sanitized, reranked `{results}` envelope.
     pub structured: Value,
     /// Normalized input; the pager builds `responsePagination.next` from it.
     pub response_query: Value,
@@ -46,53 +47,121 @@ pub(super) fn finish(
         allow_auto_paging,
         source_digest,
     } = input;
-    if tool != "clasify" {
-        super::continuations::fill_continuation_goals(&mut structured, &response_query);
-    }
+    super::continuations::mark_follow_ups(&mut structured);
     // Validate the complete, sanitized rows before deriving text, error state,
     // or a pagination snapshot from them.
-    let repaired = match isolate_output_rows(&tool, &mut structured) {
-        Ok(repaired) => repaired,
+    match isolate_output_rows(tool.as_str(), &mut structured) {
+        Ok(true) if failure.is_none() => failure = Some(FailureKind::Execution),
+        Ok(_) => {}
         Err(error) => return Ok(Err(error)),
-    };
-    if repaired && failure.is_none() {
-        failure = Some(FailureKind::Execution);
     }
     let all_failed = response_all_failed(&structured);
-    // clasify receipts carry scoped nested queries and pages at the evidence
-    // level (next.clasify): no continuation compaction or replaying
-    // auto-pagination, which would re-run inference.
-    let is_clasify = tool == "clasify";
-    if !is_clasify {
-        // Continuations replay through validation, which restores defaults;
-        // emit only the fields that change the replay.
-        super::continuations::compact_continuations(&mut structured);
-    }
+    // Continuations replay through validation, which restores defaults;
+    // emit only the fields that change the replay.
+    super::continuations::compact_continuations(&mut structured);
     // An explicitly paged text response hashes and windows the rendered
     // text, so transient telemetry must leave before rendering (rows and
     // structured scopes are handled by the pager itself).
-    if !is_clasify
-        && options.explicit()
+    if options.explicit()
         && let Some(envelope) = structured.as_object_mut()
     {
         crate::response::strip_transient_telemetry(envelope);
     }
     context.check()?;
-    let render = !is_clasify
-        && (options.render_text.unwrap_or(mcp)
-            || failure.is_some()
-            || options.response_char_length.is_some()
-            || options.response_char_offset.is_some()
-            || options.response_snapshot.is_some());
-    let rendered_text = render
-        .then(|| super::render::render_tool(&tool, &structured, &response_query, text_format));
+    let render = options.render_text.unwrap_or(mcp)
+        || failure.is_some()
+        || options.response_char_length.is_some()
+        || options.response_char_offset.is_some()
+        || options.response_snapshot.is_some();
+    let rendered_text =
+        render.then(|| super::render::render_tool(tool, &structured, &response_query, text_format));
     context.check()?;
-    if !is_clasify && allow_auto_paging {
+    if allow_auto_paging {
         options.auto_paginate(rendered_text.as_deref(), &structured, auto_page_chars);
     }
-    if !is_clasify {
-        super::continuations::compact_input(&tool, &mut response_query);
+    super::continuations::compact_input(tool.as_str(), &mut response_query);
+    seal(
+        Sealed {
+            tool: tool.as_str().into(),
+            structured,
+            response_query,
+            rendered_text,
+            options,
+            failure,
+            all_failed,
+            source_digest,
+        },
+        context,
+    )
+}
+
+/// Clasify receipts from [`super::clasify_batch::execute`]. They carry scoped
+/// nested queries and page at the evidence level (`next.clasify`): no
+/// continuation filling or compaction, no text rendering, and no replaying
+/// auto-pagination, which would re-run inference.
+pub(super) fn finish_receipts(
+    receipts: super::clasify_batch::Receipts,
+    response_query: Value,
+    options: ResponsePageOptions,
+    context: &ExecutionContext,
+) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
+    let tool = ToolId::Clasify.as_str();
+    let super::clasify_batch::Receipts {
+        mut structured,
+        source_digest,
+        mut failure,
+    } = receipts;
+    // Page reads are follow-ups like any continuation; next.clasify keeps
+    // its briefs (the marking pass leaves clasify continuations alone).
+    super::continuations::mark_follow_ups(&mut structured);
+    match isolate_output_rows(tool, &mut structured) {
+        Ok(true) if failure.is_none() => failure = Some(FailureKind::Execution),
+        Ok(_) => {}
+        Err(error) => return Ok(Err(error)),
     }
+    let all_failed = response_all_failed(&structured);
+    context.check()?;
+    seal(
+        Sealed {
+            tool: tool.into(),
+            structured,
+            response_query,
+            rendered_text: None,
+            options,
+            failure,
+            all_failed,
+            source_digest,
+        },
+        context,
+    )
+}
+
+struct Sealed {
+    tool: String,
+    structured: Value,
+    response_query: Value,
+    rendered_text: Option<String>,
+    options: ResponsePageOptions,
+    failure: Option<FailureKind>,
+    all_failed: bool,
+    source_digest: Option<String>,
+}
+
+/// Page the envelope and validate the page against the public contract.
+fn seal(
+    sealed: Sealed,
+    context: &ExecutionContext,
+) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
+    let Sealed {
+        tool,
+        structured,
+        response_query,
+        rendered_text,
+        options,
+        failure,
+        all_failed,
+        source_digest,
+    } = sealed;
     let prepared = ResponsePager::new(ResponsePagerConfig::default())
         .prepare(
             ResponseInput {
@@ -174,13 +243,14 @@ mod tests {
             cancellation: CancellationToken::new(),
             deadline: Instant::now() + Duration::from_secs(30),
             output_bytes: 1 << 20,
+            walk_threads: None,
         }
     }
 
     fn stage(tool: &str, structured: Value, mcp: bool) -> ToolOutcome {
         finish(
             StageInput {
-                tool: tool.into(),
+                tool: ToolId::from_name(tool).expect("known tool"),
                 structured,
                 response_query: json!({"path":"/tmp/a.txt","goal": "test", "reasoning":"r"}),
                 options: ResponsePageOptions::default(),
@@ -263,7 +333,7 @@ mod tests {
     fn an_invalid_envelope_is_a_contract_error_not_a_repair() {
         let result = finish(
             StageInput {
-                tool: "localFetch".into(),
+                tool: ToolId::LocalFetch,
                 structured: json!({"results":"not-an-array"}),
                 response_query: json!({}),
                 options: ResponsePageOptions::default(),
@@ -287,7 +357,19 @@ mod tests {
             "next":{"clasify":{"id":"q","goal": "test", "reasoning":"r","resources":[{"id":"r","context":{"tool":"localFetch",
                 "query":{"path":"/tmp/a.txt","goal": "test", "reasoning":"r","debug":false}}}],
                 "questions":[{"id":"a","type":"noul","instructions":"Does it?"}]}}}]});
-        let outcome = stage("clasify", receipt.clone(), true);
+        let outcome = finish_receipts(
+            super::super::clasify_batch::Receipts {
+                structured: receipt.clone(),
+                source_digest: None,
+                failure: None,
+            },
+            json!({"queries":[]}),
+            ResponsePageOptions::default(),
+            &context(),
+        )
+        .expect("stage runs")
+        .expect("valid envelope");
         assert_eq!(outcome.structured_content["queries"], receipt["queries"]);
+        assert!(outcome.content.is_empty(), "receipts are never rendered");
     }
 }

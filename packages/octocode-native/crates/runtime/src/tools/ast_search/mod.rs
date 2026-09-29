@@ -109,7 +109,7 @@ pub(super) fn native_error(error: impl ToString) -> AstError {
 pub(super) fn allow_discovery(
     path: &std::path::Path,
     paths: &crate::policy::path::PathPolicy,
-    cancel: &dyn crate::tools::local_fetch::CancellationCheck,
+    cancel: &dyn crate::tools::cancel::CancellationCheck,
 ) -> Result<bool, String> {
     cancel
         .check()
@@ -198,15 +198,15 @@ pub type AstResult = Result<Value, AstError>;
 /// second. Directory scans skip larger files and report them.
 pub(crate) const MAX_PARSE_SOURCE_BYTES: usize = octocode_engine::signatures::MAX_PARSE_SIZE;
 
+/// Execute one typed row. The runtime parses the validated row with its
+/// shared `parse_query`, so a shape mismatch has one code across tools.
 pub fn execute_ast(
-    query: Value,
+    query: &AstSearchQuery,
     paths: &crate::policy::path::PathPolicy,
     security: &crate::security::ContentSecurity,
-    cancellation: &dyn crate::tools::local_fetch::CancellationCheck,
+    cancellation: &dyn crate::tools::cancel::CancellationCheck,
 ) -> AstResult {
-    let query: AstSearchQuery = serde_json::from_value(query)
-        .map_err(|error| AstError::new("ast.input.invalid", error.to_string()))?;
-    match &query {
+    match query {
         AstSearchQuery::Symbols(query) => execute_symbols(query, paths, security, cancellation),
         AstSearchQuery::MatchPattern(query) => {
             execute_match(MatchQuery::Pattern(query), paths, security, cancellation)
@@ -231,7 +231,7 @@ mod tests {
     use crate::{
         policy::path::{PathPolicy, PathPolicyConfig},
         security::ContentSecurity,
-        tools::local_fetch::CancellationCheck,
+        tools::cancel::CancellationCheck,
     };
 
     struct Cancelled;
@@ -248,6 +248,17 @@ mod tests {
         }
     }
 
+    /// Tests speak JSON rows; the runtime owns the typed parse.
+    fn execute_row(
+        query: Value,
+        paths: &PathPolicy,
+        security: &ContentSecurity,
+        cancellation: &dyn CancellationCheck,
+    ) -> AstResult {
+        let query: AstSearchQuery = serde_json::from_value(query).expect("typed astSearch row");
+        execute_ast(&query, paths, security, cancellation)
+    }
+
     fn context() -> (PathPolicy, ContentSecurity) {
         (
             PathPolicy::new(PathPolicyConfig::default()).expect("default path policy"),
@@ -256,22 +267,18 @@ mod tests {
     }
 
     #[test]
-    fn input_and_cancellation_fail_with_owned_codes() {
+    fn input_shape_and_cancellation_are_rejected() {
         let (paths, security) = context();
-        let missing = execute_ast(json!({"path":"."}), &paths, &security, &Active)
-            .expect_err("missing operation");
-        assert_eq!(missing.code, "ast.input.invalid");
-
-        let unknown = execute_ast(
+        // Shape mismatches never reach the tool: the runtime's typed parse
+        // rejects them (reported as `invalidInput`).
+        for row in [
+            json!({"path":"."}),
             json!({"operation":"symbols","goal": "test", "reasoning":"test","path":".","unknown":true}),
-            &paths,
-            &security,
-            &Active,
-        )
-        .expect_err("unknown field");
-        assert_eq!(unknown.code, "ast.input.invalid");
+        ] {
+            assert!(serde_json::from_value::<AstSearchQuery>(row).is_err());
+        }
 
-        let cancelled = execute_ast(
+        let cancelled = execute_row(
             json!({"operation":"symbols","goal": "test", "reasoning":"test","path":"."}),
             &paths,
             &security,
@@ -293,7 +300,7 @@ mod tests {
         .expect("fixture path policy");
         let security = ContentSecurity::new();
 
-        let syntax = execute_ast(
+        let syntax = execute_row(
             json!({
                 "operation":"syntaxTree","goal": "test", "reasoning":"test",
                 "path":source.to_string_lossy()
@@ -310,7 +317,7 @@ mod tests {
         assert!(root_node.get("startLine").is_some(), "{root_node}");
         assert!(root_node.get("startByte").is_none(), "{root_node}");
         assert!(root_node.get("endByte").is_none(), "{root_node}");
-        let debug = execute_ast(
+        let debug = execute_row(
             json!({
                 "operation":"syntaxTree","goal": "test", "reasoning":"test","debug":true,
                 "path":source.to_string_lossy()
@@ -331,9 +338,10 @@ mod tests {
             json!({"operation":"syntaxTree","goal": "test", "reasoning":"test","path":source.to_string_lossy(),"sort":"size"}),
             json!({"operation":"topology","goal": "test", "reasoning":"test","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
         ] {
-            let error = execute_ast(retired, &paths, &security, &Active)
-                .expect_err("retired astSearch surface must be rejected");
-            assert_eq!(error.code, "ast.input.invalid");
+            assert!(
+                serde_json::from_value::<AstSearchQuery>(retired).is_err(),
+                "retired astSearch surface must be rejected"
+            );
         }
     }
 

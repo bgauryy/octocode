@@ -84,6 +84,10 @@ pub(super) struct WindowSpec {
     pub(super) page_size: usize,
     /// A filter hides items, so the window cannot jump ahead by index.
     pub(super) filtered: bool,
+    /// Provider item count when known up front (a PR's `changed_files`). A
+    /// filtered scan then reads every batch concurrently instead of one
+    /// round trip per batch.
+    pub(super) provider_total: Option<usize>,
 }
 
 /// Load provider batches until `keep`-matching items cover the requested
@@ -124,6 +128,19 @@ pub(super) async fn load_window_with<R: CredentialResolver>(
     extract: fn(&mut Value) -> Vec<Value>,
     context: &RequestContext,
 ) -> Result<Loaded, ProviderError> {
+    if spec.filtered
+        && let Some(total) = spec.provider_total.filter(|total| *total > PROVIDER_BATCH)
+    {
+        return load_all_batches(
+            transport,
+            segments,
+            spec.max_batches,
+            total,
+            extract,
+            context,
+        )
+        .await;
+    }
     let start = spec.page.saturating_sub(1).saturating_mul(spec.page_size);
     let need = start.saturating_add(spec.page_size);
     let mut first_batch = if spec.filtered {
@@ -181,6 +198,86 @@ pub(super) async fn load_window_with<R: CredentialResolver>(
             continue;
         }
         return Ok(loaded);
+    }
+}
+
+/// Read every provider batch a collection of `total` items spans (up to
+/// `max_batches`) concurrently, in provider order.
+async fn load_all_batches<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    segments: &[&str],
+    max_batches: usize,
+    total: usize,
+    extract: fn(&mut Value) -> Vec<Value>,
+    context: &RequestContext,
+) -> Result<Loaded, ProviderError> {
+    let batches = total.div_ceil(PROVIDER_BATCH).clamp(1, max_batches);
+    let pages = futures_util::future::try_join_all((1..=batches).map(|batch| async move {
+        fetch(
+            transport,
+            segments,
+            &[
+                ("per_page", PROVIDER_BATCH.to_string()),
+                ("page", batch.to_string()),
+            ],
+            context,
+        )
+        .await
+    }))
+    .await?;
+    let last_has_more = pages.last().is_some_and(|(_, more)| *more);
+    let mut loaded = Loaded {
+        items: Vec::new(),
+        state: WindowState {
+            skipped: 0,
+            exhausted: true,
+            capped: last_has_more && batches >= max_batches,
+        },
+        first: Value::Null,
+    };
+    for (index, (mut value, _)) in pages.into_iter().enumerate() {
+        let items = extract(&mut value);
+        if index == 0 {
+            loaded.first = value;
+        }
+        loaded.items.extend(items);
+    }
+    Ok(loaded)
+}
+
+/// Reconcile a changed-file page with the PR's own `changed_files` count.
+/// GitHub lists at most 3000 files, and ends the list there without saying
+/// so: when the listing ran out before the reported count, the page is not
+/// complete. An unfiltered page that stopped early reports the provider
+/// total so the caller knows how many pages remain.
+pub(super) fn reconcile_file_totals(
+    page: &mut Value,
+    state: WindowState,
+    listed: usize,
+    changed_files: Option<usize>,
+    filtered: bool,
+) {
+    let Some(total) = changed_files else { return };
+    let listable = total.min(MAX_FILE_BATCHES * PROVIDER_BATCH);
+    if !state.exhausted && !filtered {
+        let per = page["itemsPerPage"].as_u64().unwrap_or(1).max(1) as usize;
+        page["totalItems"] = json!(listable);
+        page["totalPages"] = json!(listable.div_ceil(per));
+        page["countScope"] = json!("complete");
+    }
+    let unlisted = if state.exhausted {
+        listed < total
+    } else {
+        total > listable
+    };
+    if unlisted && !state.capped {
+        page["countScope"] = json!("partial");
+        page["terminalLimit"] = json!(true);
+        page["providerLimit"] = json!({
+            "reason":"providerFileListLimit",
+            "listed": if state.exhausted { listed } else { listable },
+            "changedFiles": total
+        });
     }
 }
 

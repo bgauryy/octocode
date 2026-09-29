@@ -3,7 +3,7 @@
 //! comments are the evidence, and each match keeps its own line offset.
 use crate::{
     providers::github::{ProviderError, ProviderErrorKind, TextMatch},
-    tools::local_fetch::ContentScan,
+    security::scan::ContentScan,
 };
 use serde_json::{Value, json};
 use std::path::Path;

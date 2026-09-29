@@ -16,7 +16,7 @@
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
 };
-use crate::tools::local_fetch::ContentScan;
+use crate::security::scan::ContentScan;
 use crate::tools::result::remove_nulls;
 use serde_json::Value;
 use std::path::Path;
@@ -226,6 +226,21 @@ impl GhGetHistoryItemQuery {
                 ..
             } => comment_body_offset.map(usize_of),
             _ => None,
+        }
+    }
+    /// Whether the query replays a `next.*` continuation (`followUp: true`):
+    /// the caller already holds the item header and follow-up menu.
+    pub fn follow_up(&self) -> bool {
+        match self {
+            Self::PullRequest { follow_up, .. } => *follow_up == Some(true),
+            _ => false,
+        }
+    }
+    /// `debug: true` keeps diagnostic fields a default response omits.
+    pub fn debug(&self) -> bool {
+        match self {
+            Self::PullRequest { debug, .. } => *debug,
+            _ => false,
         }
     }
     /// The pull-request text view (`"standard"` or `"none"`).

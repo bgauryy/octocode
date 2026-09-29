@@ -189,27 +189,12 @@ fn install(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, Stri
     let servers = servers
         .as_object_mut()
         .ok_or_else(|| format!("{key} is not an object"))?;
-    let already = servers.contains_key("octocode");
-    if already && !args.force && !args.dry_run && !args.check {
-        if args.json {
-            println!(
-                "{}",
-                json!({
-                    "success": false,
-                    "alreadyInstalled": true,
-                    "configPath": config_path
-                })
-            );
-        } else {
-            eprintln!(
-                "octocode is already installed in {} — pass --force to overwrite",
-                config_path.display()
-            );
-        }
-        return Ok(1);
+    let server = json_server(ide, args);
+    let existing = Existing::of(servers.get("octocode"), &server);
+    if existing != Existing::Absent && !args.force && !args.dry_run && !args.check {
+        return already_installed(config_path, args, existing);
     }
     reject_octo_mcp(&octocode_server(args))?;
-    let server = json_server(ide, args);
     servers.insert("octocode".into(), server);
     if args.dry_run {
         if args.json {
@@ -385,8 +370,52 @@ fn octocode_server(args: &InstallArgs) -> Value {
     server
 }
 
-/// Shared "already installed" response for the structured (TOML/YAML) writers.
-fn already_installed(config_path: &Path, args: &InstallArgs) -> Result<u8, String> {
+/// Whether the client config already carries an octocode entry, and whether it
+/// matches the entry this install would write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Existing {
+    Absent,
+    Same,
+    Different,
+}
+
+impl Existing {
+    fn of<T: PartialEq>(previous: Option<&T>, next: &T) -> Self {
+        match previous {
+            None => Self::Absent,
+            Some(previous) if previous == next => Self::Same,
+            Some(_) => Self::Different,
+        }
+    }
+}
+
+/// Shared "already installed" response. An identical entry is a successful
+/// no-op (exit 0) so setup scripts can re-run install; a differing entry is
+/// left untouched and needs `--force` (exit 1).
+fn already_installed(
+    config_path: &Path,
+    args: &InstallArgs,
+    existing: Existing,
+) -> Result<u8, String> {
+    if existing == Existing::Same {
+        if args.json {
+            println!(
+                "{}",
+                json!({
+                    "success": true,
+                    "alreadyInstalled": true,
+                    "unchanged": true,
+                    "configPath": config_path
+                })
+            );
+        } else {
+            eprintln!(
+                "octocode is already installed in {} — unchanged",
+                config_path.display()
+            );
+        }
+        return Ok(0);
+    }
     if args.json {
         println!(
             "{}",
@@ -464,7 +493,10 @@ fn finalize_text(
 }
 
 /// Render the octocode entry for codex `config.toml` (`[mcp_servers.octocode]`).
-fn render_codex_toml(existing: Option<&str>, args: &InstallArgs) -> Result<(String, bool), String> {
+fn render_codex_toml(
+    existing: Option<&str>,
+    args: &InstallArgs,
+) -> Result<(String, Existing), String> {
     let mut root: toml::Value = match existing {
         Some(text) if !text.trim().is_empty() => toml::from_str(text)
             .map_err(|error| format!("codex config.toml is not valid TOML: {error}"))?,
@@ -478,7 +510,6 @@ fn render_codex_toml(existing: Option<&str>, args: &InstallArgs) -> Result<(Stri
         .or_insert_with(|| toml::Value::Table(toml::Table::new()))
         .as_table_mut()
         .ok_or_else(|| "mcp_servers is not a TOML table".to_owned())?;
-    let already = servers.contains_key("octocode");
     let spec = server_spec(args);
     let mut entry = toml::Table::new();
     entry.insert("command".to_owned(), toml::Value::String(spec.command));
@@ -493,7 +524,9 @@ fn render_codex_toml(existing: Option<&str>, args: &InstallArgs) -> Result<(Stri
         }
         entry.insert("env".to_owned(), toml::Value::Table(env_table));
     }
-    servers.insert("octocode".to_owned(), toml::Value::Table(entry));
+    let entry = toml::Value::Table(entry);
+    let already = Existing::of(servers.get("octocode"), &entry);
+    servers.insert("octocode".to_owned(), entry);
     let rendered = toml::to_string_pretty(&root).map_err(|error| error.to_string())?;
     Ok((rendered, already))
 }
@@ -511,14 +544,17 @@ fn install_toml(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8,
         return report_check(ide, config_path, &root, args);
     }
     let (rendered, already) = render_codex_toml(existing.as_deref(), args)?;
-    if already && !args.force && !args.dry_run && !args.check {
-        return already_installed(config_path, args);
+    if already != Existing::Absent && !args.force && !args.dry_run && !args.check {
+        return already_installed(config_path, args, already);
     }
     finalize_text(ide, config_path, &rendered, args)
 }
 
 /// Render the octocode entry for goose `config.yaml` (`extensions.octocode`).
-fn render_goose_yaml(existing: Option<&str>, args: &InstallArgs) -> Result<(String, bool), String> {
+fn render_goose_yaml(
+    existing: Option<&str>,
+    args: &InstallArgs,
+) -> Result<(String, Existing), String> {
     use serde_yaml_ng::{Mapping, Value as Yaml};
     let mut root: Yaml = match existing {
         Some(text) if !text.trim().is_empty() => serde_yaml_ng::from_str(text)
@@ -537,7 +573,6 @@ fn render_goose_yaml(existing: Option<&str>, args: &InstallArgs) -> Result<(Stri
         .and_then(Yaml::as_mapping_mut)
         .ok_or_else(|| "extensions is not a YAML mapping".to_owned())?;
     let octocode_key = Yaml::String("octocode".to_owned());
-    let already = extensions.contains_key(&octocode_key);
     let spec = server_spec(args);
     let mut entry = Mapping::new();
     entry.insert(Yaml::String("name".into()), Yaml::String("octocode".into()));
@@ -553,7 +588,9 @@ fn render_goose_yaml(existing: Option<&str>, args: &InstallArgs) -> Result<(Stri
         envs.insert(Yaml::String(key), Yaml::String(value));
     }
     entry.insert(Yaml::String("envs".into()), Yaml::Mapping(envs));
-    extensions.insert(octocode_key, Yaml::Mapping(entry));
+    let entry = Yaml::Mapping(entry);
+    let already = Existing::of(extensions.get(&octocode_key), &entry);
+    extensions.insert(octocode_key, entry);
     let rendered = serde_yaml_ng::to_string(&root).map_err(|error| error.to_string())?;
     Ok((rendered, already))
 }
@@ -572,8 +609,8 @@ fn install_yaml(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8,
         return report_check(ide, config_path, &root, args);
     }
     let (rendered, already) = render_goose_yaml(existing.as_deref(), args)?;
-    if already && !args.force && !args.dry_run && !args.check {
-        return already_installed(config_path, args);
+    if already != Existing::Absent && !args.force && !args.dry_run && !args.check {
+        return already_installed(config_path, args, already);
     }
     finalize_text(ide, config_path, &rendered, args)
 }
@@ -686,8 +723,14 @@ fn read_json(path: &Path) -> Result<Value, String> {
     if !path.exists() {
         return Ok(json!({}));
     }
-    let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&text).map_err(|error| error.to_string())
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    serde_json::from_str(&text).map_err(|error| {
+        format!(
+            "cannot parse {} as JSON ({error}). Files with comments (JSONC) are not rewritten so your comments are kept; add the octocode server entry to it manually, or use --dry-run to preview the entry.",
+            path.display()
+        )
+    })
 }
 
 fn write_json(path: &Path, value: &Value) -> Result<(), String> {
@@ -713,10 +756,22 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_ide, client_format, config_path, octocode_server, reject_octo_mcp,
+        Existing, canonical_ide, client_format, config_path, octocode_server, reject_octo_mcp,
         render_codex_toml, render_goose_yaml,
     };
     use serde_json::json;
+
+    #[test]
+    fn unparseable_client_config_error_names_the_file_and_keeps_it_untouched() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("settings.json");
+        let original = "{\n  // my theme\n  \"theme\": \"dark\"\n}\n";
+        std::fs::write(&path, original).expect("write");
+        let error = super::read_json(&path).expect_err("comments are not plain JSON");
+        assert!(error.contains(&path.display().to_string()), "{error}");
+        assert!(error.contains("--dry-run"), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), original);
+    }
 
     fn default_args() -> super::InstallArgs {
         super::InstallArgs {
@@ -794,7 +849,7 @@ mod tests {
     #[test]
     fn codex_toml_renders_mcp_servers_table_and_merges() {
         let (rendered, already) = render_codex_toml(None, &default_args()).expect("render");
-        assert!(!already);
+        assert_eq!(already, Existing::Absent);
         // Valid TOML with the codex-native table shape.
         let parsed: toml::Value = toml::from_str(&rendered).expect("valid toml");
         let entry = &parsed["mcp_servers"]["octocode"];
@@ -815,15 +870,22 @@ mod tests {
             "preserves other"
         );
         assert!(parsed["mcp_servers"].get("octocode").is_some());
-        assert!(!already_present);
+        assert_eq!(already_present, Existing::Absent);
         let (_again, now_present) = render_codex_toml(Some(&merged), &default_args()).expect("re");
-        assert!(now_present, "detects existing octocode entry");
+        assert_eq!(
+            now_present,
+            Existing::Same,
+            "detects identical octocode entry"
+        );
+        let edited = merged.replace("npx", "node");
+        let (_, differs) = render_codex_toml(Some(&edited), &default_args()).expect("diff");
+        assert_eq!(differs, Existing::Different, "detects a user-edited entry");
     }
 
     #[test]
     fn goose_yaml_renders_extensions_and_merges() {
         let (rendered, already) = render_goose_yaml(None, &default_args()).expect("render");
-        assert!(!already);
+        assert_eq!(already, Existing::Absent);
         let parsed: serde_yaml_ng::Value = serde_yaml_ng::from_str(&rendered).expect("valid yaml");
         let entry = &parsed["extensions"]["octocode"];
         assert_eq!(entry["type"].as_str(), Some("stdio"));
@@ -838,7 +900,36 @@ mod tests {
             "preserves other"
         );
         let (_again, now_present) = render_goose_yaml(Some(&merged), &default_args()).expect("re");
-        assert!(now_present, "detects existing octocode extension");
+        assert_eq!(
+            now_present,
+            Existing::Same,
+            "detects identical octocode extension"
+        );
+    }
+
+    #[test]
+    fn reinstall_is_a_noop_when_identical_and_needs_force_when_edited() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("mcp.json");
+        assert_eq!(
+            super::install("cursor", &path, &default_args()).expect("first"),
+            0
+        );
+        let written = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(
+            super::install("cursor", &path, &default_args()).expect("again"),
+            0
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            written,
+            "no rewrite"
+        );
+        std::fs::write(&path, written.replace("npx", "node")).expect("edit");
+        assert_eq!(
+            super::install("cursor", &path, &default_args()).expect("edited"),
+            1
+        );
     }
     #[test]
     fn client_specific_json_shapes_are_valid_and_preserve_other_settings() {
@@ -867,10 +958,13 @@ mod tests {
                     json!(["npx", "-y", "octocode-mcp@latest"])
                 );
             }
+            let written = std::fs::read_to_string(&path).expect("read");
             assert_eq!(
                 super::install(ide, &path, &default_args()).expect("existing"),
-                1
+                0,
+                "identical reinstall is a no-op"
             );
+            assert_eq!(std::fs::read_to_string(&path).expect("read"), written);
         }
     }
 

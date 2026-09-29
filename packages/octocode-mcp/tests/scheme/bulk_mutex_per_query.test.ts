@@ -8,12 +8,14 @@ describe('bulk schema cross-field validation', () => {
     const r = LocalFetchContentBulkQuerySchema.safeParse({
       queries: [
         {
+          goal: 'test goal',
           reasoning: 'exercise bulk validation',
           path: 'a.ts',
           fullContent: true,
           matchString: 'x',
         },
         {
+          goal: 'test goal',
           reasoning: 'exercise bulk validation',
           path: 'b.ts',
           startLine: 1,
@@ -26,6 +28,7 @@ describe('bulk schema cross-field validation', () => {
       LocalFetchContentBulkQuerySchema.safeParse({
         queries: [
           {
+            goal: 'test goal',
             reasoning: 'exercise bulk validation',
             path: 'b.ts',
             startLine: 1,
@@ -40,6 +43,7 @@ describe('bulk schema cross-field validation', () => {
     const r = AstSearchBulkQuerySchema.safeParse({
       queries: [
         {
+          goal: 'test goal',
           reasoning: 'exercise bulk validation',
           operation: 'match',
           path: '/r',
@@ -48,6 +52,7 @@ describe('bulk schema cross-field validation', () => {
           rule: 'kind: call_expression',
         },
         {
+          goal: 'test goal',
           reasoning: 'exercise bulk validation',
           operation: 'files',
           path: '/r',
@@ -64,6 +69,7 @@ describe('bulk schema cross-field validation', () => {
       AstSearchBulkQuerySchema.safeParse({
         queries: [
           {
+            goal: 'test goal',
             reasoning: 'exercise bulk validation',
             operation: 'match',
             path: '/r',
@@ -79,6 +85,7 @@ describe('bulk schema cross-field validation', () => {
     const r = FileContentBulkQueryLocalSchema.safeParse({
       queries: [
         {
+          goal: 'test goal',
           reasoning: 'exercise bulk validation',
           owner: 'o',
           repo: 'r',
@@ -87,6 +94,7 @@ describe('bulk schema cross-field validation', () => {
           matchString: 'x',
         },
         {
+          goal: 'test goal',
           reasoning: 'exercise bulk validation',
           owner: 'o',
           repo: 'r',
@@ -101,6 +109,7 @@ describe('bulk schema cross-field validation', () => {
       FileContentBulkQueryLocalSchema.safeParse({
         queries: [
           {
+            goal: 'test goal',
             reasoning: 'exercise bulk validation',
             owner: 'o',
             repo: 'r',

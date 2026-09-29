@@ -4,6 +4,8 @@ use super::pagination::{
 };
 use super::types::*;
 use super::validation::{is_binary, validate_request};
+use crate::security::scan::ContentScan;
+use crate::tools::cancel::CancellationCheck;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
@@ -687,6 +689,7 @@ mod timestamp_tests {
 #[cfg(test)]
 mod source_size_tests {
     use super::*;
+    use crate::tools::cancel::NeverCancel;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1025,6 +1028,7 @@ pub(crate) fn no_match_hint(regex: bool, case_sensitive: bool, finder: &str) -> 
 mod line_page_scan_tests {
     use super::*;
     use crate::security::ContentSecurity;
+    use crate::tools::cancel::NeverCancel;
     use std::path::Path;
 
     fn security() -> ContentSecurity {

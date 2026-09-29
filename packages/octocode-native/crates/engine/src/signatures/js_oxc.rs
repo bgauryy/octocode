@@ -33,7 +33,7 @@ use super::{
     extractor::AST_EXECUTION_TIMEOUT,
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs as commonjs,
-    js_oxc_references::{CountTarget, value_reference_counts},
+    js_oxc_references::{CountTarget, record_import_uses, value_reference_counts},
     js_oxc_shared::{
         GraphCall, GraphCommonJsLoad, LineIndex, Position, Range, module_export_name,
         property_key_name,
@@ -180,7 +180,13 @@ fn span_contains(span: Span, offset: u32) -> bool {
     span.start <= offset && offset < span.end
 }
 
-fn source_type_for(ext: &str, file_path: &str) -> SourceType {
+fn source_type_for(ext: &str, file_path: &str, content: &str) -> SourceType {
+    // oxc has no Flow parser. Flow annotations are close enough to TypeScript
+    // that a TSX parse usually succeeds; when it cannot, the hard failure
+    // routes the caller to the tree-sitter TSX grammar (see `grammar_extension`).
+    if crate::text::file_extension::is_flow_source(content, ext) {
+        return SourceType::tsx();
+    }
     // `from_path` owns the extension policy: `.cjs`/`.cts` are CommonJS (top-level
     // `return` allowed), `.mjs`/`.mts` are ES modules, `.js`/`.ts` are
     // unambiguous (module only with import/export), and `.d.ts`/`.d.mts`/`.d.cts`
@@ -233,7 +239,12 @@ fn extract_js_symbols_inner(content: &str, file_path: &str) -> Option<String> {
         return None;
     }
     with_thread_allocator(|allocator| {
-        let parser_ret = Parser::new(allocator, content, source_type_for(&ext, file_path)).parse();
+        let parser_ret = Parser::new(
+            allocator,
+            content,
+            source_type_for(&ext, file_path, content),
+        )
+        .parse();
 
         // Hard parse failure with nothing recovered → let the caller fall back to
         // the more error-tolerant tree-sitter path rather than emit a stub outline.
@@ -329,7 +340,11 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
     }
 
     with_thread_allocator(|allocator| {
-        let parser = Parser::new(allocator, content, source_type_for(&ext, file_path));
+        let parser = Parser::new(
+            allocator,
+            content,
+            source_type_for(&ext, file_path, content),
+        );
         let parser_ret = if COMMON_JS {
             parser
                 .with_config(oxc_parser::config::TokensParserConfig)
@@ -476,7 +491,8 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
             .collect();
         let reference_counts = value_reference_counts(&semantic, &line_index, &targets);
         let facts_json = serde_json::to_string(&facts).ok()?;
-        let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
+        let mut facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
+        record_import_uses(&semantic, &line_index, &mut facts);
         Some(super::GraphFactsExtraction {
             facts,
             reference_counts,
@@ -508,7 +524,12 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> 
         return None;
     }
     with_thread_allocator(|allocator| {
-        let parser_ret = Parser::new(allocator, content, source_type_for(&ext, file_path)).parse();
+        let parser_ret = Parser::new(
+            allocator,
+            content,
+            source_type_for(&ext, file_path, content),
+        )
+        .parse();
         if job_cancelled()
             || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
         {
@@ -572,7 +593,12 @@ fn find_in_file_references_inner(
     }
 
     with_thread_allocator(|allocator| {
-        let parser_ret = Parser::new(allocator, content, source_type_for(&ext, file_path)).parse();
+        let parser_ret = Parser::new(
+            allocator,
+            content,
+            source_type_for(&ext, file_path, content),
+        )
+        .parse();
         if job_cancelled()
             || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
         {

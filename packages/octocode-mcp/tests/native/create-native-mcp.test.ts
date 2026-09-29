@@ -20,6 +20,7 @@ vi.mock('@modelcontextprotocol/server/stdio', () => ({
 
 import {
   createNativeMcp,
+  devOverridesAllowed,
   loadNativeBinding,
   startNativeMcp,
   type NativeCatalog,
@@ -70,7 +71,11 @@ class FakeRuntime implements NativeRuntime {
     return this.makeCatalog();
   }
 
-  cancel(): boolean {
+  readonly cancelled: string[] = [];
+  hang = false;
+
+  cancel(requestId: string): boolean {
+    this.cancelled.push(requestId);
     return true;
   }
 
@@ -80,6 +85,17 @@ class FakeRuntime implements NativeRuntime {
     input: unknown
   ): Promise<unknown> {
     this.executions.push({ requestId, tool, input });
+    if (this.hang) {
+      await new Promise<void>(resolve => {
+        const poll = setInterval(() => {
+          if (this.cancelled.includes(requestId)) {
+            clearInterval(poll);
+            resolve();
+          }
+        }, 5);
+      });
+      throw new Error('cancelled');
+    }
     if (tool === 'clasify') {
       // Native clasify receipts carry no rendered text block.
       return {
@@ -227,6 +243,7 @@ describe('createNativeMcp registration + execution', () => {
     ]);
 
     const matrix = {
+      goal: 'test goal',
       reasoning: 'Locate one fact without caller-authored IDs.',
       resources: [{ context: { value: 'captured source' } }],
       questions: [
@@ -351,7 +368,14 @@ describe('createNativeMcp registration + execution', () => {
     const response = await client.callTool({
       name: 'localFetch',
       arguments: {
-        queries: [{ reasoning: 'boundary test', path: '.', fullContent: true }],
+        queries: [
+          {
+            goal: 'test goal',
+            reasoning: 'boundary test',
+            path: '.',
+            fullContent: true,
+          },
+        ],
       },
     });
     expect(response.structuredContent).toEqual({
@@ -379,6 +403,75 @@ describe('createNativeMcp registration + execution', () => {
     await instance.close();
     expect(runtime.closed).toBe(true);
     expect(runtime.closeCount).toBe(1);
+  });
+
+  it('forwards client cancellation (notifications/cancelled) to runtime.cancel with the JSON-RPC id', async () => {
+    const instance = createNativeMcp({
+      env: {},
+      binding: bindingFor(() => ({
+        fingerprint: getNativeContractFingerprint(),
+        tools: [tool('localFetch', true)],
+      })),
+    });
+    const client = new Client({ name: 'cancel', version: '1' });
+    const [serverTransport, clientTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      instance.server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    const runtime = FakeRuntime.last!;
+    runtime.hang = true;
+    const controller = new AbortController();
+    const call = client
+      .callTool(
+        {
+          name: 'localFetch',
+          arguments: {
+            queries: [
+              { goal: 'test goal', reasoning: 'cancel test', path: '.' },
+            ],
+          },
+        },
+        undefined,
+        { signal: controller.signal }
+      )
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(runtime.executions).toHaveLength(1));
+    controller.abort();
+    await call;
+    await vi.waitFor(() => expect(runtime.cancelled).toHaveLength(1));
+    // Keyed by the JSON-RPC request id, not a random UUID.
+    expect(runtime.cancelled[0]).toBe(runtime.executions[0]!.requestId);
+    expect(runtime.cancelled[0]).toMatch(/^\d+$/);
+    await client.close();
+    await instance.close();
+  });
+
+  it('never registers CLI-only tools even when native reports them available', async () => {
+    const instance = createNativeMcp({
+      env: {},
+      binding: bindingFor(() => ({
+        fingerprint: getNativeContractFingerprint(),
+        tools: [
+          tool('localFetch', true),
+          tool('ghCloneRepo', true),
+          tool('astRewrite', true),
+        ],
+      })),
+    });
+    const client = new Client({ name: 'cli-only', version: '1' });
+    const [serverTransport, clientTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      instance.server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+    expect((await client.listTools()).tools.map(t => t.name)).toEqual([
+      'localFetch',
+    ]);
+    await client.close();
+    await instance.close();
   });
 
   it('delivers the native grammar inventory when AST search is available', async () => {
@@ -472,6 +565,24 @@ describe('createNativeMcp registration + execution', () => {
   });
 });
 
+describe('devOverridesAllowed', () => {
+  it('never honours overrides under NODE_ENV=production', () => {
+    expect(devOverridesAllowed({ NODE_ENV: 'production' }, false)).toBe(false);
+    expect(devOverridesAllowed({ NODE_ENV: 'production' }, true)).toBe(false);
+  });
+
+  it('honours overrides from source unless production', () => {
+    expect(devOverridesAllowed({}, false)).toBe(true);
+  });
+
+  it('treats the bundle as production unless NODE_ENV opts in', () => {
+    expect(devOverridesAllowed({}, true)).toBe(false);
+    expect(devOverridesAllowed({ NODE_ENV: 'staging' }, true)).toBe(false);
+    expect(devOverridesAllowed({ NODE_ENV: 'development' }, true)).toBe(true);
+    expect(devOverridesAllowed({ NODE_ENV: 'test' }, true)).toBe(true);
+  });
+});
+
 describe('loadNativeBinding', () => {
   it('resolves a candidate addon that exports NativeRuntime', () => {
     const binding = loadNativeBinding({
@@ -537,6 +648,63 @@ describe('startNativeMcp', () => {
       for (const listener of process.stdin.listeners('end'))
         if (!stdinEnd.includes(listener))
           process.stdin.removeListener('end', listener as () => void);
+    }
+  });
+});
+
+describe('startNativeMcp fatal handlers', () => {
+  it('logs uncaught errors to stderr (never stdout), closes the runtime, and exits 1', async () => {
+    const before = {
+      ue: process.listeners('uncaughtException').slice(),
+      ur: process.listeners('unhandledRejection').slice(),
+      sigint: process.listeners('SIGINT').slice(),
+      sigterm: process.listeners('SIGTERM').slice(),
+      end: process.stdin.listeners('end').slice(),
+    };
+    const instance = await startNativeMcp({
+      env: {},
+      binding: bindingFor(() => ({
+        fingerprint: getNativeContractFingerprint(),
+        tools: [tool('localFetch', true)],
+      })),
+    });
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const stderr = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((() => true) as never);
+    const stdout = vi.spyOn(process.stdout, 'write');
+    try {
+      const added = process
+        .listeners('uncaughtException')
+        .filter(l => !before.ue.includes(l)) as Array<(e: unknown) => void>;
+      expect(added).toHaveLength(1);
+      added[0]!(new Error('boom'));
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining('uncaughtException')
+      );
+      expect(stdout).not.toHaveBeenCalled();
+      expect(FakeRuntime.last!.closed).toBe(true);
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+      stderr.mockRestore();
+      stdout.mockRestore();
+      await instance.close();
+      const strip = (event: string, keep: Function[]) => {
+        for (const l of process.listeners(event as never))
+          if (!keep.includes(l)) process.removeListener(event, l as never);
+      };
+      strip('uncaughtException', before.ue);
+      strip('unhandledRejection', before.ur);
+      strip('SIGINT', before.sigint);
+      strip('SIGTERM', before.sigterm);
+      for (const l of process.stdin.listeners('end'))
+        if (!before.end.includes(l))
+          process.stdin.removeListener('end', l as () => void);
     }
   });
 });

@@ -11,6 +11,7 @@ use crate::{
     tools::{
         gh_clone_repo::{self, CloneConfig, CloneContext, SystemGit},
         gh_get_file_content, gh_get_history_item, gh_search, gh_search_history,
+        id::ToolId,
         local_fetch::LocalFetchRegex,
     },
 };
@@ -51,8 +52,26 @@ fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
     }
 }
 
+/// Every GitHub provider failure row: the shared error row plus the
+/// provider's retry/status/rate-limit metadata and a kind-specific hint when
+/// the arm supplied none.
+fn provider_row(
+    error: &ProviderError,
+    message: impl Into<String>,
+    hints: Vec<String>,
+    next: Option<Value>,
+    kind: FailureKind,
+) -> DomainResult {
+    let code = serde_json::to_value(error.kind)
+        .ok()
+        .and_then(|code| code.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".into());
+    let mut row = DomainResult::failure(code, message, hints, next, kind);
+    apply_provider_error_metadata(&mut row.data, error);
+    row
+}
+
 fn apply_provider_error_metadata(data: &mut Value, error: &ProviderError) {
-    data["errorCode"] = serde_json::to_value(error.kind).unwrap_or_else(|_| json!("unknown"));
     data["retryable"] = json!(error.retryable);
     if let Some(status) = error.status {
         data["httpStatus"] = json!(status);
@@ -93,7 +112,7 @@ pub(super) struct GitHubServices {
     auto_page_chars: usize,
     /// Sanitized full views of recently paged files (scoped to this runtime's
     /// single security policy), so each `next.continue` skips a full rescan.
-    sanitized_views: gh_get_file_content::SanitizedViewMemo,
+    sanitized_views: crate::security::scan::SanitizedViewMemo,
 }
 
 impl GitHubServices {
@@ -132,14 +151,14 @@ impl GitHubServices {
             home,
             clone_limits,
             auto_page_chars,
-            sanitized_views: gh_get_file_content::SanitizedViewMemo::new(),
+            sanitized_views: crate::security::scan::SanitizedViewMemo::new(),
         })
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn execute_query(
         &self,
-        tool: &str,
+        tool: ToolId,
         query: &Value,
         context: &ExecutionContext,
         security: &ContentSecurity,
@@ -151,14 +170,23 @@ impl GitHubServices {
         let request_context = match self.request_context(context, handle) {
             Ok(value) => value,
             Err(error) => {
-                return Ok(if tool == "ghCloneRepo" {
-                    provider_error(error)
-                } else if tool == "ghGetFileContent" {
-                    file_error(error, query)
-                } else if matches!(tool, "ghSearchRepo" | "ghSearchCode" | "ghStructure") {
-                    search_error(tool, error)
-                } else {
-                    history_error(error, tool == "ghSearchHistory")
+                return Ok(match tool {
+                    ToolId::GhGetFileContent => file_error(error, query),
+                    ToolId::GhSearchRepo | ToolId::GhSearchCode | ToolId::GhStructure => {
+                        search_error(tool, error)
+                    }
+                    ToolId::GhSearchHistory => history_error(error, true),
+                    ToolId::GhGetHistoryItem => history_error(error, false),
+                    ToolId::GhCloneRepo
+                    | ToolId::ArtifactSearch
+                    | ToolId::LocalSearch
+                    | ToolId::LocalFetch
+                    | ToolId::StructureSearch
+                    | ToolId::AstSearch
+                    | ToolId::AstTopology
+                    | ToolId::AstRewrite
+                    | ToolId::LspSearch
+                    | ToolId::Clasify => provider_error(error),
                 });
             }
         };
@@ -204,7 +232,7 @@ impl GitHubServices {
     #[allow(clippy::too_many_arguments)]
     async fn execute_resolved(
         &self,
-        tool: &str,
+        tool: ToolId,
         query: &Value,
         request_context: &RequestContext,
         context: &ExecutionContext,
@@ -215,27 +243,35 @@ impl GitHubServices {
         // Generated query types carry the meta fields, so every tool parses
         // the validated row as-is.
         match tool {
-            "ghGetFileContent" => {
+            ToolId::GhGetFileContent => {
                 self.execute_file_resolved(query, request_context, context, security, regex)
                     .await
             }
-            "ghGetHistoryItem" => {
+            ToolId::GhGetHistoryItem => {
                 self.execute_history_item_resolved(query, request_context, context, security)
                     .await
             }
-            "ghSearchRepo" | "ghSearchCode" | "ghStructure" => {
+            ToolId::GhSearchRepo | ToolId::GhSearchCode | ToolId::GhStructure => {
                 self.execute_search_resolved(tool, query, request_context, context, security)
                     .await
             }
-            "ghSearchHistory" => {
+            ToolId::GhSearchHistory => {
                 self.execute_search_history_resolved(query, request_context, context, security)
                     .await
             }
-            "ghCloneRepo" => {
+            ToolId::GhCloneRepo => {
                 self.execute_clone_resolved(query, request_context, context, paths)
                     .await
             }
-            _ => Err(ExecutionError::WorkerFailed),
+            ToolId::ArtifactSearch
+            | ToolId::LocalSearch
+            | ToolId::LocalFetch
+            | ToolId::StructureSearch
+            | ToolId::AstSearch
+            | ToolId::AstTopology
+            | ToolId::AstRewrite
+            | ToolId::LspSearch
+            | ToolId::Clasify => Err(ExecutionError::WorkerFailed),
         }
     }
 
@@ -264,18 +300,7 @@ impl GitHubServices {
         .await;
         context.check()?;
         Ok(match result {
-            Ok(data) => DomainResult {
-                diagnostics: Default::default(),
-                status: match data.get("status").and_then(Value::as_str) {
-                    Some("empty") => Some("empty"),
-                    Some("error") => Some("error"),
-                    _ => None,
-                },
-                data,
-                cache: false,
-                source_digest: None,
-                failure: None,
-            },
+            Ok(data) => super::dispatch::value_result(data),
             Err(error) => {
                 let pull_request = error.reason == Some(ProviderErrorReason::IssueIsPullRequest);
                 let mut result = history_error(error, false);
@@ -289,7 +314,7 @@ impl GitHubServices {
 
     async fn execute_search_resolved(
         &self,
-        tool: &str,
+        tool: ToolId,
         query: &Value,
         request_context: &RequestContext,
         context: &ExecutionContext,
@@ -305,29 +330,38 @@ impl GitHubServices {
             };
         }
         let result = match tool {
-            "ghSearchCode" => {
+            ToolId::GhSearchCode => {
                 let query = parsed!(gh_search::GhSearchCodeQuery);
                 gh_search::execute_code(&self.provider, &query, request_context, security).await
             }
-            "ghSearchRepo" => {
+            ToolId::GhSearchRepo => {
                 let query = parsed!(gh_search::GhSearchRepoQuery);
                 gh_search::execute_repositories(&self.provider, &query, request_context).await
             }
-            _ => {
+            ToolId::GhStructure => {
                 let query = parsed!(gh_search::GhStructureQuery);
                 gh_search::execute_structure(&self.provider, &query, request_context, &self.home)
                     .await
             }
+            ToolId::GhGetFileContent
+            | ToolId::GhSearchHistory
+            | ToolId::GhGetHistoryItem
+            | ToolId::GhCloneRepo
+            | ToolId::ArtifactSearch
+            | ToolId::LocalSearch
+            | ToolId::LocalFetch
+            | ToolId::StructureSearch
+            | ToolId::AstSearch
+            | ToolId::AstTopology
+            | ToolId::AstRewrite
+            | ToolId::LspSearch
+            | ToolId::Clasify => return Err(ExecutionError::WorkerFailed),
         };
         context.check()?;
         Ok(match result {
             Ok(output) => DomainResult {
                 diagnostics: output.diagnostics,
-                status: output.status,
-                data: output.data,
-                cache: false,
-                source_digest: None,
-                failure: (output.status == Some("error")).then_some(FailureKind::Execution),
+                ..DomainResult::payload(output.data, output.status)
             },
             Err(error) => search_error(tool, error),
         })
@@ -353,18 +387,7 @@ impl GitHubServices {
                 .await;
         context.check()?;
         Ok(match result {
-            Ok(data) => DomainResult {
-                diagnostics: Default::default(),
-                status: match data.get("status").and_then(Value::as_str) {
-                    Some("empty") => Some("empty"),
-                    Some("error") => Some("error"),
-                    _ => None,
-                },
-                data,
-                cache: false,
-                source_digest: None,
-                failure: None,
-            },
+            Ok(data) => super::dispatch::value_result(data),
             Err(error) => history_error(error, true),
         })
     }
@@ -387,14 +410,13 @@ impl GitHubServices {
         // is reported as repositoryNotFound (echoing raw input) instead of the
         // correct clone.input.invalid.
         if let Err(error) = gh_clone_repo::validate_query(&query) {
-            return Ok(DomainResult {
-                diagnostics: Default::default(),
-                data: json!({ "error": error.message, "errorCode": error.code }),
-                status: Some("error"),
-                source_digest: None,
-                cache: false,
-                failure: Some(FailureKind::Execution),
-            });
+            return Ok(DomainResult::failure(
+                error.code,
+                error.message,
+                error.hints,
+                None,
+                FailureKind::Execution,
+            ));
         }
         let metadata = if query.branch.is_none() {
             match self
@@ -408,22 +430,14 @@ impl GitHubServices {
                 // without metadata would surface the internal-sounding
                 // clone.defaultBranchUnavailable failure instead.
                 Err(error) if error.kind == ProviderErrorKind::NotFound => {
-                    let owner = &query.owner;
-                    let repo = &query.repo;
-                    return Ok(DomainResult {
-                        diagnostics: Default::default(),
-                        data: json!({
-                            "error": format!("Repository not found: {owner}/{repo}"),
-                            "errorCode": "clone.repositoryNotFound",
-                            "hints": [format!(
-                                "Verify the owner/repo spelling and that {owner}/{repo} exists and is accessible with your credentials."
-                            )],
-                        }),
-                        status: Some("error"),
-                        source_digest: None,
-                        cache: false,
-                        failure: Some(FailureKind::NotFound),
-                    });
+                    let error = gh_clone_repo::repository_not_found(&query);
+                    return Ok(DomainResult::failure(
+                        error.code,
+                        error.message,
+                        error.hints,
+                        None,
+                        FailureKind::NotFound,
+                    ));
                 }
                 Err(error) => return Ok(provider_error(error)),
             }
@@ -446,22 +460,17 @@ impl GitHubServices {
             git: &git,
         };
         match gh_clone_repo::execute_clone(&query, &clone_context) {
-            Ok(result) => Ok(DomainResult {
-                diagnostics: Default::default(),
-                data: serde_json::to_value(result).map_err(|_| ExecutionError::WorkerFailed)?,
-                status: None,
-                source_digest: None,
-                cache: false,
-                failure: None,
-            }),
-            Err(error) => Ok(DomainResult {
-                diagnostics: Default::default(),
-                data: json!({"error":error.message,"errorCode":error.code}),
-                status: Some("error"),
-                source_digest: None,
-                cache: false,
-                failure: Some(FailureKind::Execution),
-            }),
+            Ok(result) => Ok(DomainResult::payload(
+                serde_json::to_value(result).map_err(|_| ExecutionError::WorkerFailed)?,
+                None,
+            )),
+            Err(error) => Ok(DomainResult::failure(
+                error.code,
+                error.message,
+                error.hints,
+                None,
+                FailureKind::Execution,
+            )),
         }
     }
 
@@ -484,7 +493,7 @@ impl GitHubServices {
             &query,
             request_context,
             None,
-            &gh_get_file_content::MemoizedScan::new(security, &self.sanitized_views),
+            &crate::security::scan::MemoizedScan::new(security, &self.sanitized_views),
             context,
             regex,
         )
@@ -529,12 +538,8 @@ impl GitHubServices {
                     }
                 }
                 Ok(DomainResult {
-                    diagnostics: Default::default(),
-                    data,
-                    status,
-                    source_digest: None,
-                    failure: (status == Some("error")).then_some(FailureKind::Execution),
                     cache,
+                    ..DomainResult::payload(data, status)
                 })
             }
             Err(error) => Ok(file_error(
@@ -556,24 +561,17 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     if let Some(reference) = query["branch"].as_str().filter(|value| !value.is_empty())
         && error.message.starts_with("No commit found")
     {
-        let mut data = json!({
-            "owner": owner,
-            "repo": repo,
-            "path": query["path"],
-            "error": format!("Branch, tag, or SHA not found for {owner}/{repo}: \"{reference}\""),
-            "hints": [format!(
+        let mut row = provider_row(
+            &error,
+            format!("Branch, tag, or SHA not found for {owner}/{repo}: \"{reference}\""),
+            vec![format!(
                 "Verify the ref \"{reference}\" exists (branch, tag, or full commit SHA), or omit branch to use the default branch."
             )],
-        });
-        apply_provider_error_metadata(&mut data, &error);
-        return DomainResult {
-            diagnostics: Default::default(),
-            data,
-            status: Some("error"),
-            source_digest: None,
-            cache: false,
-            failure: Some(FailureKind::NotFound),
-        };
+            None,
+            FailureKind::NotFound,
+        );
+        attach_file_identity(&mut row.data, owner, repo, query);
+        return row;
     }
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".into(),
@@ -593,45 +591,52 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         }
         _ => error.message.to_string(),
     };
-    let mut data = json!({"owner":owner,"repo":repo,"path":query["path"],"error":message});
-    if error.kind == ProviderErrorKind::Authentication {
-        data["hints"] = json!([GITHUB_AUTH_RECOVERY_HINT]);
-    }
     let requested = query["path"].as_str().unwrap_or_default();
-    if error.message.as_ref() == BINARY_FILE_MESSAGE {
-        data["hints"] = json!([
-            "Binary content cannot be returned as text; retrying will not help. Use ghCloneRepo for a local copy, or read a text file instead."
-        ]);
+    let (hints, next): (Vec<String>, Option<Value>) = if error.message.as_ref()
+        == BINARY_FILE_MESSAGE
+    {
+        (
+            vec!["Binary content cannot be returned as text; retrying will not help. Use ghCloneRepo for a local copy, or read a text file instead.".into()],
+            None,
+        )
     } else if error.kind == ProviderErrorKind::Validation
         && error.status.is_none()
         && error.reason == Some(ProviderErrorReason::PathIsDirectory)
     {
-        data["hints"] =
-            json!(["The path is a directory; list its entries with the viewTree continuation."]);
         let mut tree = tree_recovery(owner, repo, requested, query);
         // The provider confirmed this path is a directory: listing it is exact.
         tree["confidence"] = json!("exact");
-        data["next"] = json!({ "viewTree": tree });
+        (
+            vec![
+                "The path is a directory; list its entries with the viewTree continuation.".into(),
+            ],
+            Some(json!({ "viewTree": tree })),
+        )
     } else if error.kind == ProviderErrorKind::NotFound {
-        data["hints"] = json!([
-            "Check the path's exact case (no leading slash) and the branch; list the parent directory with next.viewTree."
-        ]);
         let parent = std::path::Path::new(requested)
             .parent()
             .map(|path| path.to_string_lossy().into_owned())
             .filter(|path| !path.is_empty())
             .unwrap_or_else(|| ".".into());
-        data["next"] = json!({ "viewTree": tree_recovery(owner, repo, &parent, query) });
-    }
-    apply_provider_error_metadata(&mut data, &error);
-    DomainResult {
-        diagnostics: Default::default(),
-        data,
-        status: Some("error"),
-        source_digest: None,
-        cache: false,
-        failure: Some(failure_kind(error.kind)),
-    }
+        (
+            vec!["Check the path's exact case (no leading slash) and the branch; list the parent directory with next.viewTree.".into()],
+            Some(json!({ "viewTree": tree_recovery(owner, repo, &parent, query) })),
+        )
+    } else if error.kind == ProviderErrorKind::Authentication {
+        (vec![GITHUB_AUTH_RECOVERY_HINT.into()], None)
+    } else {
+        (Vec::new(), None)
+    };
+    let mut row = provider_row(&error, message, hints, next, failure_kind(error.kind));
+    attach_file_identity(&mut row.data, owner, repo, query);
+    row
+}
+
+/// ghGetFileContent error rows name the file they could not read.
+fn attach_file_identity(data: &mut Value, owner: &str, repo: &str, query: &Value) {
+    data["owner"] = json!(owner);
+    data["repo"] = json!(repo);
+    data["path"] = query["path"].clone();
 }
 
 const BINARY_FILE_MESSAGE: &str = "binary files are not supported";
@@ -641,7 +646,7 @@ const BINARY_FILE_MESSAGE: &str = "binary files are not supported";
 /// comments) are a subset of the pull-request ones, so they carry over.
 fn attach_pull_request_recovery(data: &mut Value, query: &Value) {
     let mut next = serde_json::Map::new();
-    for field in ["owner", "repo", "number", "goal", "reasoning", "content"] {
+    for field in ["owner", "repo", "number", "content"] {
         if let Some(value) = query.get(field).filter(|value| !value.is_null()) {
             next.insert(field.into(), value.clone());
         }
@@ -675,29 +680,20 @@ fn tree_recovery(owner: &str, repo: &str, path: &str, query: &Value) -> Value {
     if let Some(branch) = query["branch"].as_str() {
         tree["query"]["branch"] = json!(branch);
     }
-    for field in ["goal", "reasoning"] {
-        if let Some(value) = query
-            .get(field)
-            .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
-        {
-            tree["query"][field] = value.clone();
-        }
-    }
+
     tree
 }
 
 pub(super) fn provider_error(error: ProviderError) -> DomainResult {
-    let failure = failure_kind(error.kind);
-    let mut data = json!({"error":error.message,"provider":error});
-    apply_provider_error_metadata(&mut data, &error);
-    DomainResult {
-        diagnostics: Default::default(),
-        data,
-        status: Some("error"),
-        source_digest: None,
-        failure: Some(failure),
-        cache: false,
-    }
+    let mut row = provider_row(
+        &error,
+        error.message.to_string(),
+        Vec::new(),
+        None,
+        failure_kind(error.kind),
+    );
+    row.data["provider"] = json!(error);
+    row
 }
 
 fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
@@ -714,8 +710,7 @@ fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
 /// `history_error`, the output contract requires `data.error` to be a plain
 /// string; this variant carries a search-specific message/hint set, so keep it
 /// separate.
-fn search_error(tool: &str, error: ProviderError) -> DomainResult {
-    let failure = failure_kind(error.kind);
+fn search_error(tool: ToolId, error: ProviderError) -> DomainResult {
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".to_owned(),
         ProviderErrorKind::Permission => error.message.to_string(),
@@ -739,33 +734,23 @@ fn search_error(tool: &str, error: ProviderError) -> DomainResult {
         ProviderErrorKind::Timeout => "Request timeout".to_owned(),
         _ => error.message.to_string(),
     };
-    let error_code =
-        serde_json::to_value(error.kind).unwrap_or(serde_json::Value::String("unknown".into()));
-    let mut data = json!({"error": message, "errorCode": error_code});
-    if error.kind == ProviderErrorKind::Authentication {
-        data["hints"] = json!([GITHUB_AUTH_RECOVERY_HINT]);
+    let hint = if error.kind == ProviderErrorKind::Authentication {
+        Some(GITHUB_AUTH_RECOVERY_HINT)
     } else if error.kind == ProviderErrorKind::RateLimited {
-        data["hints"] = json!([
-            "Wait for Retry-After or the rate-limit reset; authenticate for a higher quota."
-        ]);
+        Some("Wait for Retry-After or the rate-limit reset; authenticate for a higher quota.")
     } else if error.kind == ProviderErrorKind::Validation
         && error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
     {
-        data["hints"] = json!([if tool == "ghSearchRepo" {
+        Some(if tool == ToolId::GhSearchRepo {
             "Lower page, or narrow with keywords, stars, created, or updated to reach deeper results."
         } else {
             "Lower page, or narrow with path, extension, or filename to reach deeper results."
-        }]);
-    }
-    apply_provider_error_metadata(&mut data, &error);
-    DomainResult {
-        diagnostics: Default::default(),
-        data,
-        status: Some("error"),
-        source_digest: None,
-        cache: false,
-        failure: Some(failure),
-    }
+        })
+    } else {
+        None
+    };
+    let hints = hint.map(str::to_owned).into_iter().collect();
+    provider_row(&error, message, hints, None, failure_kind(error.kind))
 }
 
 /// `search` distinguishes the search-endpoint tool (ghSearchHistory) from the
@@ -774,7 +759,6 @@ fn search_error(tool: &str, error: ProviderError) -> DomainResult {
 /// commit SHA (GitHub 422 "No commit found for SHA: …") is a not-found
 /// condition, not a query-syntax problem.
 fn history_error(error: ProviderError, search: bool) -> DomainResult {
-    let failure = failure_kind(error.kind);
     let (message, suggestion) = match error.kind {
         ProviderErrorKind::Authentication => (
             "GitHub authentication required",
@@ -833,7 +817,14 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
     // top-level fields rather than nesting an object under `error`; a nested
     // object here trips `outputContractViolation` and masks the real provider
     // failure (e.g. a search 422 on a renamed repository).
-    let mut data = json!({"type":kind,"error":message});
+    let hints = if error.kind == ProviderErrorKind::Authentication {
+        vec![GITHUB_AUTH_RECOVERY_HINT.to_owned()]
+    } else {
+        Vec::new()
+    };
+    let mut row = provider_row(&error, message, hints, None, failure_kind(error.kind));
+    let data = &mut row.data;
+    data["type"] = json!(kind);
     if let Some(status) = error.status {
         data["status"] = json!(status);
     }
@@ -862,18 +853,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
             data["retryAfter"] = json!(value);
         }
     }
-    if error.kind == ProviderErrorKind::Authentication {
-        data["hints"] = json!([GITHUB_AUTH_RECOVERY_HINT]);
-    }
-    apply_provider_error_metadata(&mut data, &error);
-    DomainResult {
-        diagnostics: Default::default(),
-        data,
-        status: Some("error"),
-        source_digest: None,
-        cache: false,
-        failure: Some(failure),
-    }
+    row
 }
 
 #[cfg(test)]
@@ -893,7 +873,7 @@ mod tests {
             reason: None,
         };
         for result in [
-            search_error("ghSearchCode", error()),
+            search_error(ToolId::GhSearchCode, error()),
             history_error(error(), true),
             history_error(error(), false),
             file_error(error(), &json!({"owner":"a","repo":"b","path":"x"})),
@@ -920,7 +900,7 @@ mod tests {
             reason: None,
         };
         for result in [
-            search_error("ghSearchCode", error()),
+            search_error(ToolId::GhSearchCode, error()),
             history_error(error(), true),
             history_error(error(), false),
             file_error(error(), &json!({"owner":"a","repo":"b","path":"x"})),
@@ -953,27 +933,27 @@ mod tests {
             reason,
         };
         let result = search_error(
-            "ghSearchRepo",
+            ToolId::GhSearchRepo,
             error("\"abc\" is not a numeric value", None),
         );
         assert_eq!(
             result.data["error"],
             "Invalid search query or request parameters: \"abc\" is not a numeric value"
         );
-        let generic = search_error("ghSearchCode", error("Validation Failed", None));
+        let generic = search_error(ToolId::GhSearchCode, error("Validation Failed", None));
         assert_eq!(
             generic.data["error"],
             "Invalid search query or request parameters"
         );
         let window = Some(ProviderErrorReason::SearchWindowExceeded);
-        let repo = search_error("ghSearchRepo", error("window", window));
+        let repo = search_error(ToolId::GhSearchRepo, error("window", window));
         assert!(
             !repo.data["hints"][0]
                 .as_str()
                 .unwrap()
                 .contains("extension")
         );
-        let code = search_error("ghSearchCode", error("window", window));
+        let code = search_error(ToolId::GhSearchCode, error("window", window));
         assert!(
             code.data["hints"][0]
                 .as_str()
@@ -996,7 +976,7 @@ mod tests {
             reason: None,
         };
         for result in [
-            search_error("ghSearchCode", error()),
+            search_error(ToolId::GhSearchCode, error()),
             history_error(error(), true),
             history_error(error(), false),
             file_error(

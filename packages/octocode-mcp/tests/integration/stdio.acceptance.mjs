@@ -79,7 +79,19 @@ const check = async (name, fn) => {
     receipt.checks.push({ name, status: 'failed', error: error.message });
   }
 };
-const invoke = async (name, args) => {
+// Every tool query requires `goal` and `reasoning`; fixtures state only what
+// they exercise, so default both here. Explicit values always win.
+const TRACE = 'Exercise the built MCP surface in stdio acceptance.';
+const withTrace = queries =>
+  queries.map(query =>
+    query && typeof query === 'object' && !Array.isArray(query)
+      ? { goal: TRACE, reasoning: TRACE, ...query }
+      : query
+  );
+const invoke = async (name, rawArgs) => {
+  const args = Array.isArray(rawArgs?.queries)
+    ? { ...rawArgs, queries: withTrace(rawArgs.queries) }
+    : rawArgs;
   const startedAt = performance.now();
   const response = await client.callTool({ name, arguments: args });
   const durationMs = Number((performance.now() - startedAt).toFixed(2));
@@ -158,7 +170,7 @@ const executeCliTool = (name, queries) => {
   const startedAt = performance.now();
   const child = spawnSync(
     values.node,
-    [path.resolve(values.cli), name, JSON.stringify({ queries })],
+    [path.resolve(values.cli), name, JSON.stringify({ queries: withTrace(queries) })],
     { encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024, cwd: acceptanceCwd, env: acceptanceEnv }
   );
   const durationMs = Number((performance.now() - startedAt).toFixed(2));
@@ -478,6 +490,14 @@ try {
           assert.deepEqual(
             current.structuredContent.results,
             []
+          );
+          // structuredContent-only hosts must still see the page window.
+          assert.equal(
+            current.structuredContent.responseWindow,
+            current.content
+              .filter(block => block.type === 'text')
+              .map(block => block.text)
+              .join('')
           );
           text += current.content
             .filter(block => block.type === 'text')

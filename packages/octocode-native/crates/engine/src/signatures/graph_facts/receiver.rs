@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use tree_sitter::Node;
 
-use super::super::nodes::node_text;
+use super::super::nodes::{ancestors, node_text};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Lang {
@@ -139,8 +139,17 @@ impl<'t> ReceiverTypes<'t> {
         })
     }
 
-    /// Receiver type of the member call `call`, or `None`.
-    pub(super) fn receiver_type(&mut self, call: Node<'t>, content: &str) -> Option<String> {
+    /// Receiver type of the member call `call`, or `None`. `path` holds the
+    /// ancestors of `call` and `call` itself, root first, as the caller's
+    /// traversal already tracks them: the nodes between `call` and its
+    /// receiver are never functions or type owners, so `path` stands in for
+    /// the receiver's ancestors without a `Node::parent()` climb.
+    pub(super) fn receiver_type(
+        &mut self,
+        call: Node<'t>,
+        path: &[Node<'t>],
+        content: &str,
+    ) -> Option<String> {
         let lang = self.lang;
         let function = if lang == Lang::Java {
             (call.kind() == "method_invocation").then_some(call)?
@@ -162,21 +171,19 @@ impl<'t> ReceiverTypes<'t> {
             if matches!(name, "self" | "this") {
                 return None;
             }
-            return match self.local(receiver, name, content) {
+            return match self.local(receiver, path, name, content) {
                 Some(ty) => ty,
-                None if lang.has_implicit_this() => {
-                    self.enclosing_field(receiver, name, content, true)
-                }
+                None if lang.has_implicit_this() => self.enclosing_field(path, name, content, true),
                 None => None,
             };
         }
         let (object, member) = lang.member_parts(receiver)?;
         let member = node_text(member, content)?;
         if lang.is_self(object, content) {
-            return self.enclosing_field(receiver, member, content, false);
+            return self.enclosing_field(path, member, content, false);
         }
         if lang == Lang::Go && object.kind() == "identifier" {
-            let owner = self.local(object, node_text(object, content)?, content)??;
+            let owner = self.local(object, path, node_text(object, content)?, content)??;
             let declaration = self.unique_type(&owner, content)?;
             return self.fields_of(declaration, content).get(member).cloned()?;
         }
@@ -184,11 +191,17 @@ impl<'t> ReceiverTypes<'t> {
     }
 
     /// Type of the local `name` visible at `at`: `Some(None)` when it is
-    /// bound but its type is unknown, `None` when it is not bound.
-    fn local(&mut self, at: Node<'t>, name: &str, content: &str) -> Option<Option<String>> {
+    /// bound but its type is unknown, `None` when it is not bound. `path`
+    /// holds the enclosing nodes of `at`, root first.
+    fn local(
+        &mut self,
+        at: Node<'t>,
+        path: &[Node<'t>],
+        name: &str,
+        content: &str,
+    ) -> Option<Option<String>> {
         let position = at.start_byte();
-        let mut current = at.parent();
-        while let Some(node) = current {
+        for &node in path.iter().rev() {
             if self.lang.is_function(node.kind()) {
                 let found = self
                     .bindings_of(node, content)
@@ -204,7 +217,6 @@ impl<'t> ReceiverTypes<'t> {
                     return None;
                 }
             }
-            current = node.parent();
         }
         None
     }
@@ -285,7 +297,7 @@ impl<'t> ReceiverTypes<'t> {
             }
             "let_condition" => {
                 let Some(pattern) = pattern else { return };
-                let until = ancestor(node, &["if_expression", "while_expression"])
+                let until = ancestor(self.root, node, &["if_expression", "while_expression"])
                     .unwrap_or(node)
                     .end_byte();
                 bind_pattern(pattern, None, node.end_byte(), until, content, out);
@@ -302,7 +314,7 @@ impl<'t> ReceiverTypes<'t> {
         out: &mut Vec<Binding>,
     ) {
         // Python locals live until the end of their function.
-        let function_end = ancestor(node, &["function_definition"])
+        let function_end = ancestor(self.root, node, &["function_definition"])
             .unwrap_or(function)
             .end_byte();
         match node.kind() {
@@ -434,7 +446,7 @@ impl<'t> ReceiverTypes<'t> {
                     node.child_by_field_name("value"),
                 );
                 let until = if node.kind() == "resource" {
-                    ancestor(node, &["try_with_resources_statement"]).unwrap_or(node)
+                    ancestor(self.root, node, &["try_with_resources_statement"]).unwrap_or(node)
                 } else {
                     node
                 };
@@ -493,7 +505,7 @@ impl<'t> ReceiverTypes<'t> {
                 ) else {
                     return;
                 };
-                let until = go_scope_end(node);
+                let until = go_scope_end(self.root, node);
                 let lefts = named_children(left);
                 let rights = named_children(right);
                 for (index, name) in lefts.iter().enumerate() {
@@ -508,7 +520,7 @@ impl<'t> ReceiverTypes<'t> {
                 }
             }
             "var_spec" => {
-                let until = go_scope_end(node);
+                let until = go_scope_end(self.root, node);
                 let declared = node
                     .child_by_field_name("type")
                     .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Go));
@@ -615,7 +627,7 @@ impl<'t> ReceiverTypes<'t> {
             "declaration_pattern" | "declaration_expression" => {
                 if let Some(name) = node.child_by_field_name("name") {
                     let ty = declared(node.child_by_field_name("type"));
-                    let until = ancestor(node, &[function.kind()]).unwrap_or(function);
+                    let until = ancestor(self.root, node, &[function.kind()]).unwrap_or(function);
                     bind_pattern(name, ty, node.end_byte(), until.end_byte(), content, out);
                 }
             }
@@ -659,9 +671,13 @@ impl<'t> ReceiverTypes<'t> {
                 else {
                     return;
                 };
-                let until = ancestor(node, &["function_definition", "lambda_expression"])
-                    .unwrap_or(node)
-                    .end_byte();
+                let until = ancestor(
+                    self.root,
+                    node,
+                    &["function_definition", "lambda_expression"],
+                )
+                .unwrap_or(node)
+                .end_byte();
                 let ty = declared(node.child_by_field_name("type"));
                 push(out, name, ty, node.end_byte(), until, content);
             }
@@ -713,7 +729,7 @@ impl<'t> ReceiverTypes<'t> {
         if ty != "Self" {
             return Some(ty);
         }
-        let implementation = ancestor(at, &["impl_item"])?;
+        let implementation = ancestor(self.root, at, &["impl_item"])?;
         clean_type_text(
             node_text(implementation.child_by_field_name("type")?, content)?,
             Lang::Rust,
@@ -765,16 +781,18 @@ impl<'t> ReceiverTypes<'t> {
 
     /// The type of member `name` on the class/struct enclosing `at`. A bare
     /// name (`unqualified`) also searches outer classes.
+    /// Field `name` of the type that encloses `path` (root first, as in
+    /// [`Self::receiver_type`]).
     fn enclosing_field(
         &mut self,
-        at: Node<'t>,
+        path: &[Node<'t>],
         name: &str,
         content: &str,
         unqualified: bool,
     ) -> Option<String> {
         let owners: &[&str] = match self.lang {
             Lang::Rust => {
-                let implementation = ancestor(at, &["impl_item"])?;
+                let implementation = path[nearest(path, &["impl_item"])?];
                 let ty = clean_type_text(
                     node_text(implementation.child_by_field_name("type")?, content)?,
                     Lang::Rust,
@@ -799,10 +817,13 @@ impl<'t> ReceiverTypes<'t> {
             ],
             Lang::Cpp => &["class_specifier", "struct_specifier"],
         };
-        let mut current = ancestor(at, owners);
+        // Index in `path` of the current owner; `None` once the owner came
+        // from elsewhere in the file (an out-of-line C++ member's class).
+        let mut index = nearest(path, owners);
+        let mut current = index.map(|i| path[i]);
         if current.is_none() && self.lang == Lang::Cpp {
             // Out-of-line member `void Svc::run() { .. }`.
-            let function = ancestor(at, &["function_definition"])?;
+            let function = path[nearest(path, &["function_definition"])?];
             let declarator = function.child_by_field_name("declarator")?;
             let qualified = declarator.child_by_field_name("declarator")?;
             let owner = node_text(qualified.child_by_field_name("scope")?, content)?;
@@ -815,7 +836,13 @@ impl<'t> ReceiverTypes<'t> {
             if !unqualified {
                 return None;
             }
-            current = ancestor(owner, owners);
+            current = match index {
+                Some(i) => {
+                    index = nearest(&path[..i], owners);
+                    index.map(|j| path[j])
+                }
+                None => ancestor(self.root, owner, owners),
+            };
         }
         None
     }
@@ -1057,7 +1084,10 @@ impl<'t> ReceiverTypes<'t> {
                     {
                         let ty = python_constructor(right, content).or_else(|| {
                             (right.kind() == "identifier")
-                                .then(|| self.local(right, node_text(right, content)?, content))
+                                .then(|| {
+                                    let path = ancestors(self.root, right);
+                                    self.local(right, &path, node_text(right, content)?, content)
+                                })
                                 .flatten()
                                 .flatten()
                         });
@@ -1130,15 +1160,23 @@ fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
     node.named_children(&mut cursor).collect()
 }
 
-fn ancestor<'t>(node: Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
-    let mut current = node.parent();
-    while let Some(candidate) = current {
-        if kinds.contains(&candidate.kind()) {
-            return Some(candidate);
+/// Index of the last node in `path` whose kind is in `kinds`.
+fn nearest(path: &[Node<'_>], kinds: &[&str]) -> Option<usize> {
+    path.iter().rposition(|node| kinds.contains(&node.kind()))
+}
+
+/// The nearest ancestor of `node` whose kind is in `kinds`, found in one
+/// root-down descent (the last match on the way down is the nearest).
+fn ancestor<'t>(root: Node<'t>, node: Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
+    let mut nearest = None;
+    let mut current = root;
+    while current.id() != node.id() {
+        if kinds.contains(&current.kind()) {
+            nearest = Some(current);
         }
-        current = candidate.parent();
+        current = current.child_with_descendant(node)?;
     }
-    None
+    nearest
 }
 
 fn last_segment(ty: &str) -> &str {
@@ -1150,12 +1188,17 @@ fn starts_uppercase(name: &str) -> bool {
 }
 
 /// The end of the block that holds a Go declaration statement.
-fn go_scope_end(node: Node<'_>) -> usize {
-    let mut current = node.parent();
-    while let Some(parent) = current {
+fn go_scope_end<'t>(root: Node<'t>, node: Node<'t>) -> usize {
+    let chain = ancestors(root, node);
+    for (index, parent) in chain.iter().enumerate().rev() {
         match parent.kind() {
-            "var_declaration" | "var_spec_list" => current = parent.parent(),
-            "statement_list" => return parent.parent().unwrap_or(parent).end_byte(),
+            "var_declaration" | "var_spec_list" => {}
+            "statement_list" => {
+                return index
+                    .checked_sub(1)
+                    .map_or(*parent, |outer| chain[outer])
+                    .end_byte();
+            }
             _ => return parent.end_byte(),
         }
     }

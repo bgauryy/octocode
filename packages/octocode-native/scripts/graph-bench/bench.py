@@ -139,7 +139,8 @@ def bench(repo):
     files = ing["scan"]["filesScanned"]
     rec.update(files=files, truncated=ing["scan"]["truncated"], ingestMs=round(ms), buildMs=ing["buildMs"],
                filesPerSec=round(files / (ms / 1000)), bytes=ing["bytes"], nodes=ing["counts"]["nodes"],
-               edges=ing["counts"]["edgesByKind"], callsLinked=f'{ing["calls"]["linked"]}/{ing["calls"]["sites"]}')
+               edges=ing["counts"]["edgesByKind"], callsLinked=f'{ing["calls"]["linked"]}/{ing["calls"]["sites"]}',
+               callInternalRecall=ing.get("callInternalRecall"))
     gid = ing["id"]
     if files <= 5000:
         again, _, _ = run(["graph", "ingest", root, "--workspace", WS, "--keep", "2"])
@@ -167,6 +168,7 @@ def bench(repo):
     times["issues"] = round(ms)
     rec["queryMs"] = times
     rec["findings"] = issues.get("summary", {}).get("byDetector")
+    rec["hiddenBelowTier"] = issues.get("summary", {}).get("hiddenBelowTier")
     rec["health"] = issues.get("summary", {}).get("health")
     rec["notes"] = [n["skipped"] for n in issues.get("summary", {}).get("notes", [])]
     graph_bin = os.path.join(WS, ".octocode", "graph", gid, "graph.bin")

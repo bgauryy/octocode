@@ -32,7 +32,16 @@ pub(crate) fn extract_graph_facts_with_metadata_inner(
     file_path: &str,
 ) -> Option<GraphFactsExtraction> {
     js_oxc::extract_graph_facts_with_metadata(content, file_path)
-        .or_else(|| graph_facts::extract_graph_facts_with_metadata(content, file_path))
+        .or_else(|| tree_sitter_graph_facts(content, file_path))
+}
+
+/// Tree-sitter graph facts with the grammar chosen from the path, except that
+/// Flow-typed JavaScript is read with the TSX grammar: the JS grammar recovers
+/// Flow annotations as garbage declarations (`if` "functions").
+fn tree_sitter_graph_facts(content: &str, file_path: &str) -> Option<GraphFactsExtraction> {
+    let ext = get_extension_internal(file_path, true, "txt");
+    let grammar = crate::text::file_extension::grammar_extension(content, &ext);
+    graph_facts::extract_graph_facts_with_metadata_with_extension(content, file_path, grammar)
 }
 
 /// Declarations-only facts for outlines: the light oxc path for JS/TS; other
@@ -66,8 +75,10 @@ pub(crate) fn leading_doc_line(lines: &[&str], start: usize, ext: &str) -> Optio
 }
 
 pub(crate) fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> {
-    js_oxc::extract_declarations(content, file_path)
-        .or_else(|| extract_graph_facts_inner(content, file_path))
+    js_oxc::extract_declarations(content, file_path).or_else(|| {
+        tree_sitter_graph_facts(content, file_path)
+            .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+    })
 }
 
 pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
@@ -112,9 +123,10 @@ pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usiz
     // guard on the sibling `extract_signatures_inner`.
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let ext = get_extension_internal(file_path, true, "txt");
+        let ext = crate::text::file_extension::grammar_extension(content, &ext);
         // Tree-sitter is the only signature path. Languages outside the
         // canonical first-class registry produce no boundaries.
-        let Some(entry) = languages::find_entry(&ext) else {
+        let Some(entry) = languages::find_entry(ext) else {
             return Vec::new();
         };
         let cfg = LangExtractConfig {
@@ -279,7 +291,10 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
     }
     let skeleton = std::panic::catch_unwind(|| {
         let ext = get_extension_internal(file_path, true, "txt");
-        extract_by_ext(content, &ext)
+        extract_by_ext(
+            content,
+            crate::text::file_extension::grammar_extension(content, &ext),
+        )
     })
     .unwrap_or(None)?;
 
@@ -335,6 +350,122 @@ mod tests {
 
     fn extract(content: &str, path: &str) -> Option<String> {
         extract_signatures_inner(content, path)
+    }
+
+    /// Flow-typed JS in the shape of React's `ReactHooks.js`: `import type`,
+    /// Flow function types (`S => S`) and annotated hooks.
+    const FLOW_HOOKS: &str = r#"/**
+ * @flow
+ */
+
+import type {Dispatcher} from 'react-reconciler/src/ReactInternalTypes';
+import ReactSharedInternals from 'shared/ReactSharedInternals';
+
+type BasicStateAction<S> = (S => S) | S;
+type Dispatch<A> = A => void;
+
+function resolveDispatcher() {
+  const dispatcher = ReactSharedInternals.H;
+  if (__DEV__) {
+    if (dispatcher === null) {
+      console.error('Invalid hook call.');
+    }
+  }
+  return ((dispatcher: any): Dispatcher);
+}
+
+export function useState<S>(
+  initialState: (() => S) | S,
+): [S, Dispatch<BasicStateAction<S>>] {
+  const dispatcher = resolveDispatcher();
+  return dispatcher.useState(initialState);
+}
+
+export function useReducer<S, I, A>(
+  reducer: (S, A) => S,
+  initialArg: I,
+  init?: I => S,
+): [S, Dispatch<A>] {
+  const dispatcher = resolveDispatcher();
+  if (__DEV__) {
+    console.log('reducer');
+  }
+  return dispatcher.useReducer(reducer, initialArg, init);
+}
+
+export function useRef<T>(initialValue: T): {current: T} {
+  const dispatcher = resolveDispatcher();
+  if (__DEV__) {
+    console.log('ref');
+  }
+  return dispatcher.useRef(initialValue);
+}
+
+export function useEffect(
+  create: () => (() => void) | void,
+  deps: Array<mixed> | void | null,
+): void {
+  if (__DEV__) {
+    if (create == null) {
+      console.warn('React Hook useEffect requires an effect callback.');
+    }
+  }
+  const dispatcher = resolveDispatcher();
+  return dispatcher.useEffect(create, deps);
+}
+"#;
+
+    fn declaration_names(raw: &str) -> Vec<String> {
+        let facts: serde_json::Value = serde_json::from_str(raw).expect("facts JSON");
+        facts["declarations"]
+            .as_array()
+            .expect("declarations")
+            .iter()
+            .filter_map(|d| d["name"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    #[test]
+    fn flow_js_declarations_list_the_exported_hooks_not_keywords() {
+        let raw = extract_declarations_inner(FLOW_HOOKS, "ReactHooks.js").expect("declarations");
+        let names = declaration_names(&raw);
+        for hook in [
+            "useState",
+            "useReducer",
+            "useRef",
+            "useEffect",
+            "resolveDispatcher",
+        ] {
+            assert!(names.iter().any(|n| n == hook), "missing {hook}: {names:?}");
+        }
+        assert!(!names.iter().any(|n| n == "if"), "{names:?}");
+    }
+
+    #[test]
+    fn js_grammar_recovery_never_names_a_declaration_after_a_keyword() {
+        // The plain JS grammar cannot read Flow; whatever it recovers, a
+        // statement keyword must never surface as a declaration name.
+        let raw = extract_graph_facts_with_extension_inner(FLOW_HOOKS, "ReactHooks.js", "js")
+            .expect("facts");
+        let names = declaration_names(&raw);
+        assert!(
+            !names
+                .iter()
+                .any(|n| STATEMENT_KEYWORD_PROBE.contains(&n.as_str())),
+            "{names:?}"
+        );
+    }
+    const STATEMENT_KEYWORD_PROBE: &[&str] = &["if", "for", "while", "switch", "return"];
+
+    #[test]
+    fn flow_js_symbols_view_is_an_outline_not_a_body_dump() {
+        let outline = extract(FLOW_HOOKS, "ReactHooks.js").expect("outline");
+        assert!(outline.contains("export function useState"), "{outline}");
+        assert!(
+            !outline.contains("dispatcher.useReducer"),
+            "bodies must be elided: {outline}"
+        );
+        assert!(outline.len() * 2 < FLOW_HOOKS.len(), "{outline}");
     }
 
     #[test]

@@ -1085,7 +1085,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
         .env("OCTOCODE_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
-            r#"{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true}"#,
+            r#"{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"goal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}"#,
         ]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))
         .await

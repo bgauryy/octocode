@@ -120,6 +120,60 @@ describe('runCLI native boundary', () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it('keeps root help exit 0 when the instructions hit contract drift', async () => {
+    mocks.printInstructions.mockReturnValueOnce(5);
+    const { runCLI } = await import('../../src/cli/index.js');
+    await runCLI(['--help']);
+    expect(mocks.printInstructions).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('normalizes boolean flags given as --flag=value', async () => {
+    const { isTrueFlag } = await import('../../src/cli/index.js');
+    expect(isTrueFlag(true)).toBe(true);
+    expect(isTrueFlag('true')).toBe(true);
+    expect(isTrueFlag('TRUE')).toBe(true);
+    expect(isTrueFlag('false')).toBe(false);
+    expect(isTrueFlag(undefined)).toBe(false);
+  });
+
+  it('does not open the interactive picker for install --json=true', async () => {
+    const interactive = vi.fn(async () => 0);
+    vi.doMock('../../src/cli/interactive-install.js', () => ({
+      runInteractiveInstall: interactive,
+    }));
+    const inTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const outTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, 'isTTY', {
+      value: true,
+      configurable: true,
+    });
+    try {
+      const { runCLI } = await import('../../src/cli/index.js');
+      await runCLI(['install', '--json=true']);
+      expect(interactive).not.toHaveBeenCalled();
+      expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', [
+        'install',
+        '--json=true',
+      ]);
+      await runCLI(['install']);
+      expect(interactive).toHaveBeenCalledTimes(1);
+    } finally {
+      for (const [stream, d] of [
+        [process.stdin, inTty],
+        [process.stdout, outTty],
+      ] as const) {
+        if (d) Object.defineProperty(stream, 'isTTY', d);
+        else delete (stream as { isTTY?: boolean }).isTTY;
+      }
+      vi.doUnmock('../../src/cli/interactive-install.js');
+    }
+  });
+
   it('prints launcher and native versions without delegating', async () => {
     vi.doMock('../../src/cli/version.js', () => ({
       versionLine: () => 'octocode 1.2.3 (native 4.5.6)',

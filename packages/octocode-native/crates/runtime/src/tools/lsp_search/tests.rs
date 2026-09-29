@@ -1245,7 +1245,7 @@ async fn walk_from(
     root: serde_json::Value,
     depth: u32,
     paths: &crate::policy::path::PathPolicy,
-    cancel: &dyn crate::tools::local_fetch::CancellationCheck,
+    cancel: &dyn crate::tools::cancel::CancellationCheck,
 ) -> Result<HierarchyWalk, LspFailure> {
     walk_hierarchy(
         graph,
@@ -1266,7 +1266,7 @@ async fn walk(graph: &FakeGraph, depth: u32) -> HierarchyWalk {
         node("root"),
         depth,
         &paths,
-        &crate::tools::local_fetch::NeverCancel,
+        &crate::tools::cancel::NeverCancel,
     )
     .await
     .expect("walk")
@@ -1450,7 +1450,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
         node_at("root", Some(&uri)),
         2,
         &paths,
-        &crate::tools::local_fetch::NeverCancel,
+        &crate::tools::cancel::NeverCancel,
     )
     .await
     .expect("walk");
@@ -1554,7 +1554,7 @@ async fn hierarchy_walk_collects_per_node_failures_and_skips_out_of_policy_nodes
 #[tokio::test(flavor = "current_thread")]
 async fn hierarchy_walk_checks_cancellation_between_requests() {
     struct Cancelled;
-    impl crate::tools::local_fetch::CancellationCheck for Cancelled {
+    impl crate::tools::cancel::CancellationCheck for Cancelled {
         fn check(&self) -> Result<(), String> {
             Err("cancelled".into())
         }
@@ -1572,7 +1572,7 @@ async fn hierarchy_walk_checks_cancellation_between_requests() {
 #[tokio::test(flavor = "current_thread")]
 async fn long_awaits_observe_cancellation() {
     struct CancelAfter(std::sync::atomic::AtomicUsize);
-    impl crate::tools::local_fetch::CancellationCheck for CancelAfter {
+    impl crate::tools::cancel::CancellationCheck for CancelAfter {
         fn check(&self) -> Result<(), String> {
             if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 2 {
                 Err("cancelled".into())
@@ -1587,7 +1587,7 @@ async fn long_awaits_observe_cancellation() {
     assert_eq!(result.expect_err("cancelled").code, "lsp.cancelled");
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert_eq!(
-        cancellable(&crate::tools::local_fetch::NeverCancel, async { 7 })
+        cancellable(&crate::tools::cancel::NeverCancel, async { 7 })
             .await
             .expect("completes"),
         7
@@ -1772,7 +1772,7 @@ async fn call_hierarchy_keeps_the_truncation_of_both_directions() {
             expansion,
             2,
             &paths,
-            &crate::tools::local_fetch::NeverCancel,
+            &crate::tools::cancel::NeverCancel,
         )
         .await
         .expect("walk");

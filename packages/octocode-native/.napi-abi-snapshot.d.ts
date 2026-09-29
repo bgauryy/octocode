@@ -277,9 +277,9 @@ export interface FileSystemQueryOptions {
   readable?: boolean
   writable?: boolean
   /**
-   * Directory names pruned from recursive traversal. Omission uses the
-   * canonical generated-directory list; an explicit empty list includes all
-   * directories.
+   * Directory names pruned from recursive traversal. The engine has no
+   * default list: omission prunes nothing. The native runtime's prune
+   * policy (`policy::prune`) supplies the names for every tool walk.
    */
   excludeDir?: Array<string>
   /**
@@ -876,6 +876,13 @@ export interface RipgrepSearchOptions {
    * multi-GB single-line files.
    */
   maxFileBytes?: number
+  /**
+   * Worker threads for the parallel directory walk. `None` (or `0`) keeps
+   * the ignore crate's default of one per available core; a caller running
+   * several walks at once passes its share of the cores. Ignored when
+   * `sort` is `traversal`, which always walks on one thread.
+   */
+  walkThreads?: number
 }
 
 export interface RipgrepStats {

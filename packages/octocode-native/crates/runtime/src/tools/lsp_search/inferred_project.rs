@@ -116,11 +116,10 @@ pub(super) fn annotate(
             row["next"]["textSearch"] = json!({
                 "tool": "localSearch",
                 "confidence": "medium",
+                "why": "Find textual uses the inferred TypeScript project cannot see.",
                 "query": {
                     "path": workspace_root,
-                    "searchText": word_pattern(name),
-                    "goal": query.goal(),
-                    "reasoning": "Find textual uses the inferred TypeScript project cannot see."
+                    "searchText": word_pattern(name)
                 }
             });
         }
@@ -220,7 +219,10 @@ mod tests {
         assert_eq!(next["tool"], "localSearch");
         assert_eq!(next["query"]["path"], root.as_str());
         assert_eq!(next["query"]["searchText"], "\\bgreet\\b");
-        crate::contracts::validate_query("localSearch", next["query"].clone())
+        // The runtime marks emitted continuations as follow-ups before output.
+        let mut replay = next["query"].clone();
+        replay["followUp"] = serde_json::json!(true);
+        crate::contracts::validate_query("localSearch", replay)
             .expect("fallback query is contract-valid");
 
         // With a tsconfig at the workspace root the server loads the project.

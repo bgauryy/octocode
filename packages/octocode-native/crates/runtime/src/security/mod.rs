@@ -1,4 +1,5 @@
 mod content;
+pub mod scan;
 mod walk;
 
 pub use content::{ContentSecurity, ValidationResult};

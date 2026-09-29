@@ -37,7 +37,13 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
   it('lists allowed discriminator values for an astSearch operation typo', async () => {
     const message = await sdkMessage('astSearch', {
       queries: [
-        { operation: 'matches', path: '.', pattern: 'x', reasoning: 'r' },
+        {
+          operation: 'matches',
+          path: '.',
+          pattern: 'x',
+          goal: 'g',
+          reasoning: 'r',
+        },
       ],
     });
     expect(message).toContain(
@@ -53,6 +59,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
       uri: 'a.ts',
       symbolName: 'x',
       lineHint: 1,
+      goal: 'test goal',
       reasoning: 'r',
     });
     expect(message).toMatch(
@@ -66,6 +73,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
     const message = await sdkMessage('localSearch', {
       path: '.',
       searchText: 'a',
+      goal: 'test goal',
       reasoning: 'r',
       serchText2: 1,
     });
@@ -78,6 +86,8 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
   it('names a missing required field plainly', async () => {
     const message = await sdkMessage('localSearch', {
       path: '.',
+      goal: 'test goal',
+      reasoning: 'r',
     });
     expect(message).toBe(
       'queries.0.searchText: Missing required field: searchText'
@@ -87,6 +97,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
   it('reports the missing field of the selected union branch', async () => {
     const message = await sdkMessage('astSearch', {
       operation: 'symbols',
+      goal: 'test goal',
       reasoning: 'r',
     });
     expect(message).toBe('queries.0.path: Missing required field: path');
@@ -100,11 +111,14 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
     const result = await schema['~standard'].validate({
       path: '.',
       searchText: 'a',
+      goal: 'test goal',
       reasoning: 'r',
     });
     expect(result.issues).toBeUndefined();
     expect(result.value).toMatchObject({
-      queries: [{ path: '.', searchText: 'a', reasoning: 'r' }],
+      queries: [
+        { path: '.', searchText: 'a', goal: 'test goal', reasoning: 'r' },
+      ],
     });
   });
 });
@@ -114,6 +128,7 @@ describe('discriminated unions', () => {
     const message = await sdkMessage('ghSearchHistory', {
       operation: 'comit',
       keywords: ['a'],
+      goal: 'test goal',
       reasoning: 'r',
     });
     expect(message).toBe(
@@ -129,6 +144,7 @@ describe('ghGetHistoryItem mixed batch (09-24 opaque failure regression)', () =>
     repo: 'vitest',
     number: 2008,
     charLength: 50,
+    goal: 'test goal',
     reasoning: 'ok',
     ...extra,
   });

@@ -37,10 +37,92 @@ pub fn get_extension_internal(file_path: &str, lowercase: bool, fallback: &str) 
     }
 }
 
+/// Bytes of a file's head searched for the `@flow` pragma.
+const FLOW_PRAGMA_WINDOW: usize = 4096;
+
+/// `@flow` as its own word (`@flow`, `@flow strict`), not the prefix of a
+/// package name or another tag such as `@flowjs/flow.js`.
+fn has_flow_pragma(head: &str) -> bool {
+    head.match_indices("@flow").any(|(start, tag)| {
+        head[start + tag.len()..]
+            .chars()
+            .next()
+            .is_none_or(|next| !(next.is_alphanumeric() || matches!(next, '_' | '-' | '/')))
+    })
+}
+
+/// True when a JavaScript-family source (`js`/`jsx`/`mjs`/`cjs`) carries Flow
+/// type syntax: an `@flow` pragma in its head, or a Flow-only statement
+/// (`import type`, `import typeof`, `export type`, `opaque type`) at the start
+/// of a line. The JS grammars reject that syntax, so such a file parses into
+/// garbage (keywords recovered as declarations). Flow's annotation syntax is
+/// close to TypeScript's, so callers parse it with a TSX grammar instead.
+pub fn is_flow_source(content: &str, ext: &str) -> bool {
+    if !matches!(ext, "js" | "jsx" | "mjs" | "cjs") {
+        return false;
+    }
+    let mut head_end = content.len().min(FLOW_PRAGMA_WINDOW);
+    while !content.is_char_boundary(head_end) {
+        head_end -= 1;
+    }
+    if has_flow_pragma(&content[..head_end]) {
+        return true;
+    }
+    content.lines().any(|line| {
+        let line = line.trim_start();
+        [
+            "import type ",
+            "import typeof ",
+            "export type ",
+            "opaque type ",
+        ]
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+    })
+}
+
+/// Grammar extension to parse `ext` with: `tsx` for Flow-typed JavaScript
+/// (see [`is_flow_source`]), otherwise `ext` unchanged.
+pub fn grammar_extension<'a>(content: &str, ext: &'a str) -> &'a str {
+    if is_flow_source(content, ext) {
+        "tsx"
+    } else {
+        ext
+    }
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flow_pragma_must_be_a_word_not_a_package_prefix() {
+        assert!(is_flow_source("// @flow strict\nconst a = 1;\n", "js"));
+        assert!(is_flow_source("/* @flow */ const a = 1;\n", "cjs"));
+        assert!(!is_flow_source(
+            "// see @flowjs/flow.js\nconst a = require('x');\n",
+            "cjs"
+        ));
+        assert!(!is_flow_source(
+            "// @flow-typed stubs\nconst a = 1;\n",
+            "js"
+        ));
+    }
+
+    #[test]
+    fn flow_sources_are_detected_by_pragma_or_flow_only_statements() {
+        assert!(is_flow_source("/**\n * @flow\n */\nconst a = 1;\n", "js"));
+        assert!(is_flow_source("import type {A} from 'a';\n", "jsx"));
+        assert!(is_flow_source(
+            "const a = 1;\nexport type B = number;\n",
+            "mjs"
+        ));
+        assert!(!is_flow_source("const a = 1;\n", "js"));
+        assert!(!is_flow_source("// @flow\n", "ts"), "TS is never Flow");
+        assert_eq!(grammar_extension("// @flow\n", "js"), "tsx");
+        assert_eq!(grammar_extension("const a = 1;\n", "js"), "js");
+    }
 
     #[test]
     fn extension_returned_when_path_has_dot() {

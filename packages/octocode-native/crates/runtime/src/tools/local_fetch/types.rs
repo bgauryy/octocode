@@ -387,15 +387,6 @@ impl Serialize for LocalFetchResult {
     }
 }
 
-pub trait CancellationCheck: Sync {
-    fn check(&self) -> Result<(), String>;
-}
-pub struct NeverCancel;
-impl CancellationCheck for NeverCancel {
-    fn check(&self) -> Result<(), String> {
-        Ok(())
-    }
-}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatedRead {
     pub canonical: PathBuf,
@@ -410,17 +401,6 @@ pub struct PathFailure {
 }
 pub trait PathAccess {
     fn validate_read(&self, path: &Path) -> Result<ValidatedRead, PathFailure>;
-}
-pub trait ContentScan {
-    fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)>;
-    /// Redact whole PEM/OpenSSH/PGP private-key blocks across the FULL file
-    /// before any read/search window is cut, closing the interior-window leak the
-    /// anchored full-block patterns cannot catch. The default applies to every
-    /// implementer (including test mocks); see
-    /// [`crate::security::redact_private_key_blocks`].
-    fn redact_key_blocks(&self, content: &str) -> (String, bool) {
-        crate::security::redact_private_key_blocks(content)
-    }
 }
 pub trait RegexMatch {
     fn matching_ranges(
@@ -491,23 +471,6 @@ impl PathAccess for crate::policy::path::PathPolicy {
                     resource_missing: missing,
                 }
             })
-    }
-}
-
-impl ContentScan for crate::security::ContentSecurity {
-    fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)> {
-        let result = self.sanitize_text(text, Some(path));
-        if result
-            .secrets_detected
-            .iter()
-            .any(|name| name == "content-size-exceeded")
-        {
-            return Err((
-                "contentSecurityLimit".into(),
-                "The selected content view exceeds the secret scanner size limit.".into(),
-            ));
-        }
-        Ok((result.content, Vec::new()))
     }
 }
 

@@ -25,48 +25,20 @@ pub fn compact_input(tool: &str, input: &mut Value) {
 
 type Memo = HashMap<(String, String), Value>;
 
-/// Fills a missing `goal` on every `next` continuation in each result row
-/// with the goal of the input row that produced it: a continuation serves
-/// the same goal, and `goal` is required, so an emitter that sets only
-/// `reasoning` would otherwise withhold its whole row as a contract violation.
-pub fn fill_continuation_goals(structured: &mut Value, input: &Value) {
-    let goals: Vec<Option<&str>> = match input.get("queries").and_then(Value::as_array) {
-        Some(rows) => rows
-            .iter()
-            .map(|row| row.get("goal").and_then(Value::as_str))
-            .collect(),
-        None => vec![input.get("goal").and_then(Value::as_str)],
-    };
-    let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
-        return;
-    };
-    for (position, row) in rows.iter_mut().enumerate() {
-        let index = row
-            .get("index")
-            .and_then(Value::as_u64)
-            .and_then(|index| usize::try_from(index).ok())
-            .unwrap_or(position);
-        let Some(goal) = goals
-            .get(index)
-            .or_else(|| goals.first())
-            .copied()
-            .flatten()
-        else {
-            continue;
-        };
-        goal_walk(row, goal);
-    }
-}
-
-fn goal_walk(value: &mut Value, goal: &str) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(|item| goal_walk(item, goal)),
+/// Marks every runtime-emitted `next` continuation as a follow-up: it serves
+/// the decision of the query that produced it, so it drops `goal` and
+/// `reasoning` and carries `followUp: true`. The brief is then neither
+/// repeated on every page nor retyped on replay. Clasify continuations keep
+/// their briefs: clasify forwards them to its provider.
+pub fn mark_follow_ups(structured: &mut Value) {
+    match structured {
+        Value::Array(items) => items.iter_mut().for_each(mark_follow_ups),
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 if key == "next" {
-                    goal_next(child, goal);
+                    mark_next(child);
                 } else {
-                    goal_walk(child, goal);
+                    mark_follow_ups(child);
                 }
             }
         }
@@ -74,23 +46,26 @@ fn goal_walk(value: &mut Value, goal: &str) {
     }
 }
 
-fn goal_next(next: &mut Value, goal: &str) {
+fn mark_next(next: &mut Value) {
     if continuation_target(next).is_some() {
-        fill_goal(next, goal);
+        mark_continuation(next);
         return;
     }
     if let Some(map) = next.as_object_mut() {
         for action in map.values_mut() {
             if continuation_target(action).is_some() {
-                fill_goal(action, goal);
+                mark_continuation(action);
             } else {
-                goal_walk(action, goal);
+                mark_follow_ups(action);
             }
         }
     }
 }
 
-fn fill_goal(continuation: &mut Value, goal: &str) {
+fn mark_continuation(continuation: &mut Value) {
+    if continuation.get("tool").and_then(Value::as_str) == Some("clasify") {
+        return;
+    }
     let Some(query) = continuation.get_mut("query") else {
         return;
     };
@@ -99,13 +74,10 @@ fn fill_goal(continuation: &mut Value, goal: &str) {
         None => vec![query],
     };
     for row in rows {
-        if let Some(object) = row.as_object_mut()
-            && object
-                .get("goal")
-                .and_then(Value::as_str)
-                .is_none_or(|value| value.trim().is_empty())
-        {
-            object.insert("goal".to_owned(), Value::String(goal.to_owned()));
+        if let Some(object) = row.as_object_mut() {
+            object.remove("goal");
+            object.remove("reasoning");
+            object.insert("followUp".to_owned(), Value::Bool(true));
         }
     }
 }
@@ -230,7 +202,6 @@ fn compact_query(tool: &str, query: &mut Value, memo: &mut Memo) {
         *query = compact.clone();
         return;
     }
-    // Required goal and reasoning stay: a replay that drops them no longer validates.
     let mut compact: Map<String, Value> = object.clone();
     let Ok(full) = validate_query(tool, Value::Object(compact.clone())) else {
         return;
@@ -260,27 +231,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn fills_missing_continuation_goal_from_the_producing_row() {
-        let input = json!({"queries":[{"goal":"Find a."},{"goal":"Find b."}]});
+    fn continuations_inherit_the_brief_as_a_follow_up() {
         let mut out = json!({"results":[
-            {"index":1,"data":{"next":{
-                "viewRepo":{"tool":"ghStructure","query":{"owner":"o","repo":"r","reasoning":"r"}},
-                "kept":{"tool":"localFetch","query":{"goal":"Own goal.","reasoning":"r"}}
+            {"index":0,"data":{"next":{
+                "viewRepo":{"tool":"ghStructure","query":{"owner":"o","repo":"r","goal":"Find a.","reasoning":"r"}},
+                "clasify":{"tool":"clasify","query":{"goal":"Locate.","reasoning":"Unread.","resources":[],"questions":[]}}
             }}},
-            {"index":0,"data":{"items":[{"next":{"tool":"localFetch","query":{"queries":[{"reasoning":"r"}]}}}]}}
+            {"index":1,"data":{"items":[{"next":{"tool":"localFetch","query":{"queries":[{"path":"/a","reasoning":"r"}]}}}]}}
         ]});
-        fill_continuation_goals(&mut out, &input);
+        mark_follow_ups(&mut out);
+        let view = &out["results"][0]["data"]["next"]["viewRepo"]["query"];
+        assert_eq!(view, &json!({"owner":"o","repo":"r","followUp":true}));
+        let clasify = &out["results"][0]["data"]["next"]["clasify"]["query"];
+        assert_eq!(clasify["goal"], "Locate.", "clasify forwards its brief");
+        assert!(clasify.get("followUp").is_none());
         assert_eq!(
-            out["results"][0]["data"]["next"]["viewRepo"]["query"]["goal"],
-            "Find b."
-        );
-        assert_eq!(
-            out["results"][0]["data"]["next"]["kept"]["query"]["goal"],
-            "Own goal."
-        );
-        assert_eq!(
-            out["results"][1]["data"]["items"][0]["next"]["query"]["queries"][0]["goal"],
-            "Find a."
+            out["results"][1]["data"]["items"][0]["next"]["query"]["queries"][0],
+            json!({"path":"/a","followUp":true})
         );
     }
 

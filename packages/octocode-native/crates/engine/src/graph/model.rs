@@ -55,7 +55,17 @@ pub struct GraphFactImport {
     pub resolution_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module_scope: Option<Vec<String>>,
+    /// Where the imported binding is used: the id of the innermost
+    /// declaration around each reference, or [`IMPORT_USE_MODULE`] for
+    /// module-level code (export clauses included). Absent when the producer
+    /// cannot tell (namespace imports, re-exports, trait or test scopes):
+    /// consumers must then treat the import as used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_in: Option<Vec<String>>,
 }
+
+/// [`GraphFactImport::used_in`] entry for a use outside every declaration.
+pub const IMPORT_USE_MODULE: &str = "module";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]

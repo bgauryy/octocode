@@ -3,7 +3,7 @@ use super::{
     JOURNAL_PREFIX, Journal, JournalFile, PreparedFile, RewriteError, cancelled,
     create_private_dir_all, io_error, sha256, transaction_id,
 };
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,

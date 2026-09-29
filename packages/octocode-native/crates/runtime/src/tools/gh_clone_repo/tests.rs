@@ -1,7 +1,7 @@
 use super::*;
 use crate::policy::path::PathPolicyConfig;
 use crate::providers::github::CredentialSource;
-use crate::tools::local_fetch::NeverCancel;
+use crate::tools::cancel::NeverCancel;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -219,6 +219,27 @@ fn query() -> GhCloneRepoQuery {
 
 fn parse_query(value: serde_json::Value) -> GhCloneRepoQuery {
     serde_json::from_value(value).expect("valid ghCloneRepo query")
+}
+
+#[test]
+fn missing_repository_names_the_repository_with_a_recovery_hint() {
+    let error = repository_not_found(&query());
+    assert_eq!(error.code, "clone.repositoryNotFound");
+    assert_eq!(
+        error.message,
+        "Repository not found: fixture-owner/fixture-repo"
+    );
+    assert_eq!(error.hints.len(), 1);
+    assert!(
+        error.hints[0].contains("fixture-owner/fixture-repo"),
+        "{error:?}"
+    );
+    // Errors without recovery serialize exactly as before.
+    let plain = CloneError::new("clone.failed", "failed");
+    assert_eq!(
+        serde_json::to_value(plain).expect("serialize"),
+        serde_json::json!({"code": "clone.failed", "message": "failed"})
+    );
 }
 
 #[test]

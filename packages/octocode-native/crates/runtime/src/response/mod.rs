@@ -258,6 +258,9 @@ impl ResponsePager {
                     *results = Value::Array(Vec::new());
                 }
                 structured.remove("shared");
+                // MCP clients that read only structuredContent (and CLI JSON,
+                // which has one channel) must still see this page's window.
+                structured.insert("responseWindow".into(), json!(page.text));
             }
             // pagination is a plain serializable struct
             #[allow(clippy::expect_used)]
@@ -482,6 +485,12 @@ impl FragmentArena {
             return;
         };
         let base = json_chars(&row);
+        // Every fragment repeats the skeleton (stats, pagination, ...). When
+        // the skeleton nearly fills the budget, one item per fragment would
+        // multiply the payload; let each fragment carry at least as much
+        // evidence as skeleton, trading a looser page bound for far fewer
+        // near-duplicate pages.
+        let budget = budget.max(base.saturating_mul(2));
         let item_chars: Vec<usize> = items.iter().map(json_chars).collect();
         let split = self.splits.len();
         self.splits.push(RowSplit {
@@ -993,6 +1002,45 @@ mod tests {
         );
     }
 
+    /// MCP hosts that surface only structuredContent must still receive the
+    /// page: a split text page carries its window in `responseWindow`.
+    #[test]
+    fn a_split_text_page_carries_its_window_in_structured_content() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let envelope = json!({"results":[{"index":0,"data":{"content":"body"}}]});
+        let text = "line1\nline2\nline3\nline4\n";
+        let mut options = options(12);
+        let mut joined = String::new();
+        loop {
+            let prepared = pager
+                .prepare(
+                    ResponseInput {
+                        tool: "localFetch".into(),
+                        query: json!({"path":"a","goal": "test", "reasoning":"r"}),
+                        structured: envelope.clone(),
+                        rendered_text: Some(text.into()),
+                        is_error: false,
+                        options: options.clone(),
+                    },
+                    &AtomicBool::new(false),
+                )
+                .expect("page");
+            let structured = &prepared.structured_content;
+            assert_eq!(structured["results"], json!([]));
+            let window = structured["responseWindow"].as_str().expect("window");
+            assert_eq!(window, prepared.content[0].text);
+            joined.push_str(window.split_once('\n').map_or("", |(_, body)| body));
+            let pagination = &structured["responsePagination"];
+            if pagination["hasMore"] != true {
+                break;
+            }
+            options.response_char_offset =
+                pagination["nextCharOffset"].as_u64().map(|v| v as usize);
+            options.response_snapshot = pagination["snapshot"].as_str().map(str::to_owned);
+        }
+        assert_eq!(joined, text);
+    }
+
     #[test]
     fn prepares_both_channels_and_preserves_required_debug_state() {
         let pager = ResponsePager::new(ResponsePagerConfig::default());
@@ -1201,6 +1249,32 @@ mod tests {
         let (_, restart) = paginate_rows(structured.as_object().unwrap().clone(), &full, &stale);
         assert_eq!(restart.restart, Some(true));
         assert_eq!(restart.next_char_offset, Some(0));
+    }
+
+    /// A skeleton (stats, pagination) that nearly fills the budget must not
+    /// explode one row into one fragment per match, each repeating it.
+    #[test]
+    fn rows_scope_does_not_repeat_a_dominant_skeleton_per_item() {
+        let matches = (0..30)
+            .map(|line| json!({"line":line,"value":"x".repeat(20)}))
+            .collect::<Vec<_>>();
+        let structured = json!({"results":[{"index":0,"data":{
+            "stats":{"note":"s".repeat(300)},
+            "files":[{"path":"a","matches":matches}]
+        }}]});
+        let options = ResponsePageOptions {
+            response_char_length: Some(600),
+            response_scope: Some("rows".into()),
+            ..Default::default()
+        };
+        let full = structured.to_string();
+        let (first, pagination) =
+            paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+        let items = first["results"][0]["data"]["files"][0]["matches"]
+            .as_array()
+            .map_or(0, Vec::len);
+        assert!(items > 1, "each fragment carries several items: {first:?}");
+        assert!(pagination.total_pages < 15, "{}", pagination.total_pages);
     }
 
     /// Cold call, then the copied continuation served from a warm cache: the

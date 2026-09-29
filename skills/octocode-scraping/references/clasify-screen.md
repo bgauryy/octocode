@@ -13,6 +13,7 @@ Use this flow when semantic localization can replace broad host reads. For a lit
 {
   "reasoning": "Locate independent facts in an unread retained artifact before loading its body.",
   "resources": [{"id": "artifact", "context": {"tool": "localFetch", "query": {
+    "goal": "Read the retained artifact for assessment",
     "reasoning": "Assess retained source without returning its body.",
     "path": "/absolute/path/to/.octocode/tmp/scrape/session/text/page.clean.md",
     "fullContent": true

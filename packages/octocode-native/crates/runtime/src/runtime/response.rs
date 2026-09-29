@@ -178,7 +178,9 @@ fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
             _,
             crate::policy::PATH_OUTSIDE_ALLOWED_ROOTS
             | "ast.policy.outsideAllowedRoots"
-            | "ast.policy.symlinkEscape",
+            | "ast.policy.symlinkEscape"
+            | "structure.policy.outsideAllowedRoots"
+            | "structure.policy.symlinkEscape",
         ) => SANDBOX_HINT,
         (_, "authentication") => "Authenticate or correct credentials; do not broaden the query.",
         (_, "permission" | "ast.policy.permissionDenied") => {
@@ -223,6 +225,12 @@ fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
         (ToolId::AstSearch, "ast.language.directoryRequired") => {
             "For a single file, use langType instead of languageGlobs."
         }
+        (_, code) if is_not_found_code(code) => {
+            "Verify the path exists (structureSearch on its parent directory), then retry the exact path."
+        }
+        (_, code) if is_invalid_input_code(code) => {
+            "Correct the rejected field named in the error; broadening will not help."
+        }
         _ => return None,
     })
 }
@@ -237,7 +245,7 @@ fn error_fallback_hint(tool: ToolId, query: &Value, row: &Value) -> &'static str
     error_code_hint(tool, code).unwrap_or_else(|| fallback_hint(tool, query))
 }
 
-fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Value]) {
+fn add_fallback_hint(row: &mut Value, position: usize, tool: ToolId, queries: &[Value]) {
     let status = row.get("status").and_then(Value::as_str);
     if !matches!(status, Some("empty" | "error")) || has_recovery(row) {
         return;
@@ -246,9 +254,6 @@ fn add_fallback_hint(row: &mut Value, position: usize, tool: &str, queries: &[Va
         .get("index")
         .and_then(Value::as_u64)
         .unwrap_or(position as u64) as usize;
-    let Some(tool) = ToolId::from_name(tool) else {
-        return;
-    };
     let query = queries.get(index).cloned().unwrap_or(Value::Null);
     let hint = if status == Some("error") {
         error_fallback_hint(tool, &query, row)
@@ -371,7 +376,7 @@ fn visit(value: &mut Value, recovery: bool, seen: &mut std::collections::BTreeSe
 
 /// Match the frozen Node hint policy: one concise recovery hint, and `why`
 /// only on recovery continuations.
-pub(super) fn apply_hint_policy(row: &mut Value, tool: &str, query: &Value) {
+pub(super) fn apply_hint_policy(row: &mut Value, tool: ToolId, query: &Value) {
     add_fallback_hint(row, 0, tool, std::slice::from_ref(query));
     visit(row, false, &mut std::collections::BTreeSet::new());
 }
@@ -407,13 +412,13 @@ pub(super) fn redact_email_fields(
 /// or any downstream consumer observes the value.
 pub(super) fn finalize_output_fields(
     value: &mut Value,
-    tool: &str,
+    tool: ToolId,
     security: &crate::security::ContentSecurity,
     context: &super::ExecutionContext,
     redact_emails: bool,
 ) -> Result<(), super::ExecutionError> {
     sanitize_fields(value, security, context)?;
-    if redact_emails && tool.starts_with("gh") {
+    if redact_emails && tool.is_github() {
         redact_email_fields(value, security, context)?;
     }
     Ok(())
@@ -437,7 +442,7 @@ fn preserve_continuation_metadata(value: &mut Value, original_query: &Value) {
             if let (Some(_tool), Some(mut next_query)) = (continuation_tool, object.remove("query"))
             {
                 if let Some(next_query_object) = next_query.as_object_mut() {
-                    for field in ["reasoning", "debug"] {
+                    for field in ["debug"] {
                         if let Some(value) = original_query.get(field) {
                             next_query_object.insert(field.into(), value.clone());
                         }
@@ -451,7 +456,7 @@ fn preserve_continuation_metadata(value: &mut Value, original_query: &Value) {
 }
 
 pub fn result_row(
-    tool: &str,
+    tool: ToolId,
     index: usize,
     query: &Value,
     mut data: Value,
@@ -460,14 +465,14 @@ pub fn result_row(
     // clasify shapes its own query-level `next.clasify`. Any tool/query
     // pairs inside page receipts belong to the already-finalized hidden read
     // and retain that nested invocation's rationale and debug setting.
-    if tool != "clasify" {
+    if tool != ToolId::Clasify {
         preserve_continuation_metadata(&mut data, query);
     }
     if let Some(object) = data.as_object_mut() {
         if object.get("isPartial") == Some(&Value::Null) {
             object.insert("isPartial".into(), Value::Bool(false));
         }
-        let preserve_compare_status = tool == "ghGetHistoryItem"
+        let preserve_compare_status = tool == ToolId::GhGetHistoryItem
             && object.get("type").and_then(Value::as_str) == Some("compare");
         for key in [
             "cache",
@@ -502,7 +507,7 @@ pub fn result_row(
     if let Some(code) = data.get("errorCode").and_then(Value::as_str) {
         codes.push(code.to_owned());
     }
-    if tool == "ghGetFileContent" {
+    if tool == ToolId::GhGetFileContent {
         for file in data
             .get("files")
             .and_then(Value::as_array)
@@ -517,7 +522,10 @@ pub fn result_row(
         }
     }
     codes.extend(pagination_codes(&data));
-    let mut meta = if matches!(tool, "ghSearchRepo" | "ghSearchCode" | "ghStructure") {
+    let mut meta = if matches!(
+        tool,
+        ToolId::GhSearchRepo | ToolId::GhSearchCode | ToolId::GhStructure
+    ) {
         json!({"evidence":{"confidence":confidence,"kind":kind}})
     } else {
         json!({"evidence":{"kind":kind,"confidence":confidence}})
@@ -542,21 +550,320 @@ pub fn result_row(
     row
 }
 
-fn evidence_kind<'a>(tool: &'a str, query: &Value, data: &Value) -> &'a str {
+/// Default responses carry the answer and what the next call needs. Each tool
+/// declares the fields it computes for diagnosis ([`debug_only_fields`]); the
+/// shared rules below remove only structure that asserts nothing: finished
+/// single-page pagination, snapshots that every continuation already
+/// carries, false/zero defaults, info-level notes, and echoes of the request.
+/// `debug: true` keeps everything. Error rows stay whole: every field there
+/// explains the failure. Clasify rows never reach this pass; they have their
+/// own resource-major projection.
+pub fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
+    if query.get("debug").and_then(Value::as_bool) == Some(true) {
+        return;
+    }
+    if let Some(fields) = row.as_object_mut() {
+        fields.remove("cache");
+    }
+    if row["status"] == "error" {
+        return;
+    }
+    let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
+        return;
+    };
+    // Minimal never means below the contract. Remember which contract
+    // variants the row satisfies; if the rules leave none satisfied, restore
+    // the variant that needs the fewest fields back. Only fields a rule may
+    // remove are saved, so answer arrays are never copied.
+    let variants = contract_data_variants(tool)
+        .iter()
+        .filter(|variant| variant.iter().all(|key| data.contains_key(key)))
+        .collect::<Vec<_>>();
+    let saved = variants
+        .iter()
+        .flat_map(|variant| variant.iter())
+        .filter(|key| is_removable(tool, key))
+        .filter_map(|key| data.get(key).map(|value| (key.clone(), value.clone())))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    minimize_data(data, tool, query);
+    let still = |variant: &&std::collections::BTreeSet<String>| {
+        variant.iter().all(|key| data.contains_key(key))
+    };
+    if !variants.is_empty() && !variants.iter().any(still) {
+        let cheapest = variants.iter().min_by_key(|variant| {
+            variant
+                .iter()
+                .filter(|key| !data.contains_key(*key))
+                .count()
+        });
+        for key in cheapest.into_iter().flat_map(|variant| variant.iter()) {
+            if let Some(value) = saved.get(key) {
+                data.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+    }
+}
+
+/// Every top-level field a minimization rule can remove for this tool.
+fn is_removable(tool: ToolId, key: &str) -> bool {
+    is_pagination_key(key)
+        || debug_only_fields(tool)
+            .iter()
+            .any(|path| path.split('.').next() == Some(key))
+        || matches!(
+            key,
+            "truncated"
+                | "isPartial"
+                | "incompleteResults"
+                | "capped"
+                | "filesSkipped"
+                | "contentView"
+                | "operation"
+                | "analysis"
+                | "type"
+                | "owner"
+                | "repo"
+                | "snapshot"
+                | "totalCount"
+                | "diagnostics"
+                | "stats"
+                | "committer"
+                | "messageHeadline"
+        )
+}
+
+fn minimize_data(data: &mut Map<String, Value>, tool: ToolId, query: &Value) {
+    for path in debug_only_fields(tool) {
+        remove_path(data, path);
+    }
+    let more = data
+        .iter()
+        .any(|(key, value)| is_pagination_key(key) && value["hasMore"] == true);
+    for flag in ["truncated", "isPartial", "incompleteResults", "capped"] {
+        if data.get(flag) == Some(&Value::Bool(false)) {
+            data.remove(flag);
+        }
+    }
+    if data.get("filesSkipped").and_then(Value::as_u64) == Some(0) {
+        data.remove("filesSkipped");
+    }
+    if data.get("contentView").and_then(Value::as_str) == Some("none") {
+        data.remove("contentView");
+    }
+    for key in ["operation", "analysis", "type", "owner", "repo"] {
+        if data.get(key).is_some() && data.get(key) == query.get(key) {
+            data.remove(key);
+        }
+    }
+    data.retain(|key, value| {
+        !is_pagination_key(key)
+            || value["hasMore"] == true
+            || value
+                .get("currentPage")
+                .or_else(|| value.get("page"))
+                .and_then(Value::as_u64)
+                .is_some_and(|page| page > 1)
+    });
+    data.remove("snapshot");
+    if !more {
+        data.remove("totalCount");
+    }
+    if let Some(diagnostics) = data.get_mut("diagnostics").and_then(Value::as_array_mut) {
+        diagnostics.retain(|entry| entry["severity"] != "info");
+        if diagnostics.is_empty() {
+            data.remove("diagnostics");
+        }
+    }
+    minimize_stats(data, more);
+    // A commit's committer usually repeats its author, and the headline
+    // repeats the message's first line.
+    if data.get("committer").is_some()
+        && data["committer"].get("name") == data.get("author").and_then(|a| a.get("name"))
+    {
+        data.remove("committer");
+    }
+    if let (Some(headline), Some(message)) = (
+        data.get("messageHeadline").and_then(Value::as_str),
+        data.get("message").and_then(Value::as_str),
+    ) && message.starts_with(headline)
+    {
+        data.remove("messageHeadline");
+    }
+}
+
+/// The required top-level fields of each variant of the tool's data
+/// contract (one set per union branch, common requirements merged in).
+fn contract_data_variants(tool: ToolId) -> &'static [std::collections::BTreeSet<String>] {
+    type Variants = Vec<std::collections::BTreeSet<String>>;
+    static VARIANTS: std::sync::OnceLock<std::collections::HashMap<ToolId, Variants>> =
+        std::sync::OnceLock::new();
+    VARIANTS
+        .get_or_init(|| {
+            let Ok(contract) = crate::contracts::parsed_contract() else {
+                return Default::default();
+            };
+            contract["tools"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|tool| {
+                    let id = ToolId::from_name(tool["name"].as_str()?)?;
+                    let schema = &tool["outputSchema"];
+                    let defs = &schema["$defs"];
+                    let rows = resolve_ref(&schema["properties"]["results"]["items"], defs);
+                    let data = resolve_ref(&rows["properties"]["data"], defs);
+                    Some((id, variants_of(data, defs, &Default::default(), 0)))
+                })
+                .collect()
+        })
+        .get(&tool)
+        .map_or(&[], Vec::as_slice)
+}
+
+fn resolve_ref<'a>(schema: &'a Value, defs: &'a Value) -> &'a Value {
+    schema
+        .get("$ref")
+        .and_then(Value::as_str)
+        .and_then(|reference| reference.strip_prefix("#/$defs/"))
+        .map_or(schema, |name| &defs[name])
+}
+
+/// Expand a schema into its required-field variants: `required` and `allOf`
+/// members accumulate; each `anyOf`/`oneOf` branch forks a variant. Nested
+/// property schemas are not descended (the minimizer removes top-level
+/// fields only).
+fn variants_of(
+    schema: &Value,
+    defs: &Value,
+    inherited: &std::collections::BTreeSet<String>,
+    depth: usize,
+) -> Vec<std::collections::BTreeSet<String>> {
+    let schema = resolve_ref(schema, defs);
+    let mut base = inherited.clone();
+    base.extend(
+        schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned),
+    );
+    if depth > 8 {
+        return vec![base];
+    }
+    let mut variants = vec![base];
+    for member in schema["allOf"].as_array().into_iter().flatten() {
+        variants = variants
+            .iter()
+            .flat_map(|variant| variants_of(member, defs, variant, depth + 1))
+            .collect();
+    }
+    for union in ["anyOf", "oneOf"] {
+        if let Some(branches) = schema[union].as_array().filter(|b| !b.is_empty()) {
+            variants = variants
+                .iter()
+                .flat_map(|variant| {
+                    branches
+                        .iter()
+                        .flat_map(|branch| variants_of(branch, defs, variant, depth + 1))
+                })
+                .collect();
+        }
+    }
+    variants
+}
+
+/// Fields each tool computes to explain how an answer was produced, not the
+/// answer itself. Dotted paths name nested fields. Confidence signals (e.g.
+/// topology `completeness`/`confidence`, coverage totals) are not listed.
+const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
     match tool {
-        "astSearch" => match query["operation"].as_str() {
+        ToolId::LocalSearch | ToolId::AstSearch => &["searchEngine", "filesScanned"],
+        ToolId::LocalFetch => &[
+            "modified",
+            "sourceBytes",
+            "returnedBytes",
+            "selectedMatchCount",
+        ],
+        ToolId::StructureSearch => &["filesScanned"],
+        ToolId::AstTopology => &["filesScanned"],
+        ToolId::GhSearchHistory => &["effectiveQuery", "scope"],
+        ToolId::GhGetHistoryItem => &["parents"],
+        _ => &[],
+    }
+}
+
+fn remove_path(data: &mut Map<String, Value>, path: &str) {
+    match path.split_once('.') {
+        Some((head, rest)) => {
+            if let Some(child) = data.get_mut(head).and_then(Value::as_object_mut) {
+                remove_path(child, rest);
+            }
+        }
+        None => {
+            data.remove(path);
+        }
+    }
+}
+
+fn is_pagination_key(key: &str) -> bool {
+    key == "pagination" || key.ends_with("Pagination")
+}
+
+/// Search statistics: the listed files already carry the counts. Keep the
+/// totals only while more pages exist, and the scan scope only when nothing
+/// matched (it shows the search ran where intended).
+fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
+    let has_rows = data
+        .get("files")
+        .and_then(Value::as_array)
+        .is_some_and(|files| !files.is_empty());
+    let Some(stats) = data.get_mut("stats").and_then(Value::as_object_mut) else {
+        return;
+    };
+    if !has_rows {
+        stats.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "filesSearched" | "totalOccurrences" | "totalStructuralMatches"
+            )
+        });
+        return;
+    }
+    if more {
+        stats.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "totalOccurrences" | "filesMatched" | "totalStructuralMatches"
+            )
+        });
+    } else {
+        data.remove("stats");
+    }
+}
+
+fn evidence_kind(tool: ToolId, query: &Value, data: &Value) -> &'static str {
+    match tool {
+        ToolId::AstSearch => match query["operation"].as_str() {
             Some("match") => "structural",
             _ => "syntactic",
         },
-        "astTopology" => "syntactic",
-        "lspSearch" => match data.pointer("/lsp/source").and_then(Value::as_str) {
+        ToolId::AstTopology => "syntactic",
+        ToolId::LspSearch => match data.pointer("/lsp/source").and_then(Value::as_str) {
             Some("native-graph-facts" | "markdown") => "syntactic",
             _ => "semantic",
         },
-        "localSearch" => "lexical",
-        "artifactSearch" | "clasify" => "provider",
-        name if name.starts_with("gh") => "provider",
-        _ => "exact",
+        ToolId::LocalSearch => "lexical",
+        ToolId::ArtifactSearch
+        | ToolId::Clasify
+        | ToolId::GhSearchRepo
+        | ToolId::GhSearchCode
+        | ToolId::GhStructure
+        | ToolId::GhGetFileContent
+        | ToolId::GhSearchHistory
+        | ToolId::GhGetHistoryItem
+        | ToolId::GhCloneRepo => "provider",
+        ToolId::LocalFetch | ToolId::StructureSearch | ToolId::AstRewrite => "exact",
     }
 }
 
@@ -588,6 +895,22 @@ fn bounded(record: &Map<String, Value>) -> bool {
             .get("partialTreeFailures")
             .and_then(Value::as_array)
             .is_some_and(|v| !v.is_empty())
+}
+
+/// Row `errorCode`s that reject the caller's input (CLI exit 2): the request
+/// is wrong, so broadening or retrying it cannot help.
+pub fn is_invalid_input_code(code: &str) -> bool {
+    matches!(
+        code,
+        "invalidInput" | "invalidQuery" | "invalidRegex" | "invalid_query" | "validation"
+    ) || code.ends_with(".input.invalid")
+        || code.ends_with(".query.invalidPattern")
+}
+
+/// Row `errorCode`s that mean the requested local path does not exist
+/// (CLI exit 3, like a GitHub not-found).
+pub fn is_not_found_code(code: &str) -> bool {
+    code == "pathNotFound" || code.ends_with(".policy.notFound")
 }
 
 pub fn is_partial(data: &Value) -> bool {
@@ -652,13 +975,13 @@ fn pagination_codes(data: &Value) -> Vec<String> {
 ///   `.` (a file root keeps its parent and file name).
 /// - localSearch rows were compacted against the common directory of the rows
 ///   on this page; re-anchor them on the queried directory.
-pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
+pub fn attach_query_base(value: &mut Value, tool: ToolId, query: &Value) {
     let has_error = value["results"]
         .as_array()
         .is_some_and(|rows| rows.iter().any(|row| row["status"] == "error"));
     if !matches!(
         tool,
-        "structureSearch" | "astSearch" | "astTopology" | "localSearch"
+        ToolId::StructureSearch | ToolId::AstSearch | ToolId::AstTopology | ToolId::LocalSearch
     ) || has_error
     {
         return;
@@ -675,7 +998,7 @@ pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
     };
     let root = if is_dir { canonical.as_path() } else { parent };
     match tool {
-        "astTopology" => {
+        ToolId::AstTopology => {
             let display = if is_dir {
                 Some(".".to_owned())
             } else {
@@ -692,7 +1015,7 @@ pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
             }
             value["base"] = json!(root.to_string_lossy());
         }
-        "localSearch" => {
+        ToolId::LocalSearch => {
             let absolute = Path::new(path).is_absolute().then_some(path);
             for candidate in [
                 Some(root.to_string_lossy().into_owned()),
@@ -710,6 +1033,38 @@ pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
             if value.get("base").is_none() {
                 value["base"] = json!(parent.to_string_lossy());
             }
+        }
+    }
+}
+
+/// Batch rows from queries with different roots carry paths relative to their
+/// own root, so no shared `base` can resolve them. Make each row's relative
+/// paths absolute from its own query first; the envelope then derives one
+/// common base for every row.
+pub fn absolutize_row_paths(rows: &mut [Value], tool: ToolId, queries: &[Value]) {
+    if !matches!(tool, ToolId::StructureSearch | ToolId::AstSearch) {
+        return;
+    }
+    for (position, row) in rows.iter_mut().enumerate() {
+        if row["status"] == "error" {
+            continue;
+        }
+        let index = row["index"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+            .unwrap_or(position);
+        let Some(path) = queries
+            .get(index)
+            .and_then(|query| query.get("path"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let Ok(canonical) = std::fs::canonicalize(path) else {
+            continue;
+        };
+        if let Some(root) = canonical.parent() {
+            prefix_relative_paths(&mut row["data"], 0, &root.to_string_lossy());
         }
     }
 }
@@ -993,6 +1348,213 @@ fn rewrite_paths(value: &mut Value, depth: usize, base: &str) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn minimal_rows_keep_every_field_the_contract_requires() {
+        let history = contract_data_variants(ToolId::GhSearchHistory);
+        assert!(
+            history
+                .iter()
+                .all(|variant| variant.contains("type") || variant.contains("error")),
+            "{history:?}"
+        );
+        let clone = contract_data_variants(ToolId::GhCloneRepo);
+        assert!(
+            clone
+                .iter()
+                .any(|variant| variant.contains("owner") && variant.contains("repo")),
+            "{clone:?}"
+        );
+        let row = minimized(
+            ToolId::GhSearchHistory,
+            json!({"operation":"issue","owner":"o","repo":"r"}),
+            json!({"type":"issues","owner":"o","repo":"r","issues":[],"effectiveQuery":"is:issue"}),
+        );
+        assert_eq!(row["data"]["type"], "issues", "{row}");
+        assert!(row["data"].get("effectiveQuery").is_none(), "{row}");
+        let clone_row = minimized(
+            ToolId::GhCloneRepo,
+            json!({"owner":"o","repo":"r"}),
+            json!({"owner":"o","repo":"r","totalSize":1,"location":{"localPath":"/x"}}),
+        );
+        assert_eq!(clone_row["data"]["owner"], "o", "{clone_row}");
+    }
+
+    fn minimized(tool: ToolId, query: Value, data: Value) -> Value {
+        let mut row = json!({"index":0,"data":data,"cache":1});
+        minimize_row(&mut row, tool, &query);
+        row
+    }
+
+    #[test]
+    fn minimal_rows_drop_what_asserts_nothing_and_keep_what_continues() {
+        let row = minimized(
+            ToolId::LocalSearch,
+            json!({"path":"/r","searchText":"x"}),
+            json!({"files":[{"path":"a.rs"}],"stats":{"totalOccurrences":1,"filesSearched":9},
+                "pagination":{"currentPage":1,"totalPages":1,"hasMore":false},
+                "snapshot":"s","searchEngine":"rg","truncated":false,
+                "diagnostics":[{"severity":"info","message":"routine"},{"severity":"warning","message":"keep"}]}),
+        );
+        assert!(row.get("cache").is_none(), "{row}");
+        let data = &row["data"];
+        for gone in [
+            "stats",
+            "pagination",
+            "snapshot",
+            "searchEngine",
+            "truncated",
+        ] {
+            assert!(data.get(gone).is_none(), "{gone}: {row}");
+        }
+        assert_eq!(
+            data["diagnostics"],
+            json!([{"severity":"warning","message":"keep"}])
+        );
+        assert_eq!(data["files"][0]["path"], "a.rs");
+    }
+
+    #[test]
+    fn topology_coverage_diagnostics_survive_minimal_rows() {
+        // nextDiagnostics pages exist to return these entries; they explain
+        // graph gaps (unlinked imports, unsupported layouts).
+        let row = minimized(
+            ToolId::AstTopology,
+            json!({"analysis":"dependents","path":"/r","file":"a.rs"}),
+            json!({"results":[],"filesScanned":9,"coverage":{
+                "diagnostics":[{"code":"unlinkedImport","file":"b.rs"}],
+                "diagnosticsPagination":{"currentPage":1,"totalPages":2,"hasMore":true}}}),
+        );
+        assert_eq!(row["data"]["coverage"]["diagnostics"][0]["file"], "b.rs", "{row}");
+        assert!(row["data"].get("filesScanned").is_none(), "{row}");
+    }
+
+    #[test]
+    fn open_pages_keep_pagination_and_totals() {
+        let row = minimized(
+            ToolId::LocalSearch,
+            json!({}),
+            json!({"files":[{"path":"a.rs"}],"stats":{"totalOccurrences":40,"filesMatched":9,"bytesSearched":7},
+                "pagination":{"currentPage":1,"hasMore":true},"next":{"nextPage":{"tool":"localSearch","query":{"snapshot":"s"}}}}),
+        );
+        let data = &row["data"];
+        assert_eq!(data["pagination"]["hasMore"], true);
+        assert_eq!(
+            data["stats"],
+            json!({"totalOccurrences":40,"filesMatched":9})
+        );
+        assert_eq!(data["next"]["nextPage"]["query"]["snapshot"], "s");
+        let later = minimized(
+            ToolId::LocalSearch,
+            json!({}),
+            json!({"files":[],"pagination":{"currentPage":3,"hasMore":false}}),
+        );
+        assert_eq!(
+            later["data"]["pagination"]["currentPage"], 3,
+            "last page stays located"
+        );
+    }
+
+    #[test]
+    fn empty_searches_keep_their_scan_scope() {
+        let row = minimized(
+            ToolId::LocalSearch,
+            json!({}),
+            json!({"stats":{"totalOccurrences":0,"filesSearched":176,"bytesSearched":9}}),
+        );
+        assert_eq!(
+            row["data"]["stats"],
+            json!({"totalOccurrences":0,"filesSearched":176})
+        );
+    }
+
+    #[test]
+    fn tool_declared_fields_leave_confidence_signals() {
+        let topology = minimized(
+            ToolId::AstTopology,
+            json!({"analysis":"dependencies"}),
+            json!({"analysis":"dependencies","confidence":"low",
+                "coverage":{"basis":"syntactic","diagnosticCounts":{"x":5},"diagnostics":[{"file":"a"}]},
+                "completeness":{"graph":"coverage-incomplete"}}),
+        );
+        let data = &topology["data"];
+        assert!(data.get("analysis").is_none(), "request echo: {topology}");
+        assert_eq!(data["confidence"], "low");
+        assert_eq!(
+            data["coverage"],
+            json!({"basis":"syntactic","diagnosticCounts":{"x":5},"diagnostics":[{"file":"a"}]})
+        );
+        assert_eq!(data["completeness"]["graph"], "coverage-incomplete");
+        let fetch = minimized(
+            ToolId::LocalFetch,
+            json!({}),
+            json!({"content":"x","modified":"t","sourceBytes":1,"totalLines":9}),
+        );
+        assert_eq!(fetch["data"], json!({"content":"x","totalLines":9}));
+    }
+
+    #[test]
+    fn echoes_go_only_when_they_equal_the_request_and_debug_keeps_all() {
+        let data = json!({"owner":"o","repo":"other","files":[]});
+        let row = minimized(
+            ToolId::GhGetFileContent,
+            json!({"owner":"o","repo":"r"}),
+            data.clone(),
+        );
+        assert!(row["data"].get("owner").is_none());
+        assert_eq!(
+            row["data"]["repo"], "other",
+            "a different repo is information"
+        );
+        let debug = minimized(
+            ToolId::GhGetFileContent,
+            json!({"owner":"o","debug":true}),
+            data.clone(),
+        );
+        assert_eq!(debug["data"], data);
+        let mut error = json!({"index":0,"status":"error","data":{"error":"x","snapshot":"s"}});
+        minimize_row(&mut error, ToolId::LocalSearch, &json!({}));
+        assert_eq!(error["data"]["snapshot"], "s", "error rows stay whole");
+    }
+
+    #[test]
+    fn mixed_root_batch_rows_share_one_resolvable_base() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonical root");
+        let src = canonical.join("src");
+        let nested = src.join("runtime");
+        std::fs::create_dir_all(&nested).expect("dirs");
+        let queries = vec![
+            json!({"path": src.to_string_lossy()}),
+            json!({"path": nested.to_string_lossy()}),
+        ];
+        let mut rows = vec![
+            json!({"index":0,"data":{"files":[{"path":"src/a.rs"}]}}),
+            json!({"index":1,"data":{"declarations":[{"path":"runtime/b.rs"}]}}),
+        ];
+        absolutize_row_paths(
+            &mut rows,
+            ToolId::from_name("astSearch").expect("known tool"),
+            &queries,
+        );
+        let value = envelope(rows);
+        let base = value["base"].as_str().expect("common base");
+        let first = value["results"][0]["data"]["files"][0]["path"]
+            .as_str()
+            .unwrap();
+        let second = value["results"][1]["data"]["declarations"][0]["path"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            std::path::Path::new(base).join(first),
+            canonical.join("src/a.rs")
+        );
+        assert_eq!(
+            std::path::Path::new(base).join(second),
+            src.join("runtime/b.rs")
+        );
+    }
+
     use super::*;
 
     #[test]
@@ -1012,7 +1574,11 @@ mod tests {
             "status": "error",
             "data": {"error": message, "errorCode": code}
         });
-        apply_hint_policy(&mut row, tool, query);
+        apply_hint_policy(
+            &mut row,
+            ToolId::from_name(tool).expect("known tool"),
+            query,
+        );
         row["data"]["hints"][0]
             .as_str()
             .unwrap_or_default()
@@ -1063,15 +1629,13 @@ mod tests {
             )
             .contains("ALLOWED_PATHS")
         );
-        // Unknown tool names get no invented hint.
-        assert_eq!(error_hint("notATool", &query, "timeout", "x"), "");
     }
 
     #[test]
     fn native_language_server_results_are_semantic_evidence() {
         assert_eq!(
             evidence_kind(
-                "lspSearch",
+                ToolId::LspSearch,
                 &json!({}),
                 &json!({"lsp": {"source": "native"}}),
             ),
@@ -1079,7 +1643,7 @@ mod tests {
         );
         assert_eq!(
             evidence_kind(
-                "lspSearch",
+                ToolId::LspSearch,
                 &json!({}),
                 &json!({"lsp": {"source": "native-graph-facts"}}),
             ),
@@ -1100,7 +1664,11 @@ mod tests {
                 "next": {"nextPage": {"tool": "localSearch", "query": {"path": root_str}}}}}],
             "base": root.join("sub/a").to_string_lossy(),
         });
-        attach_query_base(&mut output, "localSearch", &json!({"path": root_str}));
+        attach_query_base(
+            &mut output,
+            ToolId::from_name("localSearch").expect("known tool"),
+            &json!({"path": root_str}),
+        );
         assert_eq!(output["base"], root_str.as_str());
         let row_path = output["results"][0]["data"]["files"][0]["path"]
             .as_str()
@@ -1116,7 +1684,11 @@ mod tests {
             "results": [{"data": {"path": "workspace/relative", "results": [{"file": "sub/a/x.rs"}]}}],
             "base": "/elsewhere",
         });
-        attach_query_base(&mut topology, "astTopology", &json!({"path": root_str}));
+        attach_query_base(
+            &mut topology,
+            ToolId::from_name("astTopology").expect("known tool"),
+            &json!({"path": root_str}),
+        );
         assert_eq!(topology["base"], root_str.as_str());
         assert_eq!(topology["results"][0]["data"]["path"], ".");
         let file = topology["results"][0]["data"]["results"][0]["file"]
@@ -1131,7 +1703,7 @@ mod tests {
         let mut output = json!({"results":[]});
         attach_query_base(
             &mut output,
-            "astSearch",
+            ToolId::from_name("astSearch").expect("known tool"),
             &json!({"path":manifest.to_string_lossy()}),
         );
         let expected = std::fs::canonicalize(manifest)
@@ -1146,7 +1718,7 @@ mod tests {
     #[test]
     fn uri_path_compaction_preserves_field_order_and_appends_path() {
         let output = envelope(vec![result_row(
-            "lspSearch",
+            ToolId::from_name("lspSearch").expect("known tool"),
             0,
             &json!({}),
             json!({"type":"documentSymbols","uri":"file:///repo/src/a.ts","lsp":{},"pagination":{"hasMore":false}}),
@@ -1168,7 +1740,7 @@ mod tests {
     #[test]
     fn match_row_accounting_is_never_hoisted_into_shared() {
         let output = envelope(vec![result_row(
-            "localSearch",
+            ToolId::from_name("localSearch").expect("known tool"),
             0,
             &json!({}),
             json!({"files":[
@@ -1197,7 +1769,7 @@ mod tests {
     fn path_compaction_never_rewrites_evidence_or_executable_queries() {
         let data = json!({"path":"/repo/src/a.ts","content":"/repo/src/a.ts","pagination":{"hasMore":true},"next":{"continue":{"tool":"localFetch","query":{"path":"/repo/src/a.ts","offset":2}}}});
         let output = envelope(vec![result_row(
-            "localFetch",
+            ToolId::from_name("localFetch").expect("known tool"),
             0,
             &json!({"debug":true}),
             data,
@@ -1219,7 +1791,7 @@ mod tests {
     #[test]
     fn shared_compaction_preserves_required_pull_request_row_fields() {
         let output = envelope(vec![result_row(
-            "ghSearchHistory",
+            ToolId::from_name("ghSearchHistory").expect("known tool"),
             0,
             &json!({"operation":"pullRequest"}),
             json!({
@@ -1252,7 +1824,7 @@ mod tests {
     #[test]
     fn incomplete_evidence_requires_executable_continuation_or_terminal_diagnostic() {
         let missing = result_row(
-            "astSearch",
+            ToolId::from_name("astSearch").expect("known tool"),
             0,
             &json!({"operation":"symbols","debug":true}),
             json!({"hasMore":true,"nextPage":2}),
@@ -1263,7 +1835,7 @@ mod tests {
             Some(&json!(["continuationMissing"]))
         );
         let terminal = result_row(
-            "localFetch",
+            ToolId::from_name("localFetch").expect("known tool"),
             0,
             &json!({"debug":true}),
             json!({"isPartial":true,"terminalLimit":true}),
@@ -1278,7 +1850,7 @@ mod tests {
     #[test]
     fn result_rows_normalize_null_is_partial_to_false() {
         let row = result_row(
-            "ghGetFileContent",
+            ToolId::from_name("ghGetFileContent").expect("known tool"),
             0,
             &json!({"debug":false}),
             json!({"files":[],"isPartial":null}),
@@ -1290,7 +1862,7 @@ mod tests {
     #[test]
     fn result_rows_preserve_compare_status_as_contract_data() {
         let row = result_row(
-            "ghGetHistoryItem",
+            ToolId::from_name("ghGetHistoryItem").expect("known tool"),
             0,
             &json!({"operation":"compare"}),
             json!({"type":"compare","status":"ahead","commits":[]}),
@@ -1302,7 +1874,7 @@ mod tests {
     #[test]
     fn result_metadata_requires_debug() {
         let normal = result_row(
-            "localSearch",
+            ToolId::from_name("localSearch").expect("known tool"),
             0,
             &json!({"debug":false}),
             json!({"files":[]}),
@@ -1311,7 +1883,7 @@ mod tests {
         assert!(normal.get("meta").is_none());
 
         let debug = result_row(
-            "localSearch",
+            ToolId::from_name("localSearch").expect("known tool"),
             0,
             &json!({"debug":true}),
             json!({"files":[]}),
@@ -1323,7 +1895,7 @@ mod tests {
     #[test]
     fn result_rows_preserve_invocation_metadata_in_continuations() {
         let row = result_row(
-            "localFetch",
+            ToolId::from_name("localFetch").expect("known tool"),
             0,
             &json!({"goal": "test", "reasoning":"Read the next exact page.","debug":false}),
             json!({
@@ -1336,10 +1908,8 @@ mod tests {
             }),
             None,
         );
-        assert_eq!(
-            row.pointer("/data/next/continue/query/reasoning"),
-            Some(&json!("Read the next exact page."))
-        );
+        // The brief is inherited (followUp), not copied onto every page.
+        assert_eq!(row.pointer("/data/next/continue/query/reasoning"), None);
         assert_eq!(
             row.pointer("/data/next/continue/query/debug"),
             Some(&json!(false))
@@ -1349,7 +1919,7 @@ mod tests {
     #[test]
     fn outer_clasify_metadata_does_not_overwrite_nested_continuation_ownership() {
         let row = result_row(
-            "clasify",
+            ToolId::from_name("clasify").expect("known tool"),
             0,
             &json!({"goal": "test", "reasoning":"Evaluate captured evidence.","debug":false}),
             json!({
@@ -1387,7 +1957,11 @@ mod tests {
             "status": "error",
             "data": {"error":"timed out","errorCode":"timeout"}
         });
-        apply_hint_policy(&mut timeout, "ghSearchCode", &query);
+        apply_hint_policy(
+            &mut timeout,
+            ToolId::from_name("ghSearchCode").expect("known tool"),
+            &query,
+        );
         let hint = timeout["data"]["hints"][0].as_str().expect("hint");
         assert!(hint.contains("Retry once"), "{timeout}");
         assert!(!hint.contains("Broaden keywords"), "{timeout}");
@@ -1397,7 +1971,11 @@ mod tests {
             "status": "error",
             "data": {"error":"forbidden","errorCode":"permission"}
         });
-        apply_hint_policy(&mut permission, "ghSearchCode", &query);
+        apply_hint_policy(
+            &mut permission,
+            ToolId::from_name("ghSearchCode").expect("known tool"),
+            &query,
+        );
         assert!(
             permission["data"]["hints"][0]
                 .as_str()
@@ -1414,7 +1992,11 @@ mod tests {
                 "hints":["Inspect the repository tree."]
             }
         });
-        apply_hint_policy(&mut owned, "ghSearchCode", &query);
+        apply_hint_policy(
+            &mut owned,
+            ToolId::from_name("ghSearchCode").expect("known tool"),
+            &query,
+        );
         assert_eq!(
             owned["data"]["hints"],
             json!(["Inspect the repository tree."])
@@ -1427,7 +2009,7 @@ mod tests {
         });
         apply_hint_policy(
             &mut missing_path,
-            "localFetch",
+            ToolId::from_name("localFetch").expect("known tool"),
             &json!({"path":"/repo/missing.rs"}),
         );
         assert!(
@@ -1436,6 +2018,52 @@ mod tests {
                 .is_some_and(|hint| hint.contains("structureSearch operation:\"files\"")),
             "{missing_path}"
         );
+    }
+
+    #[test]
+    fn invalid_input_and_missing_path_errors_do_not_suggest_broadening() {
+        for (tool, code, expected) in [
+            (
+                "structureSearch",
+                "invalidInput",
+                "Correct the rejected field",
+            ),
+            (
+                "structureSearch",
+                "structure.input.invalid",
+                "Correct the rejected field",
+            ),
+            ("ghSearchRepo", "validation", "Correct the rejected field"),
+            (
+                "structureSearch",
+                "structure.policy.notFound",
+                "Verify the path exists",
+            ),
+            ("localSearch", "pathNotFound", "Verify the path exists"),
+            (
+                "structureSearch",
+                "structure.policy.outsideAllowedRoots",
+                "allowed roots",
+            ),
+        ] {
+            let mut row = json!({
+                "index": 0,
+                "status": "error",
+                "data": {"error":"failed","errorCode":code}
+            });
+            apply_hint_policy(
+                &mut row,
+                ToolId::from_name(tool).expect("known tool"),
+                &json!({"path":"/repo/nope"}),
+            );
+            let hint = row["data"]["hints"][0].as_str().expect("hint");
+            assert!(hint.contains(expected), "{code}: {hint}");
+            assert!(!hint.contains("Broaden"), "{code}: {hint}");
+        }
+        assert!(is_invalid_input_code("invalidRegex"));
+        assert!(!is_invalid_input_code("fileAccessFailed"));
+        assert!(is_not_found_code("structure.policy.notFound"));
+        assert!(!is_not_found_code("fileAccessFailed"));
     }
 
     #[test]
@@ -1455,7 +2083,11 @@ mod tests {
                 "status": "error",
                 "data": {"error":"failed","errorCode":code}
             });
-            apply_hint_policy(&mut row, "astSearch", &query);
+            apply_hint_policy(
+                &mut row,
+                ToolId::from_name("astSearch").expect("known tool"),
+                &query,
+            );
             let hint = row["data"]["hints"][0].as_str().expect("hint");
             assert!(hint.contains(expected), "{code}: {hint}");
             assert!(!hint.contains("Broaden the syntax"), "{code}: {hint}");
@@ -1467,6 +2099,7 @@ mod tests {
             cancellation: tokio_util::sync::CancellationToken::new(),
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(1),
             output_bytes: 16_000,
+            walk_threads: None,
         }
     }
 

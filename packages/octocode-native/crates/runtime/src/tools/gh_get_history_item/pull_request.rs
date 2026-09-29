@@ -13,7 +13,7 @@ use super::util::{
 };
 use super::window::{
     Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, WindowSpec,
-    WindowState, load_window,
+    WindowState, load_window, reconcile_file_totals,
 };
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch, validation};
 use crate::providers::github::{
@@ -124,6 +124,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         page: page.unwrap_or(1),
         page_size,
         filtered,
+        provider_total: None,
     };
     let pulls = ["repos", query.owner(), query.repo(), "pulls", &number];
     let issues = ["repos", query.owner(), query.repo(), "issues", &number];
@@ -138,10 +139,25 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             .filter(|g| kind(g) == GraphqlCollection::Complete)
             .map(|g| map(&g.source))
     };
+    // A selected or match-filtered file scan cannot jump to a batch by index;
+    // with the PR's changed-file count in hand it reads every batch at once.
+    let filtered_files = wants.files
+        && !file_filter.is_trivial()
+        && complete(|g| g.files, map_graphql_files).is_none();
+    let raw_first = match graphql.as_ref() {
+        None if filtered_files => Some(fetch(transport, &pulls, &[], context).await?.0),
+        _ => None,
+    };
+    let file_total = raw_first
+        .as_ref()
+        .and_then(|raw| raw.get("changed_files"))
+        .and_then(Value::as_u64)
+        .map(|total| usize::try_from(total).unwrap_or(usize::MAX));
     let raw_load = async {
-        match graphql.as_ref() {
-            Some(graphql) => Ok(graphql.raw.clone()),
-            None => fetch(transport, &pulls, &[], context)
+        match (graphql.as_ref(), raw_first.clone()) {
+            (Some(graphql), _) => Ok(graphql.raw.clone()),
+            (None, Some(raw)) => Ok(raw),
+            (None, None) => fetch(transport, &pulls, &[], context)
                 .await
                 .map(|(raw, _)| raw),
         }
@@ -156,11 +172,14 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.files,
             complete(|g| g.files, map_graphql_files),
             &files_path,
-            spec(
-                MAX_FILE_BATCHES,
-                query.file_page(),
-                !file_filter.is_trivial()
-            ),
+            WindowSpec {
+                provider_total: file_total,
+                ..spec(
+                    MAX_FILE_BATCHES,
+                    query.file_page(),
+                    !file_filter.is_trivial(),
+                )
+            },
             |value| file_filter.matches(value),
             context,
         ),
@@ -233,7 +252,26 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         }
     }
 
+    // A continuation replay already holds the header and the follow-up menu:
+    // it carries only the identity fields every page must re-prove, plus the
+    // fields the output contract requires of every pull-request row.
+    let slim = query.follow_up() && !query.debug();
     let mut row = pr_metadata(&raw, query, wants.body);
+    if slim && let Some(fields) = row.as_object_mut() {
+        fields.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "number"
+                    | "title"
+                    | "state"
+                    | "author"
+                    | "createdAt"
+                    | "sourceSha"
+                    | "mergeCommitSha"
+                    | "changedFilesCount"
+            )
+        });
+    }
     if !sanitization_warnings.is_empty() {
         row["sanitizationWarnings"] = json!(sanitization_warnings);
     }
@@ -246,15 +284,30 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     }
     let mut no_selected_files_matched = false;
     if let Some(loaded) = files_loaded {
+        let listed = loaded.state.skipped + loaded.items.len();
+        let state = loaded.state;
         no_selected_files_matched = shape_pr_files(
             &mut row,
             &mut content_pagination,
             loaded.items,
-            loaded.state,
+            state,
             query,
             patch_selector,
             patch_mode,
         );
+        if let Some(page) = content_pagination.get_mut("changedFiles") {
+            let changed_files = raw
+                .get("changed_files")
+                .and_then(Value::as_u64)
+                .map(|total| usize::try_from(total).unwrap_or(usize::MAX));
+            reconcile_file_totals(
+                page,
+                state,
+                listed,
+                changed_files,
+                !file_filter.is_trivial(),
+            );
+        }
     }
     if let Some(state) = comments_state {
         shape_pr_comments(&mut row, &mut content_pagination, comments, state, query);
@@ -286,7 +339,9 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         .into_iter()
         .flatten()
         .find_map(|v| str_at(v, "/path"));
-    row["next"] = pr_next_menu(query, content, patch_mode, first_changed_path, &raw);
+    if !slim {
+        row["next"] = pr_next_menu(query, content, patch_mode, first_changed_path, &raw);
+    }
     if !content_pagination.is_empty() {
         row["contentPagination"] = Value::Object(content_pagination);
     }
@@ -299,7 +354,46 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         ]);
     }
     promote_pr_continuations(&mut out, query);
+    if !query.debug() {
+        trim_content_pagination(&mut out);
+    }
     Ok(out)
+}
+
+/// Default responses drop pagination that adds nothing once `next.*` is
+/// built: a finished single-page list and the patch cursor, which the cut
+/// file's own `patchPagination` already carries. Provider limits stay.
+fn trim_content_pagination(out: &mut Value) {
+    let Some(row) = out
+        .pointer_mut("/pullRequests/0")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    let Some(pages) = row
+        .get_mut("contentPagination")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    pages.retain(|_, page| {
+        let finished_single = page.get("hasMore") == Some(&Value::Bool(false))
+            && page.get("currentPage").and_then(Value::as_u64) == Some(1)
+            && page.get("terminalLimit").is_none();
+        !finished_single
+    });
+    if pages
+        .get("patches")
+        .is_some_and(|patches| patches.get("hasMore") != Some(&Value::Bool(true)))
+    {
+        pages.remove("patches");
+    }
+    if let Some(patches) = pages.get_mut("patches").and_then(Value::as_object_mut) {
+        patches.retain(|key, _| matches!(key.as_str(), "hasMore" | "unfinishedFiles"));
+    }
+    if pages.is_empty() {
+        row.remove("contentPagination");
+    }
 }
 
 fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) -> Value {

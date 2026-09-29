@@ -316,25 +316,14 @@ pub struct RipgrepSearchOptions {
     /// [`DEFAULT_MAX_SEARCH_FILE_BYTES`]. Guards against OOM on pathological
     /// multi-GB single-line files.
     pub max_file_bytes: Option<u32>,
+    /// Worker threads for the parallel directory walk. `None` (or `0`) keeps
+    /// the ignore crate's default of one per available core; a caller running
+    /// several walks at once passes its share of the cores. Ignored when
+    /// `sort` is `traversal`, which always walks on one thread.
+    pub walk_threads: Option<u32>,
 }
 
 // ── filesystem query types ───────────────────────────────────────────────────
-
-pub(crate) fn default_excluded_directories() -> Vec<String> {
-    [
-        "node_modules",
-        "dist",
-        ".git",
-        "build",
-        "coverage",
-        ".next",
-        "out",
-        "target",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
 
 #[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
@@ -378,9 +367,9 @@ pub struct FileSystemQueryOptions {
     pub executable: Option<bool>,
     pub readable: Option<bool>,
     pub writable: Option<bool>,
-    /// Directory names pruned from recursive traversal. Omission uses the
-    /// canonical generated-directory list; an explicit empty list includes all
-    /// directories.
+    /// Directory names pruned from recursive traversal. The engine has no
+    /// default list: omission prunes nothing. The native runtime's prune
+    /// policy (`policy::prune`) supplies the names for every tool walk.
     pub exclude_dir: Option<Vec<String>>,
     /// Stop walking after `limit` returned entries. Default true for interactive
     /// tools; set false when exact total_discovered is more important than

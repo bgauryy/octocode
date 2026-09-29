@@ -1,6 +1,6 @@
 use super::*;
 use crate::policy::path::PathPolicyConfig;
-use crate::tools::local_fetch::NeverCancel;
+use crate::tools::cancel::NeverCancel;
 
 fn fixture() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("fixture");

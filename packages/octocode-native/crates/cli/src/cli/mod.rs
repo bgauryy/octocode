@@ -708,11 +708,7 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
     };
     match result {
         Ok(outcome) => {
-            let mut value = outcome.structured_content;
-            preserve_cli_text_page(
-                &mut value,
-                outcome.content.first().map(|content| content.text.as_str()),
-            );
+            let value = outcome.structured_content;
             let mut exit = match outcome.failure {
                 Some(octocode_native::runtime::FailureKind::NotFound) => 3,
                 Some(octocode_native::runtime::FailureKind::Authentication) => 4,
@@ -725,7 +721,9 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
                 // A whole-call failure that carries no runtime FailureKind (e.g. a
                 // config/gate refusal or admission-time validation) must not read
                 // as success — classify it as a usage/input error rather than 0.
-                if exit == 0 {
+                // Rows that all reject the caller's input are exit 2 as well,
+                // not an execution failure.
+                if exit == 0 || (exit == 5 && all_rows_invalid_input(&value)) {
                     exit = 2;
                 }
             } else {
@@ -750,11 +748,7 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
                 // "more pages" (exit 6, reserved for results + continuation).
                 // A batch row rejected by input validation is a caller error
                 // even when sibling rows succeeded (row isolation).
-                let rejected_row = rows.iter().any(|row| {
-                    row.get("status").and_then(Value::as_str) == Some("error")
-                        && row.pointer("/data/errorCode").and_then(Value::as_str)
-                            == Some("invalidInput")
-                });
+                let rejected_row = rows.iter().any(|row| is_invalid_input_row(row));
                 // Every clasify resource errored: nothing was judged.
                 let clasify_failed = value["queries"].as_array().is_some_and(|queries| {
                     !queries.is_empty()
@@ -812,18 +806,19 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
     }
 }
 
-/// The MCP text page is separate from structuredContent. CLI JSON has only
-/// one channel, so retain that page while structured result rows are withheld.
-fn preserve_cli_text_page(value: &mut Value, text: Option<&str>) {
-    if value
-        .pointer("/responsePagination/scope")
-        .and_then(Value::as_str)
-        == Some("content.text")
-        && value["results"].as_array().is_some_and(Vec::is_empty)
-        && let Some(text) = text
-    {
-        value["responseWindow"] = json!(text);
-    }
+/// An error row whose `errorCode` rejects the caller's input.
+fn is_invalid_input_row(row: &Value) -> bool {
+    row.get("status").and_then(Value::as_str) == Some("error")
+        && row
+            .pointer("/data/errorCode")
+            .and_then(Value::as_str)
+            .is_some_and(octocode_native::runtime::response::is_invalid_input_code)
+}
+
+fn all_rows_invalid_input(value: &Value) -> bool {
+    value["results"]
+        .as_array()
+        .is_some_and(|rows| !rows.is_empty() && rows.iter().all(is_invalid_input_row))
 }
 
 /// clasify returns `queries[].next.clasify` (a complete query, not a
@@ -846,10 +841,15 @@ fn is_continuation_name(name: &str) -> bool {
 }
 
 fn has_cli_continuation(row: &Value) -> bool {
-    row.pointer("/data/next")
-        .and_then(Value::as_object)
-        .is_some_and(|calls| calls.keys().any(|name| is_continuation_name(name)))
-        || has_nested_executable_next(&row["data"])
+    // A row that declares `complete:true` has nothing left to page; any
+    // `next.*` it carries (e.g. astSearch `expandCaptures`) is a drill-down.
+    let complete = row.pointer("/data/complete") == Some(&Value::Bool(true));
+    (!complete
+        && (row
+            .pointer("/data/next")
+            .and_then(Value::as_object)
+            .is_some_and(|calls| calls.keys().any(|name| is_continuation_name(name)))
+            || has_nested_executable_next(&row["data"])))
         || (octocode_native::runtime::response::is_partial(&row["data"])
             && row["data"]["content"]
                 .as_str()
@@ -894,24 +894,10 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        INTERACTIVE_EXECUTION_TIMEOUT_SECS, error_envelope, has_clasify_continuation,
-        has_cli_continuation, parse_args_from, preserve_cli_text_page,
+        INTERACTIVE_EXECUTION_TIMEOUT_SECS, all_rows_invalid_input, error_envelope,
+        has_clasify_continuation, has_cli_continuation, parse_args_from,
     };
     use serde_json::json;
-
-    #[test]
-    fn paged_cli_json_keeps_the_text_window() {
-        let mut page = json!({"results":[],"responsePagination":{
-            "scope":"content.text","hasMore":true,"next":{"tool":"localFetch","query":{}}
-        }});
-        preserve_cli_text_page(&mut page, Some("# Response page 1/2.\nsource"));
-        assert_eq!(page["responseWindow"], "# Response page 1/2.\nsource");
-
-        let mut complete = json!({"results":[{"data":{"content":"source"}}],
-            "responsePagination":{"scope":"content.text","hasMore":false}});
-        preserve_cli_text_page(&mut complete, Some("source"));
-        assert!(complete.get("responseWindow").is_none());
-    }
 
     #[test]
     fn json_error_envelope_matches_contract_tool_errors() {
@@ -943,6 +929,30 @@ mod tests {
         }
         let nested = json!({"data":{"nestedEvidence":{"next":{"nextPage":call}}}});
         assert!(has_cli_continuation(&nested));
+    }
+
+    #[test]
+    fn complete_rows_with_only_drill_downs_are_not_partial() {
+        let call = json!({"tool":"astSearch","query":{"captureText":true}});
+        let complete = json!({"data":{"complete":true,"next":{"expandCaptures":call}}});
+        assert!(!has_cli_continuation(&complete));
+        let open = json!({"data":{"complete":false,"next":{"expandCaptures":call}}});
+        assert!(has_cli_continuation(&open));
+    }
+
+    #[test]
+    fn rows_rejecting_caller_input_are_invalid_input() {
+        let rows = json!({"results":[
+            {"status":"error","data":{"errorCode":"invalidRegex"}},
+            {"status":"error","data":{"errorCode":"validation"}}
+        ]});
+        assert!(all_rows_invalid_input(&rows));
+        let mixed = json!({"results":[
+            {"status":"error","data":{"errorCode":"invalidRegex"}},
+            {"status":"error","data":{"errorCode":"fileAccessFailed"}}
+        ]});
+        assert!(!all_rows_invalid_input(&mixed));
+        assert!(!all_rows_invalid_input(&json!({"results":[]})));
     }
 
     #[test]

@@ -6,8 +6,9 @@ use crate::regex::{IsolatedRegexEngine, IsolatedRegexLimits};
 use crate::response::{PreparedResponse, ResponsePageOptions, TextContent};
 use crate::security::ContentSecurity;
 use crate::tools::ast_graph::store as graph_store;
+use crate::tools::cancel::CancellationCheck;
 use crate::tools::id::{ToolFamily, ToolId};
-use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
+use crate::tools::local_fetch::LocalFetchRegex;
 
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const LOCAL_DISABLED: &str =
     "Local tools are disabled (ENABLE_LOCAL=false); graph commands read local files.";
@@ -75,7 +76,7 @@ pub struct ToolRuntime {
     lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     /// Sanitized full views of recently paged local files (this runtime's
     /// security policy only), so each localFetch page skips a full rescan.
-    local_views: Arc<crate::tools::gh_get_file_content::SanitizedViewMemo>,
+    local_views: Arc<crate::security::scan::SanitizedViewMemo>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,12 +99,12 @@ pub struct ToolOutcome {
 
 /// An invalid row of an isolated batch, shaped like any other error row.
 fn rejected_row(
-    tool: &str,
+    tool: ToolId,
     index: usize,
     raw: Value,
     error: &contracts::ContractValidationError,
 ) -> (usize, Value) {
-    let formatted = contracts::format_input_error(tool, error);
+    let formatted = contracts::format_input_error(tool.as_str(), error);
     let data = json!({
         "error": formatted["error"],
         "errorCode": "invalidInput",
@@ -117,7 +118,7 @@ fn rejected_row(
 
 /// Put rejected rows back at their input positions and renumber `index`, so
 /// rows stay aligned with the caller's queries.
-fn merge_rejected_rows(rows: &mut Vec<Value>, rejected: Vec<(usize, Value)>) {
+pub(super) fn merge_rejected_rows(rows: &mut Vec<Value>, rejected: Vec<(usize, Value)>) {
     if rejected.is_empty() {
         return;
     }
@@ -156,21 +157,131 @@ fn mcp_result(result: ToolOutcome) -> Result<Value, RuntimeError> {
     .map_err(|_| RuntimeError::new("response", "Cannot serialize response"))
 }
 
+/// Clasify's resolved provider settings. Clasify is its own product: it
+/// runs through [`ClasifySettings::execute`] and never enters the ordinary
+/// results loop.
+struct ClasifySettings {
+    key: Option<SecretString>,
+    base_url: String,
+    endpoint_path: String,
+    model: String,
+    provider: &'static dyn crate::providers::classification::ClassificationProvider,
+    timeout: Duration,
+    retries: u32,
+    max_concurrency: usize,
+}
+
+impl ClasifySettings {
+    fn execute(
+        &self,
+        queries: &[Value],
+        rejected_rows: Vec<(usize, Value)>,
+        dispatcher: &super::domain_dispatch::DomainDispatcher,
+        context: &ExecutionContext,
+        record_usage: impl FnOnce(super::session_stats::ClassificationUsage),
+    ) -> Result<super::clasify_batch::Receipts, ExecutionError> {
+        let Some(key) = self.key.as_ref() else {
+            return Err(ExecutionError::WorkerFailed);
+        };
+        super::clasify_batch::execute(
+            queries,
+            rejected_rows,
+            dispatcher,
+            context,
+            self.timeout,
+            super::clasify_batch::ProviderConfig {
+                key,
+                base_url: &self.base_url,
+                endpoint_path: &self.endpoint_path,
+                model: &self.model,
+                provider: self.provider,
+                retries: self.retries,
+                max_concurrency: self.max_concurrency,
+            },
+            record_usage,
+        )
+    }
+}
+
+/// Semantic assessment is nondeterministic and billed per evaluation. Query
+/// replay cannot serve a page of the original judgment, including
+/// authenticated cursors.
+fn reject_clasify_response_pagination(input: &Value) -> Result<(), RuntimeError> {
+    if [
+        "responseCharOffset",
+        "responseCharLength",
+        "responseSnapshot",
+    ]
+    .iter()
+    .any(|field| input.get(field).is_some())
+    {
+        return Err(RuntimeError::new(
+            "unsupportedResponsePagination",
+            "clasify response pagination is unsupported: replay would repeat context execution and inference. Use the page-level results and next.clasify continuation instead.",
+        ));
+    }
+    Ok(())
+}
+
+/// The batch parallelism budget: how many threads one batch runs its
+/// queries on, and how many cores each query's parallel directory walk may
+/// use. Read-only rows fan out one thread per query; mutating and
+/// self-scheduled tools stay ordered. Each localSearch ripgrep walk also runs
+/// its own worker pool, which defaults to every core, so concurrent walks
+/// split the cores instead of stacking full pools. Measured on a 5-query
+/// localSearch batch over the native crates (12 cores, optimized build): one
+/// thread per query with full pools 114 ms and 86 peak threads, three workers
+/// 116 ms / 58, two 118 ms / 44, one walk at a time 130 ms / 29, so the rows
+/// stay concurrent and only the per-walk pools shrink. Splitting the cores
+/// (2 walkers each) against the same build with full pools: 708 vs 710 ms
+/// median, 22 vs 72 peak threads; rounding the share up changed nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BatchBudget {
+    /// Queries run at once.
+    width: usize,
+    /// Walk workers per query; `None` keeps the engine default (all cores).
+    walk_threads: Option<u32>,
+}
+
+impl BatchBudget {
+    fn new(id: ToolId, queries: usize, cores: usize) -> Self {
+        let width = if id.supports_concurrent_queries() {
+            queries.max(1)
+        } else {
+            1
+        };
+        let walk_threads =
+            (width > 1).then(|| u32::try_from((cores / width).max(1)).unwrap_or(u32::MAX));
+        Self {
+            width,
+            walk_threads,
+        }
+    }
+
+    fn for_host(id: ToolId, queries: usize) -> Self {
+        let cores = std::thread::available_parallelism().map_or(1, usize::from);
+        Self::new(id, queries, cores)
+    }
+}
+
 fn execute_ordinary_queries(
-    tool: &str,
+    tool: ToolId,
     queries: &[Value],
     dispatcher: &super::domain_dispatch::DomainDispatcher,
     context: &ExecutionContext,
 ) -> Result<Vec<super::dispatch::DomainResult>, ExecutionError> {
-    let concurrent = queries.len() > 1
-        && ToolId::from_name(tool).is_some_and(ToolId::supports_concurrent_queries);
-    if !concurrent {
+    let budget = BatchBudget::for_host(tool, queries.len());
+    if budget.width <= 1 {
         return queries
             .iter()
             .map(|query| dispatcher.execute(tool, query, context))
             .collect();
     }
 
+    let context = &ExecutionContext {
+        walk_threads: budget.walk_threads,
+        ..context.clone()
+    };
     std::thread::scope(|scope| {
         let tasks = queries
             .iter()
@@ -366,6 +477,34 @@ impl ToolRuntime {
         }
     }
 
+    /// Provider settings for one clasify call, resolved before the blocking
+    /// worker starts.
+    fn clasify_settings(&self) -> ClasifySettings {
+        let provider = crate::providers::classification::provider_for(
+            self.config.resolved.classification.r#type.as_str(),
+        );
+        ClasifySettings {
+            key: self
+                .classification_key()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| SecretString::from(value.to_owned())),
+            base_url: self
+                .config
+                .env_value("OCTOCODE_CLASSIFICATION_API_HOST")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| provider.default_host().to_owned()),
+            endpoint_path: provider.endpoint_path().to_owned(),
+            model: provider.default_model().to_owned(),
+            provider,
+            timeout: Duration::from_millis(self.config.resolved.network.timeout as u64),
+            retries: self.config.resolved.network.max_retries as u32,
+            max_concurrency: self.config.resolved.classification.max_concurrency as usize,
+        }
+    }
+
     /// True when `tools.enabled`/`tools.disabled` (not a feature gate)
     /// excludes the tool, so the remedy is the tool list.
     fn excluded_by_tool_list(&self, tool: &str) -> bool {
@@ -390,7 +529,7 @@ impl ToolRuntime {
             options,
             &self.paths,
             &self.security,
-            &crate::tools::local_fetch::NeverCancel,
+            &crate::tools::cancel::NeverCancel,
         )
     }
 
@@ -527,17 +666,15 @@ impl ToolRuntime {
     ) -> Result<ToolOutcome, RuntimeError> {
         // Clone and rewrite mutate the user's machine: CLI only. MCP never
         // executes them, even if an embedder used a CLI host surface.
-        if mcp && ToolId::from_name(&tool).is_some_and(ToolId::is_cli_only) {
+        let requested = ToolId::from_name(&tool);
+        if mcp && requested.is_some_and(ToolId::is_cli_only) {
             return Err(RuntimeError::new(
                 "toolUnavailable",
                 format!("Tool {tool} is not available through MCP; run `octocode {tool}`."),
             ));
         }
         if !self.is_available(&tool) {
-            if !mcp
-                && ToolId::from_name(&tool).is_some_and(ToolId::is_beta)
-                && !self.config.resolved.local.beta
-            {
+            if !mcp && requested.is_some_and(ToolId::is_beta) && !self.config.resolved.local.beta {
                 return Err(RuntimeError::new(
                     "missingConfiguration",
                     format!(
@@ -546,7 +683,7 @@ impl ToolRuntime {
                 ));
             }
             if !mcp
-                && tool == "clasify"
+                && requested.is_some_and(ToolId::is_clasify)
                 && self
                     .classification_key()
                     .map(str::trim)
@@ -585,17 +722,8 @@ impl ToolRuntime {
             .and_then(|m| m["cursor"].as_str())
         {
             Some(tok) => {
-                let (dt, dq) = match super::cursor::UniversalCursor::decode(tok, &scope) {
-                    Ok(cursor) => (cursor.tool, cursor.query),
-                    Err(_) => {
-                        let cursor = super::cursor::ReadCursor::decode(tok, &scope)
-                            .map_err(cursor_runtime_error)?;
-                        cursor
-                            .verify_source(&self.paths)
-                            .map_err(cursor_runtime_error)?;
-                        (cursor.tool, cursor.query)
-                    }
-                };
+                let (dt, dq) =
+                    resume_cursor(tok, &scope, &self.paths).map_err(cursor_runtime_error)?;
                 if !self.is_available(&dt) {
                     return Err(RuntimeError::new(
                         "toolUnavailable",
@@ -606,22 +734,18 @@ impl ToolRuntime {
             }
             None => (tool, input, false),
         };
-        // Semantic assessment is nondeterministic and billed per evaluation. Query replay cannot
-        // serve a page of the original judgment, including authenticated cursors.
-        if tool == "clasify"
-            && [
-                "responseCharOffset",
-                "responseCharLength",
-                "responseSnapshot",
-            ]
-            .iter()
-            .any(|field| input.get(field).is_some())
-        {
-            return Err(RuntimeError::new(
-                "unsupportedResponsePagination",
-                "clasify response pagination is unsupported: replay would repeat context execution and inference. Use the page-level results and next.clasify continuation instead.",
-            ));
-        }
+        let id = ToolId::from_name(&tool).ok_or_else(|| {
+            RuntimeError::new(
+                "toolUnavailable",
+                format!("Tool {tool} is not available in this native runtime"),
+            )
+        })?;
+        let clasify = if id.is_clasify() {
+            reject_clasify_response_pagination(&input)?;
+            Some(self.clasify_settings())
+        } else {
+            None
+        };
         // Parse response-paging options before contract validation.
         let options: ResponsePageOptions =
             serde_json::from_value(input.clone()).unwrap_or_default();
@@ -665,7 +789,7 @@ impl ToolRuntime {
                         match row {
                             Ok(query) => prepared.push(query),
                             Err(error) => rejected_rows.push(rejected_row(
-                                &tool,
+                                id,
                                 index,
                                 raw_rows.get(index).cloned().unwrap_or(Value::Null),
                                 &error,
@@ -711,7 +835,7 @@ impl ToolRuntime {
             github_cache,
             config: config.clone(),
             home: home.clone(),
-            handle: handle.clone(),
+            handle,
             lsp_pool: self.lsp_pool.clone(),
             local_views: self.local_views.clone(),
             lsp_execution_config: crate::tools::lsp_search::LspExecutionConfig {
@@ -724,28 +848,6 @@ impl ToolRuntime {
                 .map(|id| id.as_str())
                 .collect(),
         };
-        let classification_provider = crate::providers::classification::provider_for(
-            self.config.resolved.classification.r#type.as_str(),
-        );
-        let classification_key_secret = self
-            .classification_key()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| SecretString::from(value.to_owned()));
-        let classification_base_url = self
-            .config
-            .env_value("OCTOCODE_CLASSIFICATION_API_HOST")
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| classification_provider.default_host().to_owned());
-        let classification_endpoint_path = classification_provider.endpoint_path().to_owned();
-        let classification_model = classification_provider.default_model().to_owned();
-        let classification_timeout =
-            Duration::from_millis(self.config.resolved.network.timeout as u64);
-        let classification_retries = self.config.resolved.network.max_retries as u32;
-        let classification_max_concurrency =
-            self.config.resolved.classification.max_concurrency as usize;
         let stats_enabled = config::is_stats_enabled(&self.config.resolved);
         let redact_emails = self.config.resolved.output.redact_emails;
         let auto_page_chars = self.config.resolved.output.pagination.default_char_length as usize;
@@ -755,33 +857,12 @@ impl ToolRuntime {
         let outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
-                let mut rows = Vec::with_capacity(queries.len());
-                let mut source_digest = None;
-                let mut failure = None;
-                let evaluated = if tool == "clasify" {
-                    let _enter = handle.enter();
-                    let Some(key) = classification_key_secret.as_ref() else {
-                        return Err(ExecutionError::WorkerFailed);
-                    };
-                    let evaluation_context = ExecutionContext {
-                        deadline: context
-                            .deadline
-                            .min(Instant::now() + classification_timeout),
-                        ..context.clone()
-                    };
-                    super::clasify_batch::execute(
+                if let Some(clasify) = &clasify {
+                    let receipts = clasify.execute(
                         &queries,
+                        rejected_rows,
                         &dispatcher,
-                        &evaluation_context,
-                        super::clasify_batch::ProviderConfig {
-                            key,
-                            base_url: &classification_base_url,
-                            endpoint_path: &classification_endpoint_path,
-                            model: &classification_model,
-                            provider: classification_provider,
-                            retries: classification_retries,
-                            max_concurrency: classification_max_concurrency,
-                        },
+                        &context,
                         |usage| {
                             super::session_stats::record_classification(
                                 &home,
@@ -789,10 +870,18 @@ impl ToolRuntime {
                                 usage,
                             );
                         },
-                    )?
-                } else {
-                    execute_ordinary_queries(&tool, &queries, &dispatcher, &context)?
-                };
+                    )?;
+                    return super::response_stage::finish_receipts(
+                        receipts,
+                        response_query,
+                        options,
+                        &context,
+                    );
+                }
+                let evaluated = execute_ordinary_queries(id, &queries, &dispatcher, &context)?;
+                let mut rows = Vec::with_capacity(queries.len());
+                let mut source_digest = None;
+                let mut failure = None;
                 let mut evaluated = evaluated.into_iter();
                 for (index, query) in queries.iter().enumerate() {
                     context.check()?;
@@ -802,56 +891,52 @@ impl ToolRuntime {
                         source_digest = result.source_digest;
                     }
                     failure = failure.or(result.failure);
-                    if tool == "clasify" {
-                        rows.push(result.data);
-                        continue;
-                    }
                     let mut row =
-                        response::result_row(&tool, index, query, result.data, result.status);
+                        response::result_row(id, index, query, result.data, result.status);
                     response::attach_diagnostics(&mut row, result.diagnostics);
                     if result.cache {
                         row["cache"] = json!(1);
                     }
-                    response::apply_hint_policy(&mut row, &tool, query);
+                    response::apply_hint_policy(&mut row, id, query);
+                    response::minimize_row(&mut row, id, query);
                     rows.push(row);
                 }
+                let rejected_at: Vec<usize> =
+                    rejected_rows.iter().map(|(index, _)| *index).collect();
                 merge_rejected_rows(&mut rows, rejected_rows);
-                // Clasify receipts and caller-authored rubric values are opaque JSON:
-                // path compaction would mutate their identity and meaning.
-                let mut structured = if tool == "clasify" {
-                    json!({"queries": rows})
-                } else {
-                    response::envelope(rows)
-                };
                 let shared_path = queries
                     .first()
                     .and_then(|query| query.get("path"))
                     .filter(|path| queries.iter().all(|query| query.get("path") == Some(*path)));
+                if queries.len() > 1 && shared_path.is_none() {
+                    response::absolutize_row_paths(&mut rows, id, &queries);
+                }
+                let mut structured = response::envelope(rows);
                 if (queries.len() == 1 || shared_path.is_some())
                     && let Some(query) = queries.first()
                 {
-                    response::attach_query_base(&mut structured, &tool, query);
+                    response::attach_query_base(&mut structured, id, query);
                 }
                 response::finalize_output_fields(
                     &mut structured,
-                    &tool,
+                    id,
                     &security,
                     &context,
                     redact_emails,
                 )?;
-                if tool != "clasify" {
-                    super::continuations::filter_unavailable_cross_tool_next(
-                        &mut structured,
-                        &tool,
-                        |target| {
-                            (!mcp || target != "ghCloneRepo")
-                                && dispatcher.available_tools.contains(&target)
-                        },
-                    );
-                }
+                let by_row = super::clasify_handoff::row_queries(&queries, &rejected_at);
+                super::clasify_handoff::attach(&mut structured, &tool, &by_row);
+                super::continuations::filter_unavailable_cross_tool_next(
+                    &mut structured,
+                    &tool,
+                    |target| {
+                        (!mcp || target != "ghCloneRepo")
+                            && dispatcher.available_tools.contains(&target)
+                    },
+                );
                 super::response_stage::finish(
                     super::response_stage::StageInput {
-                        tool,
+                        tool: id,
                         structured,
                         response_query,
                         options,
@@ -870,6 +955,18 @@ impl ToolRuntime {
             .map_err(|error| output_contract_error(&output_tool, error))?;
         Ok(outcome)
     }
+}
+
+/// Decode a `{cursor}` token and verify its source; returns the resumed
+/// tool and query.
+fn resume_cursor(
+    token: &str,
+    scope: &str,
+    paths: &PathPolicy,
+) -> Result<(String, Value), super::cursor::CursorError> {
+    let cursor = super::cursor::Cursor::decode(token, scope)?;
+    cursor.verify_source(paths)?;
+    Ok(cursor.into_parts())
 }
 
 fn cursor_runtime_error(error: super::cursor::CursorError) -> RuntimeError {
@@ -913,7 +1010,7 @@ mod output_recovery_tests {
         assert!(isolate_output_rows("ghCloneRepo", &mut structured).expect("row isolation"));
         let all_failed = response_all_failed(&structured);
         let text = super::super::render::render_tool(
-            "ghCloneRepo",
+            ToolId::GhCloneRepo,
             &structured,
             &json!({"owner":"a","repo":"b"}),
             super::super::render::TextFormat::Yaml,
@@ -981,6 +1078,47 @@ mod output_recovery_tests {
 }
 
 #[cfg(test)]
+mod batch_budget_tests {
+    use super::*;
+
+    #[test]
+    fn read_only_batches_fan_out_one_thread_per_query_and_mutations_stay_ordered() {
+        for id in ToolId::ALL {
+            let ordered = matches!(
+                id,
+                ToolId::GhCloneRepo | ToolId::AstRewrite | ToolId::Clasify
+            );
+            let width = BatchBudget::new(id, 5, 12).width;
+            assert_eq!(width, if ordered { 1 } else { 5 }, "{id}");
+            assert_eq!(BatchBudget::new(id, 1, 12).width, 1, "{id}");
+        }
+    }
+
+    #[test]
+    fn concurrent_walks_split_the_cores_and_a_single_walk_keeps_the_default() {
+        // Serializing walks measured slower, so rows stay concurrent and each
+        // walk gets its share of the cores (see `BatchBudget`).
+        let five = BatchBudget::new(ToolId::LocalSearch, 5, 12);
+        assert_eq!(five.width, 5);
+        assert_eq!(five.walk_threads, Some(2));
+        assert_eq!(
+            BatchBudget::new(ToolId::LocalSearch, 1, 12).walk_threads,
+            None
+        );
+        // Never below one worker, even with more walks than cores.
+        assert_eq!(
+            BatchBudget::new(ToolId::LocalSearch, 5, 2).walk_threads,
+            Some(1)
+        );
+        // Ordered tools run one row at a time with the full default.
+        assert_eq!(
+            BatchBudget::new(ToolId::AstRewrite, 5, 12).walk_threads,
+            None
+        );
+    }
+}
+
+#[cfg(test)]
 mod cursor_tests {
     //! Legacy `{cursor}` resume: responses no longer stamp cursors (localFetch
     //! continuations carry `snapshot`), but previously issued read cursors
@@ -989,6 +1127,37 @@ mod cursor_tests {
     use crate::policy::path::PathPolicyConfig;
     use sha2::{Digest, Sha256};
 
+    fn workspace_paths(root: &std::path::Path) -> PathPolicy {
+        PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.to_path_buf()),
+            ..Default::default()
+        })
+        .expect("path policy")
+    }
+
+    #[test]
+    fn universal_cursor_failing_its_own_check_reports_its_own_error() {
+        let root = tempfile::tempdir().expect("temp workspace");
+        let paths = workspace_paths(root.path());
+        let token = super::super::cursor::Cursor::universal(
+            "astSearch",
+            json!({"path":"/workspace"}),
+            "scope-a".into(),
+        )
+        .expect("universal cursor");
+        assert_eq!(
+            resume_cursor(&token, "scope-b", &paths).map(|_| ()),
+            Err(super::super::cursor::CursorError::ChangedScope)
+        );
+        assert_eq!(
+            cursor_runtime_error(super::super::cursor::CursorError::ChangedScope).code,
+            "invalidCursor"
+        );
+        let (tool, query) = resume_cursor(&token, "scope-a", &paths).expect("resume");
+        assert_eq!(tool, "astSearch");
+        assert_eq!(query, json!({"path":"/workspace"}));
+    }
+
     #[test]
     fn changing_one_local_fetch_source_stales_only_that_rows_cursor() {
         let root = tempfile::tempdir().expect("temp workspace");
@@ -996,27 +1165,23 @@ mod cursor_tests {
         let second_path = root.path().join("b.rs");
         std::fs::write(&first_path, b"first-v1").expect("write first fixture");
         std::fs::write(&second_path, b"second-v1").expect("write second fixture");
-        let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.path().to_path_buf()),
-            ..Default::default()
-        })
-        .expect("path policy");
+        let paths = workspace_paths(root.path());
         let digest = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
-        let first = super::super::cursor::ReadCursor::create(
+        let first = super::super::cursor::Cursor::read(
             "localFetch",
             json!({"path":first_path}),
             digest(b"first-v1"),
             "scope".into(),
         )
-        .and_then(|token| super::super::cursor::ReadCursor::decode(&token, "scope"))
+        .and_then(|token| super::super::cursor::Cursor::decode(&token, "scope"))
         .expect("first read cursor");
-        let second = super::super::cursor::ReadCursor::create(
+        let second = super::super::cursor::Cursor::read(
             "localFetch",
             json!({"path":second_path}),
             digest(b"second-v1"),
             "scope".into(),
         )
-        .and_then(|token| super::super::cursor::ReadCursor::decode(&token, "scope"))
+        .and_then(|token| super::super::cursor::Cursor::decode(&token, "scope"))
         .expect("second read cursor");
 
         first.verify_source(&paths).expect("first initially fresh");

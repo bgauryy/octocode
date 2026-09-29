@@ -1,0 +1,353 @@
+// Integration test crate — assertions use unwrap/expect/panic freely.
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+//! Large pull-request review: changed-file inventory, patch availability,
+//! provider file-list cap, continuation payload size, and scan latency.
+
+mod support;
+
+use serde_json::{Value, json};
+use std::time::{Duration, Instant};
+use support::{Workspace, call, row_data, row_status};
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn pr(changed_files: usize) -> Value {
+    json!({
+        "number": 9, "title": "Large refactor", "state": "closed",
+        "merged_at": "2024-01-03T00:00:00Z",
+        "merge_commit_sha": "fedcba9876543210fedcba9876543210fedcba98",
+        "draft": false, "body": "x".repeat(900),
+        "user": {"login": "alice"}, "labels": [{"name": "refactor"}],
+        "head": {"sha": SHA, "ref": "feat"}, "base": {"ref": "main"},
+        "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-02T00:00:00Z",
+        "closed_at": "2024-01-03T00:00:00Z",
+        "comments": 4, "review_comments": 2,
+        "changed_files": changed_files, "additions": 5000, "deletions": 4000
+    })
+}
+
+fn rest_file(name: &str, patch: Option<&str>, additions: u64, deletions: u64) -> Value {
+    let mut file = json!({
+        "sha": "1111111111111111111111111111111111111111", "filename": name,
+        "status": "modified", "additions": additions, "deletions": deletions,
+        "changes": additions + deletions
+    });
+    if let Some(patch) = patch {
+        file["patch"] = json!(patch);
+    }
+    file
+}
+
+async fn mount_pr(server: &MockServer, changed_files: usize) {
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(pr(changed_files)))
+        .mount(server)
+        .await;
+}
+
+/// Mount `batches` provider file pages; every page but the last links `next`.
+async fn mount_file_batches(server: &MockServer, batches: Vec<Vec<Value>>, delay: Duration) {
+    let count = batches.len();
+    for (index, files) in batches.into_iter().enumerate() {
+        let page = index + 1;
+        let mut response = ResponseTemplate::new(200)
+            .set_delay(delay)
+            .set_body_json(Value::Array(files));
+        if page < count {
+            response = response.insert_header(
+                "link",
+                format!(
+                    "<{}/api/v3/repos/a/b/pulls/9/files?per_page=100&page={}>; rel=\"next\"",
+                    server.uri(),
+                    page + 1
+                )
+                .as_str(),
+            );
+        }
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/pulls/9/files"))
+            .and(query_param("page", page.to_string()))
+            .respond_with(response)
+            .mount(server)
+            .await;
+    }
+}
+
+fn numbered(batch: usize, size: usize) -> Vec<Value> {
+    (0..size)
+        .map(|i| {
+            rest_file(
+                &format!("src/b{batch}/f{i}.rs"),
+                Some("@@ -1 +1 @@\n-a\n+b"),
+                1,
+                1,
+            )
+        })
+        .collect()
+}
+
+async fn run(server: &MockServer, query: Value) -> Value {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let mut query = query;
+    query["operation"] = json!("pullRequest");
+    query["owner"] = json!("a");
+    query["repo"] = json!("b");
+    query["number"] = json!(9);
+    let outcome = match call(&runtime, "ghGetHistoryItem", query).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let seen = server
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .map(|r| r.url.to_string())
+                .collect::<Vec<_>>();
+            panic!("PR read failed: {error:?}; requests: {seen:?}");
+        }
+    };
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome).clone();
+    runtime.close().await;
+    data
+}
+
+#[tokio::test]
+async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 5).await;
+    let mut renamed = rest_file("src/new_name.rs", None, 0, 0);
+    renamed["status"] = json!("renamed");
+    renamed["previous_filename"] = json!("src/old_name.rs");
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/ok.rs", Some("@@ -1 +1 @@\n-a\n+b"), 1, 1),
+            renamed,
+            rest_file("src/checker.ts", None, 39_550, 39_342),
+            rest_file("assets/logo.png", None, 0, 0),
+            rest_file("src/omitted.ts", None, 0, 0),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"changedFiles": true}, "debug": false}),
+    )
+    .await;
+    let files = data["pullRequests"][0]["changedFiles"]
+        .as_array()
+        .expect("changedFiles")
+        .clone();
+    let by = |name: &str| {
+        files
+            .iter()
+            .find(|f| f["path"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("{name} missing in {files:?}"))
+    };
+    assert!(
+        by("src/ok.rs").get("patchUnavailable").is_none(),
+        "{files:?}"
+    );
+    assert_eq!(by("src/new_name.rs")["previousPath"], "src/old_name.rs");
+    assert!(by("src/new_name.rs").get("patchUnavailable").is_none());
+    assert_eq!(by("src/checker.ts")["patchUnavailable"], "tooLarge");
+    assert_eq!(by("assets/logo.png")["patchUnavailable"], "binary");
+    assert_eq!(by("src/omitted.ts")["patchUnavailable"], "omitted");
+}
+
+#[tokio::test]
+async fn pure_rename_patch_is_empty_not_a_provider_omission() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 2).await;
+    let mut renamed = rest_file("src/new_name.rs", None, 0, 0);
+    renamed["status"] = json!("renamed");
+    renamed["previous_filename"] = json!("src/old_name.rs");
+    mount_file_batches(
+        &server,
+        vec![vec![renamed, rest_file("src/checker.ts", None, 10, 2)]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"patches": {"mode": "all"}}, "debug": false, "minify": "none"}),
+    )
+    .await;
+    let files = &data["pullRequests"][0]["changedFiles"];
+    assert_eq!(files[0]["path"], "src/new_name.rs", "{files}");
+    assert_eq!(files[0]["previousPath"], "src/old_name.rs", "{files}");
+    assert_eq!(files[0]["patch"], "", "{files}");
+    assert!(files[0].get("patchUnavailable").is_none(), "{files}");
+    assert_eq!(files[1]["patchUnavailable"], "tooLarge", "{files}");
+}
+
+#[tokio::test]
+async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
+    // GitHub lists at most 3000 files: the last listable page has no `next`
+    // link although the PR reports more changed files.
+    let server = MockServer::start().await;
+    mount_pr(&server, 3500).await;
+    mount_file_batches(&server, vec![numbered(1, 100)], Duration::ZERO).await;
+    let data = run(
+        &server,
+        json!({"content": {"changedFiles": true}, "pageSize": 100, "debug": false}),
+    )
+    .await;
+    let page = &data["pullRequests"][0]["contentPagination"]["changedFiles"];
+    assert_ne!(page["countScope"], "complete", "{page}");
+    assert_eq!(page["terminalLimit"], true, "{page}");
+    assert_eq!(
+        page["providerLimit"]["reason"], "providerFileListLimit",
+        "{page}"
+    );
+    assert_eq!(page["providerLimit"]["listed"], 100, "{page}");
+    assert_eq!(page["providerLimit"]["changedFiles"], 3500, "{page}");
+}
+
+#[tokio::test]
+async fn pr_inventory_page_reports_the_provider_total() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 250).await;
+    mount_file_batches(
+        &server,
+        vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"changedFiles": true}, "pageSize": 100, "debug": false}),
+    )
+    .await;
+    let page = &data["pullRequests"][0]["contentPagination"]["changedFiles"];
+    assert_eq!(page["totalItems"], 250, "{page}");
+    assert_eq!(page["totalPages"], 3, "{page}");
+    assert_eq!(page["hasMore"], true, "{page}");
+    assert_eq!(page["nextPage"], 2, "{page}");
+}
+
+#[tokio::test]
+async fn pr_continuation_reads_carry_only_the_identity_header() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 250).await;
+    mount_file_batches(
+        &server,
+        vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)],
+        Duration::ZERO,
+    )
+    .await;
+    let query =
+        json!({"content": {"changedFiles": true}, "pageSize": 100, "filePage": 2, "debug": false});
+    let mut follow = query.clone();
+    follow["followUp"] = json!(true);
+    let first = run(&server, query).await;
+    let first_row = &first["pullRequests"][0];
+    assert_eq!(first_row["title"], "Large refactor", "{first_row}");
+    assert!(first_row.get("next").is_some(), "{first_row}");
+
+    let data = run(&server, follow).await;
+    let row = &data["pullRequests"][0];
+    for kept in [
+        "number",
+        "title",
+        "state",
+        "sourceSha",
+        "mergeCommitSha",
+        "changedFilesCount",
+    ] {
+        assert!(row.get(kept).is_some(), "{kept} missing: {row}");
+    }
+    for dropped in [
+        "labels",
+        "targetBranch",
+        "sourceBranch",
+        "updatedAt",
+        "closedAt",
+        "mergedAt",
+        "commentsCount",
+        "additions",
+        "deletions",
+        "bodyPreview",
+        "next",
+    ] {
+        assert!(row.get(dropped).is_none(), "{dropped} repeated: {row}");
+    }
+    assert_eq!(row["changedFiles"].as_array().map(Vec::len), Some(100));
+    assert!(data["next"]["nextChangedFilesPage"].is_object(), "{data}");
+
+    // debug keeps the full header.
+    let mut debug = json!({"content": {"changedFiles": true}, "pageSize": 100, "filePage": 2});
+    debug["followUp"] = json!(true);
+    debug["debug"] = json!(true);
+    let debug = run(&server, debug).await;
+    assert_eq!(debug["pullRequests"][0]["labels"], json!(["refactor"]));
+}
+
+#[tokio::test]
+async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 2).await;
+    let big = format!("@@ -1,2000 +1,2000 @@\n{}", "+line\n".repeat(4_000));
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/big.rs", Some(&big), 4_000, 0),
+            rest_file("src/small.rs", Some("@@ -1 +1 @@\n-a\n+b"), 1, 1),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"patches": {"mode": "selected", "files": ["src/big.rs"]}},
+               "minify": "none", "debug": false}),
+    )
+    .await;
+    let row = &data["pullRequests"][0];
+    let file = &row["changedFiles"][0];
+    assert_eq!(file["patchPagination"]["hasMore"], true, "{row}");
+    let pages = &row["contentPagination"];
+    // The finished single-page file list and the cursor copy add nothing.
+    assert!(pages.get("changedFiles").is_none(), "{pages}");
+    assert!(pages["patches"].get("charOffset").is_none(), "{pages}");
+    assert!(pages["patches"].get("totalChars").is_none(), "{pages}");
+    assert!(data["next"]["continuePatch"].is_object(), "{data}");
+}
+
+#[tokio::test]
+async fn selected_patch_scan_reads_file_batches_concurrently() {
+    // A selected late file must not cost one sequential round trip per
+    // provider batch before it: six 300 ms batches read in parallel.
+    let server = MockServer::start().await;
+    mount_pr(&server, 600).await;
+    let mut batches = (1..=6).map(|b| numbered(b, 100)).collect::<Vec<_>>();
+    batches[5][99] = rest_file("src/late.rs", Some("@@ -1 +1 @@\n-a\n+late"), 1, 1);
+    mount_file_batches(&server, batches, Duration::from_millis(300)).await;
+    let started = Instant::now();
+    let data = run(
+        &server,
+        json!({"content": {"patches": {"mode": "selected", "files": ["src/late.rs"]}},
+               "minify": "none", "debug": false}),
+    )
+    .await;
+    let elapsed = started.elapsed();
+    let file = &data["pullRequests"][0]["changedFiles"][0];
+    assert_eq!(file["path"], "src/late.rs", "{data}");
+    assert_eq!(file["patch"], "@@ -1 +1 @@\n-a\n+late");
+    assert!(
+        elapsed < Duration::from_millis(1_200),
+        "sequential scan: {elapsed:?}"
+    );
+}

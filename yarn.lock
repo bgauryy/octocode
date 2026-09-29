@@ -1425,7 +1425,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
   dependencies:
-    "@octocodeai/octocode-core": "npm:19.1.4"
+    "@octocodeai/octocode-core": "npm:19.1.6"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
     ajv: "npm:^8.20.0"
@@ -1468,10 +1468,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.1.6
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=b5efc3&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=0da347&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/853de5fa65bbd19b68c8d4b02719063725491a3f12fdc999d40b816f87eccee00a3d7ba8252298532c03945df91d9b2fb76514978544f12a2bb6b8e8f9f2756d
+  checksum: 10c0/8b4122ee8bb37fc49eab14873138a06bc283be4520583bbba4099adaa17fd254ef3baa19c5da4c25dd545f2f9d7088457a9e75bf7f096ccc4bc2d3c1254b3f16
   languageName: node
   linkType: hard
 

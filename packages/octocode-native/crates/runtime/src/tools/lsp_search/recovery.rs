@@ -8,7 +8,7 @@ use super::cancellable;
 use super::failure::LspFailure;
 use super::render::uri_to_path;
 use super::source::SourceCache;
-use crate::tools::local_fetch::CancellationCheck;
+use crate::tools::cancel::CancellationCheck;
 use octocode_engine::lsp::client::{
     LocationRequest, NativeLspClient, SNIPPET_CONTENT_WITHHELD, SnippetReadPolicy,
 };

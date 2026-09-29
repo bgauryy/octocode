@@ -255,7 +255,7 @@
           "values": ["persistent", "memory"],
           "description": "Whether caches and runtime state may persist on disk.",
           "env": {
-            "OCTOCODE_STORAGE_MODE": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+            "OCTOCODE_STORAGE_MODE": { "priority": 0, "dotenv": "home", "normalize": "lower", "invalid": "skip" }
           }
         }
       }
@@ -321,7 +321,7 @@
           "displayDefault": "inherits storage.mode",
           "description": "Pi extension storage mode override.",
           "env": {
-            "OCTOCODE_EXTENSION_STORAGE_MODE": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+            "OCTOCODE_EXTENSION_STORAGE_MODE": { "priority": 0, "dotenv": "home", "normalize": "lower", "invalid": "skip" }
           }
         }
       }

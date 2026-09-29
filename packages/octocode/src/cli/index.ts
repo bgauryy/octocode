@@ -18,6 +18,15 @@ import { EXIT } from './exit-codes.js';
  *  - the TTY client picker for a bare `install` (selection only — every
  *    operation after selection runs native).
  */
+/** Boolean flags arrive as `true` (bare) or a string (`--json=true`). */
+export function isTrueFlag(value: unknown): boolean {
+  if (value === true) return true;
+  return (
+    typeof value === 'string' &&
+    ['true', '1', 'yes'].includes(value.toLowerCase())
+  );
+}
+
 export async function runCLI(argv?: string[]): Promise<boolean> {
   const { maybeWarnAboutStaleBuild } = await import('./stale-build.js');
   maybeWarnAboutStaleBuild();
@@ -82,8 +91,8 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     !hasExplicitIde &&
     !hasHelpFlag(args) &&
     !hasVersionFlag(args) &&
-    args.options.list !== true &&
-    args.options.json !== true &&
+    !isTrueFlag(args.options.list) &&
+    !isTrueFlag(args.options.json) &&
     process.stdin.isTTY === true &&
     process.stdout.isTTY === true;
 
@@ -97,7 +106,9 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       (args.command === 'help' && args.args.length === 0);
     if (process.exitCode === EXIT.OK && rootHelp) {
       const { printAgentInstructions } = await import('./commands/scheme.js');
-      process.exitCode = await printAgentInstructions();
+      // Help must never fail: drift/unavailable-catalog diagnostics are
+      // already written to stderr by the presenter, so the exit code stays OK.
+      await printAgentInstructions();
     }
   }
   return true;

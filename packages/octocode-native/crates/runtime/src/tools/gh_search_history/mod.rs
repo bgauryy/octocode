@@ -11,11 +11,11 @@ pub use crate::contracts::tool_types::{
     GhSearchHistoryQueryRepo,
 };
 use crate::providers::github::{
-    CommitListRequest, CredentialResolver, GitHubTransport, HistoryRequest, IssueListRequest,
-    ProviderError, ProviderErrorKind, PullListRequest, RequestContext, SearchName,
-    quote_search_keyword, resolve_date_window, validate_qualifier_value, validate_search_name,
+    CommitListRequest, CredentialResolver, GitHubTransport, HistoryRequest, ProviderError,
+    ProviderErrorKind, PullListRequest, RequestContext, SearchName, quote_search_keyword,
+    resolve_date_window, validate_qualifier_value, validate_search_name,
 };
-use crate::tools::local_fetch::ContentScan;
+use crate::security::scan::ContentScan;
 use crate::tools::result::remove_null_fields;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -67,20 +67,6 @@ impl GhSearchHistoryQuery {
         match self {
             Self::PullRequest { owner, .. } => owner.as_deref().map(String::as_str),
             Self::Issue { owner, .. } | Self::Commit { owner, .. } => Some(owner.as_str()),
-        }
-    }
-    pub fn goal(&self) -> &str {
-        match self {
-            Self::PullRequest { goal, .. }
-            | Self::Issue { goal, .. }
-            | Self::Commit { goal, .. } => goal.as_str(),
-        }
-    }
-    pub fn reasoning(&self) -> &str {
-        match self {
-            Self::PullRequest { reasoning, .. }
-            | Self::Issue { reasoning, .. }
-            | Self::Commit { reasoning, .. } => reasoning.as_str(),
         }
     }
     pub fn repo(&self) -> Option<&str> {
@@ -202,9 +188,12 @@ pub async fn execute<R: CredentialResolver>(
     let page = query.page().unwrap_or(1);
     let per = query.page_size().unwrap_or(30).min(100);
     let mut query = query.clone();
+    // Issues always use search: GitHub's REST /issues list interleaves pull
+    // requests, so filtering them out of provider pages underfills pages and
+    // makes page numbers skip. `is:issue` search pages count issues only.
     let searching = match query.operation() {
         HistoryOperation::Commit => !query.keywords().is_empty(),
-        HistoryOperation::Issue => should_use_search_for_issues(&query),
+        HistoryOperation::Issue => true,
         HistoryOperation::PullRequest => should_use_search_for_prs(&query),
     };
     let mut rename_warnings = Vec::new();
@@ -232,11 +221,15 @@ pub async fn execute<R: CredentialResolver>(
         per_page: per,
         sort: if searching && matches!(query.operation(), HistoryOperation::Commit) {
             Some("committer-date".into())
+        } else if lists_issues_newest_first(&query) {
+            Some("created".into())
         } else {
             query.sort().filter(|v| v != "best-match")
         },
         order: if searching && matches!(query.operation(), HistoryOperation::Commit) {
             Some("desc".into())
+        } else if lists_issues_newest_first(&query) {
+            Some(query.order().unwrap_or_else(|| "desc".into()))
         } else {
             query.order()
         },
@@ -272,27 +265,6 @@ pub async fn execute<R: CredentialResolver>(
                 );
             }
             listed
-        }
-        HistoryOperation::Issue if !searching => {
-            let (o, r) = required_repo(&query)?;
-            transport
-                .list_issues(
-                    &IssueListRequest {
-                        owner: o.into(),
-                        repo: r.into(),
-                        state: query.state(),
-                        assignee: query.assignee().map(str::to_owned),
-                        author: query.author().map(str::to_owned),
-                        mentions: query.mentions().map(str::to_owned),
-                        labels: (!query.label().is_empty()).then(|| query.label().to_vec()),
-                        sort: query.sort(),
-                        order: query.order(),
-                        page,
-                        per_page: per,
-                    },
-                    context,
-                )
-                .await?
         }
         HistoryOperation::PullRequest if !searching => {
             let (o, r) = required_repo(&query)?;
@@ -385,7 +357,7 @@ pub async fn execute<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
-                v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"goal":query.goal(),"reasoning":query.reasoning(),"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"minify":"standard"},"confidence":"low"});
+                v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"minify":"standard"},"confidence":"low"});
             }
             v
         }
@@ -417,7 +389,7 @@ pub async fn execute<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
-                v["next"]["readIssue"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"goal":query.goal(),"reasoning":query.reasoning(),"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
+                v["next"]["readIssue"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
             }
             v
         }
@@ -453,8 +425,7 @@ pub async fn execute<R: CredentialResolver>(
         && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
     {
         let mut read = json!({
-            "operation":"commit","owner":owner,"repo":repo,"ref":sha,"includeDiff":true,
-            "goal":query.goal(),"reasoning":query.reasoning()
+            "operation":"commit","owner":owner,"repo":repo,"ref":sha,"includeDiff":true
         });
         if let Some(path) = query.path() {
             read["path"] = json!(path);
@@ -464,10 +435,6 @@ pub async fn execute<R: CredentialResolver>(
     }
     if !result.warnings.is_empty() {
         value["warnings"] = json!(result.warnings);
-    }
-    if result.skipped_pull_request_pages > 0 {
-        value["skippedPullRequestPages"] = json!(result.skipped_pull_request_pages);
-        value["providerPage"] = json!(result.provider_page);
     }
     if matches!(query.operation(), HistoryOperation::Issue)
         && let Some(map) = value.as_object_mut()
@@ -584,7 +551,15 @@ fn concise_row(v: &Value) -> Value {
         v.get("title").and_then(Value::as_str).unwrap_or("")
     ))
 }
-fn should_use_search_for_issues(q: &GhSearchHistoryQuery) -> bool {
+/// A keyword-less issue listing keeps the REST list order (newest first)
+/// instead of search's unordered best-match.
+fn lists_issues_newest_first(q: &GhSearchHistoryQuery) -> bool {
+    matches!(q.operation(), HistoryOperation::Issue)
+        && q.keywords().is_empty()
+        && q.sort().is_none_or(|sort| sort == "best-match")
+}
+/// Issue-style qualifiers only the search API understands.
+fn needs_issue_search_qualifiers(q: &GhSearchHistoryQuery) -> bool {
     !q.keywords().is_empty()
         || q.author().is_some()
         || q.assignee().is_some()
@@ -603,7 +578,7 @@ fn should_use_search_for_prs(q: &GhSearchHistoryQuery) -> bool {
     // The REST list endpoint needs owner+repo; anything broader is search.
     q.owner().is_none()
         || q.repo().is_none()
-        || should_use_search_for_issues(q)
+        || needs_issue_search_qualifiers(q)
         || q.draft().is_some()
         || q.reviewed_by().is_some()
         || q.review_requested().is_some()
@@ -916,12 +891,12 @@ mod tests {
                 .expect("GitHub history search test data should be valid")
                 .starts_with("\"fix login\"")
         );
-        assert!(should_use_search_for_issues(&q));
+        assert!(needs_issue_search_qualifiers(&q));
         let listed: GhSearchHistoryQuery = serde_json::from_str(
             r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b"}"#,
         )
         .expect("GitHub history search test data should be valid");
-        assert!(!should_use_search_for_issues(&listed));
+        assert!(!needs_issue_search_qualifiers(&listed));
     }
     #[test]
     fn commit_search_uses_email_and_committer_date() {
@@ -1070,6 +1045,95 @@ mod tests {
             );
             assert_eq!(data["next"]["nextPage"].is_object(), page < 1000, "{data}");
         }
+    }
+
+    /// D4: a plain issue listing pages `is:issue` search results, so every
+    /// page holds up to pageSize real issues (the REST /issues list
+    /// interleaves PRs) and page numbers advance by one. An empty or PR-only
+    /// repository is a clean empty row.
+    #[tokio::test]
+    async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
+        use crate::providers::github::{
+            CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver,
+        };
+        use std::{sync::Arc, time::Duration};
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path, query_param},
+        };
+
+        struct Passthrough;
+        impl ContentScan for Passthrough {
+            fn sanitize(
+                &self,
+                text: &str,
+                _: &std::path::Path,
+            ) -> Result<(String, Vec<String>), (String, String)> {
+                Ok((text.to_owned(), vec![]))
+            }
+        }
+        let issue = |n: u64| json!({"number": n, "title": format!("issue {n}"), "state": "open", "user": {"login": "dev"}});
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/search/issues"))
+            .and(query_param("q", "is:issue repo:o/full"))
+            .and(query_param("page", "2"))
+            .and(query_param("per_page", "5"))
+            .and(query_param("sort", "created"))
+            .and(query_param("order", "desc"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "total_count": 11, "incomplete_results": false,
+                "items": [issue(6), issue(7), issue(8), issue(9), issue(10)]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/search/issues"))
+            .and(query_param("q", "is:issue repo:o/prs-only"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "total_count": 0, "incomplete_results": false, "items": []
+            })))
+            .mount(&server)
+            .await;
+        let transport = GitHubTransport::new(
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("url"))
+                .expect("endpoint"),
+            Arc::new(StaticCredentialResolver::new(
+                "fixture",
+                CredentialSource::Override,
+            )),
+            RetryPolicy {
+                max_attempts: 1,
+                ..Default::default()
+            },
+        )
+        .expect("transport");
+        let run = |query: Value| {
+            let transport = &transport;
+            async move {
+                execute(
+                    transport,
+                    &serde_json::from_value(query).expect("query"),
+                    &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+                    &Passthrough,
+                )
+                .await
+                .expect("issue listing")
+            }
+        };
+        let data = run(json!({"operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"full","pageSize":5,"page":2})).await;
+        assert_eq!(data["issues"].as_array().map(Vec::len), Some(5), "{data}");
+        assert_eq!(data["pagination"]["currentPage"], 2, "{data}");
+        assert_eq!(data["pagination"]["nextPage"], 3, "{data}");
+        assert_eq!(data["next"]["nextPage"]["query"]["page"], 3, "{data}");
+        assert_eq!(data["totalCount"], 11, "{data}");
+        assert!(data.get("skippedPullRequestPages").is_none(), "{data}");
+
+        let empty = run(json!({"operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"prs-only","pageSize":5})).await;
+        assert_eq!(empty["issues"], json!([]), "{empty}");
+        assert_eq!(empty["status"], "empty", "{empty}");
+        assert!(empty.get("pagination").is_none(), "{empty}");
+        assert!(empty["next"].get("nextPage").is_none(), "{empty}");
     }
 
     fn parse(json: &str) -> GhSearchHistoryQuery {

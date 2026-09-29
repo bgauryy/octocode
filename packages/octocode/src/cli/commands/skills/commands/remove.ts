@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isValidSkillName, listSkills } from '../registry.js';
+import { contentFreshness } from '../freshness.js';
 import { getSkillsHome } from '../home.js';
 import {
   ALL_PLATFORMS,
@@ -14,6 +15,8 @@ export interface RemoveOptions {
   all: boolean;
   platform: string | null;
   dryRun: boolean;
+  /** Also delete real (non-link) directories outside the canonical store. */
+  force?: boolean;
   json: boolean;
   jsonErrors?: boolean;
 }
@@ -31,6 +34,30 @@ function exists(entry: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * True when deleting `entry` could destroy user data: a real directory or file
+ * (not a link) outside the canonical Octocode store whose bytes match neither
+ * the canonical copy nor the bundled skill. Links are unlinked only, the
+ * canonical store copy is Octocode-owned, and an identical `--mode copy`
+ * install is Octocode-owned too; a diverged or user-edited copy is not.
+ */
+function isUserOwnedContent(
+  entry: string,
+  target: string,
+  name: string
+): boolean {
+  if (target === 'home') return false;
+  try {
+    if (fs.lstatSync(entry).isSymbolicLink()) return false;
+  } catch {
+    return false;
+  }
+  const canonical = path.join(getSkillsHome(), name);
+  if (contentFreshness(canonical, entry) === 'fresh') return false;
+  const bundled = listSkills().find(skill => skill.name === name);
+  return !(bundled && contentFreshness(bundled.dir, entry) === 'fresh');
 }
 
 function remove(entry: string): string | undefined {
@@ -148,6 +175,13 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
     }
     const results: Result[] = targets.map(target => {
       if (!exists(target.path)) return { ...target, status: 'skipped' };
+      if (!opts.force && isUserOwnedContent(target.path, target.target, name)) {
+        return {
+          ...target,
+          status: 'failed',
+          error: `Refusing to delete ${target.path}: it is a real directory that differs from the Octocode copy (it may hold your edits). Remove it manually or pass --force.`,
+        };
+      }
       if (opts.dryRun) return { ...target, status: 'removed' };
       const error = remove(target.path);
       return error

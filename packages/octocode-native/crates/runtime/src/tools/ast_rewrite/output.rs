@@ -107,10 +107,6 @@ pub(super) fn success_value(
 
 pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) -> Value {
     let mut value = Map::new();
-    if let Some(goal) = &query.goal() {
-        value.insert("goal".to_owned(), json!(goal));
-    }
-    value.insert("reasoning".to_owned(), json!(query.reasoning()));
     value.insert("path".to_owned(), json!(canonical_root));
     value.insert("langType".to_owned(), json!(query.lang_type()));
     value.insert("apply".to_owned(), json!(query.apply()));

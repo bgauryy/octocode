@@ -36,6 +36,7 @@ pub(super) async fn commit<R: CredentialResolver>(
             page: query.file_page().unwrap_or(1),
             page_size: query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
             filtered: path.is_some(),
+            provider_total: None,
         },
         |file| in_path_scope(file, path),
         commit_file_items,

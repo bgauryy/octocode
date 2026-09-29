@@ -409,6 +409,12 @@ fn project_include_roots(root: &Path) -> Vec<std::path::PathBuf> {
 fn first_source_under(start: &Path, family: &[&str]) -> Option<String> {
     const MAX_ENTRIES: usize = 2_000;
     const MAX_DEPTH: usize = 6;
+    // Deliberately not the runtime prune policy (`policy::prune`). This walk
+    // only picks one representative first-party file to choose and root a
+    // language server; it hides nothing from results. `vendor/` is skipped
+    // here because a vendored dependency tree is the wrong file to root a
+    // server on, while search and syntax walks keep `vendor/` because it is
+    // routinely real, reviewable source.
     const SKIPPED_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out", "vendor"];
     let is_source = |name: &str| {
         !name.ends_with(".d.ts")

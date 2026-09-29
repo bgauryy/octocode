@@ -259,6 +259,19 @@ fn apply_credential_file_fallbacks(files: &[&Value], effective: &mut BTreeMap<St
 /// bindings may come from a workspace `.env` — the same trust boundary, so a
 /// checked-out repository gains no power through one file it lacks via the
 /// other.
+/// A workspace file may still set a persistence field to its safe value
+/// (`memory`): protection stops it widening persistence, not opting out.
+fn workspace_narrows_storage(value: &Value, field_path: &str) -> bool {
+    let env_key = match field_path {
+        "storage.mode" => "OCTOCODE_STORAGE_MODE",
+        "extension.storage.mode" => "OCTOCODE_EXTENSION_STORAGE_MODE",
+        _ => return false,
+    };
+    get_path(value, field_path)
+        .and_then(Value::as_str)
+        .is_some_and(|mode| super::dotenv::workspace_may_narrow(env_key, mode))
+}
+
 pub(super) fn workspace_file_allowed(field: &ConfigFieldSpec) -> bool {
     !field
         .env
@@ -378,6 +391,9 @@ fn load_layer(
             .iter()
             .filter(|field| !workspace_file_allowed(field))
         {
+            if workspace_narrows_storage(&value, field.path) {
+                continue;
+            }
             if remove_path(&mut value, field.path) {
                 diagnostics.push(warning(
                     "workspace_config_protected",

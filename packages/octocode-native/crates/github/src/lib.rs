@@ -27,11 +27,7 @@ pub use credentials::{
 };
 pub use endpoint::GitHubEndpoint;
 pub use error::{ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit};
-#[cfg(test)]
-pub(crate) use history::MAX_PR_ONLY_PAGES_TO_SKIP;
-pub use history::{
-    CommitListRequest, HistoryPage, HistoryRequest, IssueListRequest, PullListRequest,
-};
+pub use history::{CommitListRequest, HistoryPage, HistoryRequest, PullListRequest};
 pub use query_syntax::{
     SearchName, qualifier_value, quote_search_keyword, search_phrase, validate_qualifier_value,
     validate_search_name,

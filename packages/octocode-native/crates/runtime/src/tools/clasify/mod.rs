@@ -1,6 +1,7 @@
 //! Vendor-agnostic single-question classification: preflight validation,
 //! provider request building, HTTP dispatch, and answer projection.
 pub(crate) mod batch;
+pub(crate) mod cache;
 pub(crate) mod questions;
 pub(crate) mod transport;
 

@@ -47,3 +47,28 @@ calls whose name exists in the repo).
   - Call internal recall rises.
   - Dead-code precision lower bounds reach ≥0.8 at the default tier.
   - Snapshots stay deterministic.
+
+## Results (2026-09-28, release build, 20-repo bench)
+
+| Measure | Before | After |
+|---|---|---|
+| Snapshot size (v2) | Linux 797 MB · TS compiler 52 MB · django 10 MB | 244 MB · 14.5 MB · 3.3 MB (3–3.5× smaller) |
+| Call internal recall, octocode-native (Rust) | 0.30 | 0.37 (via `receiver-type`, `same-package`, `type-qualified`, `module-path`) |
+| Call internal recall, excalidraw / django / redis | 0.79 / 0.47 / – | 0.86 / 0.52 / 0.96 |
+| Unreachable-file precision (lower bound) | django 0.18 · vscode 0.45 · excalidraw 0.46 · rust-lang 0.33 · Linux 0.15 | 0.97 · 0.97 · 1.0 · 0.98 · 0.23 |
+| `impact` of one file (seeded excalidraw) | 537 files, 142 tests | 5 files, 2 tests |
+| Re-ingest of an unchanged tree | full rebuild (~1 s) | 21 ms (`reused: true`) |
+| Import precision vs `tsc` / `cargo` oracles | – | 1.0 (recall 0.83–1.0) |
+| High-confidence call-edge accuracy | 98–100% | 99–100% |
+| Seeded defects | 5/5, 0 leaks | 5/5, 0 leaks |
+| `issues` wall time (TS compiler / vscode / Linux) | 0.27 s / 0.38 s / 3.0 s | 2.7 s / 1.3 s / 4.4 s (parallel mention scan) |
+
+Open work:
+
+- C/C++ dead-file precision stays low (Linux 0.23, pytorch 0.58). Headers
+  reach the build through `-I` roots and Kbuild/CMake rules, which item 3
+  (build-file entrypoints) does not parse yet.
+- Rust call recall is capped by method chains and by function return types;
+  the next step is return-type propagation in the receiver facts.
+- Pre-existing `astTopology` bug: a `cycles` page can return fewer rows than
+  `totalEntries` while reporting `hasMore: false`.

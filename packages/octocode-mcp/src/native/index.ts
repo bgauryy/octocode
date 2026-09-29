@@ -68,6 +68,33 @@ export interface NativeMcpOptions {
 
 const require = createRequire(import.meta.url);
 
+/** Tools that are CLI-only by design and never registered over MCP. */
+export const CLI_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  'ghCloneRepo',
+  'astRewrite',
+]);
+
+// Replaced with `true` by the esbuild define in buildConfig.mjs; undefined when
+// running from source (vitest, tsx).
+declare const __OCTOCODE_BUNDLED__: boolean | undefined;
+
+/**
+ * Dev-only overrides (`OCTOCODE_NATIVE_BINDING`, `OCTOCODE_ALLOW_CONTRACT_DRIFT`)
+ * are never honoured under `NODE_ENV=production`. The shipped bundle is
+ * treated as production by default — `npx octocode-mcp` and registry installs
+ * leave `NODE_ENV` unset — so it honours them only when `NODE_ENV` explicitly
+ * opts in with `development` or `test`.
+ */
+export function devOverridesAllowed(
+  env: NodeJS.ProcessEnv,
+  bundled: boolean = typeof __OCTOCODE_BUNDLED__ !== 'undefined' &&
+    __OCTOCODE_BUNDLED__ === true
+): boolean {
+  if (env.NODE_ENV === 'production') return false;
+  if (!bundled) return true;
+  return env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+}
+
 export function loadNativeBinding(
   env: NodeJS.ProcessEnv = process.env
 ): NativeRuntimeBinding {
@@ -75,8 +102,9 @@ export function loadNativeBinding(
   // aid). Honor it only outside production so a leaked/hostile env value cannot
   // load arbitrary code into a shipped server; production always resolves the
   // packaged addon.
-  const override =
-    env.NODE_ENV === 'production' ? undefined : env.OCTOCODE_NATIVE_BINDING;
+  const override = devOverridesAllowed(env)
+    ? env.OCTOCODE_NATIVE_BINDING
+    : undefined;
   const bindingPath =
     override ?? require.resolve('@octocodeai/octocode-native/runtime');
   const binding = require(bindingPath) as Partial<NativeRuntimeBinding>;
@@ -93,6 +121,15 @@ export function loadNativeBinding(
  * Contract agreement between the advertised schema and the runtime that executes
  * it is guaranteed separately by the fingerprint check below — not by this type.
  */
+// @modelcontextprotocol/server 2.x exposes the per-request abort signal and
+// JSON-RPC id under `ctx.mcpReq`; the flat `signal` / `requestId` shape is the
+// 1.x layout, kept only as a harmless fallback.
+type ToolCallContext = {
+  mcpReq?: { signal?: AbortSignal; id?: string | number };
+  signal?: AbortSignal;
+  requestId?: string | number;
+};
+
 type RegisterTool = (
   name: string,
   config: {
@@ -100,10 +137,7 @@ type RegisterTool = (
     description?: string;
     inputSchema?: unknown;
   },
-  callback: (
-    args: unknown,
-    context?: { signal?: AbortSignal; requestId?: string }
-  ) => Promise<unknown>
+  callback: (args: unknown, context?: ToolCallContext) => Promise<unknown>
 ) => void;
 
 type StandardResult =
@@ -298,7 +332,11 @@ export function createNativeMcp({
     );
   }
   const catalog = runtime.catalog();
-  const availableTools = catalog.tools.filter(tool => tool.available);
+  // Second guard: CLI-only tools must never be exposed over MCP, even if the
+  // native catalog reports them available.
+  const availableTools = catalog.tools.filter(
+    tool => tool.available && !CLI_ONLY_TOOLS.has(tool.name)
+  );
   if (availableTools.length === 0) {
     void runtime.close();
     throw new Error('No native tools are available');
@@ -326,10 +364,7 @@ export function createNativeMcp({
       `${coreFingerprint} (@octocodeai/octocode-core) != native ` +
       `${nativeFingerprint}. Run \`yarn contracts:regen\` and rebuild native (or install ` +
       'matching octocode packages), or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to override.';
-    if (
-      env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' &&
-      env.NODE_ENV !== 'production'
-    ) {
+    if (env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' && devOverridesAllowed(env)) {
       // stderr, not stdout: stdout is reserved for the MCP stdio protocol.
       // The override is a local-iteration aid only; in production a fingerprint
       // mismatch always fails closed so clients never see a rejected contract.
@@ -381,8 +416,10 @@ export function createNativeMcp({
         inputSchema,
       },
       async (args, context = {}) => {
-        const signal = context.signal;
-        const requestId = String(context.requestId ?? randomUUID());
+        const signal = context.mcpReq?.signal ?? context.signal;
+        const requestId = String(
+          context.mcpReq?.id ?? context.requestId ?? randomUUID()
+        );
         signal?.throwIfAborted();
         const cancel = () => runtime.cancel(requestId);
         signal?.addEventListener('abort', cancel, { once: true });
@@ -426,12 +463,13 @@ export async function startNativeMcp(
   options?: NativeMcpOptions
 ): Promise<NativeMcp> {
   const instance = createNativeMcp(options);
-  // Drain in-flight requests (runtime.close awaits active_requests==0) and close
-  // the server before exiting, rather than fire-and-forget, so shutdown does not
-  // truncate a request mid-flight — but bound the drain so a stuck request cannot
-  // hang the process past an orchestrator's grace window (which then SIGKILLs and
-  // truncates anyway). Whichever of {drain complete, grace elapsed} comes first
-  // exits cleanly.
+  // Shutdown = cancel + bounded wait. `runtime.close()` (native `begin_close`)
+  // cancels every in-flight request immediately and then waits for the active
+  // requests to unwind; it does NOT let them finish. A request in flight when
+  // stdin closes therefore ends as `cancelled` and its client gets no reply.
+  // The wait is bounded so a stuck request cannot hang the process past an
+  // orchestrator's grace window (which then SIGKILLs anyway); whichever of
+  // {close complete, grace elapsed} comes first exits cleanly.
   const SHUTDOWN_GRACE_MS = 10_000;
   const shutdown = (): void => {
     const forceExit = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
@@ -441,6 +479,26 @@ export async function startNativeMcp(
       process.exit(0);
     });
   };
+  // Last-resort fatal handlers. Log to stderr only (stdout carries MCP
+  // JSON-RPC), then close the runtime and exit non-zero.
+  let fatalInProgress = false;
+  const fatal = (kind: string) => (reason: unknown) => {
+    const detail =
+      reason instanceof Error
+        ? (reason.stack ?? reason.message)
+        : String(reason);
+    process.stderr.write(`[octocode-mcp] ${kind}: ${detail}\n`);
+    if (fatalInProgress) return;
+    fatalInProgress = true;
+    const forceExit = setTimeout(() => process.exit(1), SHUTDOWN_GRACE_MS);
+    forceExit.unref?.();
+    void instance.close().finally(() => {
+      clearTimeout(forceExit);
+      process.exit(1);
+    });
+  };
+  process.once('uncaughtException', fatal('uncaughtException'));
+  process.once('unhandledRejection', fatal('unhandledRejection'));
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
   process.stdin.once('end', shutdown);

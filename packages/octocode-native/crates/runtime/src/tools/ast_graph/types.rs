@@ -51,12 +51,6 @@ fn u32_of(value: std::num::NonZeroU64) -> u32 {
 /// Analysis-independent views over the generated wire query, in the graph
 /// engine's `u32` units.
 impl AstTopologyQuery {
-    pub fn goal(&self) -> &str {
-        every_analysis!(self, goal => goal.as_str())
-    }
-    pub fn reasoning(&self) -> &str {
-        every_analysis!(self, reasoning => reasoning.as_str())
-    }
     pub fn analysis(&self) -> GraphAnalysis {
         match self {
             Self::DeadCode { .. } => GraphAnalysis::DeadCode,
@@ -132,6 +126,10 @@ impl AstTopologyQuery {
             }
             _ => None,
         }
+    }
+    pub fn default_excludes(&self) -> bool {
+        use crate::policy::prune::DefaultsFlag;
+        every_analysis!(self, default_excludes => default_excludes.defaults())
     }
     pub fn exclude_dir(&self) -> Option<&[String]> {
         every_analysis!(self, exclude_dir => (!exclude_dir.is_empty()).then_some(exclude_dir.as_slice()))
@@ -210,6 +208,9 @@ pub(crate) struct Import {
     /// Unlinked because it names a third-party/standard package, not because
     /// an internal path failed to resolve.
     pub external: bool,
+    /// Declaration ids (or `IMPORT_USE_MODULE`) whose code uses the binding;
+    /// `None` when the producer could not tell, so the import counts as used.
+    pub used_in: Option<Vec<String>>,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Reexport {
@@ -229,6 +230,10 @@ pub(crate) struct Call {
     /// from the engine fact; `None` when the parser could not read it.
     #[allow(dead_code)]
     pub receiver_type: Option<String>,
+    /// File that the module prefix of a Rust qualified callee names
+    /// (`crate::portable::sanitize` → `src/portable.rs`); `None` when the
+    /// callee is unqualified or the prefix did not resolve.
+    pub target: Option<String>,
 }
 /// A declaration's base type (`class A extends Base`, `impl Display for A`),
 /// as written at the declaration site.

@@ -3,7 +3,7 @@ use super::cargo::{CargoCrates, load_cargo_crates};
 use super::packages::{PackageIndex, PackageLink};
 use super::types::*;
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
 use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
 use std::{
@@ -11,18 +11,6 @@ use std::{
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
 };
-
-const EXCLUDES: &[&str] = &[
-    "node_modules",
-    "dist",
-    "build",
-    "out",
-    "coverage",
-    ".git",
-    "target",
-    ".next",
-    ".cache",
-];
 
 /// Scan options beyond the public astTopology query (used by persisted
 /// graph ingest). The default keeps astTopology's behavior.
@@ -58,17 +46,15 @@ pub(crate) fn build_graph_with(
     let validated = paths
         .validate(&requested_root)
         .map_err(|e| AstGraphError::new("ast.path.invalid", e.message))?;
-    let mut exclude = EXCLUDES.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    for e in q
+    let requested = q
         .exclude_dir()
         .unwrap_or_default()
         .iter()
         .chain(&extras.extra_excludes)
-    {
-        if !exclude.contains(e) {
-            exclude.push(e.clone())
-        }
-    }
+        .cloned()
+        .collect::<Vec<_>>();
+    let exclude = crate::policy::prune::PruneMode::SyntaxVisible
+        .directories(&requested, q.default_excludes());
     let gitignore = extras
         .respect_gitignore
         .then(|| GitignoreFilter::new(&validated.canonical));
@@ -537,6 +523,7 @@ fn link_file(
                     line: i.line,
                     target: None,
                     external,
+                    used_in: None,
                 });
             } else {
                 for target in targets {
@@ -547,6 +534,7 @@ fn link_file(
                         line: i.line,
                         target: Some(target),
                         external: false,
+                        used_in: None,
                     });
                 }
             }
@@ -609,6 +597,7 @@ fn link_file(
             line: i.line,
             target,
             external,
+            used_in: i.used_in,
         });
     }
     for x in p.exports {
@@ -699,12 +688,16 @@ fn link_file(
                 b.namespace_targets.insert(t);
             }
         } else {
+            let target = (ext == "rs" && !rust_cargo_unavailable)
+                .then(|| rust_call_target(&c.callee, &file, &facts.imports, known, cargo_crates))
+                .flatten();
             facts.calls.push(Call {
                 caller_id: c.caller_id,
                 callee: c.callee,
                 line: c.line,
                 kind: c.kind,
                 receiver_type: c.receiver_type,
+                target,
             });
         }
     }
@@ -1047,6 +1040,45 @@ fn resolve_rust_module_prefix(
             .into_iter()
             .find(|path| known.contains(path))
         })
+}
+
+/// The file named by the module prefix of a Rust qualified callee. A first
+/// segment bound by a `use`/`mod` in the calling file resolves through that
+/// binding (`use crate::helper as h; h::run()` → `helper.rs`); any other
+/// prefix resolves as a path from the calling file (`crate::`, `super::`,
+/// a workspace crate, or a child module).
+fn rust_call_target(
+    callee: &str,
+    file: &str,
+    imports: &[Import],
+    known: &BTreeSet<String>,
+    cargo_crates: &CargoCrates,
+) -> Option<String> {
+    let (prefix, _) = callee.rsplit_once("::")?;
+    let first = prefix.split("::").next()?;
+    if prefix.is_empty() || first == "Self" {
+        return None;
+    }
+    let bound = imports.iter().find(|import| {
+        import.target.is_some()
+            && import
+                .local_name
+                .as_deref()
+                .unwrap_or(&import.imported_name)
+                == first
+    });
+    match bound {
+        Some(import) => match &prefix[first.len()..] {
+            "" => import.target.clone(),
+            rest => resolve_rust(
+                &format!("{}{rest}", import.specifier),
+                file,
+                known,
+                cargo_crates,
+            ),
+        },
+        None => resolve_rust(prefix, file, known, cargo_crates),
+    }
 }
 
 fn resolve_rust(
@@ -1426,7 +1458,7 @@ mod tests {
     #[ignore = "manual real-repo probe"]
     fn graph_sanity_tallies() {
         struct Active;
-        impl crate::tools::local_fetch::CancellationCheck for Active {
+        impl crate::tools::cancel::CancellationCheck for Active {
             fn check(&self) -> Result<(), String> {
                 Ok(())
             }
@@ -1780,7 +1812,7 @@ mod tests {
     }
 
     struct Active;
-    impl crate::tools::local_fetch::CancellationCheck for Active {
+    impl crate::tools::cancel::CancellationCheck for Active {
         fn check(&self) -> Result<(), String> {
             Ok(())
         }

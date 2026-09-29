@@ -60,6 +60,17 @@ pub(super) fn declaration<'t>(node: Node<'t>, content: &str) -> Option<(&'static
             .child_by_field_name("name")
             .map(|name| ("namespace", name));
     }
+    // A Go `type` declaration only wraps its specs (`type X …` or a grouped
+    // `type ( … )`); each spec is the declaration.
+    if node.kind() == "type_declaration" {
+        let mut cursor = node.walk();
+        if node
+            .named_children(&mut cursor)
+            .any(|child| matches!(child.kind(), "type_spec" | "type_alias"))
+        {
+            return None;
+        }
+    }
     if let Some(kind) = declaration_kind(node.kind()) {
         // C/C++ definitions carry no `name` field: the name sits in the
         // declarator chain, and the `type` field (a named return type such as
@@ -350,9 +361,10 @@ pub(super) fn call_callee<'tree>(
     content: &str,
 ) -> Option<(String, Node<'tree>)> {
     // Java `obj.name(..)`: the receiver lives in a sibling `object` field.
-    if let (Some(object), Some(name)) =
-        (node.child_by_field_name("object"), node.child_by_field_name("name"))
-        && let Some(method) = node_text(name, content).and_then(compact_identifier)
+    if let (Some(object), Some(name)) = (
+        node.child_by_field_name("object"),
+        node.child_by_field_name("name"),
+    ) && let Some(method) = node_text(name, content).and_then(compact_identifier)
     {
         let receiver = node_text(object, content)
             .map(|text| text.split_whitespace().collect::<String>())
@@ -440,6 +452,23 @@ pub(super) fn is_exported_declaration(
         "scala" | "sc" | "sbt" => parent.is_none() && !name.starts_with('_'),
         _ => parent.is_none() && !name.starts_with('_'),
     }
+}
+
+/// Strict ancestors of `node` under `root`, root first, from one root-down
+/// descent. `Node::parent()` repeats that descent from the root on every
+/// call, so a climb of `d` hops costs `d` descents; walk this chain instead.
+/// Empty when `node` is `root` or is not inside it.
+pub(super) fn ancestors<'t>(root: Node<'t>, node: Node<'t>) -> Vec<Node<'t>> {
+    let mut chain = Vec::new();
+    let mut current = root;
+    while current.id() != node.id() {
+        chain.push(current);
+        match current.child_with_descendant(node) {
+            Some(next) => current = next,
+            None => return Vec::new(),
+        }
+    }
+    chain
 }
 
 pub(super) fn node_text<'a>(node: Node<'_>, content: &'a str) -> Option<&'a str> {

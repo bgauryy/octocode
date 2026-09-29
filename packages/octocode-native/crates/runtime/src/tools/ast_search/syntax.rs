@@ -1,5 +1,5 @@
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::{Value, json};

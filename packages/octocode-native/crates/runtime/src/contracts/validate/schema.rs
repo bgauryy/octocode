@@ -19,11 +19,16 @@ pub(super) fn validate_schema(
     if let Some(forbidden) = schema.get("not") {
         let mut candidate = value.clone();
         if validate_schema(root, forbidden, &mut candidate, &mut path.clone()).is_ok() {
-            return Err(issue(
-                "schema.not",
-                path.clone(),
-                "Value matches a forbidden schema",
-            ));
+            // `{"not":{}}` forbids the field outright in this variant.
+            let message = if forbidden
+                .as_object()
+                .is_some_and(|schema| schema.is_empty())
+            {
+                "Field is not allowed in this variant"
+            } else {
+                "Value matches a forbidden schema"
+            };
+            return Err(issue("schema.not", path.clone(), message));
         }
     }
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {

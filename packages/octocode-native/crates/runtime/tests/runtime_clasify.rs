@@ -34,6 +34,18 @@ impl Respond for DelayedJevResponse {
     }
 }
 
+/// Aperiodic ASCII letters: byte pages of it differ, so identical-page
+/// deduplication does not merge the pages a paging test counts.
+fn filler(len: usize) -> String {
+    let mut seed = 0x2545_f491_u32;
+    (0..len)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            char::from(b'a' + ((seed >> 16) % 26) as u8)
+        })
+        .collect()
+}
+
 fn query() -> serde_json::Value {
     json!({
         "id":"decision",
@@ -152,7 +164,7 @@ async fn provider_byte_limit_forwards_reasoning_and_isolates_oversized_questions
     // The matrix exceeds 4 MiB, but each independently captured resource and
     // provider request is within its own budget.
     trace["resources"] = json!((0..25)
-        .map(|index| json!({"id":format!("source-{index}"),"context":{"value":"界".repeat(60_000)}}))
+        .map(|index| json!({"id":format!("source-{index}"),"context":{"value":format!("{index}{}", "界".repeat(60_000))}}))
         .collect::<Vec<_>>());
     let mut oversized = ordinary.clone();
     oversized["id"] = json!("oversized");
@@ -540,7 +552,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
     let marker = "FOURTH_PAGE_MARKER";
     let file = workspace.write(
         "large.txt",
-        format!("{}{}", "x".repeat(78_377 - marker.len()), marker),
+        format!("{}{}", filler(78_377 - marker.len()), marker),
     );
     let runtime = workspace.runtime(&[
         ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
@@ -745,7 +757,7 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let file = workspace.write("over-budget.txt", "x".repeat(80_001));
+    let file = workspace.write("over-budget.txt", filler(80_001));
     let runtime = workspace.runtime(&[
         ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
@@ -1402,4 +1414,279 @@ async fn clasify_locate_preflight_returns_a_typed_error_without_capture_or_provi
         assert!(page.get("answers").is_none());
     }
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_repeated_matrix_replays_its_judgment_without_a_second_provider_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.7}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("replay.txt", "The retry floor is 100 ms.\n");
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let mut input = query();
+    input["resources"] =
+        json!([{"id":"source","context":{"tool":"localFetch","query":{"path":file}}}]);
+    input["questions"] =
+        json!([{"id":"floor","type":"noul","instructions":"Is the retry floor stated?"}]);
+    let first = runtime
+        .execute("replay-1".into(), "clasify".into(), input.clone())
+        .await
+        .expect("first judgment");
+    let second = runtime
+        .execute("replay-2".into(), "clasify".into(), input)
+        .await
+        .expect("replayed judgment");
+    let answer = |outcome: &octocode_native::runtime::ToolOutcome| {
+        outcome.structured_content["queries"][0]["resources"][0]["pages"][0]["answers"]["floor"]
+            .clone()
+    };
+    assert_eq!(
+        answer(&first),
+        json!({"noul":0.7}),
+        "{}",
+        first.structured_content
+    );
+    assert_eq!(answer(&second), answer(&first));
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+fn noul_response(noul: f64) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(json!({
+        "model":"resolved",
+        "answers":{"answer":{"type":"noul","noul":noul}},
+        "usage":{"input_tokens":2,"output_tokens":1}
+    }))
+}
+
+#[tokio::test]
+async fn identical_pages_in_one_call_share_a_single_provider_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(noul_response(0.6).set_delay(Duration::from_millis(200)))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let evidence = json!({"value":"The dedupe sentinel 4411 is stated here."});
+    let matrix = |id: &str| {
+        json!({
+            "id":id,"reasoning":"Screen duplicated evidence.","goal":"Decide the next read.",
+            "resources":[{"id":"a","context":evidence},{"id":"b","context":evidence}],
+            "questions":[{"id":"q","type":"noul","instructions":"Is sentinel 4411 stated?"}]
+        })
+    };
+    let outcome = runtime
+        .execute(
+            "dedupe".into(),
+            "clasify".into(),
+            json!({"queries":[matrix("m1"), matrix("m2")]}),
+        )
+        .await
+        .unwrap();
+    for query in outcome.structured_content["queries"].as_array().unwrap() {
+        for resource in query["resources"].as_array().unwrap() {
+            assert_eq!(
+                resource["pages"][0]["answers"]["q"],
+                json!({"noul":0.6}),
+                "{}",
+                outcome.structured_content
+            );
+        }
+    }
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        1,
+        "four identical cells must not race four provider requests"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn judgment_cache_ignores_correlation_ids_but_not_question_text() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(noul_response(0.4))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = |question_id: &str, instructions: &str| {
+        json!({
+            "id":"ids","reasoning":"Cache key probe.","goal":"Decide the next read.",
+            "resources":[{"id":"v","context":{"value":"Cache id sentinel 7719."}}],
+            "questions":[{"id":question_id,"type":"noul","instructions":instructions}]
+        })
+    };
+    for (label, question_id, instructions) in [
+        ("first", "q", "Is sentinel 7719 stated?"),
+        ("renamed", "renamed", "Is sentinel 7719 stated?"),
+        ("changed", "q", "Is sentinel 7720 stated?"),
+    ] {
+        let outcome = runtime
+            .execute(
+                label.into(),
+                "clasify".into(),
+                input(question_id, instructions),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            outcome.structured_content["queries"][0]["resources"][0]["pages"][0]["answers"]
+                [question_id],
+            json!({"noul":0.4}),
+            "{label}: {}",
+            outcome.structured_content
+        );
+    }
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        2,
+        "a renamed id replays; changed question text asks again"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn prefilter_window_is_centered_on_the_hit_not_aligned_to_a_bucket() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(noul_response(0.9))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    // The hit sits on line 601, the first line of the second 600-line bucket;
+    // its enclosing function header is on line 596.
+    let source = (1..=1300)
+        .map(|line| match line {
+            596 => "function retryDelay(attempt) { // HEADER_SENTINEL\n".to_owned(),
+            601 => "  const RETRY_FLOOR_MS = 100;\n".to_owned(),
+            _ => format!("const filler_{line} = {line};\n"),
+        })
+        .collect::<String>();
+    let file = workspace.write("huge.js", source);
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let outcome = runtime
+        .execute(
+            "prefilter".into(),
+            "clasify".into(),
+            json!({
+                "id":"pf","reasoning":"Judge only the hit window.","goal":"Find the retry floor.",
+                "resources":[{"id":"f","prefilter":["RETRY_FLOOR_MS"],
+                    "context":{"tool":"localFetch","query":{"path":file}}}],
+                "questions":[{"id":"q","type":"noul","instructions":"Is the retry floor defined?"}]
+            }),
+        )
+        .await
+        .unwrap();
+    let pages = outcome.structured_content["queries"][0]["resources"][0]["pages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(pages.len(), 1, "{}", outcome.structured_content);
+    let scope = &pages[0]["scope"];
+    let (start, end) = (
+        scope["startLine"].as_u64().unwrap(),
+        scope["endLine"].as_u64().unwrap(),
+    );
+    assert!(
+        start < 596 && end > 601 && end - start < 600,
+        "window {start}-{end} must surround the hit"
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(String::from_utf8_lossy(&requests[0].body).contains("HEADER_SENTINEL"));
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated() {
+    let server = MockServer::start().await;
+    // First response drops answer_1 (partial); later responses are complete.
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer_0":{"type":"noul","noul":0.3}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer_0":{"type":"noul","noul":0.3},"answer_1":{"type":"noul","noul":0.9}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let missing = workspace.workspace.join("missing-8812.txt");
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"partial","reasoning":"Partial answers stay unresolved.","goal":"Decide the next read.",
+        "resources":[
+            {"id":"gone","context":{"tool":"localFetch","query":{"path":missing}}},
+            {"id":"v","context":{"value":"Partial cache sentinel 5521."}}
+        ],
+        "questions":[
+            {"id":"a","type":"noul","instructions":"Is sentinel 5521 stated?"},
+            {"id":"b","type":"noul","instructions":"Is sentinel 5522 stated?"}
+        ]
+    });
+    let first = runtime
+        .execute("partial-1".into(), "clasify".into(), input.clone())
+        .await
+        .unwrap();
+    let resources = &first.structured_content["queries"][0]["resources"];
+    assert_eq!(resources[0]["coverage"], "error", "{resources}");
+    assert!(resources[0]["pages"][0]["error"]["code"].is_string());
+    assert_eq!(resources[1]["coverage"], "partial", "{resources}");
+    assert_eq!(resources[1]["pages"][0]["answers"]["a"], json!({"noul":0.3}));
+    assert!(resources[1]["pages"][0]["answers"]["b"]["error"].is_object());
+    let second = runtime
+        .execute("partial-2".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    let page = &second.structured_content["queries"][0]["resources"][1]["pages"][0];
+    assert_eq!(page["answers"]["b"], json!({"noul":0.9}), "{page}");
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        2,
+        "a partial answer set must be asked again, not replayed"
+    );
+    runtime.close().await;
 }

@@ -8,6 +8,21 @@ use std::collections::{BTreeMap, BTreeSet};
 /// may refill it.
 pub const CLASSIFICATION_KILL_SWITCH: &str = "OCTOCODE_CLASSIFICATION_API";
 
+/// Persistence switches a workspace may only turn off. They are home-trusted
+/// (a checked-out repository must not widen where octocode writes), but
+/// `memory` narrows what the trusted layers allow, so a project that opts out
+/// of disk persistence keeps working.
+pub(super) const WORKSPACE_NARROW_ONLY: [(&str, &str); 2] = [
+    ("OCTOCODE_STORAGE_MODE", "memory"),
+    ("OCTOCODE_EXTENSION_STORAGE_MODE", "memory"),
+];
+
+pub(super) fn workspace_may_narrow(key: &str, value: &str) -> bool {
+    WORKSPACE_NARROW_ONLY
+        .iter()
+        .any(|(name, safe)| *name == key && value.trim().eq_ignore_ascii_case(safe))
+}
+
 pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let Some(text) = text else { return out };
@@ -85,7 +100,9 @@ pub fn apply_env(
     for (key, value) in map {
         let home_trusted = HOME_TRUSTED_ENV_KEYS.contains(&key.as_str())
             && report.sources.get(key).map(String::as_str) == Some("global");
-        if is_protected_key(key) && !home_trusted {
+        let narrows = report.sources.get(key).map(String::as_str) == Some("project")
+            && workspace_may_narrow(key, value);
+        if is_protected_key(key) && !home_trusted && !narrows {
             report.skipped_protected.push(key.clone());
         } else if target.get(key).is_some_and(|v| !v.trim().is_empty())
             || shadowed.contains(key.as_str())
@@ -132,7 +149,7 @@ pub fn merged_env(
         {
             // A workspace value for a protected key is dropped later; it must
             // not also evict the trusted home value for that key.
-            if map.contains_key(&k) && is_protected_key(&k) {
+            if map.contains_key(&k) && is_protected_key(&k) && !workspace_may_narrow(&k, &v) {
                 continue;
             }
             sources.insert(k.clone(), "project".into());

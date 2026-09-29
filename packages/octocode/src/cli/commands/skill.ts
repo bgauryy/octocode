@@ -48,6 +48,7 @@ ${bold('Install options')}
 ${bold('Remove options')}
   --all                   Remove all installed skills
   --platform <p>          Remove only specified platform link(s)  ${dim('(home kept)')}
+  --force                 Also delete real directories that are not Octocode links
   --dry-run               Preview without deleting
 
 ${bold('Check options')}
@@ -224,6 +225,7 @@ export const skillCommand: CLICommand = {
             all: getBool(args.options, 'all'),
             platform: platformOption(args),
             dryRun: getBool(args.options, 'dry-run'),
+            force: getBool(args.options, 'force'),
             json,
             jsonErrors,
           }

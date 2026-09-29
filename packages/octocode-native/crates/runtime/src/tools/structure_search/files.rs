@@ -1,5 +1,8 @@
+use crate::policy::prune::DefaultsFlag;
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+    policy::{path::PathPolicy, prune::PruneMode},
+    security::ContentSecurity,
+    tools::cancel::CancellationCheck,
 };
 use octocode_engine::types::{FileSystemEntry, FileSystemQueryOptions};
 use serde_json::{Value, json};
@@ -107,7 +110,7 @@ pub fn execute_files(
             executable: Some(access == Some("executable")),
             readable: Some(access == Some("readable")),
             writable: Some(access == Some("writable")),
-            exclude_dir: q.exclude_dir(),
+            exclude_dir: Some(PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults())),
             stop_at_limit: Some(true),
             limit: Some(MAX_WALK),
         },
@@ -265,7 +268,8 @@ fn make_row(
     if (full || detail == "modified")
         && let Some(modified) = e.modified_ms
     {
-        output["modifiedMs"] = json!(modified);
+        // Whole epoch milliseconds: a float would print as `…737.0`.
+        output["modifiedMs"] = json!(modified.round() as i64);
     }
     let lines = if count_lines && kind != "directory" {
         line_count(std::path::Path::new(&e.path), paths, cancel)?
@@ -332,7 +336,7 @@ fn line_count(
 pub(super) fn format_size(n: i64) -> String {
     let b = n as f64;
     if n < 1024 {
-        format!("{n}.0B")
+        format!("{n}B")
     } else if n < 1_048_576 {
         format!("{:.1}KB", b / 1024.)
     } else if n < 1_073_741_824 {
@@ -395,6 +399,7 @@ mod tests {
     #[test]
     fn formatting() {
         assert_eq!(format_size(1536), "1.5KB");
+        assert_eq!(format_size(162), "162B");
     }
 
     #[test]

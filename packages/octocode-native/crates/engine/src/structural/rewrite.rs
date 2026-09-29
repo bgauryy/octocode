@@ -206,8 +206,12 @@ pub fn compile_rewrite(rule_config: Value) -> Result<CompiledRewrite, String> {
     let serialized: SerializableRuleConfig<RewriteLanguage> =
         serde_json::from_value(rule_config)
             .map_err(|error| format!("[structural.rewrite.invalid] {error}"))?;
-    let config = RuleConfig::try_from(serialized, &GlobalRules::default())
-        .map_err(|error| format!("[structural.rewrite.invalid] {error}"))?;
+    let config = RuleConfig::try_from(serialized, &GlobalRules::default()).map_err(|error| {
+        format!(
+            "[structural.rewrite.invalid] {}",
+            rule_config_message(&error)
+        )
+    })?;
     let mut fixers = config
         .get_fixer()
         .map_err(|error| format!("[structural.rewrite.invalid] {error}"))?;
@@ -218,6 +222,36 @@ pub fn compile_rewrite(rule_config: Value) -> Result<CompiledRewrite, String> {
         .pop()
         .ok_or_else(|| "[structural.rewrite.invalid] a fixer is required".to_owned())?;
     Ok(CompiledRewrite { config, fixer })
+}
+
+/// A rule-compile error with its cause. ast-grep wraps every rule-core error
+/// as "Fail to parse yaml as Rule." (even for a plain pattern) and keeps the
+/// real reason, such as an undefined metavariable, in the source chain.
+fn rule_config_message(error: &ast_grep_config::RuleConfigError) -> String {
+    use ast_grep_config::{RuleConfigError, RuleCoreError};
+    match error {
+        RuleConfigError::Core(RuleCoreError::UndefinedMetaVar(name, section)) => {
+            let section = if *section == "fix" {
+                "rewrite"
+            } else {
+                section
+            };
+            format!(
+                "Undefined metavariable `${name}` used in `{section}`: every `$NAME` there must be captured by the pattern or rule."
+            )
+        }
+        RuleConfigError::Core(core) => core.to_string(),
+        other => {
+            let mut message = other.to_string();
+            let mut source = std::error::Error::source(other);
+            while let Some(cause) = source {
+                message.push_str(": ");
+                message.push_str(&cause.to_string());
+                source = cause.source();
+            }
+            message
+        }
+    }
 }
 
 /// Rewrite matches plus the ERROR/MISSING node count of the same parse, so a
@@ -515,6 +549,23 @@ mod tests {
             .scan_with("const = ;\n", CountErrors::WhenMatched)
             .expect("scan");
         assert_eq!(skipped.syntax_errors, 0);
+    }
+
+    #[test]
+    fn undefined_rewrite_metavariable_is_named_not_reported_as_yaml() {
+        let error = rewrite(
+            "fillGoal(next, goal);\n",
+            json!({
+                "id":"octocode-inline-rewrite",
+                "language":"typescript",
+                "rule":{"pattern":"fillGoal($A, $B)"},
+                "fix":"fillGoal($C, $B)"
+            }),
+        )
+        .expect_err("undefined metavariable");
+        assert!(error.contains("structural.rewrite.invalid"), "{error}");
+        assert!(error.contains("`$C`"), "{error}");
+        assert!(!error.contains("yaml"), "{error}");
     }
 
     fn kind_rule(kind: &str) -> Value {

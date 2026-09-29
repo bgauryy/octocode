@@ -7,6 +7,7 @@ import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
 describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
   const baseQuery = {
+    goal: 'test goal',
     reasoning: 'exercise mutex validation',
     path: 'src/foo.ts',
   };
@@ -89,6 +90,7 @@ describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
 
 describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () => {
   const baseQuery = {
+    goal: 'test goal',
     reasoning: 'exercise mutex validation',
     owner: 'o',
     repo: 'r',
@@ -182,6 +184,7 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
 
 describe('LocalSearchQuerySchema enum contract', () => {
   const baseQuery = {
+    goal: 'test goal',
     reasoning: 'exercise enum contract',
     searchText: 'foo',
     path: '/repo',
@@ -236,6 +239,7 @@ describe('ArtifactSearch schema', () => {
     const result = ArtifactSearchBulkQueryLocalSchema.safeParse({
       queries: [
         {
+          goal: 'test goal',
           reasoning: 'exercise artifact lookup',
           type: 'npm',
           packageName: 'react',
@@ -247,7 +251,9 @@ describe('ArtifactSearch schema', () => {
 
   it('rejects when packageName is missing', () => {
     const result = ArtifactSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ reasoning: 'exercise missing packageName' }],
+      queries: [
+        { goal: 'test goal', reasoning: 'exercise missing packageName' },
+      ],
     });
     expect(result.success).toBe(false);
   });
