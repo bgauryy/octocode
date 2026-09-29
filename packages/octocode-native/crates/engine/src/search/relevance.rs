@@ -1,5 +1,7 @@
-//! Cheap per-file signals behind `sort: "relevance"`, the key after the match
-//! count and before the path (see `ripgrep_search::compare_recs`):
+//! Cheap per-file signals behind `sort: "relevance"` (see
+//! `ripgrep_search::compare_recs`). For a bare-identifier search, a source
+//! file with a [`DECLARATION_WEIGHT`] hit ranks before the match count; the
+//! rest order files after the count and before the path:
 //!
 //! 1. [`is_demoted_path`] — test, fixture, generated, bundled, and vendored
 //!    paths rank after source paths.
@@ -10,7 +12,7 @@
 //! Both are lexical, per-line, and allocation-free: no parser, no index.
 
 /// Weight of a matched line whose first match starts at byte `first_match`.
-const DECLARATION_WEIGHT: u32 = 2;
+pub(crate) const DECLARATION_WEIGHT: u32 = 2;
 const CODE_WEIGHT: u32 = 1;
 const PROSE_WEIGHT: u32 = 0;
 
@@ -31,6 +33,82 @@ pub(crate) fn line_weight(line: &[u8], first_match: usize) -> u32 {
     } else {
         CODE_WEIGHT
     }
+}
+
+/// Rank of one matched line among a file's hits, used to choose which rows a
+/// clipped file shows first: 3 when the match is the name a declaration
+/// introduces, 2 on a deciding statement (an assignment, a branch, or a
+/// `return`/`raise`/`throw`), 1 on other code, 0 in a comment or string.
+pub(crate) fn line_rank(line: &[u8], first_match: usize) -> u32 {
+    match line_weight(line, first_match) {
+        PROSE_WEIGHT => 0,
+        DECLARATION_WEIGHT => 3,
+        _ => {
+            let indent = line
+                .iter()
+                .take_while(|byte| byte.is_ascii_whitespace())
+                .count();
+            if opens_with_decision(&line[indent..]) || assigns(&line[indent..]) {
+                2
+            } else {
+                1
+            }
+        }
+    }
+}
+
+/// Words that open a statement deciding control flow or a result.
+const DECISION_KEYWORDS: &[&[u8]] = &[
+    b"if", b"elif", b"else", b"case", b"when", b"switch", b"match", b"while", b"for", b"return",
+    b"raise", b"throw", b"yield", b"guard", b"unless", b"except", b"catch",
+];
+
+/// First word after any closing braces (`} else if`) is a decision keyword.
+fn opens_with_decision(text: &[u8]) -> bool {
+    let start = text
+        .iter()
+        .take_while(|byte| matches!(byte, b'}' | b')') || byte.is_ascii_whitespace())
+        .count();
+    let word = text[start..]
+        .iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
+        .count();
+    DECISION_KEYWORDS.contains(&&text[start..start + word])
+}
+
+/// An assignment operator outside brackets, strings, and a trailing `//`
+/// comment: `x = y`, `x := y`, `x += y`. Comparisons (`==`, `!=`, `<=`, `>=`),
+/// arrows (`=>`), and keyword arguments inside a call (`f(a=1)`) do not count.
+fn assigns(text: &[u8]) -> bool {
+    let mut depth = 0usize;
+    let mut quote = None;
+    let mut at = 0;
+    while at < text.len() {
+        let byte = text[at];
+        match quote {
+            Some(_) if byte == b'\\' => at += 1,
+            Some(open) if byte == open => quote = None,
+            Some(_) => {}
+            None => match byte {
+                b'"' | b'\'' | b'`' => quote = Some(byte),
+                b'/' if text.get(at + 1) == Some(&b'/') => return false,
+                b'(' | b'[' | b'{' => depth += 1,
+                b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+                b'=' if depth == 0 => {
+                    let before = at.checked_sub(1).map(|i| text[i]);
+                    let after = text.get(at + 1).copied();
+                    let comparison = matches!(after, Some(b'=' | b'>'))
+                        || matches!(before, Some(b'=' | b'!' | b'<' | b'>'));
+                    if !comparison {
+                        return true;
+                    }
+                }
+                _ => {}
+            },
+        }
+        at += 1;
+    }
+    false
 }
 
 fn starts_comment(text: &[u8]) -> bool {
@@ -114,41 +192,139 @@ const DECLARATION_MODIFIERS: &[&[u8]] = &[
     b"sealed",
     b"data",
     b"declare",
+    b"readonly",
+    b"synchronized",
+    b"native",
+    b"transient",
+    b"volatile",
     b"mut",
 ];
 
 /// Whether the byte `first_match` falls on the name a declaration introduces:
-/// `pub fn name`, `export default class Name`, `let mut name`, `#define NAME`.
+/// `pub fn name`, `export default class Name`, `let mut name`, `#define NAME`,
+/// a Go method `func (r *T) name`, or a C-family member led by modifiers and a
+/// type (`public static <T> T name(`, `private final long name =`).
 fn declares_at(line: &[u8], indent: usize, first_match: usize) -> bool {
-    let mut at = indent;
-    let mut seen_keyword = false;
-    for _ in 0..6 {
-        let word_end = at
-            + line[at..]
-                .iter()
-                .take_while(|byte| !byte.is_ascii_whitespace())
-                .count();
-        if word_end == at {
-            return false;
+    let words = Words { line, at: indent };
+    let mut lead = Lead::Start;
+    // `<K, V>` type parameters and `(r *T)` receivers span several words.
+    let mut group: Option<u8> = None;
+    for (start, end) in words.take(10) {
+        let word = &line[start..end];
+        if let Some(close) = group {
+            if word.ends_with(&[close]) {
+                group = None;
+            }
+            continue;
         }
-        let word = &line[at..word_end];
-        if seen_keyword && word != b"mut" {
-            return (at..word_end).contains(&first_match);
+        match lead {
+            Lead::Keyword { .. } if word == b"mut" => {}
+            Lead::Keyword { func: true } if word.starts_with(b"(") => {
+                group = (!word.ends_with(b")")).then_some(b')');
+            }
+            Lead::Keyword { .. } => return (start..end).contains(&first_match),
+            Lead::Typed => return (start..start + ident_len(word)).contains(&first_match),
+            Lead::Start | Lead::Modified => {
+                // `pub(crate)` and `pub(super)` are the `pub` modifier.
+                let bare = word.split(|byte| *byte == b'(').next().unwrap_or(word);
+                if DECLARATION_KEYWORDS.contains(&word) {
+                    lead = Lead::Keyword {
+                        func: word == b"func",
+                    };
+                } else if DECLARATION_MODIFIERS.contains(&bare) || is_annotation(word) {
+                    lead = Lead::Modified;
+                } else if lead == Lead::Start {
+                    return false;
+                } else if word.starts_with(b"<") {
+                    group = (!word.ends_with(b">")).then_some(b'>');
+                } else if ident_len(word) == 0 || STATEMENT_WORDS.contains(&bare) {
+                    return false;
+                } else if names_here(line, start, word) {
+                    return (start..start + ident_len(word)).contains(&first_match);
+                } else {
+                    lead = Lead::Typed;
+                }
+            }
         }
-        // `pub(crate)` and `pub(super)` are the `pub` modifier.
-        let bare = word.split(|byte| *byte == b'(').next().unwrap_or(word);
-        if DECLARATION_KEYWORDS.contains(&word) {
-            seen_keyword = true;
-        } else if !DECLARATION_MODIFIERS.contains(&bare) {
-            return false;
-        }
-        at = word_end
-            + line[word_end..]
+    }
+    false
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lead {
+    /// No word yet.
+    Start,
+    /// Only modifiers and annotations so far: a type or a name follows.
+    Modified,
+    /// A declaration keyword: the next word is the name (after a Go
+    /// method's receiver when the keyword is `func`).
+    Keyword { func: bool },
+    /// Modifiers and a type: the next word is the name.
+    Typed,
+}
+
+/// Words that open a statement rather than name a type after modifiers
+/// (`pub use x;`, `export default new X()`).
+const STATEMENT_WORDS: &[&[u8]] = &[
+    b"use", b"import", b"return", b"new", b"await", b"throw", b"yield", b"extends",
+    b"implements", b"in", b"of", b"as", b"is",
+];
+
+/// `@Override`, `@Nullable`, `@Component(...)`.
+fn is_annotation(word: &[u8]) -> bool {
+    word.len() > 1 && word[0] == b'@' && (word[1].is_ascii_alphabetic() || word[1] == b'_')
+}
+
+/// Length of the identifier prefix of `word` (`name` in `name(`, `name;`).
+fn ident_len(word: &[u8]) -> usize {
+    if word.first().is_none_or(u8::is_ascii_digit) {
+        return 0;
+    }
+    word.iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+        .count()
+}
+
+/// Whether the identifier opening `word` (at `start`) is itself the declared
+/// name rather than a type: a parameter list, initializer, type annotation, or
+/// terminator follows it (`name(`, `name =`, `name:`, `name;`, `name,`).
+fn names_here(line: &[u8], start: usize, word: &[u8]) -> bool {
+    let after = start + ident_len(word);
+    let next = line[after..]
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .map(|offset| after + offset);
+    match next.map(|at| (line[at], line.get(at + 1).copied())) {
+        Some((b'=', Some(b'=' | b'>'))) => false,
+        Some((b'(' | b'=' | b':' | b';' | b',', _)) => true,
+        _ => false,
+    }
+}
+
+/// Whitespace-separated `(start, end)` word spans from `at`.
+struct Words<'a> {
+    line: &'a [u8],
+    at: usize,
+}
+
+impl Iterator for Words<'_> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let line = self.line;
+        let start = self.at
+            + line[self.at..]
                 .iter()
                 .take_while(|byte| byte.is_ascii_whitespace())
                 .count();
+        let end = start
+            + line[start..]
+                .iter()
+                .take_while(|byte| !byte.is_ascii_whitespace())
+                .count();
+        self.at = end;
+        (end > start).then_some((start, end))
     }
-    false
 }
 
 /// Directory names whose files rank after source files.
@@ -240,6 +416,88 @@ mod tests {
         ] {
             assert_eq!(weight(line, "parse_config"), PROSE_WEIGHT, "{line}");
         }
+    }
+
+    /// C-family declarations name no keyword: modifiers, a type, then the
+    /// name (`public static <T> T firstNonNull(`, `private final long size =`).
+    /// A Go method's receiver sits between `func` and its name.
+    #[test]
+    fn typed_member_and_receiver_declarations_are_declarations() {
+        for (line, token) in [
+            (
+                "  public static <T> T firstNonNull(@Nullable T first, @Nullable T second) {",
+                "firstNonNull",
+            ),
+            ("  private final long maximumSize = UNSET_INT;", "maximumSize"),
+            ("    @Override public String toString() {", "toString"),
+            ("static int parse_config(const char *path) {", "parse_config"),
+            ("  public CacheBuilder(Ticker ticker) {", "CacheBuilder"),
+            ("  private readonly scene = new Scene();", "scene"),
+            ("func (ng *Engine) exec(ctx context.Context) error {", "exec"),
+            ("func NewEngine(opts EngineOpts) *Engine {", "NewEngine"),
+        ] {
+            assert_eq!(weight(line, token), DECLARATION_WEIGHT, "{line}");
+        }
+        for (line, token) in [
+            ("    return firstNonNull(a, b);", "firstNonNull"),
+            ("  public void run() { firstNonNull(x); }", "firstNonNull"),
+            ("  public static <T> T firstNonNull(@Nullable T first) {", "first)"),
+            ("    this.maximumSize = maximumSize;", "maximumSize"),
+            ("func (ng *Engine) exec(ctx context.Context) error {", "Engine"),
+            ("  static_assert(parse_config(x));", "parse_config"),
+        ] {
+            assert_ne!(weight(line, token), DECLARATION_WEIGHT, "{line}");
+        }
+    }
+
+    fn rank(line: &str, token: &str) -> u32 {
+        line_rank(line.as_bytes(), line.find(token).expect("token in line"))
+    }
+
+    #[test]
+    fn hit_rank_puts_declarations_then_deciding_statements_before_plain_code_and_prose() {
+        assert_eq!(rank("pub fn sample_limit() {", "sample_limit"), 3);
+        for line in [
+            "    this.maximumSize = maximumSize;",
+            "\tz.SampleLimit = 0",
+            "  long maximumSize = UNSET_INT;",
+            "\tapp := appenderWithLimits(sl.sampleLimit)",
+            "\tcase errors.Is(err, errSampleLimit):",
+            "    } else if (maximumSize > 0) {",
+            "        elif too_many_fields:",
+            "\treturn 0, errSampleLimit",
+            "            raise self.model.MultipleObjectsReturned(",
+            "total += sample_limit;",
+        ] {
+            let token = [
+                "maximumSize",
+                "SampleLimit",
+                "sampleLimit",
+                "too_many_fields",
+                "MultipleObjectsReturned",
+                "sample_limit",
+            ]
+            .into_iter()
+            .find(|token| line.contains(token))
+            .expect("token");
+            assert_eq!(rank(line, token), 2, "{line}");
+        }
+        for line in [
+            "    checkArgument(maximumSize >= 0, \"negative\");",
+            "        this.maximumSize == UNSET_INT,",
+            "\tsl.metrics.targetScrapeSampleLimit.Inc()",
+            "    builder.maximumSize(size, limit => limit + 1);",
+            "    configure(maximumSize=10)",
+            "\t\tsampleLimit: int(opts.limit),",
+        ] {
+            let token = ["maximumSize", "SampleLimit", "sampleLimit"]
+                .into_iter()
+                .find(|token| line.contains(token))
+                .expect("token");
+            assert_eq!(rank(line, token), 1, "{line}");
+        }
+        assert_eq!(rank("   * {@link #maximumSize(long)}", "maximumSize"), 0);
+        assert_eq!(rank("x = 1 // maximumSize", "maximumSize"), 0);
     }
 
     #[test]

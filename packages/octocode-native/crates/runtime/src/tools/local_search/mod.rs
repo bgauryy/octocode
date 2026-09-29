@@ -712,6 +712,98 @@ mod tests {
     }
 
     #[test]
+    fn a_clipped_file_shows_its_deciding_hits_first_and_lists_the_rest() {
+        // Comment and call hits come first by line; the assignment and the
+        // branch that decide behaviour sit past the per-file cap.
+        let mut file = String::new();
+        for _ in 0..4 {
+            file.push_str(" * maximumSize doc\n");
+        }
+        for _ in 0..3 {
+            file.push_str("check(maximumSize);\n");
+        }
+        file.push_str("this.maximumSize = maximumSize;\n"); // line 8
+        file.push_str("if (maximumSize > 0) {\n"); // line 9
+        let request = |match_page| {
+            ls_query(
+                serde_json::json!({"searchText": "maximumSize", "maxMatchesPerFile": 3, "matchPage": match_page, "contextLines": 0}),
+                None,
+            )
+        };
+        let lines = |body: &serde_json::Value| -> Vec<u64> {
+            body["files"][0]["matches"]
+                .as_array()
+                .expect("matches")
+                .iter()
+                .filter_map(|m| m["line"].as_u64())
+                .collect()
+        };
+        let first = search_fixture(&[("CacheBuilder.java", &file)], request(1));
+        // Page 1 holds the best-ranked rows, shown in source order.
+        assert_eq!(lines(&first), [5, 8, 9], "{first}");
+        // The rows still unseen are named, cheap to read at their lines.
+        assert_eq!(
+            first["files"][0]["pagination"]["moreLines"], "1,2,3,4,6,7",
+            "{first}"
+        );
+        let second = search_fixture(&[("CacheBuilder.java", &file)], request(2));
+        assert_eq!(lines(&second), [1, 6, 7], "{second}");
+        assert_eq!(second["files"][0]["pagination"]["moreLines"], "2,3,4");
+        let last = search_fixture(&[("CacheBuilder.java", &file)], request(3));
+        assert_eq!(lines(&last), [2, 3, 4], "{last}");
+        assert!(last["files"][0].get("pagination").is_none(), "{last}");
+    }
+
+    #[test]
+    fn a_repeated_row_follows_every_distinct_row_of_a_clipped_file() {
+        // Identical impls of one trait method rank as declarations, but the
+        // second copy adds nothing over the distinct call site.
+        let file = "fn needle() {\nfn needle() {\ncall(needle);\n";
+        let body = search_fixture(
+            &[("a.rs", file)],
+            ls_query(
+                serde_json::json!({"searchText": "needle", "maxMatchesPerFile": 2, "contextLines": 0}),
+                None,
+            ),
+        );
+        let lines: Vec<u64> = body["files"][0]["matches"]
+            .as_array()
+            .expect("matches")
+            .iter()
+            .filter_map(|m| m["line"].as_u64())
+            .collect();
+        assert_eq!(lines, [1, 3], "{body}");
+        assert_eq!(body["files"][0]["pagination"]["moreLines"], "2");
+    }
+
+    #[test]
+    fn line_rows_omit_the_column_that_span_rows_need() {
+        let files = [("a.txt", "x needle needle\n")];
+        let lines = search_fixture(
+            &files,
+            ls_query(serde_json::json!({"searchText": "needle"}), None),
+        );
+        assert!(
+            lines["files"][0]["matches"][0].get("column").is_none(),
+            "{lines}"
+        );
+        let spans = search_fixture(
+            &files,
+            ls_query(
+                serde_json::json!({"searchText": "needle", "resultView": LocalSearchQueryResultView::MatchOnly}),
+                None,
+            ),
+        );
+        let columns: Vec<u64> = spans["files"][0]["matches"]
+            .as_array()
+            .expect("spans")
+            .iter()
+            .filter_map(|m| m["column"].as_u64())
+            .collect();
+        assert_eq!(columns, [2, 9], "{spans}");
+    }
+
+    #[test]
     fn later_match_pages_omit_files_exhausted_on_earlier_pages() {
         let many = "foo\n".repeat(5);
         let files = [("a.txt", many.as_str()), ("b.txt", "foo\n")];
@@ -1294,6 +1386,7 @@ mod tests {
                 count: None,
                 kind: None,
                 score_hint: None,
+                rank: None,
                 original_chars: Some(400),
             }],
         };

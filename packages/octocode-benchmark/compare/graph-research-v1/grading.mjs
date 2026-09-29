@@ -59,18 +59,19 @@ function numberedEvidence(text, call, expected) {
   // A later text page can begin inside the numbered body. A sole query binds
   // that continuation; multi-row pages still require an observed row header.
   const continuation = queries.length === 1 && pagination?.scope === 'content.text' && pagination.currentPage > 1;
-  let index = continuation ? 0 : null, path = continuation ? queries[0]?.path : undefined, inSource = continuation;
+  // A sole query's row renders without a `result:` header.
+  let index = queries.length === 1 ? 0 : null, path = continuation ? queries[0]?.path : undefined, inSource = continuation;
   let base = call.result?.structuredContent?.base;
   for (const line of text.split('\n')) {
     const baseMatch = /^base: (.+)$/.exec(line);
     if (baseMatch) base = baseMatch[1];
     const row = /^result: (\d+)(?:\s.*)?$/.exec(line);
     if (row) { index = Number(row[1]); path = undefined; inSource = false; continue; }
-    const file = /^  path: (.+)$/.exec(line);
+    const file = /^(?:  )?path: (.+)$/.exec(line);
     if (file && !inSource) path = file[1];
     if (line === 'content (source lines):') { inSource = true; continue; }
     if (!inSource || index === null) continue;
-    const numbered = /^(\d+): (.*)$/.exec(line);
+    const numbered = /^(\d+):(.*)$/.exec(line);
     const query = queries[index];
     if (numbered && Number(numbered[1]) === expected.line && sameLine(numbered[2], expected) &&
         samePath(query?.path, expected.path) && samePath(path, expected.path, base ?? dirname(query.path))) return true;

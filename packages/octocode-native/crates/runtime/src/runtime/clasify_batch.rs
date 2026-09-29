@@ -386,23 +386,93 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
     (!candidates.is_empty()).then_some(candidates)
 }
 
-fn local_candidate_read(candidate: &Value, max_bytes: usize) -> Option<Value> {
-    let file = candidate.pointer("/results/0/data/files/0")?;
-    let path = candidate_identity(&json!({"tool":"localSearch"}), candidate, file)?;
-    let lines = file
+/// Every hit line of one local candidate: its shown rows plus the rows a
+/// clipped file names in `pagination.moreLines`.
+fn candidate_hit_lines(file: &Value) -> Vec<u64> {
+    let shown = file
         .get("matches")
         .and_then(Value::as_array)
-        .map(|matches| {
-            matches
-                .iter()
-                .filter_map(|matched| matched.get("line").and_then(Value::as_u64))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let line = densest_match_line(lines).unwrap_or(1);
-    let start = line.saturating_sub(HYDRATED_LINE_RADIUS).max(1);
-    let end = line.saturating_add(HYDRATED_LINE_RADIUS);
-    Some(json!({
+        .into_iter()
+        .flatten()
+        .filter_map(|matched| matched.get("line").and_then(Value::as_u64));
+    let more = file
+        .pointer("/pagination/moreLines")
+        .and_then(Value::as_str)
+        .into_iter()
+        .flat_map(|lines| lines.split(','))
+        .filter_map(|line| line.trim().parse::<u64>().ok());
+    let mut lines = shown.chain(more).collect::<Vec<_>>();
+    lines.sort_unstable();
+    lines.dedup();
+    lines
+}
+
+/// Contiguous windows (`2 × HYDRATED_LINE_RADIUS + 1` lines) covering every
+/// hit cluster, densest first: each centers on the densest remaining run of
+/// hits (an incidental first hit must not pull a window off its cluster), and
+/// the hits it covers leave the pool. No hits yields the opening window.
+fn hit_cluster_windows(mut lines: Vec<u64>) -> Vec<(u64, u64)> {
+    let mut windows = Vec::new();
+    while let Some((first, last)) = densest_run(&lines, HYDRATED_LINE_RADIUS * 2) {
+        let center = first + (last - first) / 2;
+        let start = center.saturating_sub(HYDRATED_LINE_RADIUS).max(1);
+        let end = center.saturating_add(HYDRATED_LINE_RADIUS);
+        windows.push((start, end));
+        lines.retain(|line| *line < start || *line > end);
+    }
+    if windows.is_empty() {
+        windows.push((1, HYDRATED_LINE_RADIUS * 2 + 1));
+    }
+    windows
+}
+
+/// Windows judged per candidate within `budget` pages: every candidate gets
+/// its densest cluster first, then further clusters go round-robin, so a
+/// deciding line far from the densest cluster is still judged.
+fn allocate_windows(clusters: &[usize], budget: usize) -> Vec<usize> {
+    let mut taken = clusters
+        .iter()
+        .map(|count| (*count).min(1))
+        .collect::<Vec<_>>();
+    let mut left = budget.saturating_sub(taken.iter().sum());
+    let mut round = 1;
+    while left > 0 && clusters.iter().any(|count| *count > round) {
+        for (index, count) in clusters.iter().enumerate() {
+            if left > 0 && *count > round {
+                taken[index] += 1;
+                left -= 1;
+            }
+        }
+        round += 1;
+    }
+    taken
+}
+
+/// Longest span of merged windows: three windows' lines.
+const MAX_MERGED_WINDOW_LINES: u64 = 3 * (HYDRATED_LINE_RADIUS * 2 + 1);
+
+/// Sorted windows of one file, joined when they overlap or the gap between
+/// them is at most one window radius and the joined span stays within
+/// [`MAX_MERGED_WINDOW_LINES`]: one contiguous page judges both clusters in
+/// one provider call instead of two (and never judges overlap lines twice).
+fn merge_near_windows(windows: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
+    let mut merged: Vec<(u64, u64)> = Vec::with_capacity(windows.len());
+    for (start, end) in windows {
+        match merged.last_mut() {
+            Some(last)
+                if start <= last.1 + 1 + HYDRATED_LINE_RADIUS
+                    && end.max(last.1) - last.0 < MAX_MERGED_WINDOW_LINES =>
+            {
+                last.1 = last.1.max(end);
+            }
+            _ => merged.push((start, end)),
+        }
+    }
+    merged
+}
+
+fn local_window_read(path: &str, (start, end): (u64, u64), max_bytes: usize) -> Value {
+    json!({
         "tool":"localFetch",
         "query":{
             "reasoning":"Read a bounded search candidate for classification.",
@@ -413,12 +483,28 @@ fn local_candidate_read(candidate: &Value, max_bytes: usize) -> Option<Value> {
             "chunkSize":max_bytes,
             "minify":"none"
         }
-    }))
+    })
+}
+
+/// One bounded read per hit cluster of a local candidate, densest first.
+fn local_candidate_reads(candidate: &Value, max_bytes: usize) -> Option<Vec<Value>> {
+    let file = candidate.pointer("/results/0/data/files/0")?;
+    let path = candidate_identity(&json!({"tool":"localSearch"}), candidate, file)?;
+    Some(
+        hit_cluster_windows(candidate_hit_lines(file))
+            .into_iter()
+            .map(|window| local_window_read(&path, window, max_bytes))
+            .collect(),
+    )
+}
+
+fn local_candidate_read(candidate: &Value, max_bytes: usize) -> Option<Value> {
+    local_candidate_reads(candidate, max_bytes)?
+        .into_iter()
+        .next()
 }
 
 /// Center of the densest run of match lines that fits one hydrated window.
-/// The first match is often an incidental hit (a constant, a comment) far
-/// from the cluster that holds the declaration and its uses.
 fn densest_match_line(mut lines: Vec<u64>) -> Option<u64> {
     lines.sort_unstable();
     let (first, last) = densest_run(&lines, HYDRATED_LINE_RADIUS * 2)?;
@@ -523,8 +609,13 @@ fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option
         Some("ghSearchCode") => github_candidate_read(candidate, max_bytes)?,
         _ => return None,
     };
-    // The hydrated read is a new tool call. It keeps the search brief so the
-    // required goal is the decision the search was opened for.
+    inherit_search_goal(&mut read, source);
+    Some((read, anchored))
+}
+
+/// The hydrated read is a new tool call. It keeps the search brief so the
+/// required goal is the decision the search was opened for.
+fn inherit_search_goal(read: &mut Value, source: &Value) {
     if read
         .pointer("/query/goal")
         .and_then(Value::as_str)
@@ -535,7 +626,6 @@ fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option
     {
         read["query"]["goal"] = goal.clone();
     }
-    Some((read, anchored))
 }
 
 fn pin_github_read(read: &mut Value, state: &Value) {
@@ -696,16 +786,27 @@ fn item_page(source: &Value, item: items::Item) -> CapturedPage {
     }
 }
 
+/// One candidate read judged as one page. With `whole`, a read the byte
+/// budget cut short yields `None` so the caller judges its parts instead.
 fn hydrate_candidate(
     source: &Value,
     candidate: Value,
     mut read: Value,
     anchored: bool,
+    whole: bool,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
-) -> CapturedPage {
-    match super::clasify_context::resolve(&read, dispatcher, execution) {
+) -> Option<CapturedPage> {
+    Some(match super::clasify_context::resolve(&read, dispatcher, execution) {
         Ok((hydrated_state, hydrated_receipt)) => {
+            if whole
+                && hydrated_receipt
+                    .as_ref()
+                    .and_then(super::clasify_context::continuation)
+                    .is_some()
+            {
+                return None;
+            }
             let evidence = provider_state(&read, hydrated_state.clone());
             let evidence_chars = evidence_chars(&evidence);
             let mut context = hydrated_receipt.unwrap_or_else(|| fallback_context(&read));
@@ -762,56 +863,168 @@ fn hydrate_candidate(
                 context,
             }
         }
+    })
+}
+
+/// One hydration: a read judged as one page, or a merged span of several
+/// cluster windows (`parts`) judged whole when it fits one bounded page and
+/// window by window otherwise.
+struct HydrationJob {
+    read: Value,
+    anchored: bool,
+    parts: Vec<Value>,
+}
+
+impl HydrationJob {
+    fn single((read, anchored): (Value, bool)) -> Self {
+        Self {
+            read,
+            anchored,
+            parts: Vec::new(),
+        }
     }
+
+    fn run(
+        self,
+        source: &Value,
+        candidate: &Value,
+        dispatcher: &DomainDispatcher,
+        execution: &ExecutionContext,
+    ) -> Vec<CapturedPage> {
+        let hydrate = |read, whole| {
+            hydrate_candidate(
+                source,
+                candidate.clone(),
+                read,
+                self.anchored,
+                whole,
+                dispatcher,
+                execution,
+            )
+        };
+        if let Some(page) = hydrate(self.read.clone(), !self.parts.is_empty()) {
+            return vec![page];
+        }
+        self.parts
+            .iter()
+            .filter_map(|part| hydrate(part.clone(), false))
+            .collect()
+    }
+}
+
+/// Reads for each candidate: local candidates get one window per hit
+/// cluster within `page_budget` pages in all; others get their one read.
+fn candidate_jobs(
+    source: &Value,
+    candidates: &[Value],
+    max_bytes: usize,
+    page_budget: usize,
+) -> Vec<Option<Vec<HydrationJob>>> {
+    if source.get("tool").and_then(Value::as_str) != Some("localSearch") {
+        return candidates
+            .iter()
+            .map(|candidate| {
+                candidate_read(source, candidate, max_bytes)
+                    .map(|read| vec![HydrationJob::single(read)])
+            })
+            .collect();
+    }
+    let windows = candidates
+        .iter()
+        .map(|candidate| {
+            let file = candidate.pointer("/results/0/data/files/0")?;
+            let path = candidate_identity(&json!({"tool":"localSearch"}), candidate, file)?;
+            Some((path, hit_cluster_windows(candidate_hit_lines(file))))
+        })
+        .collect::<Vec<_>>();
+    let clusters = windows
+        .iter()
+        .map(|entry| entry.as_ref().map_or(0, |(_, windows)| windows.len()))
+        .collect::<Vec<_>>();
+    let taken = allocate_windows(&clusters, page_budget);
+    windows
+        .into_iter()
+        .zip(taken)
+        .map(|(entry, taken)| {
+            let (path, mut windows) = entry?;
+            windows.truncate(taken.max(1));
+            // Judge a file's windows in source order.
+            windows.sort_unstable();
+            let read = |window| {
+                let mut read = local_window_read(&path, window, max_bytes);
+                inherit_search_goal(&mut read, source);
+                read
+            };
+            Some(
+                merge_near_windows(windows.clone())
+                    .into_iter()
+                    .map(|span| {
+                        let parts = windows
+                            .iter()
+                            .filter(|window| span.0 <= window.0 && window.1 <= span.1)
+                            .map(|window| read(*window))
+                            .collect::<Vec<_>>();
+                        HydrationJob {
+                            read: read(span),
+                            anchored: true,
+                            parts: if parts.len() > 1 { parts } else { Vec::new() },
+                        }
+                    })
+                    .collect(),
+            )
+        })
+        .collect()
 }
 
 fn hydrate_candidates(
     source: &Value,
     candidates: Vec<Value>,
     max_bytes: usize,
+    page_budget: usize,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
     reads: &ReadLimiter,
 ) -> Result<Vec<CapturedPage>, ExecutionError> {
+    let jobs = candidate_jobs(source, &candidates, max_bytes, page_budget);
     std::thread::scope(|scope| {
         let mut completed = Vec::with_capacity(candidates.len());
         let mut tasks = Vec::with_capacity(candidates.len());
-        for (index, candidate) in candidates.into_iter().enumerate() {
+        for (index, (candidate, job)) in candidates.into_iter().zip(jobs).enumerate() {
             execution.check()?;
-            let Some((read, anchored)) = candidate_read(source, &candidate, max_bytes) else {
+            let Some(job) = job else {
                 completed.push((
-                    index,
-                    CapturedPage::Failed {
+                    (index, 0),
+                    vec![CapturedPage::Failed {
                         error: ClassificationError::new(
                             "classificationCandidateUnhydratable",
                             "A search result did not contain a usable file identity.",
                             "Run the search directly and inspect the malformed candidate.",
                         ),
                         context: super::clasify_context::candidate_receipt(source, &candidate),
-                    },
+                    }],
                 ));
                 continue;
             };
-            // Acquire before spawning so at most the permitted number of
-            // blocking workers exists; later candidates wait in this loop.
-            let call_permit = reads.acquire(execution)?;
-            let process_permit = PROCESS_READS.acquire(execution)?;
-            tasks.push((
-                index,
-                scope.spawn(move || {
-                    let (_call_permit, _process_permit) = (call_permit, process_permit);
-                    hydrate_candidate(source, candidate, read, anchored, dispatcher, execution)
-                }),
-            ));
+            for (window, job) in job.into_iter().enumerate() {
+                // Acquire before spawning so at most the permitted number of
+                // blocking workers exists; later reads wait in this loop.
+                let call_permit = reads.acquire(execution)?;
+                let process_permit = PROCESS_READS.acquire(execution)?;
+                let candidate = candidate.clone();
+                tasks.push((
+                    (index, window),
+                    scope.spawn(move || {
+                        let (_call_permit, _process_permit) = (call_permit, process_permit);
+                        job.run(source, &candidate, dispatcher, execution)
+                    }),
+                ));
+            }
         }
-        for (index, task) in tasks {
-            completed.push((
-                index,
-                task.join().map_err(|_| ExecutionError::WorkerFailed)?,
-            ));
+        for (key, task) in tasks {
+            completed.push((key, task.join().map_err(|_| ExecutionError::WorkerFailed)?));
         }
-        completed.sort_by_key(|(index, _)| *index);
-        Ok(completed.into_iter().map(|(_, page)| page).collect())
+        completed.sort_by_key(|(key, _)| *key);
+        Ok(completed.into_iter().flat_map(|(_, pages)| pages).collect())
     })
 }
 
@@ -837,6 +1050,9 @@ fn capture_resource(
         .unwrap_or(80_000) as usize;
     let requested_source = resource["context"].clone();
     let hydrated = file_chunks(&requested_source);
+    // Pages this resource may judge (one per candidate, or per hit cluster
+    // of a hydrated local candidate) before the matrix cell budget binds.
+    let page_budget = candidate_limit;
     let candidate_limit = if hydrated && is_candidate_search(&requested_source) {
         candidate_limit.min(MAX_HYDRATED_CANDIDATES)
     } else {
@@ -925,7 +1141,13 @@ fn capture_resource(
                         .unwrap_or(max_chars)
                         .clamp(1, MAX_HYDRATED_CHARS);
                     let hydrated_pages = hydrate_candidates(
-                        &source, candidates, max_bytes, dispatcher, execution, reads,
+                        &source,
+                        candidates,
+                        max_bytes,
+                        page_budget,
+                        dispatcher,
+                        execution,
+                        reads,
                     )?;
                     pages.extend(hydrated_pages);
                     remaining = next;
@@ -2170,6 +2392,64 @@ mod tests {
             search_candidate_states(&tree, &state).is_none(),
             "tree entries are one discovery page, not code candidates"
         );
+    }
+
+    #[test]
+    fn a_clipped_candidate_is_judged_at_every_hit_cluster() {
+        // Shown rows cluster near the top; the rows a clipped file lists in
+        // moreLines include a far cluster that holds the deciding line.
+        let candidate = json!({"base":"/repo","results":[{"data":{"files":[{
+            "path":"scrape.go","matches":[{"line":700},{"line":711},{"line":718}],
+            "pagination":{"totalMatches":6,"moreLines":"1969,2159,2163"}
+        }]}}]});
+        let reads = local_candidate_reads(&candidate, 12_000).expect("reads");
+        let windows = reads
+            .iter()
+            .map(|read| {
+                (
+                    read["query"]["startLine"].clone(),
+                    read["query"]["endLine"].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            windows,
+            [
+                (json!(649), json!(769)),
+                (json!(2101), json!(2221)),
+                (json!(1909), json!(2029))
+            ],
+            "densest cluster first, then the rest"
+        );
+    }
+
+    /// Windows of one file that overlap or sit within a window radius of each
+    /// other are judged as one contiguous page (one provider call), up to
+    /// three windows' span; far windows stay separate.
+    #[test]
+    fn near_windows_of_one_file_merge_into_one_span() {
+        assert_eq!(
+            merge_near_windows(vec![(1, 74), (51, 171), (182, 302)]),
+            [(1, 302)]
+        );
+        assert_eq!(
+            merge_near_windows(vec![(2351, 2471), (2658, 2778)]),
+            [(2351, 2471), (2658, 2778)]
+        );
+        assert_eq!(
+            merge_near_windows(vec![(1, 121), (122, 242), (243, 363), (364, 484)]),
+            [(1, 363), (364, 484)]
+        );
+        assert_eq!(merge_near_windows(vec![(5, 125)]), [(5, 125)]);
+    }
+
+    #[test]
+    fn cluster_windows_share_the_page_budget_round_robin() {
+        assert_eq!(allocate_windows(&[3, 1, 4], 25), [3, 1, 4]);
+        assert_eq!(allocate_windows(&[3, 1, 4], 5), [2, 1, 2]);
+        // Every candidate keeps its densest cluster even past the budget.
+        assert_eq!(allocate_windows(&[2, 2, 2], 2), [1, 1, 1]);
+        assert_eq!(allocate_windows(&[0, 2], 5), [0, 2]);
     }
 
     #[test]

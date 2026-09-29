@@ -306,6 +306,7 @@ mod tests {
             count: None,
             kind: None,
             score_hint: None,
+            rank: None,
             original_chars: None,
         }
     }

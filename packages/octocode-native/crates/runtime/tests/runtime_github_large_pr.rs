@@ -192,9 +192,10 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
     }
     let menu = row["next"].as_object().expect("next");
+    // 250 files: a literal search of every patch leads the inventory's steps.
     assert_eq!(
         menu.keys().collect::<Vec<_>>(),
-        ["getSelectedPatches", "getMergeCommit"],
+        ["findInPatches", "getSelectedPatches", "getMergeCommit"],
         "{row}"
     );
     // An omitted pageSize reads the whole 250-file inventory in one page.
@@ -248,6 +249,10 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
         data["pullRequests"][0]["changedFiles"],
         json!(["A +1 -1 src/b3/f3.rs"]),
         "{data}"
+    );
+    assert!(
+        data["pullRequests"][0].get("next").is_none(),
+        "filtered reads carry no menu: {data}"
     );
 }
 
@@ -340,6 +345,14 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     let first_row = &first["pullRequests"][0];
     assert_eq!(first_row["title"], "Large refactor", "{first_row}");
     assert!(first_row.get("next").is_some(), "{first_row}");
+    // A large inventory's first action is a matching-lines search of every
+    // patch (a template the caller fills with its literal), not more pages.
+    let actions = first_row["next"]
+        .as_object()
+        .map(|next| next.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert_eq!(actions.first().map(String::as_str), Some("findInPatches"), "{first_row}");
+    assert_eq!(first_row["next"]["findInPatches"]["query"]["matchContext"], 0);
 
     let data = run(&server, follow).await;
     let row = &data["pullRequests"][0];
@@ -470,13 +483,33 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     );
     assert!(patch.len() < 200, "{patch}");
     assert_eq!(files[0]["fullPatchChars"], big.chars().count());
-    // A patch read carries the identity it re-proves and no follow-up menu.
+    // A patch read carries the identity it re-proves (number, state, the
+    // head it read) and no follow-up menu; the metadata read names the PR.
     let row = &data["pullRequests"][0];
     assert!(row.get("next").is_none(), "{row}");
-    for dropped in ["mergeCommitSha", "additions", "deletions", "labels"] {
+    for dropped in [
+        "mergeCommitSha",
+        "additions",
+        "deletions",
+        "labels",
+        "title",
+        "author",
+        "createdAt",
+    ] {
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
     }
-    assert!(row.get("sourceSha").is_some(), "{row}");
+    for kept in ["number", "state", "sourceSha"] {
+        assert!(row.get(kept).is_some(), "{kept} dropped: {row}");
+    }
+    // Without a patch row the read proves nothing about files: it keeps the
+    // full identity.
+    let none = run(
+        &server,
+        json!({"content": {"patches": {"mode": "all"}}, "matchString": "absent-term",
+               "minify": "none", "debug": false}),
+    )
+    .await;
+    assert_eq!(none["pullRequests"][0]["title"], "Large refactor", "{none}");
     let only_hits = run(
         &server,
         json!({"content": {"patches": {"mode": "all"}}, "matchString": "esbuild",
@@ -487,6 +520,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         only_hits["pullRequests"][0]["changedFiles"][0]["patch"],
         "@@ -201,1 +201,1 @@\n-old esbuild\n+new esbuild\n"
     );
+    assert!(only_hits.get("next").is_none(), "{only_hits}");
     assert_eq!(
         data["next"]["readFullPatches"]["query"]["content"]["patches"]["files"],
         json!(["src/big.rs"]),

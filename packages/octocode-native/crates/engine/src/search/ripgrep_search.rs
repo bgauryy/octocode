@@ -283,6 +283,19 @@ fn ranks_by_relevance(opts: &RipgrepSearchOptions) -> bool {
     opts.sort.as_deref() == Some("relevance")
 }
 
+/// A search for one bare identifier (`spawn_blocking`, literal or regex):
+/// the question is where that name lives, so a declaring file leads.
+fn identifier_search(opts: &RipgrepSearchOptions) -> bool {
+    let pattern = opts.pattern.as_bytes();
+    !opts.invert_match.unwrap_or(false)
+        && pattern
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$'))
+        && pattern
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
+}
+
 fn resolve_mode(opts: &RipgrepSearchOptions) -> Mode {
     if opts.files_only.unwrap_or(false) {
         Mode::FilesOnly
@@ -313,6 +326,9 @@ struct FileRec {
     line_weight: u32,
     /// `relevance` only: a test, generated, or vendored path below the root.
     demoted: bool,
+    /// `relevance` identifier search only: a matched line declares the name
+    /// (see [`identifier_search`]).
+    declares: bool,
 }
 
 /// Everything one search accumulated. Totals (`files_matched`, `submatches`,
@@ -475,6 +491,8 @@ struct CollectSink<'a, M: Matcher> {
     binary_offset: Option<u64>,
     /// Summed [`relevance::line_weight`] (only with `work.weigh_lines`).
     line_weight: u32,
+    /// A matched line declares the matched name (only with `work.weigh_lines`).
+    declares: bool,
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
@@ -499,6 +517,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             deadline_hit: false,
             binary_offset: None,
             line_weight: 0,
+            declares: false,
         }
     }
 }
@@ -549,6 +568,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                             count: None,
                             kind: None,
                             score_hint: None,
+                            rank: None,
                             original_chars: None,
                         });
                     } else {
@@ -568,6 +588,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     count: None,
                     kind: None,
                     score_hint: None,
+                    rank: None,
                     original_chars: None,
                 });
             }
@@ -604,9 +625,9 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     .map_err(|error| std::io::Error::other(error.to_string()))?
                     .map_or(0, |matched| matched.start()),
             };
-            self.line_weight = self
-                .line_weight
-                .saturating_add(relevance::line_weight(bytes, first));
+            let weight = relevance::line_weight(bytes, first);
+            self.declares |= weight == relevance::DECLARATION_WEIGHT;
+            self.line_weight = self.line_weight.saturating_add(weight);
         }
         self.submatches = self.submatches.saturating_add(count.max(1));
         self.matched_lines = self.matched_lines.saturating_add(1);
@@ -864,6 +885,7 @@ struct FileOutcome {
     deadline_hit: bool,
     binary: bool,
     line_weight: u32,
+    declares: bool,
 }
 
 impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
@@ -877,6 +899,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             deadline_hit: sink.deadline_hit,
             binary: sink.binary_offset.is_some(),
             line_weight: sink.line_weight,
+            declares: sink.declares,
         }
     }
 }
@@ -989,6 +1012,7 @@ fn collect<M: Matcher + Sync>(
         walk_builder.threads(threads as usize);
     }
 
+    let identifier = identifier_search(opts);
     walk_builder.build_parallel().run(|| {
         let path_filter = Arc::clone(&path_filter);
         let mut worker_recs = WorkerRecs {
@@ -1118,6 +1142,13 @@ fn collect<M: Matcher + Sync>(
                 return WalkState::Continue;
             }
 
+            let demoted = ranks_by_relevance(opts)
+                && relevance::is_demoted_path(
+                    &path
+                        .strip_prefix(&opts.path)
+                        .unwrap_or(path)
+                        .to_string_lossy(),
+                );
             worker_recs.push(FileRec {
                 path: dent.path().to_string_lossy().into_owned(),
                 entry: outcome.entry,
@@ -1126,13 +1157,8 @@ fn collect<M: Matcher + Sync>(
                 om_matches: outcome.om_matches,
                 sort_time: capture_sort_time(opts, &dent),
                 line_weight: outcome.line_weight,
-                demoted: ranks_by_relevance(opts)
-                    && relevance::is_demoted_path(
-                        &path
-                            .strip_prefix(&opts.path)
-                            .unwrap_or(path)
-                            .to_string_lossy(),
-                    ),
+                demoted,
+                declares: outcome.declares && identifier,
             });
             WalkState::Continue
         })
@@ -1177,10 +1203,12 @@ fn rank_weight(opts: &RipgrepSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
 /// * `modified` / `accessed` / `created`: ascending timestamp.
 /// * `matchCount`: descending [`rank_weight`] (the most-matched files survive
 ///   the collection cap).
-/// * `relevance`: descending [`rank_weight`], then source paths before test,
-///   generated, and vendored paths, then descending summed line weight
-///   (declaration > code > comment/string), see [`relevance`]. Path-list views
-///   have no per-file density: source paths first, then path.
+/// * `relevance`: an [`identifier_search`] first ranks source files whose hit
+///   declares the name (the definition answers "where is X"), then descending
+///   [`rank_weight`], then source paths before test, generated, and vendored
+///   paths, then descending summed line weight (declaration > code >
+///   comment/string), see [`relevance`]. Path-list views have no per-file
+///   density: source paths first, then path.
 /// * default and `path`: lexicographic by full path, matching `rg --sort path`.
 fn compare_recs(
     opts: &RipgrepSearchOptions,
@@ -1196,8 +1224,9 @@ fn compare_recs(
         Some("matchCount") => rank_weight(opts, mode, b)
             .cmp(&rank_weight(opts, mode, a))
             .then_with(|| a.path.cmp(&b.path)),
-        Some("relevance") if lists_match_density(mode) => rank_weight(opts, mode, b)
-            .cmp(&rank_weight(opts, mode, a))
+        Some("relevance") if lists_match_density(mode) => (b.declares && !b.demoted)
+            .cmp(&(a.declares && !a.demoted))
+            .then_with(|| rank_weight(opts, mode, b).cmp(&rank_weight(opts, mode, a)))
             .then_with(|| a.demoted.cmp(&b.demoted))
             .then_with(|| b.line_weight.cmp(&a.line_weight))
             .then_with(|| a.path.cmp(&b.path)),

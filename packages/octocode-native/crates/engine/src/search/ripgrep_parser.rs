@@ -132,6 +132,15 @@ fn utf16_to_char_index(line: &str, column: u32) -> usize {
     line.chars().count()
 }
 
+/// [`relevance::line_rank`] of a match at UTF-16 `column` of `line`.
+fn line_rank_at(line: &str, column: u32) -> u32 {
+    let byte = line
+        .char_indices()
+        .nth(utf16_to_char_index(line, column))
+        .map_or(line.len(), |(byte, _)| byte);
+    super::relevance::line_rank(line.as_bytes(), byte)
+}
+
 /// Clip `line` to `max_chars`, keeping the match at UTF-16 `column` visible.
 /// Lines whose match already fits the head are truncated from the start; otherwise
 /// the window starts a quarter-snippet before the match and is marked with `…`.
@@ -280,6 +289,7 @@ pub(crate) fn assemble_file(
                 count: None,
                 kind: None,
                 score_hint: None,
+                rank: Some(line_rank_at(&m.line_text, m.column)),
                 original_chars,
             }
         })
@@ -440,6 +450,23 @@ mod tests {
         assert_eq!(f.matches[0].line, 10);
         assert_eq!(f.matches[0].column, 8);
         assert_eq!(f.matches[0].value, "  const x = 1;");
+    }
+
+    #[test]
+    fn each_match_carries_its_lexical_hit_rank() {
+        let stdout = [
+            make_match_line("f.java", "   * see maximumSize\n", 1, 9),
+            make_match_line("f.java", "    check(maximumSize);\n", 2, 10),
+            make_match_line("f.java", "    this.maximumSize = maximumSize;\n", 3, 9),
+        ]
+        .join("\n");
+        let r = parse_ripgrep_json_inner(&stdout, None);
+        let ranks = r.files[0]
+            .matches
+            .iter()
+            .map(|m| m.rank)
+            .collect::<Vec<_>>();
+        assert_eq!(ranks, vec![Some(0), Some(1), Some(2)]);
     }
 
     #[test]

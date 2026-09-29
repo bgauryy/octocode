@@ -23,7 +23,7 @@ impl TextFormat {
 
     fn encode(self, mut value: Value, keys: &[&str]) -> String {
         match self {
-            Self::Yaml => yaml(value, keys),
+            Self::Yaml => yaml(flatten_single_row(value), keys),
             Self::Json => {
                 order_fields(&mut value, keys);
                 serde_json::to_string(&value).unwrap_or_default()
@@ -95,6 +95,9 @@ fn render_inline_file(response: &Value, format: TextFormat) -> String {
 }
 
 fn render_search_hits(mut response: Value, query: &Value, format: TextFormat) -> String {
+    if format == TextFormat::Yaml {
+        compact_path_rows(&mut response);
+    }
     for row in response
         .get_mut("results")
         .and_then(Value::as_array_mut)
@@ -197,6 +200,37 @@ fn render_search_hits(mut response: Value, query: &Value, format: TextFormat) ->
         }
     }
     render_structured(response, format)
+}
+
+/// Search rows that carry only a `path` (`resultView:"files"`), or a path and
+/// its one count (`countMatches`/`countLines`), render as one string each:
+/// `path` or `path (count)`.
+fn compact_path_rows(response: &mut Value) {
+    for files in response
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row.get_mut("data")?.get_mut("files")?.as_array_mut())
+    {
+        for file in files {
+            let Some(map) = file.as_object() else {
+                continue;
+            };
+            let Some(path) = map.get("path").and_then(Value::as_str) else {
+                continue;
+            };
+            let count = ["totalOccurrences", "totalMatchedLines"]
+                .iter()
+                .find_map(|key| map.get(*key).and_then(Value::as_u64));
+            let compact = match (map.len(), count) {
+                (1, _) => path.to_owned(),
+                (2, Some(count)) => format!("{path} ({count})"),
+                _ => continue,
+            };
+            *file = Value::String(compact);
+        }
+    }
 }
 
 fn render_file_list(mut response: Value, format: TextFormat) -> String {
@@ -378,7 +412,13 @@ fn render_diff(mut response: Value, format: TextFormat) -> String {
     }
     let mut text = render_structured(response, format);
     for (header, patch) in patches {
-        text.push_str(&format!("\n=== patch {header} ===\n{patch}\n"));
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&format!("=== patch {header} ===\n{patch}"));
+    }
+    if !text.ends_with('\n') {
+        text.push('\n');
     }
     text
 }
@@ -464,6 +504,44 @@ fn patch_section(row: &Value, label: &str) -> Option<(String, String)> {
     Some((header, patch.to_owned()))
 }
 
+/// YAML text of a single-row response: the row's `results: - index: 0 data:`
+/// wrapper names nothing the one query does not, so the envelope fields, the
+/// row's own fields (`status`, `meta`, ...), and its `data` fields render at
+/// the top. A batch keeps the wrapper, whose `index` binds a row to its query,
+/// and so does a row whose data would shadow an envelope or row field.
+/// Structured content and JSON text keep the envelope unchanged.
+fn flatten_single_row(value: Value) -> Value {
+    let Value::Object(mut envelope) = value else {
+        return value;
+    };
+    let single = match envelope.get("results").and_then(Value::as_array) {
+        Some(rows) if rows.len() == 1 => rows[0].as_object().cloned(),
+        _ => None,
+    };
+    let Some(mut row) = single else {
+        return Value::Object(envelope);
+    };
+    let data = match row.remove("data") {
+        None => serde_json::Map::new(),
+        Some(Value::Object(data)) => data,
+        Some(_) => return Value::Object(envelope),
+    };
+    row.remove("index");
+    let mut flat = serde_json::Map::new();
+    for (key, field) in envelope
+        .iter()
+        .filter(|(key, _)| *key != "results")
+        .chain(&row)
+        .chain(&data)
+    {
+        if flat.insert(key.clone(), field.clone()).is_some() {
+            return Value::Object(envelope);
+        }
+    }
+    envelope.clear();
+    Value::Object(flat)
+}
+
 fn order_fields(value: &mut Value, keys: &[&str]) {
     if let Some(map) = value.as_object_mut() {
         let mut ordered = serde_json::Map::new();
@@ -510,7 +588,7 @@ fn source_lines(content: &str, value: &Value) -> Option<String> {
         }
         prev_end = Some(end);
         for line in start..=end {
-            output.push_str(&format!("{line}: {}", records.get(index)?));
+            output.push_str(&format!("{line}:{}", records.get(index)?));
             index += 1;
         }
     }
@@ -520,24 +598,37 @@ fn source_lines(content: &str, value: &Value) -> Option<String> {
 pub fn render_local_fetch(response: &Value) -> String {
     let mut lines = Vec::new();
     if let Some(base) = response["base"].as_str() {
-        lines.extend([format!("base: {base}"), String::new()]);
+        lines.push(format!("base: {base}"));
     }
-    for row in response["results"].as_array().into_iter().flatten() {
+    let rows = response["results"].as_array().map(Vec::as_slice).unwrap_or_default();
+    for (position, row) in rows.iter().enumerate() {
         let data = &row["data"];
         let mut metadata = data.clone();
+        let numbered = data["content"]
+            .as_str()
+            .and_then(|content| source_lines(content, &data["sourceLineRanges"]));
         if let Some(map) = metadata.as_object_mut() {
             map.remove("content");
+            // Numbered lines state their own source range.
+            if numbered.is_some() {
+                map.remove("sourceLineRanges");
+            }
         }
         order_read_metadata(&mut metadata);
-        let status = row["status"]
-            .as_str()
-            .map(|s| format!(" ({s})"))
-            .unwrap_or_default();
-        lines.push(format!("result: {}{status}", row["index"]));
+        if position > 0 {
+            lines.push(String::new());
+        }
+        // A sole row binds to the sole query; a batch names each row.
+        if rows.len() > 1 || row.get("status").is_some() {
+            let status = row["status"]
+                .as_str()
+                .map(|s| format!(" ({s})"))
+                .unwrap_or_default();
+            lines.push(format!("result: {}{status}", row["index"]));
+        }
         let formatted = yaml(
-            json!({"data":metadata}),
+            metadata,
             &[
-                "data",
                 "path",
                 "resolvedPath",
                 "contentView",
@@ -554,22 +645,21 @@ pub fn render_local_fetch(response: &Value) -> String {
                 "error",
             ],
         );
-        if !formatted.trim_end().is_empty() {
-            lines.push(formatted.trim_end().into());
+        let formatted = formatted.trim_end();
+        if !formatted.is_empty() && formatted != "{}" {
+            lines.push(formatted.into());
         }
-        if let Some(content) = data["content"].as_str() {
-            match source_lines(content, &data["sourceLineRanges"]) {
-                Some(numbered) => {
-                    lines.push("content (source lines):".into());
-                    lines.push(numbered);
-                }
-                None => {
-                    lines.push("content (copy-safe):".into());
-                    lines.push(content.into());
-                }
+        match (numbered, data["content"].as_str()) {
+            (Some(numbered), _) => {
+                lines.push("content (source lines):".into());
+                lines.push(numbered.strip_suffix('\n').unwrap_or(&numbered).into());
             }
+            (None, Some(content)) => {
+                lines.push("content (copy-safe):".into());
+                lines.push(content.strip_suffix('\n').unwrap_or(content).into());
+            }
+            (None, None) => {}
         }
-        lines.push(String::new());
     }
     if let Some(shared) = response.get("shared") {
         lines.push(
@@ -634,7 +724,7 @@ mod tests {
     fn source_numbering_rejects_incomplete_or_invalid_mapping() {
         assert_eq!(
             source_lines("a\nb\n", &json!([{"start":4,"end":5}])),
-            Some("4: a\n5: b\n".into())
+            Some("4:a\n5:b\n".into())
         );
         assert_eq!(source_lines("a\nb\n", &json!([{"start":4,"end":4}])), None);
         assert_eq!(source_lines("a\n", &json!([{"start":0,"end":1}])), None);
@@ -755,8 +845,8 @@ mod tests {
             patches,
             format!(
                 "M +1 -1 src/a.ts ({} chars) ===\n{patch}\n\
-                 \n=== patch R +2 -0 src/b.ts <- old/b.ts (2 of 900 chars) ===\n+b\n\
-                 \n=== patch A +9 -0 src/c.ts (chars 10-12 of 30) ===\n+c\n",
+                 === patch R +2 -0 src/b.ts <- old/b.ts (2 of 900 chars) ===\n+b\n\
+                 === patch A +9 -0 src/c.ts (chars 10-12 of 30) ===\n+c\n",
                 patch.chars().count()
             )
         );
@@ -780,7 +870,77 @@ mod tests {
                 "a\n... [lines 3-8 omitted] ...\nb\n",
                 &json!([{"start":2,"end":2},{"start":9,"end":9}])
             ),
-            Some("2: a\n... [lines 3-8 omitted] ...\n9: b\n".into())
+            Some("2:a\n... [lines 3-8 omitted] ...\n9:b\n".into())
         );
+    }
+
+    /// Every source line keeps its own number (a text page may start mid
+    /// range, and a `@@ a-b @@` block header would leave such a page, or a
+    /// source line that itself reads `@@ 1-2 @@`, unnumbered). The gutter is
+    /// `rg -n`'s `N:` with no pad; the numbers make `sourceLineRanges`
+    /// redundant in text, and a sole row needs no `result:`/`data:` wrapper.
+    #[test]
+    fn local_fetch_numbers_each_line_with_a_bare_gutter_under_a_flat_header() {
+        let row = |path: &str, start: u64| {
+            json!({"data":{"path":path,"totalLines":900,"content":"fn a() {\n\n    @@ 1-2 @@\n",
+                "sourceLineRanges":[{"start":start,"end":start + 2}]}})
+        };
+        let mut one = json!({"base":"/r","results":[row("a.rs", 279)]});
+        one["results"][0]["index"] = json!(0);
+        assert_eq!(
+            render_local_fetch(&one),
+            "base: /r\npath: a.rs\ntotalLines: 900\ncontent (source lines):\n\
+             279:fn a() {\n280:\n281:    @@ 1-2 @@\n"
+        );
+        let two = json!({"base":"/r","results":[
+            {"index":0,"data":row("a.rs", 1)["data"]},
+            {"index":1,"status":"error","data":{"path":"b.rs","error":"missing"}}]});
+        assert_eq!(
+            render_local_fetch(&two),
+            "base: /r\nresult: 0\npath: a.rs\ntotalLines: 900\ncontent (source lines):\n\
+             1:fn a() {\n2:\n3:    @@ 1-2 @@\n\nresult: 1 (error)\npath: b.rs\nerror: missing\n"
+        );
+    }
+
+    /// A sole row carries no information in `results: - index: 0 data:`; its
+    /// fields render at the top. A batch keeps the wrapper (index binds each
+    /// row to its query), and so does a row whose data would shadow an
+    /// envelope or row field.
+    #[test]
+    fn a_single_row_renders_without_the_results_wrapper() {
+        let single = json!({"base":"/r","results":[{"index":0,"status":"empty",
+            "data":{"files":[{"path":"a.rs","line":3}],"hints":["widen"]}}]});
+        let text = render_tool(ToolId::AstSearch, &single, &json!({}), TextFormat::Yaml);
+        assert_eq!(
+            text,
+            "base: /r\nstatus: empty\nfiles:\n- path: a.rs\n  line: 3\nhints:\n- widen\n"
+        );
+        let batch = json!({"results":[{"index":0,"data":{"a":1}},{"index":1,"data":{"a":2}}]});
+        let text = render_tool(ToolId::AstSearch, &batch, &json!({}), TextFormat::Yaml);
+        assert!(text.starts_with("results:\n- index: 0\n"), "{text}");
+        let shadowing = json!({"results":[{"index":0,"status":"error","data":{"status":"open"}}]});
+        let text = render_tool(ToolId::AstSearch, &shadowing, &json!({}), TextFormat::Yaml);
+        assert!(text.starts_with("results:\n- index: 0\n"), "{text}");
+        // JSON text stays the exact structured envelope.
+        let json_text = render_tool(ToolId::AstSearch, &single, &json!({}), TextFormat::Json);
+        assert_eq!(serde_json::from_str::<Value>(&json_text).expect("json"), single);
+    }
+
+    /// Path-list rows (`resultView:"files"`) and count rows render as one
+    /// string each: `path`, or `path (count)` when the row carries one count.
+    #[test]
+    fn search_path_rows_render_as_compact_strings() {
+        let response = json!({"results":[{"index":0,"data":{"files":[
+            {"path":"a.rs"},
+            {"path":"b.rs","totalOccurrences":3},
+            {"path":"c.rs","totalMatchedLines":2},
+            {"path":"d.rs","matches":[{"line":1,"value":"x"}]}]}}]});
+        let text = render_tool(ToolId::LocalSearch, &response, &json!({}), TextFormat::Yaml);
+        assert!(
+            text.starts_with("files:\n- a.rs\n- b.rs (3)\n- c.rs (2)\n- path: d.rs\n"),
+            "{text}"
+        );
+        let json_text = render_tool(ToolId::LocalSearch, &response, &json!({}), TextFormat::Json);
+        assert!(json_text.contains(r#"{"path":"a.rs"}"#), "{json_text}");
     }
 }

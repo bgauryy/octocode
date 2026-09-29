@@ -431,15 +431,21 @@ pub(super) fn rank_locate(
                 let Some(exists) = answer["exists"].as_f64() else {
                     continue;
                 };
-                // resourceId maps to the page's source.path; rows stay small.
+                // One resource may span several files (a search), so each
+                // window names its page's file.
+                let path = page.pointer("/source/path").filter(|path| path.is_string());
                 for window in answer["matches"].as_array().into_iter().flatten() {
-                    rows.push(json!({
+                    let mut row = json!({
                         "resourceId":resource["resourceId"],
                         "exists":exists,
                         "startLine":window["startLine"],
                         "endLine":window["endLine"],
                         "probability":window["probability"]
-                    }));
+                    });
+                    if let Some(path) = path {
+                        row["path"] = path.clone();
+                    }
+                    rows.push(row);
                 }
             }
         }
@@ -496,7 +502,12 @@ fn is_candidate_row(row: &Value) -> bool {
         && probability("probability")
         && line("startLine")
         && line("endLine")
-        && row.as_object().is_some_and(|object| object.len() == 5)
+        && row
+            .get("path")
+            .is_none_or(|path| path.as_str().is_some_and(|path| !path.is_empty()))
+        && row
+            .as_object()
+            .is_some_and(|object| object.len() == 5 + usize::from(row.get("path").is_some()))
 }
 
 /// A target that names a code identifier is usually cheaper and exact with
@@ -709,6 +720,26 @@ mod tests {
         let merged = rank_locate(&single, &["t"], Some(&carry)).unwrap();
         assert_eq!(merged["t"][0]["startLine"], 5);
         assert_eq!(merged["t"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ranked_windows_name_the_file_they_are_in() {
+        // One search resource spans several files: resourceId alone cannot
+        // say which file a window belongs to.
+        let page = |path: &str, exists: f64, line: u64| {
+            json!({"source":{"path":path},"answers":{"t":{"exists":exists,
+                "matches":[{"startLine":line,"endLine":line + 7,"probability":0.9}]}}})
+        };
+        let resources = vec![json!({"resourceId":"s","pages":[
+            page("/repo/a.go", 0.2, 10),
+            page("/repo/b.go", 0.9, 40),
+        ]})];
+        let best = rank_locate(&resources, &["t"], None).unwrap();
+        assert_eq!(best["t"][0]["path"], "/repo/b.go");
+        assert_eq!(best["t"][1]["path"], "/repo/a.go");
+        // A carried row keeps its path through the next call.
+        let carried = rank_locate(&[], &["t"], Some(&best)).unwrap();
+        assert_eq!(carried["t"][0]["path"], "/repo/b.go");
     }
 
     #[test]

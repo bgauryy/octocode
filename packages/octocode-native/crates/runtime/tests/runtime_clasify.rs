@@ -915,6 +915,178 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
 }
 
 #[tokio::test]
+async fn file_chunk_scout_judges_every_hit_cluster_of_a_clipped_file() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.7}},
+            "usage":{"input_tokens":3,"output_tokens":1}
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    // Eleven hits near the top clip the file at ten rows; the deciding hit
+    // sits far below, listed only in the file's moreLines.
+    let mut body = String::from("header\n");
+    for _ in 0..11 {
+        body.push_str("needle marker\n");
+    }
+    for _ in 0..390 {
+        body.push_str("filler line\n");
+    }
+    body.push_str("needle decides the answer\n");
+    workspace.write("src/only.txt", body);
+    let root = workspace
+        .workspace
+        .join("src")
+        .to_string_lossy()
+        .into_owned();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"clusters",
+        "reasoning":"Judge every hit cluster.","goal":"Find the deciding line.",
+        "resources":[{"id":"hits","context":{
+            "tool":"localSearch","candidateEvidence":"fileChunks","query":{
+                "path":root,"searchText":"needle"
+            }
+        }}],
+        "questions":[{"id":"decides","type":"noul","instructions":"Does this source decide the answer?"}]
+    });
+    let outcome = runtime
+        .execute("clusters".into(), "clasify".into(), input)
+        .await
+        .expect("cluster scout");
+    let pages = outcome.structured_content["queries"][0]["resources"][0]["pages"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let starts = pages
+        .iter()
+        .map(|page| page["scope"]["startLine"].as_u64())
+        .collect::<Vec<_>>();
+    assert_eq!(starts.len(), 2, "{}", outcome.structured_content);
+    assert!(
+        pages.iter().all(|page| page.get("error").is_none()),
+        "{pages:?}"
+    );
+    let sent = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|request| {
+            serde_json::from_slice::<serde_json::Value>(&request.body).unwrap()["state"]["content"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        sent.iter()
+            .any(|content| content.contains("needle decides the answer")),
+        "{sent:?}"
+    );
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("cluster output contract");
+    runtime.close().await;
+}
+
+/// Two hit clusters of one file within a window radius are judged as one
+/// contiguous page: one provider call instead of two. A span too large for
+/// one bounded page falls back to one page per cluster.
+#[tokio::test]
+async fn file_chunk_scout_judges_near_clusters_of_one_file_in_one_call() {
+    for (filler, calls) in [("filler line", 1u64), (&*"long filler ".repeat(9), 2)] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/systemone"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "model":"resolved",
+                "answers":{"answer":{"type":"noul","noul":0.7}},
+                "usage":{"input_tokens":3,"output_tokens":1}
+            })))
+            .expect(calls)
+            .mount(&server)
+            .await;
+        let workspace = Workspace::new();
+        let mut body = String::from("header\n");
+        for _ in 0..11 {
+            body.push_str("needle marker\n");
+        }
+        for _ in 0..150 {
+            body.push_str(filler);
+            body.push('\n');
+        }
+        body.push_str("needle decides the answer\n");
+        workspace.write("src/only.txt", body);
+        let root = workspace
+            .workspace
+            .join("src")
+            .to_string_lossy()
+            .into_owned();
+        let runtime = workspace.runtime(&[
+            ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+            ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+            ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+        ]);
+        let input = json!({
+            "id":"near",
+            "reasoning":"Judge near hit clusters.","goal":"Find the deciding line.",
+            "resources":[{"id":"hits","context":{
+                "tool":"localSearch","candidateEvidence":"fileChunks","query":{
+                    "path":root,"searchText":"needle"
+                }
+            }}],
+            "questions":[{"id":"decides","type":"noul","instructions":"Does this source decide the answer?"}]
+        });
+        let outcome = runtime
+            .execute("near".into(), "clasify".into(), input)
+            .await
+            .expect("near scout");
+        let pages = outcome.structured_content["queries"][0]["resources"][0]["pages"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(pages.len() as u64, calls, "{}", outcome.structured_content);
+        assert!(
+            pages.iter().all(|page| page.get("error").is_none()),
+            "{pages:?}"
+        );
+        let sent = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|request| {
+                serde_json::from_slice::<serde_json::Value>(&request.body).unwrap()["state"]["content"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            sent.iter()
+                .any(|content| content.contains("needle decides the answer")),
+            "{sent:?}"
+        );
+        assert!(
+            sent.iter().any(|content| content.contains("needle marker")),
+            "{sent:?}"
+        );
+        octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+            .expect("near cluster output contract");
+        runtime.close().await;
+    }
+}
+
+#[tokio::test]
 async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -972,16 +1144,18 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
                 .as_str()
                 .is_some_and(|p| std::path::Path::new(p).is_absolute())
         );
-        assert!(
-            page["limitations"]
-                .as_array()
-                .is_some_and(|limits| limits.iter().any(|v| {
-                    v.as_str()
-                        .is_some_and(|v| v.contains("bounded candidate chunk"))
-                })),
-            "{page}"
-        );
+        assert!(page.get("limitations").is_none(), "stated once: {page}");
     }
+    // Every page shares the bounded-chunk limit, so the resource states it once.
+    assert!(
+        query["resources"][0]["limitations"]
+            .as_array()
+            .is_some_and(|limits| limits.iter().any(|v| {
+                v.as_str()
+                    .is_some_and(|v| v.contains("bounded candidate chunk"))
+            })),
+        "{query}"
+    );
     let resume = &query["next"]["clasify"]["resources"][0]["context"];
     assert_eq!(resume["candidateEvidence"], "fileChunks");
     assert_eq!(resume["query"]["page"], 2);

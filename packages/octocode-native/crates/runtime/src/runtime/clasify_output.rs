@@ -74,9 +74,12 @@ fn page_base(receipt: &Value) -> Map<String, Value> {
     let mut page = Map::new();
     if receipt.get("source").is_some_and(Value::is_object) {
         let mut source = receipt["source"].clone();
-        source
-            .as_object_mut()
-            .map(|source| source.remove("evidenceHash"));
+        // The observed mtime only keeps different file versions from merging
+        // (see `adjacent_scopes`); it tells the reader nothing.
+        if let Some(source) = source.as_object_mut() {
+            source.remove("evidenceHash");
+            source.remove("modified");
+        }
         if source.as_object().is_some_and(|source| !source.is_empty()) {
             page.insert("source".into(), source);
         }
@@ -96,6 +99,45 @@ fn page_base(receipt: &Value) -> Map<String, Value> {
     page
 }
 
+/// Every page failed with one identical error (e.g. the matrix was over its
+/// cell budget before any provider call): one page states it once, with the
+/// resource's page count, instead of repeating it beside every page receipt.
+fn collapse_shared_failure(pages: Vec<PageOutcome>) -> Vec<PageOutcome> {
+    let shared = match pages.as_slice() {
+        [PageOutcome::Failed { error, .. }, rest @ ..]
+            if !rest.is_empty()
+                && rest.iter().all(|page| {
+                    matches!(page, PageOutcome::Failed { error: other, .. }
+                        if other.code == error.code && other.message == error.message)
+                }) =>
+        {
+            error.clone()
+        }
+        _ => return pages,
+    };
+    let mut error = shared;
+    error.message = format!(
+        "{} This resource captured {} pages.",
+        error.message,
+        pages.len()
+    );
+    vec![PageOutcome::Failed {
+        error,
+        receipt: json!({}),
+    }]
+}
+
+/// A page whose every answer is a located window needs no page read: the
+/// windows are the reads.
+fn only_located(answers: &[Result<Value, ClassificationError>]) -> bool {
+    !answers.is_empty()
+        && answers.iter().all(|answer| {
+            answer
+                .as_ref()
+                .is_ok_and(|data| data["answer"]["type"] == "locate")
+        })
+}
+
 /// Render one resource. `question_ids` orders the per-page answer map.
 pub(super) fn resource(
     resource_id: &Value,
@@ -103,6 +145,7 @@ pub(super) fn resource(
     pages: Vec<PageOutcome>,
     has_continuation: bool,
 ) -> Value {
+    let pages = collapse_shared_failure(pages);
     let mut answered = false;
     let mut failed = false;
     let mut terminal_partial = false;
@@ -119,6 +162,9 @@ pub(super) fn resource(
             PageOutcome::Assessed { receipt, answers } => {
                 terminal_partial = receipt["coverage"] == "partial";
                 let mut page = page_base(&receipt);
+                if only_located(&answers) {
+                    page.remove("next");
+                }
                 let mut by_question = Map::new();
                 for (id, answer) in question_ids.iter().zip(answers) {
                     let key = id.as_str().unwrap_or_default().to_owned();
@@ -146,7 +192,30 @@ pub(super) fn resource(
     } else {
         "complete"
     };
-    json!({"resourceId":resource_id,"coverage":coverage,"pages":rendered})
+    let mut rendered = rendered;
+    let shared = hoist_limitations(&mut rendered);
+    let mut out = json!({"resourceId":resource_id,"coverage":coverage,"pages":rendered});
+    if let Some(limitations) = shared {
+        out["limitations"] = limitations;
+    }
+    out
+}
+
+/// Limitations every page repeats verbatim move to the resource, once.
+fn hoist_limitations(pages: &mut [Value]) -> Option<Value> {
+    let (first, rest) = pages.split_first()?;
+    let shared = first.get("limitations")?.clone();
+    if rest.is_empty()
+        || rest
+            .iter()
+            .any(|page| page.get("limitations") != Some(&shared))
+    {
+        return None;
+    }
+    for page in pages.iter_mut() {
+        page.as_object_mut().map(|page| page.remove("limitations"));
+    }
+    Some(shared)
 }
 
 fn merge_scope(first: Option<&Value>, last: Option<&Value>) -> Option<Value> {
@@ -379,6 +448,67 @@ mod tests {
                 }}},
                 "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}}
             }]})
+        );
+    }
+
+    #[test]
+    fn located_pages_state_shared_limits_once_and_no_redundant_reads() {
+        let ids = [json!("q")];
+        let ids = ids.iter().collect::<Vec<_>>();
+        let limit = "Only a bounded candidate chunk was assessed; unread file content may change the verdict.";
+        let page = |path: &str| PageOutcome::Assessed {
+            receipt: json!({
+                "source":{"path":path,"modified":"2026-09-26T21:47:51.035Z"},
+                "scope":{"startLine":1,"endLine":9,"totalLines":90},
+                "limitations":[limit],
+                "read":{"tool":"localFetch","confidence":"exact","query":{"path":path,"startLine":1,"endLine":9}}
+            }),
+            answers: vec![Ok(json!({"answer":{"type":"locate","exists":0.4,
+                "matches":[{"startLine":2,"endLine":5,"probability":0.8}]}}))],
+        };
+        let rendered = resource(
+            &json!("s"),
+            &ids,
+            vec![page("/repo/a.go"), page("/repo/b.go")],
+            false,
+        );
+        assert_eq!(rendered["limitations"], json!([limit]), "{rendered}");
+        for page in rendered["pages"].as_array().unwrap() {
+            assert!(page.get("limitations").is_none(), "{page}");
+            // The located windows are the reads; the chunk read repeats them.
+            assert!(page.get("next").is_none(), "{page}");
+            assert!(page["source"].get("modified").is_none(), "{page}");
+            assert!(page["source"]["path"].is_string(), "{page}");
+        }
+    }
+
+    #[test]
+    fn an_over_budget_matrix_reports_one_short_error_per_resource() {
+        let ids = [json!("q")];
+        let ids = ids.iter().collect::<Vec<_>>();
+        let receipt = json!({
+            "source":{"path":"/repo/a.go"},"scope":{"startLine":1,"endLine":9,"totalLines":90},
+            "read":{"tool":"localFetch","confidence":"exact","query":{"path":"/repo/a.go"}}
+        });
+        let error = ClassificationError::new(
+            "classificationExpandedCellsExceeded",
+            "Captured 30 pages × 1 questions = 30 cells; the limit is 25.",
+            "Reduce resources, questions, or search pageSize and retry.",
+        );
+        let pages = (0..6)
+            .map(|_| PageOutcome::Failed {
+                error: error.clone(),
+                receipt: receipt.clone(),
+            })
+            .collect::<Vec<_>>();
+        let rendered = resource(&json!("s"), &ids, pages, false);
+        let pages = rendered["pages"].as_array().unwrap();
+        assert_eq!(pages.len(), 1, "{rendered}");
+        assert_eq!(
+            pages[0],
+            json!({"error":{"code":"classificationExpandedCellsExceeded",
+                "message":"Captured 30 pages × 1 questions = 30 cells; the limit is 25. This resource captured 6 pages.",
+                "hints":["Reduce resources, questions, or search pageSize and retry."]}})
         );
     }
 

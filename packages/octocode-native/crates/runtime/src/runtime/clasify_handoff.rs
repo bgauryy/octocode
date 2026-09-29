@@ -7,8 +7,11 @@ use serde_json::{Map, Value, json};
 
 /// Files a page must list before locating beats reading the top hit directly.
 const WIDE_RESULT_FILES: usize = 8;
-/// Top-ranked files sent to one locate matrix.
-const LOCATE_FILES: usize = 5;
+/// Top-ranked files sent to one locate matrix. Three whole files with two
+/// questions stay inside the 25-cell budget once prefiltered.
+const LOCATE_FILES: usize = 3;
+/// Distinct matched strings a regex search passes on as prefilter literals.
+const MAX_PREFILTER_TERMS: usize = 8;
 /// Result views whose files are not evidence-bearing hits.
 const NON_HIT_VIEWS: [&str; 4] = ["filesWithout", "countLines", "countMatches", "matchOnly"];
 
@@ -65,8 +68,9 @@ pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Valu
 }
 
 /// Literals every hit contains, used to keep the densest windows of a large
-/// file. A regex or wildcard search has no single literal, so it gets none.
-fn prefilter(tool: &str, query: &Value) -> Vec<String> {
+/// file. A literal search passes its text; a regex search passes the distinct
+/// strings it matched on this page (a pattern has no single literal).
+fn prefilter(tool: &str, query: &Value, data: &Map<String, Value>) -> Vec<String> {
     let plain =
         |text: &str| !text.trim().is_empty() && !text.contains(|c| r"\.^$*+?()[]{}|".contains(c));
     if tool == "ghSearchCode" {
@@ -77,16 +81,73 @@ fn prefilter(tool: &str, query: &Value) -> Vec<String> {
             .flatten()
             .filter_map(Value::as_str)
             .filter(|word| !word.trim().is_empty())
-            .take(8)
+            .take(MAX_PREFILTER_TERMS)
             .map(str::to_owned)
             .collect();
     }
-    query
-        .get("searchText")
-        .and_then(Value::as_str)
-        .filter(|text| query.get("regex").and_then(Value::as_str) == Some("literal") || plain(text))
-        .map(|text| vec![text.to_owned()])
-        .unwrap_or_default()
+    let Some(text) = query.get("searchText").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+    let mode = query.get("regex").and_then(Value::as_str);
+    if mode == Some("literal") || plain(text) {
+        return vec![text.to_owned()];
+    }
+    if mode == Some("pcre2") {
+        return Vec::new();
+    }
+    let insensitive = match query.get("caseMode").and_then(Value::as_str) {
+        Some("insensitive") => true,
+        Some("sensitive") => false,
+        _ => !text.chars().any(char::is_uppercase),
+    };
+    let Ok(pattern) = regex::RegexBuilder::new(text)
+        .case_insensitive(insensitive)
+        .build()
+    else {
+        return Vec::new();
+    };
+    let mut terms = Vec::<String>::new();
+    let values = data
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|file| file.get("matches")?.as_array())
+        .flatten()
+        .filter_map(|matched| matched.get("value")?.as_str());
+    for value in values {
+        for found in pattern.find_iter(value) {
+            let term = found.as_str().trim();
+            if !term.is_empty() && !terms.iter().any(|seen| seen == term) {
+                terms.push(term.to_owned());
+                if terms.len() == MAX_PREFILTER_TERMS {
+                    return terms;
+                }
+            }
+        }
+    }
+    terms
+}
+
+/// A search for one exact identifier (a whole word, or a single token that
+/// only code would spell: `snake_case`, `camelCase`, `$x`, `v2`) already names
+/// what it wants; its hits are the answer, so a locate pass adds only cost.
+fn exact_identifier(query: &Value) -> bool {
+    if query.get("wholeWord") == Some(&Value::Bool(true)) {
+        return true;
+    }
+    let Some(text) = query.get("searchText").and_then(Value::as_str) else {
+        return false;
+    };
+    let mut chars = text.chars();
+    let identifier = chars
+        .next()
+        .is_some_and(|first| first.is_alphabetic() || matches!(first, '_' | '$'))
+        && chars.all(|c| c.is_alphanumeric() || matches!(c, '_' | '$'));
+    identifier
+        && (text.contains(['_', '$'])
+            || text.chars().any(|c| c.is_ascii_digit())
+            || text.chars().skip(1).any(char::is_uppercase))
 }
 
 fn request(
@@ -105,14 +166,14 @@ fn request(
     }
     let goal: String = query.get("goal")?.as_str()?.chars().take(500).collect();
     let files = data.get("files")?.as_array()?;
-    if files.len() < WIDE_RESULT_FILES {
+    if files.len() < WIDE_RESULT_FILES || (tool == "localSearch" && exact_identifier(query)) {
         return None;
     }
-    let literals = prefilter(tool, query);
+    let literals = prefilter(tool, query, data);
     let mut seen = Vec::new();
     let resources: Vec<Value> = files
         .iter()
-        .filter_map(|file| context_query(tool, query, file, base, &goal))
+        .filter_map(|file| context_query(tool, query, file, base))
         .filter(|(key, _)| {
             let fresh = !seen.contains(key);
             seen.push(key.clone());
@@ -133,10 +194,7 @@ fn request(
     }
     Some(json!({
         "goal": goal,
-        "reasoning": format!(
-            "The search listed {} files; locate the deciding lines before reading any whole file.",
-            files.len()
-        ),
+        "reasoning": format!("{} files matched; locate before reading.", files.len()),
         "resources": resources,
         "questions": [{
             "id": "answer",
@@ -152,9 +210,7 @@ fn context_query(
     query: &Value,
     file: &Value,
     base: Option<&str>,
-    goal: &str,
 ) -> Option<(String, Value)> {
-    let reasoning = "Unread top hit; locate the decisive lines.";
     if tool == "ghSearchCode" {
         let (owner, repo, path) = match file {
             Value::String(row) => {
@@ -173,7 +229,6 @@ fn context_query(
         return Some((
             key,
             json!({"tool":"ghGetFileContent","query":{
-                "goal":goal,"reasoning":reasoning,
                 "owner":owner,"repo":repo,"path":path,"fullContent":true
             }}),
         ));
@@ -190,9 +245,7 @@ fn context_query(
     };
     Some((
         path.clone(),
-        json!({"tool":"localFetch","query":{
-            "goal":goal,"reasoning":reasoning,"path":path,"fullContent":true
-        }}),
+        json!({"tool":"localFetch","query":{"path":path,"fullContent":true}}),
     ))
 }
 
@@ -249,15 +302,74 @@ mod tests {
     }
 
     #[test]
+    fn exact_identifier_searches_do_not_hand_off() {
+        for query in [
+            json!({"goal":"who uses it","searchText":"newElementWith","regex":"literal"}),
+            json!({"goal":"who uses it","searchText":"spawn_blocking","resultView":"files"}),
+            json!({"goal":"who uses it","searchText":"get object","wholeWord":true}),
+        ] {
+            let mut wide = local_rows(12);
+            run(&mut wide, "localSearch", std::slice::from_ref(&query));
+            assert!(handoff(&wide).is_none(), "{query}");
+        }
+    }
+
+    #[test]
+    fn handoff_resources_carry_only_the_read() {
+        let mut out = local_rows(9);
+        run(
+            &mut out,
+            "localSearch",
+            &[json!({"goal":"how retries back off","searchText":"retry delay"})],
+        );
+        let query = &handoff(&out).expect("semantic wide page")["query"];
+        let context = &query["resources"][0]["context"]["query"];
+        assert!(context.get("goal").is_none(), "{context}");
+        assert!(context.get("reasoning").is_none(), "{context}");
+        assert_eq!(context["fullContent"], true);
+    }
+
+    #[test]
+    fn regex_searches_prefilter_on_the_strings_they_matched() {
+        let files: Vec<Value> = (0..9)
+            .map(|n| {
+                json!({"path": format!("s{n}.go"), "matches": [
+                    {"line": 1, "value": "\tif sampleLimit > 0 {"},
+                    {"line": 2, "value": "return errSampleLimit // sample_limit"}
+                ]})
+            })
+            .collect();
+        let mut out = json!({"base":"/repo","results":[{"index":0,"data":{"files":files}}]});
+        run(
+            &mut out,
+            "localSearch",
+            &[
+                json!({"goal":"how is the limit enforced","searchText":"sample.?limit","caseMode":"insensitive"}),
+            ],
+        );
+        let query = &handoff(&out).expect("regex page")["query"];
+        assert_eq!(
+            query["resources"][0]["prefilter"],
+            json!(["sampleLimit", "SampleLimit", "sample_limit"])
+        );
+    }
+
+    #[test]
     fn prefilter_uses_only_literals_every_hit_contains() {
-        let regex = prefilter("localSearch", &json!({"searchText":"fn (a|b)\\d+"}));
+        let empty = Map::new();
+        let regex = prefilter("localSearch", &json!({"searchText":"fn (a|b)\\d+"}), &empty);
         assert!(regex.is_empty());
         let forced_literal = prefilter(
             "localSearch",
             &json!({"searchText":"a.b(c)","regex":"literal"}),
+            &empty,
         );
         assert_eq!(forced_literal, vec!["a.b(c)".to_owned()]);
-        let words = prefilter("ghSearchCode", &json!({"keywords":["sync"," ","hash"]}));
+        let words = prefilter(
+            "ghSearchCode",
+            &json!({"keywords":["sync"," ","hash"]}),
+            &empty,
+        );
         assert_eq!(words, vec!["sync".to_owned(), "hash".to_owned()]);
     }
 

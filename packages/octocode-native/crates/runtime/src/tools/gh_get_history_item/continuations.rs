@@ -62,8 +62,60 @@ pub(super) const BODY_PREVIEW_CHARS: usize = 500;
 /// separate file-list-only fetch would only repeat its file list.
 const SMALL_DIFF_LINES: u64 = 100;
 /// Above this many changed files every-patch reads cost one call per file
-/// page and patch window; review starts from the file inventory instead.
-const LARGE_PR_FILES: u64 = 100;
+/// page and patch window; review starts from a literal search of the patches
+/// ([`find_in_patches`]) or the file inventory instead.
+pub(super) const LARGE_PR_FILES: u64 = 100;
+
+/// The literal a [`find_in_patches`] template leaves for the caller to fill.
+pub(super) const FIND_IN_PATCHES_PLACEHOLDER: &str = "<literal from the question>";
+
+/// A first-page fetch of `query`'s PR: the base public query without its
+/// content selection, filters, or per-surface cursors.
+fn fresh_pr_query(query: &HistoryItemRequest) -> Value {
+    let mut target = base_public_query(query, ItemOperation::PullRequest);
+    if let Some(object) = target.as_object_mut() {
+        for key in [
+            "content",
+            "charOffset",
+            "charLength",
+            "commentBodyOffset",
+            "commentPage",
+            "commitPage",
+            "reviewPage",
+            "filePage",
+            "page",
+            "matchString",
+        ] {
+            object.remove(key);
+        }
+    }
+    target
+}
+
+/// `next.findInPatches` on a large PR that is not yet narrowed: every patch
+/// cut to the lines matching the caller's literal (`matchContext: 0`, one
+/// call) instead of paging hundreds of inventory rows. It is a template: the
+/// caller replaces the `matchString` placeholder with a literal from its
+/// question (and may add `fileFilter.paths`), so it carries low confidence.
+pub(super) fn find_in_patches(query: &HistoryItemRequest, changed_files: Option<u64>) -> Option<Value> {
+    let narrowed = query.match_string().is_some() || query.file_filter().is_some();
+    if narrowed || changed_files.is_none_or(|files| files <= LARGE_PR_FILES) {
+        return None;
+    }
+    let mut target = fresh_pr_query(query);
+    if let Some(object) = target.as_object_mut() {
+        object.remove("pageSize");
+    }
+    Some(json!({
+        "tool":"ghGetHistoryItem",
+        "confidence":"low",
+        "query":merge(target, json!({
+            "content":{"patches":{"mode":"all"}},
+            "matchString":FIND_IN_PATCHES_PLACEHOLDER,
+            "matchContext":0
+        }))
+    }))
+}
 
 /// Per-row menu of first-page fetches for content the call did not request.
 ///
@@ -99,24 +151,13 @@ pub(super) fn pr_next_menu(
     // Start from the base public query so contract-required fields (pageSize,
     // minify) are present, then drop the current content selection and every
     // per-surface cursor: each menu entry is a fresh first-page fetch.
-    let mut target = base_public_query(query, ItemOperation::PullRequest);
-    if let Some(object) = target.as_object_mut() {
-        for key in [
-            "content",
-            "charOffset",
-            "charLength",
-            "commentBodyOffset",
-            "commentPage",
-            "commitPage",
-            "reviewPage",
-            "filePage",
-            "page",
-            "matchString",
-        ] {
-            object.remove(key);
-        }
-    }
+    let target = fresh_pr_query(query);
     let mut next = Map::new();
+    if patch_mode == "none"
+        && let Some(find) = find_in_patches(query, changed_files)
+    {
+        next.insert("findInPatches".into(), find);
+    }
     let call = |content: Value| continuation(merge(target.clone(), json!({"content":content})));
     if !content_flag(content, "body") && !body_in_preview {
         next.insert("getBody".into(), call(json!({"body":true})));
@@ -279,7 +320,9 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
 }
 
 /// `next.readFullPatches`: the whole patches of files a `matchString` view
-/// narrowed to their matching hunks (rows carrying `fullPatchChars`).
+/// narrowed to their matching hunks (rows carrying `fullPatchChars`). An
+/// explicit `matchContext` asked for the narrowed view itself, so it gets
+/// no offer; `fullPatchChars` still says more exists.
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
     let narrowed = out
         .pointer("/pullRequests/0/changedFiles")
@@ -290,7 +333,7 @@ pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemReq
         .filter_map(|file| file.get("path").and_then(Value::as_str))
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    if narrowed.is_empty() {
+    if narrowed.is_empty() || q.match_context().is_some() {
         return;
     }
     let mut nq = base_public_query(q, ItemOperation::PullRequest);
@@ -680,6 +723,17 @@ mod tests {
         for key in ["matchString", "charOffset", "filePage"] {
             assert!(next.get(key).is_none(), "{key} kept: {next}");
         }
+        // An explicit matchContext asked for the narrowed view: no offer.
+        let explicit: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "content":{"patches":{"mode":"all"}},"matchString":"needle","matchContext":0
+        }))
+        .expect("match query");
+        let mut out = json!({"type":"pullRequests","pullRequests":[{"changedFiles":[
+            {"path":"src/a.rs","patch":"+needle","fullPatchChars":900}
+        ]}]});
+        attach_full_patch_continuation(&mut out, &explicit);
+        assert!(out.get("next").is_none(), "{out}");
     }
 
     #[test]
@@ -778,9 +832,23 @@ mod tests {
         assert!(menu.get("getAllPatches").is_none(), "{menu}");
         assert!(menu.get("getChangedFiles").is_some(), "{menu}");
         assert!(menu.get("getSelectedPatches").is_some(), "{menu}");
+        // The first entry searches every patch for the caller's literal
+        // (matching lines only) before any inventory page: a template whose
+        // placeholder the caller fills, hence low confidence.
+        assert_eq!(
+            menu.as_object().and_then(|m| m.keys().next()).map(String::as_str),
+            Some("findInPatches"),
+            "{menu}"
+        );
+        let find = &menu["findInPatches"];
+        assert_eq!(find["confidence"], "low");
+        assert_eq!(find["query"]["content"], json!({"patches":{"mode":"all"}}));
+        assert_eq!(find["query"]["matchString"], FIND_IN_PATCHES_PLACEHOLDER);
+        assert_eq!(find["query"]["matchContext"], 0);
         let medium = json!({"body":"","changed_files":100,"additions":900,"deletions":10});
         let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &medium);
         assert!(menu.get("getAllPatches").is_some(), "{menu}");
+        assert!(menu.get("findInPatches").is_none(), "{menu}");
     }
 
     #[test]

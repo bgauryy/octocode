@@ -66,7 +66,10 @@ pub struct LocalSearchError {
 #[serde(rename_all = "camelCase")]
 pub struct SearchMatch {
     pub line: u32,
-    pub column: u32,
+    /// Start of the span on its line; only span rows (`matchOnly`) carry it,
+    /// since several spans can share a line. A line row's value shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
     pub value: String,
     /// Every matched line inside a merged context block, in order; present
     /// only when overlapping/adjacent windows were merged into this one.
@@ -91,6 +94,10 @@ pub struct ItemPagination {
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_match_page: Option<u32>,
+    /// Lines of this file's hits on later match pages, ascending and
+    /// comma-joined (`"548,591,1098"`): read them directly or page on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub more_lines: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub out_of_range: bool,
 }

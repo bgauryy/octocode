@@ -32,6 +32,16 @@ for (const [from, to] of [['98:', '97:'], ['path: source.rs', 'path: ../outside.
   const changed = structuredClone(paged); changed.result.content[0].text = changed.result.content[0].text.replace(from, to);
   assert.equal(check(expected, answer, [changed]), false);
 }
+// Current renderer: a sole row has no `result:`/`data:` wrapper and the gutter is `N:`.
+const flat = { ...call, result: { structuredContent: { base: '/fixture', results: [] }, content: [{ type: 'text', text:
+  '# Response page 1/2.\nbase: /fixture\npath: source.rs\ncontent (source lines):\n98:' + expected.sourceLine + '\n' }] } };
+assert.equal(check(expected, answer, [flat]), true);
+for (const [from, to] of [['98:', '97:'], ['path: source.rs', 'path: ../outside.rs']]) {
+  const changed = structuredClone(flat); changed.result.content[0].text = changed.result.content[0].text.replace(from, to);
+  assert.equal(check(expected, answer, [changed]), false);
+}
+const flatBatch = structuredClone(flat); flatBatch.args.queries.push({ path: expected.path });
+assert.equal(check(expected, answer, [flatBatch]), false);
 const continuation = { ...call, result: { structuredContent: { results: [], responsePagination: { scope: 'content.text', currentPage: 2 } },
   content: [{ type: 'text', text: '# Response page 2/2.\n98: ' + expected.sourceLine + '\n' }] } };
 assert.equal(check(expected, answer, [continuation]), true);

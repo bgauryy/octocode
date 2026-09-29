@@ -749,6 +749,13 @@ export interface RipgrepMatch {
   /** Deterministic relevance hint (0.0..1.0) derived from `kind`. */
   scoreHint?: number
   /**
+   * Lexical hit rank of the matched line (see `relevance::line_rank`):
+   * 3 declared name, 2 deciding statement (assignment, branch, return,
+   * raise), 1 other code, 0 comment or string. Set for line matches;
+   * `None` for only-matching spans.
+   */
+  rank?: number
+  /**
    * When the assembled content-view snippet was clipped to `max_snippet_chars`,
    * the original (pre-truncation) Unicode-scalar length of the value. `None`
    * when the snippet was not truncated. Lets callers surface a truncation

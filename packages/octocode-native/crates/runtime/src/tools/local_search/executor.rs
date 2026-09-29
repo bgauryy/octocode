@@ -157,9 +157,11 @@ pub fn execute_local_search(
         no_ignore: query.no_ignore,
         hidden: query.hidden,
         max_depth: query.max_depth(),
-        // The engine owns the relevance order (count, then source before
-        // test/generated paths, then declaration > code > comment/string
-        // hits, then path) so its top-k and cap keep the same survivors.
+        // The engine owns the relevance order (for a bare-identifier search,
+        // source files declaring the name first; then count, then source
+        // before test/generated paths, then declaration > code >
+        // comment/string hits, then path) so its top-k and cap keep the same
+        // survivors.
         sort: Some(match requested_sort {
             LocalSearchQuerySort::Traversal => "traversal".into(),
             LocalSearchQuerySort::Relevance => "relevance".into(),
@@ -362,6 +364,22 @@ pub fn execute_local_search(
     {
         parsed.files.reverse();
     }
+    let matches_per = query
+        .max_matches_per_file()
+        .unwrap_or(DEFAULT_MAX_MATCHES_PER_FILE)
+        .max(1);
+    // A file with more hits than one match page shows its deciding rows
+    // first: declarations, then assignments/branches/returns, then other
+    // code, then comments and strings (stable by line within a rank). A row
+    // repeating an earlier row's text adds nothing and follows every distinct
+    // row. Pages partition that order; each page is shown in source order.
+    if view != LocalSearchQueryResultView::MatchOnly {
+        for file in &mut parsed.files {
+            if file.matches.len() as u32 > matches_per {
+                rank_file_rows(&mut file.matches);
+            }
+        }
+    }
     let page_size = query
         .page_size()
         .unwrap_or_else(|| default_page_size(view))
@@ -377,10 +395,6 @@ pub fn execute_local_search(
             | LocalSearchQueryResultView::CountLines
             | LocalSearchQueryResultView::CountMatches
     );
-    let matches_per = query
-        .max_matches_per_file()
-        .unwrap_or(DEFAULT_MAX_MATCHES_PER_FILE)
-        .max(1);
     let match_page = query.match_page().max(1);
     let page_end = start
         .saturating_add(page_size as usize)
@@ -494,18 +508,38 @@ pub fn execute_local_search(
         .map(|f| {
             let total = f.matches.len() as u32;
             let ms = (match_page - 1).saturating_mul(matches_per) as usize;
-            let shown = f
+            let mut page_rows = f
                 .matches
                 .iter()
                 .skip(ms)
                 .take(matches_per as usize)
+                .collect::<Vec<_>>();
+            page_rows.sort_by_key(|m| (m.line, m.column));
+            let shown = page_rows
+                .into_iter()
                 .inspect(|m| {
                     if redacted.contains(&(f.path.clone(), m.line, m.column)) {
                         shown_redacted += 1;
                     }
                 })
                 .map(|m| project_match(m, display_cap))
+                .map(|mut row| {
+                    if view != LocalSearchQueryResultView::MatchOnly {
+                        row.column = None;
+                    }
+                    row
+                })
                 .collect::<Vec<_>>();
+            // Rows on later match pages, named by line so a reader can fetch
+            // them directly instead of paging.
+            let mut later = f
+                .matches
+                .iter()
+                .skip(ms.saturating_add(matches_per as usize))
+                .map(|m| m.line)
+                .collect::<Vec<_>>();
+            later.sort_unstable();
+            later.dedup();
             let shown = match merge_context {
                 Some(context) => merge_context_windows(
                     shown,
@@ -532,6 +566,13 @@ pub fn execute_local_search(
                     total_matches: total,
                     has_more,
                     next_match_page: has_more.then_some(match_page + 1),
+                    more_lines: (has_more && !later.is_empty()).then(|| {
+                        later
+                            .iter()
+                            .map(u32::to_string)
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    }),
                     out_of_range,
                 }),
             }
@@ -599,7 +640,7 @@ pub fn execute_local_search(
     let binary_cut = cap_has("binaryQuit");
     if binary_cut {
         warnings.push(
-            "binaryFileSkipped: at least one file holds a NUL byte and was searched only up to it; matches after that byte are not reported, and no text tool reads past it. Treat those files as covered only up to their first NUL.".into(),
+            "binaryFileSkipped: a file with a NUL byte was searched only up to it; no text tool reads past it.".into(),
         );
     }
     let error_count = stats.error_count.unwrap_or(0);
@@ -839,6 +880,18 @@ fn read_leading_lines(source: &std::path::Path, limit: usize) -> std::io::Result
     Ok(lines)
 }
 
+/// Order one clipped file's rows for paging: by lexical hit rank, then
+/// distinct text before repeats, stable by line.
+fn rank_file_rows(matches: &mut Vec<octocode_engine::types::RipgrepMatch>) {
+    matches.sort_by_key(|matched| std::cmp::Reverse(matched.rank.unwrap_or(1)));
+    let mut seen = std::collections::HashSet::new();
+    let (distinct, repeats): (Vec<_>, Vec<_>) = std::mem::take(matches)
+        .into_iter()
+        .partition(|matched| seen.insert(matched.value.trim().to_owned()));
+    matches.extend(distinct);
+    matches.extend(repeats);
+}
+
 fn project_match(
     matched: &octocode_engine::types::RipgrepMatch,
     max_chars: Option<usize>,
@@ -854,7 +907,7 @@ fn project_match(
     if let Some((byte, chars)) = cut {
         return SearchMatch {
             line: matched.line,
-            column: matched.column,
+            column: Some(matched.column),
             value: matched.value[..byte].into(),
             match_lines: None,
             count: matched.count,
@@ -869,7 +922,7 @@ fn project_match(
     let truncated = matched.original_chars.is_some();
     SearchMatch {
         line: matched.line,
-        column: matched.column,
+        column: Some(matched.column),
         value: matched.value.clone(),
         match_lines: None,
         count: matched.count,
@@ -1319,7 +1372,7 @@ mod merge_tests {
     fn row(line: u32, value: &str) -> SearchMatch {
         SearchMatch {
             line,
-            column: 0,
+            column: None,
             value: value.into(),
             match_lines: None,
             count: None,

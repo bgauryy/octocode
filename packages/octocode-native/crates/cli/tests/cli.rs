@@ -923,7 +923,8 @@ fn localsearch_emits_structured_results() {
     let value: serde_json::Value =
         serde_json::from_str(stdout(&output)).expect("one JSON document");
     let data = &value["results"][0]["data"];
-    assert_eq!(data["stats"]["matchedLines"], 1, "{data}");
+    // A complete single page carries no stats: the listed rows are the counts.
+    assert!(data.get("stats").is_none(), "{data}");
     assert_eq!(data["files"][0]["matches"][0]["value"], "needle", "{data}");
 }
 
@@ -931,7 +932,7 @@ fn localsearch_emits_structured_results() {
 fn astrewrite_previews_then_applies_with_hash_guards() {
     let workspace = Workspace::new();
     let path = workspace.write("rewrite.rs", "pub const VALUE: u32 = 2;\n");
-    let mut query = serde_json::json!({
+    let query = serde_json::json!({
         "path": path,
         "langType": "rust",
         "ruleKind": "pattern",
@@ -954,21 +955,13 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     let value: serde_json::Value = serde_json::from_str(stdout(&preview)).expect("preview JSON");
     let data = &value["results"][0]["data"];
     assert_eq!(data["mode"], "preview", "{data}");
-    // Apply requires expectedHashes copied from the preview (path → beforeHash).
-    let hashes: serde_json::Map<String, serde_json::Value> = data["files"]
-        .as_array()
-        .expect("preview files")
-        .iter()
-        .map(|file| {
-            (
-                file["path"].as_str().expect("file path").to_owned(),
-                file["beforeHash"].clone(),
-            )
-        })
-        .collect();
-    query["apply"] = serde_json::json!(true);
-    query["expectedHashes"] = serde_json::Value::Object(hashes);
-    query["snapshot"] = data["snapshot"].clone();
+    // Apply replays the preview's next.apply verbatim: it binds the snapshot
+    // and the expected before-hashes.
+    let apply = data["next"]["apply"]["query"].clone();
+    assert_eq!(apply["apply"], true, "{data}");
+    assert!(apply["snapshot"].is_string(), "{data}");
+    assert!(apply["expectedHashes"].is_object(), "{data}");
+    let query = apply;
     let output = workspace
         .cli()
         .env("OCTOCODE_BETA", "true")

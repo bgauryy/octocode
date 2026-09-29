@@ -351,9 +351,15 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             first_changed_path.as_deref(),
             &raw,
         );
-    } else if file_read && patch_mode == "none" && !query.follow_up() {
-        // An inventory's own next steps: selected patches, the merge commit.
-        // A patch read keeps only its continuations.
+    } else if file_read
+        && patch_mode == "none"
+        && !query.follow_up()
+        && query.file_filter().is_none()
+    {
+        // An unfiltered inventory's own next steps: a literal search of every
+        // patch on a large PR (before its next page), selected patches, the
+        // merge commit. A filtered inventory or a patch read is a targeted
+        // answer and keeps only its continuations.
         let mut menu = pr_next_menu(
             query,
             content,
@@ -362,10 +368,31 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             &raw,
         );
         if let Some(menu) = menu.as_object_mut() {
-            menu.retain(|name, _| matches!(name.as_str(), "getSelectedPatches" | "getMergeCommit"));
+            menu.retain(|name, _| {
+                matches!(
+                    name.as_str(),
+                    "findInPatches" | "getSelectedPatches" | "getMergeCommit"
+                )
+            });
         }
         if menu.as_object().is_some_and(|menu| !menu.is_empty()) {
             row["next"] = menu;
+        }
+    }
+    // Patch rows are the evidence of a patch read: it re-proves only number,
+    // state, and the head it read. The metadata read names the PR (title,
+    // author, createdAt); a read without patch rows keeps them.
+    let patch_rows = row["changedFiles"]
+        .as_array()
+        .is_some_and(|files| !files.is_empty() && files.iter().all(Value::is_object));
+    if slim
+        && patch_mode != "none"
+        && patch_rows
+        && row.get("sourceSha").is_some()
+        && let Some(fields) = row.as_object_mut()
+    {
+        for key in ["title", "author", "createdAt"] {
+            fields.remove(key);
         }
     }
     if !content_pagination.is_empty() {

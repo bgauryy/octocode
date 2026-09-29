@@ -304,8 +304,8 @@ try {
         receipt.calls.at(-1).response.content.some(block =>
           block.type === 'text'
           && block.text.includes('content (source lines):')
-          && block.text.includes('1: // Arithmetic fixture.')
-          && block.text.includes('2: export function add(left: number, right: number) { return left + right; }')
+          && block.text.includes('1:// Arithmetic fixture.')
+          && block.text.includes('2:export function add(left: number, right: number) { return left + right; }')
         )
       );
     }

@@ -410,6 +410,7 @@ fn sort_then_cap_retains_deterministic_sorted_prefix() {
             sort_time: None,
             line_weight: 0,
             demoted: false,
+            declares: false,
         }
     }
     let make = || {
@@ -905,6 +906,7 @@ fn bounded_retention_matches_a_full_sort() {
             sort_time: None,
             line_weight: salt % 5,
             demoted: salt.is_multiple_of(3),
+            declares: salt.is_multiple_of(4),
         }
     }
     for sort in ["matchCount", "relevance"] {
@@ -950,7 +952,8 @@ fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
     t.write("b_decl.rs", "fn needle() {}\n");
     t.write("c_tests/x_test.rs", "fn needle() {}\n");
     t.write("d_two.rs", "// needle\n// needle\n");
-    let mut o = opts(t.path(), "needle");
+    // A pattern (not a bare identifier) ranks by density first.
+    let mut o = opts(t.path(), "ne+dle");
     o.sort = Some("relevance".into());
     let r = search(o.clone()).expect("ok");
     let names = r
@@ -973,6 +976,45 @@ fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
     assert_eq!(
         names,
         ["a_comment.rs", "b_decl.rs", "d_two.rs", "x_test.rs"]
+    );
+}
+
+/// An identifier search asks where a name lives: a source file declaring it
+/// ranks before denser call sites, tests, and comments. A test file declaring
+/// the name keeps the ordinary density order.
+#[test]
+fn identifier_search_ranks_the_declaring_source_file_first() {
+    let t = TmpDir::new();
+    t.write("a_calls.ts", &"newElementWith(el);\n".repeat(9));
+    t.write("b_tests/x.test.ts", "export const newElementWith = 1;\nnewElementWith();\n");
+    t.write("z_src/mutate.ts", "export const newElementWith = <T>(el: T) => el;\n");
+    t.write(
+        "y_src/MoreObjects.java",
+        "  public static <T> T newElementWith(@Nullable T first) {\n",
+    );
+    let names = |pattern: &str, fixed: bool| {
+        let mut o = opts(t.path(), pattern);
+        o.sort = Some("relevance".into());
+        o.fixed_string = Some(fixed);
+        o.whole_word = Some(fixed);
+        search(o)
+            .expect("ok")
+            .files
+            .iter()
+            .map(|f| f.path.rsplit('/').next().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+    };
+    for fixed in [false, true] {
+        assert_eq!(
+            names("newElementWith", fixed),
+            ["MoreObjects.java", "mutate.ts", "a_calls.ts", "x.test.ts"],
+            "fixed {fixed}"
+        );
+    }
+    // Any regex beyond a bare identifier keeps count-first order.
+    assert_eq!(
+        names("newElementWith\\b", false),
+        ["a_calls.ts", "x.test.ts", "MoreObjects.java", "mutate.ts"]
     );
 }
 
