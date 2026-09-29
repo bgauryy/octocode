@@ -82,7 +82,7 @@ Full overview: [`docs/PACKAGES.md`](docs/PACKAGES.md); each package has its own 
 
 | Role | Packages |
 |---|---|
-| Core | `octocode-config` (`@octocodeai/config`: env/config loader + the single contract generator) · `octocode-native` (Rust brain: runtime, GitHub, CLI hosts, N-API, engine) · `octocode-extension-rust` (host filesystem primitives) · external `@octocodeai/octocode-core` (authors all tool contracts) |
+| Core | `octocode-config` (`@octocodeai/config`: env/config loader + the single contract generator) · `octocode-native` (Rust brain: runtime, GitHub, CLI hosts, N-API, engine) · external `@octocodeai/octocode-core` (authors all tool contracts) |
 | Interfaces | `octocode-mcp` (thin MCP stdio server) · `octocode` (CLI: `<toolName> '<json>'`, `scheme`, `skill`, `config`, `login`/`logout`/`auth`, `install`) · `octocode-vscode` |
 | Support (private) | `octocode-skill-installer` · `octocode-agents-communication` (in `skills/`) · `octocode-benchmark` · `octocode-jev-lab` |
 
@@ -154,7 +154,7 @@ yarn build:native:all · yarn platforms:check        # 6-platform cross-compile 
 yarn docs:verify · yarn health:check · yarn deps:dedupe   # docs links, workspace health, dep dedupe
 ```
 
-**Use `yarn build:dev` locally** (debug native + extension-rust + TS); reserve `yarn build` (release) for release/perf-representative artifacts. Build internals (parallel workspace graph, concurrent native targets, profiles) live in [`packages/octocode-native/ARCHITECTURE.md`](packages/octocode-native/ARCHITECTURE.md). Do **not** commit `.cargo/config.toml` lld/sccache blocks.
+**Use `yarn build:dev` locally** (debug native + TS); reserve `yarn build` (release) for release/perf-representative artifacts. Build internals (parallel workspace graph, concurrent native targets, profiles) live in [`packages/octocode-native/ARCHITECTURE.md`](packages/octocode-native/ARCHITECTURE.md). Do **not** commit `.cargo/config.toml` lld/sccache blocks.
 
 **End-to-end after engine/native/CLI changes:**
 

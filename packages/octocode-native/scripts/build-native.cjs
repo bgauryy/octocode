@@ -149,8 +149,7 @@ function targetDirs(platform, serial) {
 function crossEnv(platform) {
   const env = { ...process.env };
   const target = platform && PLATFORMS[platform];
-  // A static-CRT musl target cannot emit the cdylib addons; mirrors the
-  // extension-rust cross build. CI builds musl natively and is unaffected.
+  // A static-CRT musl target cannot emit the cdylib addons; CI builds musl natively and is unaffected.
   if (target?.libc === 'musl' && isCross(platform)) {
     const key = `CARGO_TARGET_${target.triple.toUpperCase().replace(/-/g, '_')}_RUSTFLAGS`;
     env[key] = `${env[key] ?? ''} -C target-feature=-crt-static`.trim();

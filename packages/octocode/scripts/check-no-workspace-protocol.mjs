@@ -44,7 +44,6 @@ const PUBLISHED_DEP_FIELDS = [
 const LOCAL_PROTOCOLS = ['workspace:', 'file:', 'link:', 'portal:'];
 
 const NATIVE_NPM_DIR = join(repoRoot, 'packages/octocode-native/npm');
-const EXTENSION_RUST_NPM_DIR = join(repoRoot, 'packages/octocode-extension-rust/npm');
 const offenders = [];
 const checkedPackages = [];
 
@@ -147,14 +146,6 @@ if (existsSync(NATIVE_NPM_DIR)) {
   for (const entry of readdirSync(NATIVE_NPM_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     checkPackage(join(NATIVE_NPM_DIR, entry.name, 'package.json'));
-  }
-}
-
-// Extension-rust optional platform packages (packages/octocode-extension-rust/npm/*).
-if (existsSync(EXTENSION_RUST_NPM_DIR)) {
-  for (const entry of readdirSync(EXTENSION_RUST_NPM_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    checkPackage(join(EXTENSION_RUST_NPM_DIR, entry.name, 'package.json'));
   }
 }
 

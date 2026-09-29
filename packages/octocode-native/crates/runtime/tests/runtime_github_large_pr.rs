@@ -145,26 +145,102 @@ async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
         json!({"content": {"changedFiles": true}, "debug": false}),
     )
     .await;
-    let files = data["pullRequests"][0]["changedFiles"]
-        .as_array()
-        .expect("changedFiles")
-        .clone();
-    let by = |name: &str| {
-        files
-            .iter()
-            .find(|f| f["path"] == name)
-            .cloned()
-            .unwrap_or_else(|| panic!("{name} missing in {files:?}"))
-    };
-    assert!(
-        by("src/ok.rs").get("patchUnavailable").is_none(),
-        "{files:?}"
+    // Compact rows: consecutive files of one directory share a group.
+    assert_eq!(
+        data["pullRequests"][0]["changedFiles"],
+        json!([
+            {"src/": [
+                "M +1 -1 ok.rs",
+                "R +0 -0 new_name.rs <- src/old_name.rs",
+                "M +39550 -39342 !tooLarge checker.ts"
+            ]},
+            "M +0 -0 !binary assets/logo.png",
+            "M +0 -0 !omitted src/omitted.ts"
+        ]),
+        "{data}"
     );
-    assert_eq!(by("src/new_name.rs")["previousPath"], "src/old_name.rs");
-    assert!(by("src/new_name.rs").get("patchUnavailable").is_none());
-    assert_eq!(by("src/checker.ts")["patchUnavailable"], "tooLarge");
-    assert_eq!(by("assets/logo.png")["patchUnavailable"], "binary");
-    assert_eq!(by("src/omitted.ts")["patchUnavailable"], "omitted");
+}
+
+#[tokio::test]
+async fn pr_inventory_carries_the_identity_header_and_its_patch_step_only() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 250).await;
+    mount_file_batches(
+        &server,
+        vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"changedFiles": true}, "debug": false}),
+    )
+    .await;
+    let row = &data["pullRequests"][0];
+    for kept in ["number", "title", "state", "sourceSha", "mergeCommitSha"] {
+        assert!(row.get(kept).is_some(), "{kept} missing: {row}");
+    }
+    for dropped in ["labels", "bodyPreview", "updatedAt", "targetBranch"] {
+        assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
+    }
+    let menu = row["next"].as_object().expect("next");
+    assert_eq!(
+        menu.keys().collect::<Vec<_>>(),
+        ["getSelectedPatches"],
+        "{row}"
+    );
+    // An omitted pageSize reads the whole 250-file inventory in one page.
+    let page = row.get("contentPagination").cloned().unwrap_or_default();
+    assert!(page.get("changedFiles").is_none(), "{page}");
+    let groups = row["changedFiles"].as_array().expect("changedFiles");
+    let rows = groups
+        .iter()
+        .map(|group| {
+            group
+                .as_object()
+                .and_then(|g| g.values().next())
+                .and_then(Value::as_array)
+                .map_or(1, Vec::len)
+        })
+        .sum::<usize>();
+    assert_eq!(rows, 250, "{row}");
+}
+
+#[tokio::test]
+async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 250).await;
+    let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
+    batches[1][7] = rest_file("docs/guide.md", Some("@@ -1 +1 @@\n-a\n+b"), 30, 2);
+    batches[2][3]["status"] = json!("added");
+    mount_file_batches(&server, batches, Duration::ZERO).await;
+    let data = run(
+        &server,
+        json!({"content": {"changedFiles": true}, "debug": true,
+               "fileFilter": {"paths": ["*.md", "src/b3/"], "status": ["added", "modified"], "minChanges": 3}}),
+    )
+    .await;
+    let row = &data["pullRequests"][0];
+    assert_eq!(
+        row["changedFiles"],
+        json!(["M +30 -2 docs/guide.md"]),
+        "{row}"
+    );
+    assert_eq!(
+        row["contentPagination"]["changedFiles"]["totalItems"], 1,
+        "{row}"
+    );
+    let data = run(
+        &server,
+        json!({"content": {"changedFiles": true}, "debug": false,
+               "fileFilter": {"paths": ["src/b3/"], "status": ["added"]}}),
+    )
+    .await;
+    assert_eq!(
+        data["pullRequests"][0]["changedFiles"],
+        json!(["A +1 -1 src/b3/f3.rs"]),
+        "{data}"
+    );
 }
 
 #[tokio::test]
@@ -284,7 +360,9 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     ] {
         assert!(row.get(dropped).is_none(), "{dropped} repeated: {row}");
     }
-    assert_eq!(row["changedFiles"].as_array().map(Vec::len), Some(100));
+    // 100 files in one directory: one group of 100 compact rows.
+    let group = &row["changedFiles"][0]["src/b2/"];
+    assert_eq!(group.as_array().map(Vec::len), Some(100), "{row}");
     assert!(data["next"]["nextChangedFilesPage"].is_object(), "{data}");
 
     // debug keeps the full header.
@@ -299,7 +377,7 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
 async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     let server = MockServer::start().await;
     mount_pr(&server, 2).await;
-    let big = format!("@@ -1,2000 +1,2000 @@\n{}", "+line\n".repeat(4_000));
+    let big = format!("@@ -1,2000 +1,2000 @@\n{}", "+line\n".repeat(12_000));
     mount_file_batches(
         &server,
         vec![vec![

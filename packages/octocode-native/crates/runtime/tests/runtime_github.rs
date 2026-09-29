@@ -852,7 +852,8 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
     assert_eq!(get_body["content"], json!({"body": true}), "{get_body}");
     let replayed = octocode_native::contracts::validate_query("ghGetHistoryItem", get_body.clone())
         .expect("compact continuation validates");
-    assert_eq!(replayed["pageSize"], 30, "{replayed}");
+    // pageSize has no contract default: each surface sizes its own page.
+    assert!(replayed.get("pageSize").is_none(), "{replayed}");
     assert_eq!(replayed["minify"], "standard", "{replayed}");
     runtime.close().await;
 }

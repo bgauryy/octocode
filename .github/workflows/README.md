@@ -9,7 +9,6 @@ This directory contains the active GitHub Actions workflows for the Octocode mon
 | `ci.yml` | Pull requests and pushes to `main` | Documentation, lint, build-output, typecheck, test, and coverage checks |
 | `engine.yml` | Engine-related pull requests and pushes to `main` | Rust tests, Clippy, native ABI, and Rust↔JavaScript parity checks |
 | `rust-tools-core.yml` | Native package pull requests and pushes to `main` | cargo-deny, per-OS test & Clippy, six-platform binary packaging and release-package validation |
-| `extension-rust.yml` | Extension package changes, pushes to `main`, manual dispatch | Six-platform extension runtime builds (incl. musl) and release-package validation |
 | `agents-communication.yml` | Communication skill changes, pushes to `main`, manual dispatch | Python runtime across OS targets plus the declared Python 3.9 minimum |
 | `skill-installer-windows.yml` | Skill-installer changes, pushes to `main` | Windows installer and junction behavior |
 

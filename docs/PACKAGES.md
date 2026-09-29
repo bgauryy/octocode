@@ -53,10 +53,6 @@ Private shared implementation for durable canonical skill copies, platform links
 
 Private Python CLI and communication skill for shared session identity, path leases, messages, delivery, and handoff documents.
 
-### [`packages/octocode-extension-rust`](../packages/octocode-extension-rust) — `@octocodeai/octocode-extension-rust`
-
-Separate Rust/N-API package for filesystem snapshots, guarded mutations, durability, verified loose Git objects, and line diffs used by agent hosts.
-
 ### [`packages/octocode-benchmark`](../packages/octocode-benchmark) — `@octocodeai/octocode-benchmark`
 
 Private evaluation workspace for controlled comparisons, VRPT scoring, routing regressions, graders, and reproducible reports.
