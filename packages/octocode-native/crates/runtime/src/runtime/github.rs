@@ -18,7 +18,21 @@ use crate::{
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login, or set OCTOCODE_TOKEN / GH_TOKEN / GITHUB_TOKEN. Fix or unset an invalid higher-priority environment token first; it overrides stored credentials.";
+/// Hints are rendered whole only up to the response guidance limit (120
+/// chars); keep every GitHub recovery hint within it.
+const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or set OCTOCODE_TOKEN/GH_TOKEN/GITHUB_TOKEN; an invalid env token overrides stored login.";
+
+/// A repository that did not resolve: GitHub answers a private repository
+/// the token cannot see exactly like a missing one.
+const REPOSITORY_ACCESS_HINT: &str = "The repository is missing, private, or hidden from this token; check owner/repo spelling and token access.";
+
+fn repository_not_found_message(owner: &str, repo: &str) -> String {
+    format!("Repository {owner}/{repo} not found, or private and not accessible to this token")
+}
+
+fn repository_not_found(error: &ProviderError) -> bool {
+    error.reason == Some(ProviderErrorReason::RepositoryNotFound)
+}
 
 fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
     match kind {
@@ -302,10 +316,16 @@ impl GitHubServices {
         Ok(match result {
             Ok(data) => super::dispatch::value_result(data),
             Err(error) => {
-                let pull_request = error.reason == Some(ProviderErrorReason::IssueIsPullRequest);
+                let reason = error.reason;
                 let mut result = history_error(error, false);
-                if pull_request {
-                    attach_pull_request_recovery(&mut result.data, raw_query);
+                match reason {
+                    Some(ProviderErrorReason::IssueIsPullRequest) => {
+                        attach_pull_request_recovery(&mut result.data, raw_query);
+                    }
+                    Some(ProviderErrorReason::PullRequestIsIssue) => {
+                        attach_issue_recovery(&mut result.data, raw_query);
+                    }
+                    _ => {}
                 }
                 result
             }
@@ -576,6 +596,9 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".into(),
         ProviderErrorKind::Permission => error.message.to_string(),
+        ProviderErrorKind::NotFound if repository_not_found(&error) => {
+            repository_not_found_message(owner, repo)
+        }
         ProviderErrorKind::NotFound => "Repository, resource, or path not found".into(),
         // Provider-local validation (no HTTP status) carries a specific,
         // actionable message (directory/symlink/submodule path, bad name).
@@ -596,7 +619,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         == BINARY_FILE_MESSAGE
     {
         (
-            vec!["Binary content cannot be returned as text; retrying will not help. Use ghCloneRepo for a local copy, or read a text file instead.".into()],
+            vec!["Binary content cannot be returned as text; retrying will not help. Use ghCloneRepo for a local copy.".into()],
             None,
         )
     } else if error.kind == ProviderErrorKind::Validation
@@ -612,6 +635,9 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
             ],
             Some(json!({ "viewTree": tree })),
         )
+    } else if repository_not_found(&error) {
+        // Listing a tree of the same repository cannot recover.
+        (vec![REPOSITORY_ACCESS_HINT.into()], None)
     } else if error.kind == ProviderErrorKind::NotFound {
         let parent = std::path::Path::new(requested)
             .parent()
@@ -654,6 +680,24 @@ fn attach_pull_request_recovery(data: &mut Value, query: &Value) {
     next.insert("operation".into(), json!("pullRequest"));
     data["hints"] = json!(["This number is a pull request; run the readPullRequest continuation."]);
     data["next"] = json!({"readPullRequest": {
+        "tool": "ghGetHistoryItem",
+        "confidence": "exact",
+        "query": next,
+    }});
+}
+
+/// A pull-request number that is an issue: read it as operation:"issue".
+/// Only the issue's own selections (body, discussion comments) carry over.
+fn attach_issue_recovery(data: &mut Value, query: &Value) {
+    let mut next = serde_json::Map::new();
+    for field in ["owner", "repo", "number"] {
+        if let Some(value) = query.get(field).filter(|value| !value.is_null()) {
+            next.insert(field.into(), value.clone());
+        }
+    }
+    next.insert("operation".into(), json!("issue"));
+    data["hints"] = json!(["This number is an issue; run the readIssue continuation."]);
+    data["next"] = json!({"readIssue": {
         "tool": "ghGetHistoryItem",
         "confidence": "exact",
         "query": next,
@@ -714,6 +758,13 @@ fn search_error(tool: ToolId, error: ProviderError) -> DomainResult {
     let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".to_owned(),
         ProviderErrorKind::Permission => error.message.to_string(),
+        ProviderErrorKind::NotFound if repository_not_found(&error) => {
+            "Repository not found, or private and not accessible to this token".to_owned()
+        }
+        // A typed missing ref names the ref it could not resolve.
+        ProviderErrorKind::NotFound if error.reason == Some(ProviderErrorReason::RefNotFound) => {
+            error.message.to_string()
+        }
         ProviderErrorKind::NotFound => "Repository or resource not found".to_owned(),
         ProviderErrorKind::RateLimited => error.message.to_string(),
         // Keep GitHub's own 422 detail (e.g. `"abc" is not a numeric value`,
@@ -736,6 +787,10 @@ fn search_error(tool: ToolId, error: ProviderError) -> DomainResult {
     };
     let hint = if error.kind == ProviderErrorKind::Authentication {
         Some(GITHUB_AUTH_RECOVERY_HINT)
+    } else if repository_not_found(&error) {
+        Some(REPOSITORY_ACCESS_HINT)
+    } else if error.reason == Some(ProviderErrorReason::RefNotFound) {
+        Some("Verify the branch, tag, or SHA exists, or omit branch to use the default branch.")
     } else if error.kind == ProviderErrorKind::RateLimited {
         Some("Wait for Retry-After or the rate-limit reset; authenticate for a higher quota.")
     } else if error.kind == ProviderErrorKind::Validation
@@ -768,6 +823,15 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
             error.message.as_ref(),
             Some("Check repository permissions or authentication"),
         ),
+        ProviderErrorKind::NotFound if repository_not_found(&error) => (
+            "Repository not found, or private and not accessible to this token",
+            None,
+        ),
+        ProviderErrorKind::NotFound
+            if error.reason == Some(ProviderErrorReason::PullRequestIsIssue) =>
+        {
+            (error.message.as_ref(), None)
+        }
         ProviderErrorKind::NotFound => ("Repository, resource, or path not found", None),
         ProviderErrorKind::RateLimited => (
             error.message.as_ref(),
@@ -819,6 +883,8 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
     // failure (e.g. a search 422 on a renamed repository).
     let hints = if error.kind == ProviderErrorKind::Authentication {
         vec![GITHUB_AUTH_RECOVERY_HINT.to_owned()]
+    } else if repository_not_found(&error) {
+        vec![REPOSITORY_ACCESS_HINT.to_owned()]
     } else {
         Vec::new()
     };
@@ -882,7 +948,7 @@ mod tests {
             let rendered = result.data.to_string();
             assert!(rendered.contains("octocode auth login"), "{rendered}");
             assert!(rendered.contains("OCTOCODE_TOKEN"), "{rendered}");
-            assert!(rendered.contains("Fix or unset"), "{rendered}");
+            assert!(rendered.contains("invalid env token"), "{rendered}");
             assert!(!rendered.contains("octocode login"), "{rendered}");
         }
     }

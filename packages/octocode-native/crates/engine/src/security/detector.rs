@@ -219,22 +219,42 @@ fn replace_chunk(
 /// A redacted multiline match still occupies its source lines. File reads
 /// report and classify source-line scopes, so collapsing a secret block into
 /// one line would shift every later focus window.
+///
+/// A pattern with a `secret` group redacts only that group: an assignment
+/// (`API_TOKEN = "…"`) keeps its identifier and quotes, so redacted source
+/// still reads, and parses, as the same statement.
 fn replace_preserving_lines(regex: &regex::Regex, content: &str, replacement: &str) -> String {
     regex
         .replace_all(content, |captures: &regex::Captures<'_>| {
-            let line_breaks = captures.get(0).map_or(0, |matched| {
-                matched
-                    .as_str()
-                    .bytes()
-                    .filter(|byte| *byte == b'\n')
-                    .count()
-            });
-            let mut redacted = String::with_capacity(replacement.len() + line_breaks);
+            let Some(whole) = captures.get(0) else {
+                return String::new();
+            };
+            let secret = captures.name(SECRET_GROUP).unwrap_or(whole);
+            let line_breaks = secret
+                .as_str()
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count();
+            let mut redacted = String::with_capacity(whole.len() + replacement.len());
+            redacted.push_str(&content[whole.start()..secret.start()]);
             redacted.push_str(replacement);
             redacted.extend(std::iter::repeat_n('\n', line_breaks));
+            redacted.push_str(&content[secret.end()..whole.end()]);
             redacted
         })
         .into_owned()
+}
+
+/// Capture group naming the secret part of a match that also spells its
+/// non-secret context (an assignment's identifier).
+const SECRET_GROUP: &str = "secret";
+
+/// Byte span of the secret in one match: the `secret` group, else the match.
+fn secret_span(captures: &regex::Captures<'_>) -> Option<(usize, usize)> {
+    captures
+        .name(SECRET_GROUP)
+        .or_else(|| captures.get(0))
+        .map(|secret| (secret.start(), secret.end()))
 }
 
 fn next_chunk_start(s: &str, effective_end: usize) -> usize {
@@ -428,9 +448,7 @@ pub fn mask_text(text: String) -> String {
     let mut matches: Vec<(usize, usize)> = Vec::new();
     for idx in candidate_indices {
         let regex = pattern_regex(idx);
-        for m in regex.find_iter(&text) {
-            matches.push((m.start(), m.end()));
-        }
+        matches.extend(regex.captures_iter(&text).filter_map(|c| secret_span(&c)));
     }
 
     if matches.is_empty() {

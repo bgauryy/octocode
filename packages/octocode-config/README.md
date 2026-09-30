@@ -76,7 +76,7 @@ updates every consumer. See [ARCHITECTURE.md](./ARCHITECTURE.md#tool-types).
 
 See the repository [configuration reference](../../docs/CONFIGURATION.md),
 [generated settings reference](../../docs/generated/CONFIG_SETTINGS.md),
-[contributor guide](../../docs/ADDING_CONFIG.md), and
+[contributor guide](../../skills-dev/octocode-dev/docs/ADDING_CONFIG.md), and
 [security model](../../docs/SECURITY.md).
 
 ## License

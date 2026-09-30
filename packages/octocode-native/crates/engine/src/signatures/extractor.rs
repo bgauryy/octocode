@@ -230,6 +230,99 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
     extract_with_limits(content, cfg, Instant::now() + AST_EXECUTION_TIMEOUT, 65_536)
 }
 
+/// [`extract`] for the rendered outline: a run of top-level imports becomes
+/// one summary line (`3| import … (lines 3-40)`), since an outline is for
+/// the file's own declarations and imports read better as a range.
+pub fn extract_outline(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
+    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
+    let kept = extract_with_limits(content, cfg, deadline, 65_536)?;
+    let tree = parse_before(content, &cfg.language, deadline)?;
+    Some(collapse_import_runs(kept, &import_runs(tree.root_node())))
+}
+
+/// Top-level import-like statements across the registry's grammars.
+fn is_import_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "import_statement"
+            | "import_from_statement"
+            | "future_import_statement"
+            | "import_declaration"
+            | "import_header"
+            | "use_declaration"
+            | "extern_crate_declaration"
+            | "preproc_include"
+            | "using_directive"
+            | "import"
+    )
+}
+
+/// 0-based row spans of consecutive top-level imports; comments between
+/// imports do not end a run.
+fn import_runs(root: tree_sitter::Node<'_>) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    let mut open = false;
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        let kind = child.kind();
+        if is_import_kind(kind) {
+            let (start, end) = (child.start_position().row, child.end_position().row);
+            match runs.last_mut() {
+                Some(run) if open => run.1 = end,
+                _ => runs.push((start, end)),
+            }
+            open = true;
+        } else if !kind.contains("comment") {
+            open = false;
+        }
+    }
+    runs
+}
+
+/// Replace each import run holding more than one kept line with one line:
+/// the run's first word and its 1-based line range.
+fn collapse_import_runs(
+    kept: Vec<(usize, String)>,
+    runs: &[(usize, usize)],
+) -> Vec<(usize, String)> {
+    let mut out = Vec::with_capacity(kept.len());
+    let mut index = 0;
+    while index < kept.len() {
+        let line = kept[index].0;
+        let Some(&(start, end)) = runs
+            .iter()
+            .find(|(start, end)| (start + 1..=end + 1).contains(&line))
+        else {
+            out.push(kept[index].clone());
+            index += 1;
+            continue;
+        };
+        let run_end = kept[index..]
+            .iter()
+            .take_while(|(line, _)| *line <= end + 1)
+            .count();
+        let members = &kept[index..index + run_end];
+        let count = members
+            .iter()
+            .filter(|(_, text)| !text.trim().is_empty())
+            .count();
+        if count <= 1 {
+            out.extend(members.iter().cloned());
+        } else {
+            let first_word = members
+                .iter()
+                .find_map(|(_, text)| text.split_whitespace().next())
+                .unwrap_or("import");
+            out.push((
+                line,
+                format!("{first_word} … (lines {}-{})", start + 1, end + 1),
+            ));
+        }
+        index += run_end;
+    }
+    out
+}
+
 fn extract_with_limits(
     content: &str,
     cfg: &LangExtractConfig,
@@ -374,6 +467,27 @@ mod tests {
             extract_with_limits(source, &cfg, Instant::now() + Duration::from_secs(2), 1).is_none()
         );
         assert!(extract(source, &cfg).is_some());
+    }
+
+    #[test]
+    fn outline_collapses_top_level_import_runs_to_one_line() {
+        let cfg = LangExtractConfig {
+            language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            body_query: "(function_declaration body: (statement_block) @body)",
+        };
+        let source = "import a from 'a';\n// note\nimport {\n  b,\n} from 'b';\nimport c from 'c';\n\nexport function f() {\n  return a;\n}\nimport late from 'late';\n";
+        let outline = extract_outline(source, &cfg).expect("outline");
+        assert_eq!(
+            outline,
+            vec![
+                (1, "import … (lines 1-6)".to_owned()),
+                (7, String::new()),
+                (8, "export function f() {".to_owned()),
+                (11, "import late from 'late';".to_owned()),
+            ]
+        );
+        // The boundary view keeps every line.
+        assert_eq!(extract(source, &cfg).expect("lines").len(), 9);
     }
 
     #[test]

@@ -1,62 +1,90 @@
 ---
 name: octocode-dev
-description: "Use when auditing, hardening, or cleaning up an Octocode tool end to end inside the octocode monorepo: core input schema, description, and MCP/CLI instructions; schema↔Rust implementation alignment; data flow from input through provider/API to output; efficiency, algorithms, and caching; output shape (pagination, truncation, rigid or redundant fields, regex hacks); agent workflow hints and next.* routing; config support across CLI/MCP/code; docs drift; repo cleanup. Triggers include check each tool, tool audit, octocode dev, schema misalignment, redundant input, output redundancy, pagination gap, tool data flow. Not for using the tools to research other code → octocode-research; not for a single known bug fix."
+description: "Use when doing any development work inside the octocode monorepo: build, test, lint, typecheck, verify, docs checks, dependency dedupe, local dev setup, or publish (root package.json has no wrapper scripts; tasks run through this skill's dev.mjs); changing a tool contract, native runtime, CLI/MCP surface, or config setting through the one generation pipeline; and auditing or hardening a tool end to end (schema, descriptions, Rust implementation, data flow, output shape, pagination, next.* routing, config, docs drift, cleanup). Triggers: yarn build, build:dev, run tests, verify, docs:verify, prepublish, release, contracts:regen, add a config key, add a tool field, contract drift, fingerprint mismatch, stale MCP, tool audit, octocode dev. Not for researching other code → octocode-research; not for open Rust design choices → rust-best-practices."
 ---
 
 # Octocode Dev
 
-tools: `npx octocode` / `octocode-mcp`
+tools: `node skills-dev/octocode-dev/scripts/dev.mjs <task>` · `yarn workspace <pkg> <script>` · `node packages/octocode/out/octocode.js` (`$OCTO`) · Octocode MCP
 related-skill: `octocode-research`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+output: code and docs edits in the working tree; audit reports under `<repo>/.octocode/octocode-dev/`; none for plain task runs
+routes: load a reference only for the step it names below; run scripts from the repo root.
 
-Audit and improve Octocode's own tools, one tool at a time, across every layer from the core contract to the rendered output — then fix what is proven and delete what is redundant.
+Flow: `CHANGE or AUDIT → BUILD → VERIFY (real CLI/MCP path) → REPORT`
 
-Flow: `SCOPE → MAP → CONTRACT → IMPL → OUTPUT → WORKFLOW → CONFIG+DOCS → FIX → VERIFY`. SCOPE picks the tools and whether this run is audit-only or audit+fix. MAP runs the inventory. Each audit lane records findings; FIX applies only verified ones; VERIFY runs the real CLI and MCP path.
+Paths: `<repo>` is the monorepo root; `CORE` is `../octocode-mcp-host/packages/octocode-core`. Bare `docs/` paths are this skill's developer docs; repository docs are always written with the `<repo>/` prefix. Use `rust-best-practices` for open native design choices and `octocode-documentation` for doc rewrites.
 
-Reports: `<output>/octocode-dev/<date>-<tool|all>.md` from `assets/audit-report.md`; scratch: `<output>/tmp/octocode-dev/`. Source edits keep their real paths.
+## Hard rules
 
-## Lobby rules
-- Read and follow the repo `AGENTS.md` first. **Never `git commit`, never `git stash`** — other sessions and a checkpoint bot share the tree; compare baselines with `git show <rev>:<path>`.
-- Dogfood: inspect with `node packages/octocode/out/octocode.js` (`$OCTO`) and the Octocode MCP tools before raw grep. Every friction you hit is itself a finding for the tool under audit.
-- Know the owner before editing. Public names, schemas, descriptions, and instructions are authored in core (`../octocode-mcp-host/packages/octocode-core`); interfaces never hand-write tool guidance; native owns execution and output shaping. A fix in the wrong layer is drift, not a fix — map with `references/surface-map.md`.
-- Evidence per finding: file:line + a reproducing `$OCTO` call or test. Inventory hits, field-effect labels, and descriptions are claims until code confirms them. Separate "confirmed" from "candidate".
-- Pre-existing failures are not yours: baseline tests/lint before editing and attribute every failure (concurrent sessions often refactor native/core in parallel).
-- One tool per lane. For `all`, audit the shared runtime (envelope, response, continuations, cache, security) once, then each tool; parallelize independent tool lanes with `octocode-subagent` only when the scope justifies it.
-- Fix scope: remove before adding. Prefer deleting a redundant field, branch, alias, or doc paragraph over layering a new one. No compatibility shims unless the user asks. Never lower coverage floors.
-- Stop and ask before: breaking a public schema field, changing defaults users rely on, editing the sibling core repo when the user scoped the run to this repo, or history/git surgery.
+- Never `git commit` or `git stash`; leave changes in the working tree.
+- Contracts have one pipeline: edit CORE → build core → `yarn contracts:regen` → rebuild native (`yarn workspace @octocodeai/octocode-native build:dev`). Never hand-write a tool wire type, hand-edit `packages/octocode-config/contract/`, or add tool logic or guidance to an interface package.
+- A new contract field or discriminator must be declared in `crates/runtime/src/contracts/field-effect-coverage.json` and implemented.
+- Config flows through `@octocodeai/config`; never reimplement home, env propagation, or `.env` parsing.
+- Done means verified through the real CLI or MCP path after a rebuild, not only compiled. Never lower coverage floors or special-case tests.
 
-## Lane map — load the reference for the lane in play
+## Task runner — `scripts/dev.mjs`
 
-| Lane | Question | Reference |
-|------|----------|-----------|
-| MAP | Where does each layer of this tool live? what fields exist and where are they read? | `references/surface-map.md` + `scripts/tool-inventory.mjs` |
-| CONTRACT | Is the schema, description, and instruction text accurate, minimal, and decidable for an agent? | `references/contract-audit.md` |
-| IMPL | Is every input consumed as documented? Is the data flow input→prepare→provider/API→result lean, correct, cached? | `references/implementation-audit.md` |
-| OUTPUT | Is the output complete, paginated, untruncated, non-redundant, not rigid? | `references/output-audit.md` |
-| WORKFLOW | Will an agent chain this tool smartly (next.*, hints, diagnostics, reasoning)? | `references/workflow-audit.md` |
-| CONFIG+DOCS | Is every config knob supported in code, CLI, and MCP, and are docs true? | `references/config-docs-audit.md` |
-| FIX+VERIFY | How do I land a change across core→native→CLI/MCP and prove it? | `references/fix-and-verify.md` |
+Root `package.json` keeps only `build:native:all`, `platforms:check`, `lint:fix`, `test:quiet`, `contracts:regen`. Everything else runs here; extra arguments pass through. `--help` lists all tasks.
 
-## Smart routes — load only what the current step needs
-- At MAP, run `node .agents/skills/octocode-dev/scripts/tool-inventory.mjs [tool ...]` (add `--json` to keep in scratch) — prints per tool: native module, evidence files, variants, zero-hit input fields (candidate unused/misnamed), fields missing from `field-effect-coverage.json`, and undescribed fields. Then load `references/surface-map.md` for the layer paths.
-- When judging schema/description/instruction wording, load `references/contract-audit.md`; for rewriting MCP or CLI instruction text, use `octocode-prompt-optimizer` — it owns context budget, decidable boundaries, and runtime alignment.
-- When tracing a field or call through the runtime, load `references/implementation-audit.md`; use `lspSearch` callers/references to prove reachability rather than grep counts.
-- When evaluating returned payloads or `next.*`, load `references/output-audit.md`; execute continuations, never trust `hasMore` alone.
-- When judging agent chaining, load `references/workflow-audit.md`.
-- When touching config or docs, load `references/config-docs-audit.md`.
-- Before any edit and before reporting done, load `references/fix-and-verify.md` — it holds the regen order and the stale-server gotchas.
-- For the shared acceptance bar (per-tool matrix, minification matrix, pagination rules), read `docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`; for response field semantics, `docs/TOOL_DATA_CONTRACT.md`. Cite them — do not restate them in reports.
+| Need | Command (`DEV='node skills-dev/octocode-dev/scripts/dev.mjs'`) |
+|---|---|
+| Fast local build (default) | `$DEV build:dev` |
+| Release build (slow) | `$DEV build` |
+| Tests / lint / typecheck | `$DEV test` · `$DEV lint` · `$DEV typecheck` (`:ci` variants skip benchmark) |
+| Full repo contract before handoff | `$DEV verify` |
+| Docs links, catalog, config keys | `$DEV docs:verify` |
+| Workspace scripts present / outputs built | `$DEV health:check` · `$DEV check-outputs` |
+| One range per external dependency | `$DEV deps:dedupe` (`--fix` rewrites) |
+| Local dev resolutions | `$DEV setup` then `yarn install` |
+| Publish guard | `$DEV prepublish` (`--fix`, `--dry-run`); CI build: `$DEV build:ci` |
+| One package | `yarn workspace <pkg> <script>` |
 
-## Related routes
-- `octocode-research` to prove callers, reachability, and upstream behavior with evidence.
-- `octocode-prompt-optimizer` for description and instruction rewrites (CONTRACT, WORKFLOW).
-- `octocode-clean-agentic-code` for the cleanup pass: dead exports, shims, stale tests/docs, residue.
-- `octocode-eval-benchmark` when a change claims faster, fewer tokens, or better routing — measure before/after.
-- `rust-best-practices` for Rust idiom, allocation, subprocess, and ReDoS questions inside IMPL.
-- `octocode-roast` when the user wants a ranked blunt critique instead of fixes.
+The runner wraps these scripts; call one directly only for flags the runner does not expose:
+
+- `scripts/workspace-health.mjs` — topo-sorted `run <script>`, `verify`, `check`, `report`, `check-outputs`.
+- When debugging the docs gate, run `scripts/docs-verify.mjs` — the check behind `docs:verify`.
+- When a dedupe needs flags, run `scripts/dedupe-deps.mjs` — dependency range dedupe behind `deps:dedupe`.
+- When switching to local packages, run `scripts/dev-setup.mjs` — writes local `workspace:`/`file:` resolutions behind `setup`; imports `scripts/dev-resolution-contract.mjs` (shared resolution list, also used by prepublish).
+- Before publishing, run `scripts/prepublish.mjs` — strips or checks local resolutions behind `prepublish`.
+- `scripts/esbuild-package.mjs` — library called by the `octocode-mcp` build; not run by hand.
+- `scripts/runtime-import-contract.mjs` — imported by `packages/octocode/build.mjs` to pin runtime imports; not run by hand.
+- When starting a tool audit, run `scripts/tool-inventory.mjs [tool] [--json]` — audit map per tool: native module, evidence files, zero-hit and undescribed fields.
+
+When a script flag or path rule is unclear, read `scripts/README.md`.
+
+## Change routes — pick the row, then BUILD → VERIFY
+
+| Changing | Do | Read |
+|---|---|---|
+| Tool schema, description, instruction, limit | Edit CORE → build core → `yarn contracts:regen` → native `build:dev` → declare new fields in field-effect coverage | `references/contract-audit.md`, `references/surface-map.md` |
+| Native tool behavior | Edit `packages/octocode-native/crates/**`; parse rows into generated `<Tool>Query`; `yarn workspace @octocodeai/octocode-native test:rust` | `references/implementation-audit.md` |
+| Output, pagination, `next.*` hints | Keep continuations executable and lossless | `references/output-audit.md`, `references/workflow-audit.md` |
+| A setting or credential | Follow the config pipeline end to end | `docs/ADDING_CONFIG.md`, `references/config-docs-audit.md` |
+| Package layout, build, env, ownership | — | `docs/DEVELOPMENT.md` |
+| Publish / release order | Core publishes first; `$DEV prepublish --fix` → `yarn install` → `$DEV prepublish` | `docs/RELEASE.md` |
+| Anything a tool returns to agents | Meet the shared acceptance bar | `docs/TOOL_QUALITY.md`, `<repo>/docs/TOOL_DATA_CONTRACT.md` |
+
+After any native, engine, or CLI change: `yarn workspace @octocodeai/octocode-native build:dev` → `yarn workspace octocode build:dev` (or `octocode-mcp`) → `$OCTO config --json && $OCTO scheme` → call the changed tool. An MCP server started before the rebuild still serves the old contract; restart it before judging behavior. A core/native fingerprint mismatch means regenerate and rebuild, never `OCTOCODE_ALLOW_CONTRACT_DRIFT`.
+
+## Audit a tool end to end
+
+Use when asked to audit, harden, or clean up one tool or all tools.
+
+1. Map: run `scripts/tool-inventory.mjs <tool>` and locate every layer with `references/surface-map.md`.
+2. Lanes — load each only while working it:
+   - When checking schema, descriptions, or instructions, read `references/contract-audit.md`
+   - When tracing implementation and data flow, read `references/implementation-audit.md`
+   - When judging output shape and pagination, read `references/output-audit.md`
+   - When judging agent workflow and `next.*` routing, read `references/workflow-audit.md`
+   - When checking config and docs drift, read `references/config-docs-audit.md`
+3. When fixing, change the owning layer and verify with `references/fix-and-verify.md`.
+4. Report with `assets/audit-report.md` into `<repo>/.octocode/octocode-dev/<tool>-<date>.md`: findings as `path:line`, severity, evidence, fix, verification command and result.
+
+Multi-tool audits may run one subagent per tool; each gets the tool name, this skill path, and the report template.
 
 ## Done gate
-- Every audited tool has a lane-by-lane row in the report: confirmed findings with evidence, candidates, fixed, deferred-with-reason.
-- When any fix landed, it passed the `references/fix-and-verify.md` gate through the real CLI **and** MCP path, or the report says which surface was not exercised and why.
-- No new redundancy: the diff removed at least as much duplicated guidance/code as it added, or the report justifies the addition.
+
+- The owning layer changed, generated outputs were regenerated rather than edited, and new fields are covered.
+- `$DEV build:dev` (or the package build) exited 0 and the changed path ran through `$OCTO` or MCP.
+- Focused tests pass; before a handoff that spans packages, `$DEV verify` and `$DEV docs:verify` pass.
+- Report the exact commands and results; name anything not verified.

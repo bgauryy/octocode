@@ -16,6 +16,7 @@ use super::{
     domain_dispatch::DomainDispatcher,
     session_stats::ClassificationUsage,
 };
+use crate::policy::path::PathPolicy;
 use crate::providers::classification::gate::{self, GateLease};
 use crate::tools::clasify::{self, transport::ClassificationError};
 use futures_util::{StreamExt, stream, stream::FuturesUnordered};
@@ -24,6 +25,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
+    path::Path,
     sync::{
         Condvar, Mutex, PoisonError,
         atomic::{AtomicUsize, Ordering},
@@ -282,6 +284,51 @@ fn is_file_read(source: &Value) -> bool {
     )
 }
 
+/// Path-valued fields of local tool envelopes and queries.
+const LOCAL_PATH_FIELDS: [&str; 4] = ["base", "path", "uri", "workspaceRoot"];
+
+/// An absolute local path as the provider sees it: workspace-relative, else
+/// the file name. `None` leaves non-absolute values (GitHub paths, refs) as is.
+fn provider_path(paths: &PathPolicy, value: &str) -> Option<String> {
+    let path = Path::new(value.strip_prefix("file://").unwrap_or(value));
+    if !path.is_absolute() {
+        return None;
+    }
+    let shown = paths.redact(path);
+    if shown.is_empty() || shown == "~" || shown.starts_with("~/") {
+        return Some(
+            path.file_name()
+                .map_or_else(|| ".".to_owned(), |name| name.to_string_lossy().into_owned()),
+        );
+    }
+    Some(shown)
+}
+
+/// Provider state and read briefs leave the host: absolute local paths
+/// (envelope `base`, query `path`/`uri`/`workspaceRoot`) would disclose the
+/// user's directory layout to the external classifier.
+fn relativize_local_paths(value: &mut Value, paths: &PathPolicy) {
+    match value {
+        Value::Object(fields) => {
+            for (key, field) in fields.iter_mut() {
+                if LOCAL_PATH_FIELDS.contains(&key.as_str())
+                    && let Some(shown) = field.as_str().and_then(|raw| provider_path(paths, raw))
+                {
+                    *field = Value::String(shown);
+                } else {
+                    relativize_local_paths(field, paths);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                relativize_local_paths(item, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn provider_state(source: &Value, state: Value) -> Value {
     if source.get("value").is_some() {
         state
@@ -395,12 +442,25 @@ fn candidate_hit_lines(file: &Value) -> Vec<u64> {
         .into_iter()
         .flatten()
         .filter_map(|matched| matched.get("line").and_then(Value::as_u64));
+    // `moreLines` names runs (`711-717,802`) and may end with a count of
+    // omitted lines (`+40 more`), which names no line.
     let more = file
         .pointer("/pagination/moreLines")
         .and_then(Value::as_str)
         .into_iter()
         .flat_map(|lines| lines.split(','))
-        .filter_map(|line| line.trim().parse::<u64>().ok());
+        .flat_map(|run| {
+            let (start, end) = run
+                .trim()
+                .split_once('-')
+                .unwrap_or((run.trim(), run.trim()));
+            match (start.parse::<u64>(), end.parse::<u64>()) {
+                (Ok(start), Ok(end)) => Some(start..=end),
+                _ => None,
+            }
+            .into_iter()
+            .flatten()
+        });
     let mut lines = shown.chain(more).collect::<Vec<_>>();
     lines.sort_unstable();
     lines.dedup();
@@ -797,73 +857,75 @@ fn hydrate_candidate(
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
 ) -> Option<CapturedPage> {
-    Some(match super::clasify_context::resolve(&read, dispatcher, execution) {
-        Ok((hydrated_state, hydrated_receipt)) => {
-            if whole
-                && hydrated_receipt
-                    .as_ref()
-                    .and_then(super::clasify_context::continuation)
-                    .is_some()
-            {
-                return None;
-            }
-            let evidence = provider_state(&read, hydrated_state.clone());
-            let evidence_chars = evidence_chars(&evidence);
-            let mut context = hydrated_receipt.unwrap_or_else(|| fallback_context(&read));
-            super::clasify_context::append_limitation(
-                &mut context,
-                "Only a bounded candidate chunk was assessed; unread file content may change the verdict.",
-            );
-            if !anchored {
+    Some(
+        match super::clasify_context::resolve(&read, dispatcher, execution) {
+            Ok((hydrated_state, hydrated_receipt)) => {
+                if whole
+                    && hydrated_receipt
+                        .as_ref()
+                        .and_then(super::clasify_context::continuation)
+                        .is_some()
+                {
+                    return None;
+                }
+                let evidence = provider_state(&read, hydrated_state.clone());
+                let evidence_chars = evidence_chars(&evidence);
+                let mut context = hydrated_receipt.unwrap_or_else(|| fallback_context(&read));
                 super::clasify_context::append_limitation(
                     &mut context,
-                    "No stable match anchor was available; only the file's opening chunk was assessed.",
+                    "Only a bounded candidate chunk was assessed; unread file content may change the verdict.",
                 );
-            }
-            pin_github_read(&mut read, &hydrated_state);
-            read["confidence"] = json!("exact");
-            super::clasify_context::attach_read(&mut context, read);
-            if evidence_chars == 0 {
-                CapturedPage::Failed {
-                    error: ClassificationError::new(
-                        "classificationContextEmpty",
-                        "The hydrated candidate contained no evidence to judge.",
-                        "Read the candidate directly or choose a different search anchor.",
-                    ),
-                    context,
+                if !anchored {
+                    super::clasify_context::append_limitation(
+                        &mut context,
+                        "No stable match anchor was available; only the file's opening chunk was assessed.",
+                    );
                 }
-            } else if evidence_chars > MAX_HYDRATED_CHARS {
-                CapturedPage::Failed {
-                    error: ClassificationError::new(
-                        "classificationCandidateChunkTooLarge",
-                        format!(
-                            "The sanitized candidate chunk is {evidence_chars} characters; the limit is {MAX_HYDRATED_CHARS}."
+                pin_github_read(&mut read, &hydrated_state);
+                read["confidence"] = json!("exact");
+                super::clasify_context::attach_read(&mut context, read);
+                if evidence_chars == 0 {
+                    CapturedPage::Failed {
+                        error: ClassificationError::new(
+                            "classificationContextEmpty",
+                            "The hydrated candidate contained no evidence to judge.",
+                            "Read the candidate directly or choose a different search anchor.",
                         ),
-                        "Use next.read to select a smaller exact region.",
-                    ),
-                    context,
+                        context,
+                    }
+                } else if evidence_chars > MAX_HYDRATED_CHARS {
+                    CapturedPage::Failed {
+                        error: ClassificationError::new(
+                            "classificationCandidateChunkTooLarge",
+                            format!(
+                                "The sanitized candidate chunk is {evidence_chars} characters; the limit is {MAX_HYDRATED_CHARS}."
+                            ),
+                            "Use next.read to select a smaller exact region.",
+                        ),
+                        context,
+                    }
+                } else {
+                    CapturedPage::Ready {
+                        state: evidence,
+                        context,
+                    }
                 }
-            } else {
-                CapturedPage::Ready {
-                    state: evidence,
+            }
+            Err(failure) => {
+                let mut context = failure.receipt.unwrap_or_else(|| {
+                    super::clasify_context::candidate_receipt(source, &candidate)
+                });
+                super::clasify_context::append_limitation(
+                    &mut context,
+                    "Candidate hydration failed; classification was not run for this file.",
+                );
+                CapturedPage::Failed {
+                    error: failure.error,
                     context,
                 }
             }
-        }
-        Err(failure) => {
-            let mut context = failure
-                .receipt
-                .unwrap_or_else(|| super::clasify_context::candidate_receipt(source, &candidate));
-            super::clasify_context::append_limitation(
-                &mut context,
-                "Candidate hydration failed; classification was not run for this file.",
-            );
-            CapturedPage::Failed {
-                error: failure.error,
-                context,
-            }
-        }
-    })
+        },
+    )
 }
 
 /// One hydration: a read judged as one page, or a merged span of several
@@ -1028,6 +1090,18 @@ fn hydrate_candidates(
     })
 }
 
+/// Contract default for a resource's `maxChars`. The generated contract has no
+/// named constant for it (typify inlines it), so a test pins this value to the
+/// embedded contract.
+const DEFAULT_MAX_CHARS: u64 = 80_000;
+
+fn max_chars(resource: &Value) -> usize {
+    resource
+        .get("maxChars")
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_MAX_CHARS) as usize
+}
+
 fn capture_resource(
     resource: &Value,
     dispatcher: &DomainDispatcher,
@@ -1035,19 +1109,40 @@ fn capture_resource(
     reads: &ReadLimiter,
     candidate_limit: usize,
 ) -> Result<(Vec<CapturedPage>, Option<Value>), ExecutionError> {
-    if let Some(windows) = prefilter_windows(resource, dispatcher, execution, reads)? {
-        let mut pages = Vec::new();
-        for window in &windows {
-            let (window_pages, _) =
-                capture_resource(window, dispatcher, execution, reads, candidate_limit)?;
-            pages.extend(window_pages);
-        }
-        return Ok((pages, None));
+    if let Some(plan) = prefilter_windows(resource, dispatcher, execution, reads)? {
+        return capture_prefiltered(
+            resource,
+            &plan,
+            dispatcher,
+            execution,
+            reads,
+            candidate_limit,
+        );
     }
-    let max_chars = resource
-        .get("maxChars")
-        .and_then(Value::as_u64)
-        .unwrap_or(80_000) as usize;
+    let (pages, remaining, _) = capture_pages(
+        resource,
+        dispatcher,
+        execution,
+        reads,
+        candidate_limit,
+        false,
+    )?;
+    Ok((pages, remaining))
+}
+
+/// Capture one resource's pages within its `maxChars`. Returns the pages, the
+/// resource continuation, and the characters captured. `defer_oversize`
+/// defers a first page above the budget to the continuation instead of
+/// failing it (a later prefilter window after the shared budget is spent).
+fn capture_pages(
+    resource: &Value,
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+    reads: &ReadLimiter,
+    candidate_limit: usize,
+    defer_oversize: bool,
+) -> Result<(Vec<CapturedPage>, Option<Value>, usize), ExecutionError> {
+    let max_chars = max_chars(resource);
     let requested_source = resource["context"].clone();
     let hydrated = file_chunks(&requested_source);
     // Pages this resource may judge (one per candidate, or per hit cluster
@@ -1067,6 +1162,7 @@ fn capture_resource(
                     context: fallback_context(&requested_source),
                 }],
                 None,
+                0,
             ));
         }
     };
@@ -1166,7 +1262,7 @@ fn capture_resource(
                 }
                 let state_chars = assessed_payload_chars(&source, &state);
                 let remaining_chars = max_chars.saturating_sub(captured_chars);
-                if state_chars > remaining_chars && !pages.is_empty() {
+                if state_chars > remaining_chars && (defer_oversize || !pages.is_empty()) {
                     remaining = Some(source);
                     break;
                 }
@@ -1254,23 +1350,117 @@ fn capture_resource(
     } else {
         pages
     };
-    Ok((pages, remaining))
+    Ok((pages, remaining, captured_chars))
+}
+
+fn page_context(page: &CapturedPage) -> &Value {
+    match page {
+        CapturedPage::Ready { context, .. } | CapturedPage::Failed { context, .. } => context,
+    }
+}
+
+fn page_context_mut(page: &mut CapturedPage) -> &mut Value {
+    match page {
+        CapturedPage::Ready { context, .. } | CapturedPage::Failed { context, .. } => context,
+    }
+}
+
+/// Judge prefilter windows in file order under one shared `maxChars` budget.
+/// Hits the windows do not reach (more hit clusters than windows, an
+/// unfinished probe, or a spent budget) get a limitation and a `next.clasify`
+/// continuation: the same prefiltered read from the first unjudged line.
+fn capture_prefiltered(
+    resource: &Value,
+    plan: &PrefilterPlan,
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+    reads: &ReadLimiter,
+    candidate_limit: usize,
+) -> Result<(Vec<CapturedPage>, Option<Value>), ExecutionError> {
+    let budget = max_chars(resource);
+    let mut used = 0usize;
+    let mut pages = Vec::new();
+    let mut resume = plan.resume;
+    for &(start, end) in &plan.windows {
+        let left = budget.saturating_sub(used);
+        if left == 0 {
+            resume = Some(start);
+            break;
+        }
+        let mut window = prefilter_window(resource, start, end);
+        window["maxChars"] = json!(left);
+        let (window_pages, next, chars) = capture_pages(
+            &window,
+            dispatcher,
+            execution,
+            reads,
+            candidate_limit,
+            !pages.is_empty(),
+        )?;
+        used = used.saturating_add(chars);
+        let covered = window_pages
+            .iter()
+            .filter_map(|page| page_context(page)["scope"]["endLine"].as_u64())
+            .max();
+        pages.extend(window_pages);
+        if next.is_some() {
+            resume = Some(covered.map_or(start, |line| line.saturating_add(1).max(start)));
+            break;
+        }
+    }
+    let resume = resume.filter(|from| {
+        *from <= plan.range_end && (plan.probe_open || plan.hits.iter().any(|hit| hit >= from))
+    });
+    if let Some(from) = resume
+        && let Some(last) = pages.last_mut()
+    {
+        super::clasify_context::append_limitation(
+            page_context_mut(last),
+            &format!(
+                "Prefilter windows stopped before line {from}; later hits are unjudged. next.clasify resumes there."
+            ),
+        );
+    }
+    Ok((
+        pages,
+        resume.map(|from| prefilter_resume(resource, from, plan.range_end)),
+    ))
 }
 
 /// Lines per prefilter window and windows kept.
 const PREFILTER_WINDOW_LINES: u64 = 600;
 const PREFILTER_WINDOWS: usize = 3;
+/// Match pages the prefilter probe follows before it stops collecting hits.
+const PREFILTER_PROBE_PAGES: usize = 20;
 
-/// `prefilter` on a file resource: read the same file once for the literal
-/// terms, then capture only the densest `PREFILTER_WINDOWS` windows of hits
-/// as bounded reads instead of the whole file. `None` (no prefilter, not a
-/// file read, or no hits) captures the resource as given.
+/// Windows one prefiltered call judges, and where the walk resumes.
+struct PrefilterPlan {
+    /// Inclusive line windows in file order, non-overlapping.
+    windows: Vec<(u64, u64)>,
+    /// Every known hit in range, sorted.
+    hits: Vec<u64>,
+    /// Last line of the walk: the caller's `endLine`, else the file end.
+    range_end: u64,
+    /// First line after the windows that may still hold unjudged hits.
+    resume: Option<u64>,
+    /// The probe stopped before its last match page: hits past the known
+    /// ones may exist.
+    probe_open: bool,
+}
+
+/// `prefilter` on a file resource: read the same file for the literal terms,
+/// then capture only hit windows as bounded reads instead of the whole file.
+/// When the hits fit in `PREFILTER_WINDOWS` windows they are the densest runs;
+/// otherwise windows follow file order and `resume` continues after the last
+/// one. A caller `startLine`/`endLine` bounds the walk (continuations use it).
+/// `None` (no prefilter, not a file read, or no hits) captures the resource
+/// as given.
 fn prefilter_windows(
     resource: &Value,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
     reads: &ReadLimiter,
-) -> Result<Option<Vec<Value>>, ExecutionError> {
+) -> Result<Option<PrefilterPlan>, ExecutionError> {
     let Some(terms) = resource.get("prefilter").and_then(Value::as_array) else {
         return Ok(None);
     };
@@ -1288,6 +1478,12 @@ fn prefilter_windows(
     let Some(object) = query.as_object_mut() else {
         return Ok(None);
     };
+    let range_start = object
+        .get("startLine")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .max(1);
+    let requested_end = object.get("endLine").and_then(Value::as_u64);
     for field in [
         "fullContent",
         "startLine",
@@ -1299,44 +1495,114 @@ fn prefilter_windows(
     ] {
         object.remove(field);
     }
-    object.insert("matchString".into(), json!(terms.join("|")));
+    let pattern = terms.join("|");
+    object.insert("matchString".into(), json!(pattern));
     object.insert("matchStringIsRegex".into(), json!(true));
     object.insert("matchStringCaseSensitive".into(), json!(false));
     object.insert("contextLines".into(), json!(0));
-    let probe = json!({"tool":tool,"query":query});
-    let Ok((_, Some(receipt))) = resolve_limited(&probe, dispatcher, execution, reads)? else {
+    let mut probe = json!({"tool":tool,"query":query});
+    let mut total = None;
+    let mut hits = Vec::new();
+    let mut seen = HashSet::new();
+    let mut probe_open = false;
+    for page in 0..=PREFILTER_PROBE_PAGES {
+        if page == PREFILTER_PROBE_PAGES || !seen.insert(probe.to_string()) {
+            probe_open = page == PREFILTER_PROBE_PAGES;
+            break;
+        }
+        let Ok((_, Some(receipt))) = resolve_limited(&probe, dispatcher, execution, reads)? else {
+            if page == 0 {
+                return Ok(None);
+            }
+            probe_open = true;
+            break;
+        };
+        let scope = &receipt["scope"];
+        let Some(lines) = scope["totalLines"].as_u64() else {
+            if page == 0 {
+                return Ok(None);
+            }
+            probe_open = true;
+            break;
+        };
+        total = Some(lines);
+        let ranges = scope["lineRanges"]
+            .as_array()
+            .cloned()
+            .unwrap_or_else(|| vec![scope.clone()]);
+        hits.extend(
+            ranges
+                .iter()
+                .filter_map(|range| {
+                    Some(range["startLine"].as_u64()?..=range["endLine"].as_u64()?)
+                })
+                .flatten(),
+        );
+        // Follow only match pages of the same probe; any other continuation
+        // (e.g. a plain read) would count unmatched lines as hits.
+        match super::clasify_context::continuation(&receipt) {
+            Some(next)
+                if next["tool"] == tool && next["query"]["matchString"] == json!(pattern) =>
+            {
+                probe = next;
+            }
+            Some(_) => {
+                probe_open = true;
+                break;
+            }
+            None => break,
+        }
+    }
+    let Some(total) = total else {
         return Ok(None);
     };
-    let scope = &receipt["scope"];
-    let Some(total) = scope["totalLines"].as_u64() else {
-        return Ok(None);
-    };
-    let ranges = scope["lineRanges"]
-        .as_array()
-        .cloned()
-        .unwrap_or_else(|| vec![scope.clone()]);
-    let mut hits = ranges
-        .iter()
-        .filter_map(|range| Some(range["startLine"].as_u64()?..=range["endLine"].as_u64()?))
-        .flatten()
-        .collect::<Vec<_>>();
+    let range_end = requested_end.unwrap_or(total).min(total);
+    hits.retain(|line| (range_start..=range_end).contains(line));
     hits.sort_unstable();
     hits.dedup();
-    // Center each window on its densest run of hits: a fixed bucket grid cuts
-    // a hit near a boundary away from the lines that introduce it.
-    let span = PREFILTER_WINDOW_LINES - 1;
-    let mut windows = Vec::new();
-    while windows.len() < PREFILTER_WINDOWS
-        && let Some((first, last)) = densest_run(&hits, span - 1)
-    {
-        let center = first + (last - first) / 2;
-        let end = (center.saturating_sub(PREFILTER_WINDOW_LINES / 2).max(1) + span).min(total);
-        let start = end.saturating_sub(span).max(1);
-        windows.push((start, end));
-        hits.retain(|line| *line < start || *line > end);
-    }
-    if windows.is_empty() {
+    if hits.is_empty() {
         return Ok(None);
+    }
+    let span = PREFILTER_WINDOW_LINES - 1;
+    // A window centered on a run of hits: a fixed bucket grid cuts a hit near
+    // a boundary away from the lines that introduce it.
+    let centered = |first: u64, last: u64| {
+        let center = first + (last - first) / 2;
+        let end = (center.saturating_sub(PREFILTER_WINDOW_LINES / 2).max(1) + span).min(range_end);
+        (end.saturating_sub(span).max(range_start), end)
+    };
+    let mut windows = Vec::new();
+    let mut left = hits.clone();
+    while windows.len() < PREFILTER_WINDOWS
+        && let Some((first, last)) = densest_run(&left, span - 1)
+    {
+        let (start, end) = centered(first, last);
+        windows.push((start, end));
+        left.retain(|line| *line < start || *line > end);
+    }
+    let mut resume = None;
+    if !left.is_empty() || probe_open {
+        // More hit clusters than windows: densest windows would strand hits
+        // on both sides, so judge in file order and resume after the last.
+        windows.clear();
+        left.clone_from(&hits);
+        while windows.len() < PREFILTER_WINDOWS
+            && let Some(&first) = left.first()
+        {
+            let last = left
+                .iter()
+                .copied()
+                .take_while(|line| *line <= first + span - 1)
+                .last()
+                .unwrap_or(first);
+            let (start, end) = centered(first, last);
+            windows.push((start, end));
+            left.retain(|line| *line > end);
+        }
+        resume = windows
+            .last()
+            .map(|(_, end)| end.saturating_add(1))
+            .filter(|from| !left.is_empty() || probe_open && *from <= range_end);
     }
     windows.sort_unstable();
     // Later windows hold only hits outside earlier ones, so trimming an
@@ -1344,24 +1610,40 @@ fn prefilter_windows(
     for index in 1..windows.len() {
         windows[index].0 = windows[index].0.max(windows[index - 1].1 + 1);
     }
-    Ok(Some(
-        windows
-            .into_iter()
-            .map(|(start, end)| {
-                let mut window = resource.clone();
-                if let Some(object) = window.as_object_mut() {
-                    object.remove("prefilter");
-                }
-                let query = &mut window["context"]["query"];
-                if let Some(object) = query.as_object_mut() {
-                    object.remove("fullContent");
-                }
-                query["startLine"] = json!(start);
-                query["endLine"] = json!(end);
-                window
-            })
-            .collect(),
-    ))
+    Ok(Some(PrefilterPlan {
+        windows,
+        hits,
+        range_end,
+        resume,
+        probe_open,
+    }))
+}
+
+/// One prefilter window as a bounded read of the same resource.
+fn prefilter_window(resource: &Value, start: u64, end: u64) -> Value {
+    let mut window = resource.clone();
+    if let Some(object) = window.as_object_mut() {
+        object.remove("prefilter");
+    }
+    let query = &mut window["context"]["query"];
+    if let Some(object) = query.as_object_mut() {
+        object.remove("fullContent");
+    }
+    query["startLine"] = json!(start);
+    query["endLine"] = json!(end);
+    window
+}
+
+/// The resource context that continues a prefiltered walk at `from`; the
+/// continued resource keeps its `prefilter`, which honors the range.
+fn prefilter_resume(resource: &Value, from: u64, range_end: u64) -> Value {
+    let mut context = resource["context"].clone();
+    if let Some(object) = context["query"].as_object_mut() {
+        object.remove("fullContent");
+    }
+    context["query"]["startLine"] = json!(from);
+    context["query"]["endLine"] = json!(range_end);
+    context
 }
 
 /// Join runs of adjacent captured file pages into larger provider states so
@@ -1879,6 +2161,9 @@ fn execute_query(
     let expanded_cells = expanded_pages.saturating_mul(questions.len());
     if expanded_cells > MAX_EXPANDED_CELLS {
         for resource in &mut captured {
+            // No page is judged, so a continuation past these pages would
+            // skip them for good; the caller retries a smaller matrix.
+            resource.continuation = None;
             for page in &mut resource.pages {
                 let CapturedPage::Ready { context, .. } = page else {
                     continue;
@@ -1912,11 +2197,16 @@ fn execute_query(
                     let CapturedPage::Ready { state, .. } = page else {
                         continue;
                     };
-                    let state = state.clone();
+                    let mut state = state.clone();
+                    relativize_local_paths(&mut state, &dispatcher.paths);
                     // The read request leaves the host with the evidence, so it
                     // passes the same input policy as the context read itself.
                     let read = read_brief(resource.resource, &goal, &reasoning)
-                        .and_then(|read| secured_read(read, &dispatcher.security));
+                        .and_then(|read| secured_read(read, &dispatcher.security))
+                        .map(|mut read| {
+                            relativize_local_paths(&mut read, &dispatcher.paths);
+                            read
+                        });
                     let config = &config;
                     let goal = goal.clone();
                     let reasoning = reasoning.clone();
@@ -2247,6 +2537,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_max_chars_matches_every_contract_default() {
+        fn walk(value: &Value, found: &mut Vec<u64>) {
+            match value {
+                Value::Object(fields) => {
+                    for (key, field) in fields {
+                        if key == "maxChars"
+                            && let Some(default) = field.get("default").and_then(Value::as_u64)
+                        {
+                            found.push(default);
+                        }
+                        walk(field, found);
+                    }
+                }
+                Value::Array(items) => items.iter().for_each(|item| walk(item, found)),
+                _ => {}
+            }
+        }
+        let contract = crate::contracts::parsed_contract().expect("contract");
+        let clasify = contract["tools"]
+            .as_array()
+            .and_then(|tools| tools.iter().find(|tool| tool["name"] == "clasify"))
+            .expect("clasify contract");
+        let mut defaults = Vec::new();
+        walk(clasify, &mut defaults);
+        assert!(!defaults.is_empty(), "clasify maxChars default not found");
+        assert!(defaults.iter().all(|default| *default == DEFAULT_MAX_CHARS));
+    }
+
+    #[test]
+    fn provider_paths_are_workspace_relative_or_file_names() {
+        let root = std::env::temp_dir().join("octocode-clasify-paths");
+        let paths = PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            home_dir: Some(std::path::PathBuf::from("/home/someone")),
+            ..Default::default()
+        })
+        .expect("policy");
+        let inside = root.join("src/a.rs").to_string_lossy().into_owned();
+        let mut state = json!({
+            "base": root.to_string_lossy(),
+            "results":[{"data":{"path":"src/a.rs","uri":format!("file://{inside}")}}],
+            "query":{"path":inside,"workspaceRoot":"/elsewhere/proj"},
+            "home":{"path":"/home/someone/notes/b.md"},
+            "gh":{"path":"docs/c.md","base":"main"}
+        });
+        relativize_local_paths(&mut state, &paths);
+        assert_eq!(state["base"], ".");
+        assert_eq!(state["results"][0]["data"]["path"], "src/a.rs");
+        assert_eq!(state["results"][0]["data"]["uri"], "src/a.rs");
+        assert_eq!(state["query"]["path"], "src/a.rs");
+        assert_eq!(state["query"]["workspaceRoot"], "proj");
+        assert_eq!(state["home"]["path"], "b.md");
+        assert_eq!(state["gh"], json!({"path":"docs/c.md","base":"main"}));
+    }
+
+    #[test]
     fn flat_questions_and_omitted_ids_are_normalized_for_internal_execution() {
         let mut queries = vec![
             json!({
@@ -2392,6 +2738,13 @@ mod tests {
             search_candidate_states(&tree, &state).is_none(),
             "tree entries are one discovery page, not code candidates"
         );
+    }
+
+    #[test]
+    fn more_lines_runs_expand_and_their_omitted_count_names_no_line() {
+        let file = json!({"matches":[{"line":3}],
+            "pagination":{"moreLines":"1,5-7,+40 more"}});
+        assert_eq!(candidate_hit_lines(&file), [1, 3, 5, 6, 7]);
     }
 
     #[test]

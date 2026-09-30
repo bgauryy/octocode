@@ -124,18 +124,20 @@ pub fn execute_symbols(
                     .to_string_lossy(),
             ));
         }
-        let s = security
-            .validate_text_bytes(&b, Some(&p.canonical), super::MAX_PARSE_SOURCE_BYTES)
+        // Parse the file as the directory scan does: raw. Output strings
+        // are redacted by the response stage.
+        let source = security
+            .decode_source_bytes(&b, super::MAX_PARSE_SOURCE_BYTES)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
         let raw = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
             octocode_engine::portable::extract_graph_facts_with_extension(
-                &s.content,
+                &source,
                 &source_path,
                 "cpp",
             )
         } else {
-            octocode_engine::portable::extract_declarations(&s.content, &source_path)
+            octocode_engine::portable::extract_declarations(&source, &source_path)
         };
         match raw {
             Some(raw) => (

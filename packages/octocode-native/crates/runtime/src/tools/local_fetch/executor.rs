@@ -3,7 +3,7 @@ use super::pagination::{
     continuation, page, result_counts, sanitize_byte_page, sanitize_line_page,
 };
 use super::types::*;
-use super::validation::{is_binary, validate_request};
+use super::validation::{decode_text, is_binary, validate_request};
 use crate::security::scan::ContentScan;
 use crate::tools::cancel::CancellationCheck;
 use sha2::{Digest, Sha256};
@@ -231,13 +231,13 @@ pub fn process_fetched_content(
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
     }
-    // Node's UTF-8 decoder replaces malformed sequences; binary detection is a
-    // separate heuristic and must not turn an otherwise textual file into an error.
-    let raw = String::from_utf8_lossy(bytes).into_owned();
+    // Binary detection is a separate heuristic; text that is not UTF-8 is
+    // decoded (Latin-1 or lossy UTF-8) with a warning, never refused.
+    let (raw, decode_warning) = decode_text(bytes);
     let source_chars = raw.encode_utf16().count();
     let source_bytes = raw.len();
     let total_lines = line_count(&raw);
-    let mut warnings = vec![];
+    let mut warnings: Vec<String> = decode_warning.map(str::to_owned).into_iter().collect();
     // Redact whole private-key blocks across the full file BEFORE any
     // window/extraction, so a bounded read of an interior body line cannot leak a
     // key whose BEGIN/END markers fall outside the selected window (the anchored

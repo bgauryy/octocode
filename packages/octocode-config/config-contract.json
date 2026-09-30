@@ -100,7 +100,7 @@
           "type": "stringArray",
           "default": [],
           "itemFormat": "path",
-          "description": "Extra absolute or home-relative roots added to the allowed home directory.",
+          "description": "Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME).",
           "env": {
             "ALLOWED_PATHS": { "priority": 0, "dotenv": "home" }
           },

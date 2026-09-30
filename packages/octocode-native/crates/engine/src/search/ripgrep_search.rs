@@ -350,11 +350,17 @@ struct CollectResult {
     size_skipped: bool,
     /// At least one file was quit as binary (`binaryQuit`); coverage is partial.
     binary_quit: bool,
+    /// Paths of binary-quit files (bounded) and their total count.
+    binary_files: Vec<String>,
+    binary_file_count: u32,
     /// The caller cancelled the search before the walk finished (`cancelled`).
     cancelled: bool,
     error_count: u32,
     first_error: Option<String>,
 }
+
+/// Binary-quit file paths a search keeps to name in its warning.
+const MAX_REPORTED_BINARY_FILES: usize = 5;
 
 /// Shared accumulation state for one search. Walk workers write finished files
 /// and counters here; the PCRE2 driver can read a consistent snapshot of the
@@ -372,6 +378,8 @@ struct CollectState {
     timed_out: AtomicBool,
     size_skipped: AtomicBool,
     binary_quit: AtomicBool,
+    binary_files: Mutex<Vec<String>>,
+    binary_file_count: AtomicU32,
     cancelled: AtomicBool,
     /// Set when the walk must end now (deadline, cancellation, driver timeout).
     stop: AtomicBool,
@@ -393,10 +401,29 @@ impl CollectState {
             timed_out: AtomicBool::new(false),
             size_skipped: AtomicBool::new(false),
             binary_quit: AtomicBool::new(false),
+            binary_files: Mutex::new(Vec::new()),
+            binary_file_count: AtomicU32::new(0),
             cancelled: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             error_count: AtomicU32::new(0),
             first_error: Mutex::new(None),
+        }
+    }
+
+    /// Remember a file searched only up to its first NUL byte. The kept
+    /// paths are the smallest in path order, so the list does not depend on
+    /// which walk worker finished first.
+    fn record_binary(&self, path: &Path) {
+        self.binary_quit.store(true, Ordering::Relaxed);
+        let _ = self
+            .binary_file_count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                Some(n.saturating_add(1))
+            });
+        if let Ok(mut files) = self.binary_files.lock() {
+            files.push(path.to_string_lossy().into_owned());
+            files.sort();
+            files.truncate(MAX_REPORTED_BINARY_FILES);
         }
     }
 
@@ -453,6 +480,12 @@ impl CollectState {
             timed_out: self.timed_out.load(Ordering::Relaxed),
             size_skipped: self.size_skipped.load(Ordering::Relaxed),
             binary_quit: self.binary_quit.load(Ordering::Relaxed),
+            binary_files: self
+                .binary_files
+                .lock()
+                .map(|files| files.clone())
+                .unwrap_or_default(),
+            binary_file_count: self.binary_file_count.load(Ordering::Relaxed),
             cancelled: self.cancelled.load(Ordering::Relaxed),
             error_count: self.error_count.load(Ordering::Relaxed),
             first_error,
@@ -1127,7 +1160,7 @@ fn collect<M: Matcher + Sync>(
             state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
             if outcome.binary {
                 // Bytes after the NUL were not searched: coverage is partial.
-                state.binary_quit.store(true, Ordering::Relaxed);
+                state.record_binary(path);
             }
 
             let has_match = outcome.matched_lines > 0;
@@ -1288,6 +1321,8 @@ fn build_result(
         timed_out,
         size_skipped,
         binary_quit,
+        binary_files,
+        binary_file_count,
         cancelled,
         error_count,
         first_error,
@@ -1394,6 +1429,8 @@ fn build_result(
         cap_reason,
         error_count: Some(error_count),
         first_error,
+        binary_files: (!binary_files.is_empty()).then_some(binary_files),
+        binary_file_count: binary_quit.then_some(binary_file_count),
     };
 
     RipgrepParseResult { files, stats }

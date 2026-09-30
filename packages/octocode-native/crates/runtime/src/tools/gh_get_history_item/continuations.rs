@@ -97,7 +97,10 @@ fn fresh_pr_query(query: &HistoryItemRequest) -> Value {
 /// call) instead of paging hundreds of inventory rows. It is a template: the
 /// caller replaces the `matchString` placeholder with a literal from its
 /// question (and may add `fileFilter.paths`), so it carries low confidence.
-pub(super) fn find_in_patches(query: &HistoryItemRequest, changed_files: Option<u64>) -> Option<Value> {
+pub(super) fn find_in_patches(
+    query: &HistoryItemRequest,
+    changed_files: Option<u64>,
+) -> Option<Value> {
     let narrowed = query.match_string().is_some() || query.file_filter().is_some();
     if narrowed || changed_files.is_none_or(|files| files <= LARGE_PR_FILES) {
         return None;
@@ -533,6 +536,8 @@ pub(super) fn attach_diff_continuations(
     {
         let mut nq = base.clone();
         nq["page"] = page;
+        // A commit page carries commits only; its file cursor would be inert.
+        remove_key(&mut nq, "filePage");
         next.insert(
             "nextPage".into(),
             make(
@@ -836,7 +841,9 @@ mod tests {
         // (matching lines only) before any inventory page: a template whose
         // placeholder the caller fills, hence low confidence.
         assert_eq!(
-            menu.as_object().and_then(|m| m.keys().next()).map(String::as_str),
+            menu.as_object()
+                .and_then(|m| m.keys().next())
+                .map(String::as_str),
             Some("findInPatches"),
             "{menu}"
         );

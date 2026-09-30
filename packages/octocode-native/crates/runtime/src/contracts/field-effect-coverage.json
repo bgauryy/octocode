@@ -14,6 +14,8 @@
         "src/tools/clasify/mod.rs",
         "src/tools/clasify/questions.rs",
         "src/runtime/clasify_context.rs",
+        "src/runtime/clasify_batch.rs",
+        "src/runtime/clasify_locate.rs",
         "tests/runtime_clasify.rs"
       ],
       "variants": [],
@@ -1029,6 +1031,9 @@
           "consumed"
         ],
         "names": [
+          "consumed"
+        ],
+        "noIgnore": [
           "consumed"
         ],
         "operation": [

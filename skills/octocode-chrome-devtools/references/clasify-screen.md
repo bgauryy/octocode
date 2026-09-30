@@ -5,12 +5,13 @@ Use this flow when semantic localization can replace broad host reads. For a lit
 1. Capture once with this skill and retain artifacts under `.octocode/`. Before a private classification read, use `SNAPSHOT_STDOUT=summary node scripts/cdp-sandbox.mjs scripts/cdp-checks/page-snapshot.mjs --port <port> --keep-tab`: it prints counts/path while refs stay on disk. Default snapshot stdout lists refs; if those already settle the task, skip classification. Use the emitted artifact path; the path below is only a placeholder. Reuse the saved capture before fetching or opening a browser again.
 2. Use metadata, titles, URLs and literal searches to narrow files without reading their bodies. Remove empty and duplicate captures.
 3. Save the following request as `.octocode/clasify-request.json`. Replace the absolute path and atomic targets. Multiple files may share one matrix only when every question applies to every file; keep the expanded matrix within 25 cells.
-4. Run the Octocode CLI command below. The same JSON works with MCP `clasify`; the host must consume `structuredContent`, because the text `content` array is empty.
+4. Run the Octocode CLI command below. The same JSON works with MCP `clasify`; MCP returns `structuredContent` and mirrors it as JSON text.
 5. Group nearby `best` / `answers.*.matches` windows into at most five exact read ranges per call. Read `source.path` with `localFetch` and verify the deciding source. Widen only when a sentence or record crosses a boundary; reuse that read across questions. For snapshot JSON, verify the complete object, including its reference key and label, before using a control. A line window can split that object.
 6. Low `exists`, partial coverage, errors and conflicting evidence remain unresolved. Follow `next.clasify` unchanged when more relevant coverage is needed. Never turn a negative page judgment into whole-site absence.
 
 ```json
 {
+  "goal": "Find the page facts the next browser action depends on.",
   "reasoning": "Locate independent facts in an unread retained artifact before loading its body.",
   "resources": [{"id": "artifact", "context": {"tool": "localFetch", "query": {
     "goal": "Read the retained artifact for assessment",

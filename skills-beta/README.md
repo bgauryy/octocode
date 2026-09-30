@@ -12,4 +12,4 @@ Tested skills. They are used and judged in this repo, and they are not published
 
 | Skill | Use when |
 |---|---|
-| [`octocode-context-audit`](octocode-context-audit/) | Measure always-loaded agent context (instructions, skills, MCP schemas) against real tool/skill usage; flag bloat, broken links, unused or bypassed tools |
+| [`octocode-architecture-view`](octocode-architecture-view/) | Render a system's architecture as an interactive HTML map: layers, modules, dependencies, runtime flows, data stores |

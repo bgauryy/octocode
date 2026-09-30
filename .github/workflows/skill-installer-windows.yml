@@ -42,7 +42,7 @@ jobs:
         run: corepack enable
 
       - name: Remove local development resolutions
-        run: node scripts/prepublish.mjs --fix
+        run: node skills-dev/octocode-dev/scripts/prepublish.mjs --fix
 
       - name: Install dependencies
         run: yarn install --no-immutable

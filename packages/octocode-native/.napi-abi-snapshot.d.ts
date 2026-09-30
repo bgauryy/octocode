@@ -905,6 +905,12 @@ export interface RipgrepStats {
   errorCount?: number
   /** Bounded first failure detail. Counts include every observed failure. */
   firstError?: string
+  /**
+   * Files searched only up to their first NUL byte (`binaryQuit`), in path
+   * order and bounded; `binary_file_count` counts all of them.
+   */
+  binaryFiles?: Array<string>
+  binaryFileCount?: number
 }
 
 /**

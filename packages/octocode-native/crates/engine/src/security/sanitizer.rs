@@ -65,6 +65,25 @@ mod tests {
         assert!(result.warnings.is_empty());
     }
 
+    /// An assignment keeps its identifier and quotes: only the value is a
+    /// secret, and redacted source must still parse as the same statement.
+    #[test]
+    fn env_var_secret_redaction_keeps_the_identifier() {
+        let result = sanitize_content(
+            "export const API_TOKEN = \"abcdefghijklmnopqrstuvwx\";\n",
+            None,
+        );
+        assert_eq!(
+            result.content,
+            "export const API_TOKEN = \"[REDACTED-ENVVARSECRETS]\";\n"
+        );
+        assert_eq!(result.secrets_detected, vec!["envVarSecrets"]);
+        let masked = crate::security::detector::mask_text(
+            "API_TOKEN = 'abcdefghijklmnopqrstuvwx'".to_owned(),
+        );
+        assert_eq!(masked, "API_TOKEN = '************************'");
+    }
+
     #[test]
     fn sanitize_content_adds_warning_when_secret_is_redacted() {
         let result = sanitize_content("token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", None);

@@ -566,13 +566,8 @@ pub fn execute_local_search(
                     total_matches: total,
                     has_more,
                     next_match_page: has_more.then_some(match_page + 1),
-                    more_lines: (has_more && !later.is_empty()).then(|| {
-                        later
-                            .iter()
-                            .map(u32::to_string)
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    }),
+                    more_lines: (has_more && !later.is_empty())
+                        .then(|| line_ranges(&later, MAX_MORE_LINE_RANGES)),
                     out_of_range,
                 }),
             }
@@ -587,6 +582,11 @@ pub fn execute_local_search(
     if !list && files.iter().any(|file| !exhausted(file)) {
         files.retain(|file| !exhausted(file));
     }
+    let binary_files = binary_file_list(
+        parsed.stats.binary_files.as_deref().unwrap_or_default(),
+        parsed.stats.binary_file_count.unwrap_or(0),
+        output_root,
+    );
     let stats = SearchStats {
         total_occurrences: parsed.stats.match_count.unwrap_or(0),
         matched_lines: parsed.stats.matched_lines.unwrap_or(0),
@@ -639,9 +639,9 @@ pub fn execute_local_search(
     }
     let binary_cut = cap_has("binaryQuit");
     if binary_cut {
-        warnings.push(
-            "binaryFileSkipped: a file with a NUL byte was searched only up to it; no text tool reads past it.".into(),
-        );
+        warnings.push(format!(
+            "binaryFileSkipped: {binary_files} searched only up to the first NUL byte; no text tool reads past it."
+        ));
     }
     let error_count = stats.error_count.unwrap_or(0);
     if error_count > 0 && empty {
@@ -1448,5 +1448,89 @@ mod repair_tests {
         }
         crate::contracts::validate_query("localSearch", repair.clone())
             .expect("repair query is contract-valid");
+    }
+}
+
+/// The binary-quit files a warning names: root-relative paths, then the
+/// count of any the engine did not keep (`a.bin, b.dat and 3 more`).
+fn binary_file_list(paths: &[String], total: u32, root: &std::path::Path) -> String {
+    if paths.is_empty() {
+        return "a file with a NUL byte was".into();
+    }
+    let mut names = paths
+        .iter()
+        .map(|path| {
+            let path = std::path::Path::new(path);
+            path.strip_prefix(root)
+                .ok()
+                .filter(|relative| !relative.as_os_str().is_empty())
+                .unwrap_or(path)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let unnamed = (total as usize).saturating_sub(paths.len());
+    if unnamed > 0 {
+        names.push_str(&format!(" and {unnamed} more"));
+    }
+    let verb = if paths.len() + unnamed == 1 {
+        "was"
+    } else {
+        "were"
+    };
+    format!("{names} {verb}")
+}
+
+/// Line runs `moreLines` names before it summarizes the rest as a count.
+const MAX_MORE_LINE_RANGES: usize = 24;
+
+/// Sorted, distinct line numbers as runs: `711-717,802`. Past `max_ranges`
+/// runs the rest is a count (`,+40 more`), so a file with thousands of
+/// scattered hits costs a bounded hint, and the match pages still hold them.
+fn line_ranges(lines: &[u32], max_ranges: usize) -> String {
+    let mut runs: Vec<(u32, u32)> = Vec::new();
+    for &line in lines {
+        match runs.last_mut() {
+            Some((_, end)) if line == end.saturating_add(1) => *end = line,
+            _ => runs.push((line, line)),
+        }
+    }
+    let mut out = runs
+        .iter()
+        .take(max_ranges)
+        .map(|&(start, end)| {
+            if start == end {
+                start.to_string()
+            } else {
+                format!("{start}-{end}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let omitted: u64 = runs
+        .iter()
+        .skip(max_ranges)
+        .map(|&(start, end)| u64::from(end - start) + 1)
+        .sum();
+    if omitted > 0 {
+        out.push_str(&format!(",+{omitted} more"));
+    }
+    out
+}
+
+#[cfg(test)]
+mod line_range_tests {
+    use super::line_ranges;
+
+    #[test]
+    fn more_lines_compress_runs_and_cap_scattered_hits_with_a_count() {
+        assert_eq!(line_ranges(&[2], 24), "2");
+        assert_eq!(
+            line_ranges(&[711, 712, 713, 714, 715, 716, 717, 802], 24),
+            "711-717,802"
+        );
+        let scattered = (1..=100).map(|n| n * 10).collect::<Vec<u32>>();
+        assert_eq!(line_ranges(&scattered, 3), "10,20,30,+97 more");
     }
 }

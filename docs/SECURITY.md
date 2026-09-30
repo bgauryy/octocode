@@ -32,7 +32,7 @@ Credentials are acquired after request admission and pinned for the request life
 
 `packages/octocode-native/crates/engine/src/security/` owns the canonical ordered secret-pattern set and native scanner. It covers cloud, AI-provider, version-control, package-registry, database, payment, communications, private-key, bearer-token, and connection-string formats. File-context patterns activate only for matching path classes to reduce false positives.
 
-The runtime scans untrusted provider and filesystem content before rendering it. Detected values are replaced with typed redaction markers and accompanied by warnings. Oversized values are replaced wholesale rather than partially exposed. A final recursive pass sanitizes nested strings while preserving executable continuation and location structures.
+The runtime scans untrusted provider and filesystem content before rendering it. Detected values are replaced with typed redaction markers and accompanied by warnings. Oversized values are replaced wholesale rather than partially exposed. A final recursive pass sanitizes nested strings while preserving executable continuation and location structures. Email masking in GitHub output is opt-in: `--redact-emails`, `OCTOCODE_REDACT_EMAILS=true`, or `output.redactEmails`.
 
 The Rust implementation is the only production scanner. `patterns.rs` is its source of truth; a test-only complete regex set verifies that the optimized literal prescan does not lose matches.
 
@@ -50,18 +50,19 @@ The `read` query passes the input security policy before it is sent: a query the
 
 Every local operation resolves through `packages/octocode-native/crates/runtime/src/policy/path.rs`.
 
-- The OS home directory is allowed by default.
-- `WORKSPACE_ROOT` / `local.workspaceRoot` and `ALLOWED_PATHS` / `local.allowedPaths` add explicit roots.
-- Relative traversal and paths outside allowed roots are denied.
+- Allowed roots are the workspace root (`WORKSPACE_ROOT` / `local.workspaceRoot`, else the process cwd), `ALLOWED_PATHS` / `local.allowedPaths`, and `OCTOCODE_HOME`. The OS home directory is **not** allowed unless one of these covers it (`runtime/src/runtime/engine.rs`).
+- Relative paths resolve against the process working directory, not `WORKSPACE_ROOT`; pass absolute paths.
+- Relative traversal and paths outside allowed roots are denied (`pathOutsideAllowedRoots`; `structure.policy.outsideAllowedRoots` from structureSearch).
+- System directories such as `/etc` stay denied even when listed in `ALLOWED_PATHS`.
 - Sensitive names and directories are pruned during discovery and denied again before reads.
 - Symlinks are revalidated against their canonical targets; escaped descendants are rejected.
 - File type, size, mutation, and snapshot checks happen before evidence is returned.
 
-Sensitive classes include environment files, private keys and certificates, credential stores, cloud configuration, shell history, browser login stores, infrastructure state, wallets, and application secret files. Denied errors use safe relative paths instead of echoing private absolute paths.
+Sensitive classes include environment files, private keys and certificates, credential stores, cloud configuration, shell history, browser login stores, infrastructure state, wallets, and application secret files. Denial messages name the path as requested or relative to `~`, and outside-root denials list the allowed roots; the row's `resolvedPath` carries the resolved path, which can be absolute.
 
-Set `ENABLE_LOCAL=false` to disable local tools. `astRewrite` is a CLI-only beta feature (MCP never exposes it)
-gated solely by `OCTOCODE_BETA=true` (or `local.beta:true`), default off, which
-permits both preview and its hash-guarded mutation path.
+Set `ENABLE_LOCAL=false` to disable local tools. `OCTOCODE_BETA=true` (or `local.beta:true`, shell or
+home config only), default off, gates `astTopology` and `astRewrite`. `astRewrite` is
+CLI-only (MCP never exposes it); the gate permits both preview and its hash-guarded mutation path.
 
 ## Structural rewrite safety
 
@@ -93,16 +94,12 @@ Language-server provisioning accepts only pinned assets from allowed HTTPS hosts
 
 ## GitHub credentials
 
-Credentials first choose the highest-priority source: process environment → workspace `.octocode/.env` → global Octocode `.env`. Within that source, alias order is:
+Resolution order (environment → encrypted Octocode login → OS credential store → `gh auth token`), login, refresh, and logout are documented in [AUTHENTICATION.md](AUTHENTICATION.md). The security properties:
 
-1. `OCTOCODE_TOKEN`
-2. `GH_TOKEN`
-3. `GITHUB_TOKEN`
-4. `GITHUB_PERSONAL_ACCESS_TOKEN`
-
-If no environment credential is available, resolution continues through encrypted credentials in `OCTOCODE_HOME`, the operating-system credential store (existing native logins), then host-scoped `gh auth token`.
-
-CLI and MCP load both `.env` files. A workspace alias overrides a global canonical key; `.octocoderc` does not supply GitHub tokens. Missing or blank file values allow fallback. Bootstrap variables such as `PATH`, `HOME`, and `NODE_OPTIONS` remain blocked in both files; product settings such as `GITHUB_API_URL` follow the shared precedence. See [configuration rules](CONFIGURATION.md#env--environment-fallback). Native login stores OAuth credentials in `<OCTOCODE_HOME>/credentials.json` using main’s AES-256-GCM format (16-byte IV, authentication tag, ciphertext), with the key in `.key`. The files use mode `0600` on Unix; newly created home directories use `0700`. Writes are locked and atomically replaced; corrupt or unauthenticated files are rejected without overwriting them. Symlink credential files and Unix hard links are rejected. The adjacent key means this does not protect against someone who can read both files. Existing OS-store credentials remain readable. Logout deletes the selected host from both Octocode stores; it does not change environment variables or GitHub CLI login.
+- Tokens are never accepted through tool query fields, and an environment token is attached only to the host of the configured `GITHUB_API_URL`, which only the shell or home config can set.
+- `<OCTOCODE_HOME>/credentials.json` uses AES-256-GCM (16-byte IV, authentication tag, ciphertext) with the key in `.key`. Both are mode `0600` on Unix; a newly created home directory is `0700`. Writes are locked and atomically replaced; corrupt or unauthenticated files are rejected without being overwritten; symlinked credential files and Unix hard links are rejected. The adjacent key does not protect against someone who can read both files.
+- `gh auth token` runs without Octocode's token variables in its environment, with a 5-second bound.
+- `.octocoderc` never supplies GitHub tokens, and bootstrap variables such as `PATH`, `HOME` and `NODE_OPTIONS` are blocked in every `.env` file ([rules](CONFIGURATION.md#env--environment-fallback)).
 
 GitHub endpoint, credential, session, and cache identities are partitioned. Pagination redirects must remain same-origin. Retries and rate-limit delays are bounded, response bodies are capped, and GraphQL partial failures remain explicit.
 

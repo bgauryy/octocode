@@ -105,7 +105,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     let security = ContentSecurity::new();
 
     let missing = execute_row(
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"const $A = $B"}),
+        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"let $A = $B"}),
         &paths,
         &security,
         &Active,
@@ -116,18 +116,21 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     let guidance = missing["diagnostics"][0]["message"]
         .as_str()
         .expect("no-match guidance");
-    assert!(guidance.contains("trailing semicolons"), "{guidance}");
     assert!(guidance.contains("operation:\"syntaxTree\""), "{guidance}");
 
-    let found = execute_row(
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"const $A = $B;"}),
-        &paths,
-        &security,
-        &Active,
-    )
-    .expect("structural match");
-    assert_eq!(found["stats"]["totalStructuralMatches"], 1, "{found}");
-    assert!(found.get("status").is_none(), "{found}");
+    // Trailing punctuation the pattern omits is not required (ast-grep
+    // smart strictness, as astRewrite matches).
+    for pattern in ["const $A = $B;", "const $A = $B"] {
+        let found = execute_row(
+            json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":pattern}),
+            &paths,
+            &security,
+            &Active,
+        )
+        .expect("structural match");
+        assert_eq!(found["stats"]["totalStructuralMatches"], 1, "{found}");
+        assert!(found.get("status").is_none(), "{found}");
+    }
 }
 
 #[test]
@@ -193,7 +196,7 @@ fn cancellation_interrupts_descendant_traversal() {
     let error = execute_row(
         json!({
             "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust",
-            "pattern":"source"
+            "pattern":"source($A)"
         }),
         &paths,
         &security,
@@ -810,10 +813,12 @@ fn rust_item_pattern_without_visibility_notes_that_pub_items_are_excluded() {
     // matched. The result must say so instead of implying full coverage.
     assert_eq!(out["stats"]["totalStructuralMatches"], 1, "{out}");
     let notes = out["diagnostics"].as_array().expect("diagnostics");
+    // A warning, not an info note: minimal output drops info diagnostics,
+    // and this one says the complete-looking result excludes `pub` items.
     assert!(
-        notes
-            .iter()
-            .any(|d| d["code"] == "structural.pattern.visibilityExact"),
+        notes.iter().any(
+            |d| d["code"] == "structural.pattern.visibilityExact" && d["severity"] == "warning"
+        ),
         "{out}"
     );
     // A pattern that already names the visibility gets no note.
@@ -883,4 +888,48 @@ fn flow_js_symbols_list_hooks_and_mark_a_recovered_parse_partial() {
         "the Flow type alias forces a recovered parse: {out}"
     );
     assert_eq!(out["isPartial"], json!(true), "{out}");
+}
+
+/// A single-file match parses the file as a directory scan does: raw.
+/// Redacting first shifted columns and could erase a matched row; values
+/// are still redacted in the output.
+#[test]
+fn single_file_match_keeps_redacted_rows_and_directory_positions() {
+    let root = Fixture::new();
+    let source = root.0.join("k.ts");
+    std::fs::write(
+        &source,
+        "export const A = \"plain\"; hit(1);\nexport const GITHUB_TOKEN = \"ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789\"; hit(2);\n",
+    )
+    .expect("source");
+    let rows = |path: &std::path::Path| {
+        let out = run(
+            &root.0,
+            json!({"operation":"match","goal":"test","reasoning":"test","path":path,"langType":"typescript","pattern":"export const $N = $V"}),
+        )
+        .expect("match");
+        let file = out["files"][0].clone();
+        assert!(file.is_object(), "{out}");
+        file["matches"].as_array().expect("matches").clone()
+    };
+    let single = rows(&source);
+    let directory = rows(&root.0);
+    assert_eq!(single.len(), 2, "{single:?}");
+    assert_eq!(single, directory);
+}
+
+/// A pattern the grammar cannot parse fails before any prefilter: a
+/// directory where no file holds the anchor must not report `complete` and
+/// empty for `foo(`.
+#[test]
+fn invalid_pattern_is_an_error_even_when_every_file_is_prefiltered() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.ts"), "const value = 1;\n").expect("source");
+    let error = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"typescript","pattern":"foo("}),
+    )
+    .expect_err("an unparseable pattern must fail loudly");
+    // The response stage attaches the repair hint for this code.
+    assert_eq!(error.code, "structural.query.compileFailed", "{error:?}");
 }

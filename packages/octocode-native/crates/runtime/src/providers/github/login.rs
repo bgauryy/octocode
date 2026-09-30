@@ -357,38 +357,73 @@ async fn login_device_flow_with_store(
     ))
 }
 
+/// What GitHub's `GET /user` says about a token.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TokenCheck {
+    /// GitHub accepted the token (its login, when the body names one).
+    Valid(Option<String>),
+    /// GitHub rejected the token (HTTP 401): it cannot authenticate requests.
+    Rejected,
+    /// GitHub could not be asked (network, timeout, rate limit, bad URL).
+    Unverified,
+}
+
 /// `GET /user` through the shared executor (throttling, rate-limit
-/// bookkeeping, bounded retries); returns the `login` or `None` on failure.
+/// bookkeeping, bounded retries): whether GitHub accepts `token`.
+pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> TokenCheck {
+    let Some((endpoint, transport)) = url::Url::parse(api_url)
+        .ok()
+        .and_then(|url| super::GitHubEndpoint::new(url).ok())
+        .and_then(|endpoint| {
+            let transport = super::GitHubTransport::new(
+                endpoint.clone(),
+                std::sync::Arc::new(super::StaticCredentialResolver::new(
+                    token.to_owned(),
+                    super::CredentialSource::Override,
+                )),
+                super::RetryPolicy {
+                    max_attempts: 2,
+                    ..Default::default()
+                },
+            )
+            .ok()?;
+            Some((endpoint, transport))
+        })
+    else {
+        return TokenCheck::Unverified;
+    };
+    let Ok(url) = endpoint.rest(&["user"]) else {
+        return TokenCheck::Unverified;
+    };
+    match transport
+        .execute(
+            super::RequestSpec::get(url),
+            &super::RequestContext::with_timeout(timeout, 1024 * 1024),
+        )
+        .await
+    {
+        Ok(page) => TokenCheck::Valid(
+            serde_json::from_slice::<serde_json::Value>(&page.body)
+                .ok()
+                .and_then(|value| value.get("login")?.as_str().map(str::to_owned)),
+        ),
+        Err(error) if error.kind == super::ProviderErrorKind::Authentication => {
+            TokenCheck::Rejected
+        }
+        Err(_) => TokenCheck::Unverified,
+    }
+}
+
+/// The login GitHub reports for `token`, or `None` on any failure.
 pub async fn fetch_authenticated_login(
     api_url: &str,
     token: &str,
     timeout: Duration,
 ) -> Option<String> {
-    let endpoint = super::GitHubEndpoint::new(url::Url::parse(api_url).ok()?).ok()?;
-    let transport = super::GitHubTransport::new(
-        endpoint.clone(),
-        std::sync::Arc::new(super::StaticCredentialResolver::new(
-            token.to_owned(),
-            super::CredentialSource::Override,
-        )),
-        super::RetryPolicy {
-            max_attempts: 2,
-            ..Default::default()
-        },
-    )
-    .ok()?;
-    let page = transport
-        .execute(
-            super::RequestSpec::get(endpoint.rest(&["user"]).ok()?),
-            &super::RequestContext::with_timeout(timeout, 1024 * 1024),
-        )
-        .await
-        .ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&page.body).ok()?;
-    value
-        .get("login")
-        .and_then(|value| value.as_str())
-        .map(str::to_owned)
+    match verify_token(api_url, token, timeout).await {
+        TokenCheck::Valid(login) => login,
+        TokenCheck::Rejected | TokenCheck::Unverified => None,
+    }
 }
 
 fn device_code_form(client_id: &str) -> String {

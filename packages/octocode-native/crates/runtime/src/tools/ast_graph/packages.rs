@@ -7,8 +7,10 @@
 //! → `…/com/google/common/collect/ImmutableList.java` under any source root).
 //! An import therefore links to every non-test source file of the package
 //! (Go, Java `.*`) or to the class's file (Java). Imports outside the scanned
-//! modules (standard library, third-party) stay external. Same-package
-//! references need no import and produce no edge in either language.
+//! modules (standard library, third-party) stay external. Java classes of
+//! one package use each other without an import; a call, constructor, or
+//! heritage clause naming a same-package class links to its file. Go
+//! same-package references produce no edge.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -23,6 +25,9 @@ pub(super) struct PackageIndex {
     go_modules: Vec<(String, String)>,
     files_by_dir: BTreeMap<String, Vec<String>>,
     java_by_name: HashMap<String, Vec<String>>,
+    /// Go files were scanned but no `go.mod` names their module, at or above
+    /// the scan root: every module import is unlinkable, not external.
+    go_module_missing: bool,
 }
 
 /// How a package import resolved.
@@ -53,6 +58,39 @@ fn go_module_path(text: &str) -> Option<String> {
         .filter(|path| !path.is_empty() && !path.contains(char::is_whitespace))
 }
 
+/// Enclosing `go.mod` directories searched above a scan root.
+const MAX_GO_MODULE_ANCESTORS: usize = 16;
+
+/// The module path of `root` itself when it sits inside a module whose
+/// `go.mod` is in an ancestor directory: the module path joined with the
+/// root's path below the module directory.
+fn enclosing_go_module(root: &Path, readable: &dyn Fn(&Path) -> bool) -> Option<String> {
+    if root.join(".git").exists() {
+        return None;
+    }
+    let mut below = Vec::new();
+    let mut dir = root;
+    for _ in 0..MAX_GO_MODULE_ANCESTORS {
+        below.push(dir.file_name()?.to_string_lossy().into_owned());
+        dir = dir.parent()?;
+        let manifest = dir.join("go.mod");
+        if manifest.is_file() {
+            if !readable(&manifest) {
+                return None;
+            }
+            let module = go_module_path(&std::fs::read_to_string(manifest).ok()?)?;
+            below.reverse();
+            return Some(format!("{module}/{}", below.join("/")));
+        }
+        // A repository boundary ends the search: its go.mod would belong
+        // to another project.
+        if dir.join(".git").exists() {
+            return None;
+        }
+    }
+    None
+}
+
 /// Shared path components; the candidate nearest the importer wins.
 fn closeness(a: &str, b: &str) -> usize {
     a.split('/')
@@ -62,7 +100,13 @@ fn closeness(a: &str, b: &str) -> usize {
 }
 
 impl PackageIndex {
-    pub(super) fn build(root: &Path, known: &BTreeSet<String>) -> Self {
+    /// `readable` gates files above the scan root (the enclosing `go.mod`)
+    /// through the caller's path policy.
+    pub(super) fn build(
+        root: &Path,
+        known: &BTreeSet<String>,
+        readable: &dyn Fn(&Path) -> bool,
+    ) -> Self {
         let mut index = Self::default();
         let mut go_dirs = BTreeSet::new();
         for file in known {
@@ -98,6 +142,7 @@ impl PackageIndex {
                     .push(file.clone());
             }
         }
+        let has_go = !go_dirs.is_empty();
         for dir in go_dirs {
             let manifest = if dir == "." {
                 root.join("go.mod")
@@ -112,10 +157,23 @@ impl PackageIndex {
                 index.go_modules.push((module, dir));
             }
         }
+        if has_go && !index.go_modules.iter().any(|(_, dir)| dir == ".") {
+            // A scan rooted below its module (`go/tsdb` under `go/go.mod`)
+            // imports its own packages by the enclosing module path; map
+            // the scan root to `<module>/<root relative to the module>`.
+            if let Some(module) = enclosing_go_module(root, readable) {
+                index.go_modules.push((module, ".".to_owned()));
+            }
+        }
+        index.go_module_missing = has_go && index.go_modules.is_empty();
         index
             .go_modules
             .sort_by_key(|(module, _)| std::cmp::Reverse(module.len()));
         index
+    }
+
+    pub(super) fn go_module_missing(&self) -> bool {
+        self.go_module_missing
     }
 
     pub(super) fn resolve(&self, ext: &str, spec: &str, importer: &str) -> PackageLink {
@@ -124,6 +182,21 @@ impl PackageIndex {
             "java" => self.resolve_java(spec, importer),
             _ => PackageLink::External,
         }
+    }
+
+    /// The Java class file `name` in the importer's own package: Java code
+    /// uses same-package classes without an import.
+    pub(super) fn same_package_class(&self, importer: &str, name: &str) -> Option<&str> {
+        if !importer.ends_with(".java") || !name.starts_with(|c: char| c.is_ascii_uppercase()) {
+            return None;
+        }
+        let dir = dir_of(importer);
+        let target = join(dir, &format!("{name}.java"));
+        self.files_by_dir
+            .get(dir)?
+            .iter()
+            .find(|file| **file == target && file.as_str() != importer)
+            .map(String::as_str)
     }
 
     fn package_files(&self, dir: &str, ext: &str) -> Vec<String> {
@@ -202,7 +275,7 @@ mod tests {
 
     fn index(root: &Path, files: &[&str]) -> PackageIndex {
         let known = files.iter().map(|file| (*file).to_owned()).collect();
-        PackageIndex::build(root, &known)
+        PackageIndex::build(root, &known, &|_| true)
     }
 
     fn files(link: PackageLink) -> Vec<String> {
@@ -247,6 +320,29 @@ mod tests {
             files(index.resolve("go", "example.com/application", "main.go")),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn a_scan_below_its_module_maps_through_the_enclosing_go_mod() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("go.mod"), "module example.com/app\n").expect("go.mod");
+        let sub = dir.path().join("tsdb");
+        std::fs::create_dir_all(&sub).expect("sub");
+        let scanned = index(&sub, &["db.go", "chunkenc/chunk.go"]);
+        assert!(!scanned.go_module_missing());
+        assert_eq!(
+            files(scanned.resolve("go", "example.com/app/tsdb/chunkenc", "db.go")),
+            vec!["chunkenc/chunk.go"]
+        );
+        // A module import outside the scanned subtree stays external.
+        assert_eq!(
+            files(scanned.resolve("go", "example.com/app/model", "db.go")),
+            Vec::<String>::new()
+        );
+        // No go.mod anywhere: module imports are unlinkable, not external.
+        let bare = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(bare.path().join(".git")).expect("repository boundary");
+        assert!(index(bare.path(), &["main.go"]).go_module_missing());
     }
 
     #[test]

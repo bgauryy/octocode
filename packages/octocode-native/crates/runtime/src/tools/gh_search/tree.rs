@@ -4,7 +4,7 @@ use crate::tools::result::remove_nulls;
 use crate::{
     providers::github::{
         ContentsEntry, CredentialResolver, GitHubProvider, GitHubTransport, ProviderError,
-        ProviderErrorKind, RequestContext, TreeRequest,
+        ProviderErrorKind, ProviderErrorReason, RequestContext, TreeRequest,
     },
     tools::result::ToolData,
 };
@@ -13,6 +13,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 const MAX_PAGE: usize = 1000;
+/// Largest listing page (the contract's `pageSize` maximum). Path-only rows
+/// stay compact: 500 entries of a deep tree render in about 13k chars.
+const MAX_ENTRIES_PER_PAGE: usize = 500;
 const CONTENTS_LIMIT: usize = 1000;
 /// Upper bound on Contents API directory reads for one fallback walk (git
 /// trees API truncated or unavailable). Past it the listing is a typed
@@ -67,14 +70,23 @@ pub(super) async fn execute<
         materialize_offset,
         ..
     } = query;
-    let requested_branch = branch.clone();
-    let mut resolved_branch = match branch {
-        Some(branch) => branch.clone(),
+    // Pin the listing to one commit: an explicit ref that does not resolve is
+    // an error (like ghGetFileContent), never a silent default-branch
+    // listing, and every page of one listing reads the same tree.
+    let (resolved_branch, commit_sha) = match branch {
+        Some(branch) => {
+            let sha = provider
+                .resolve_reference(owner, repo, Some(branch), false, context)
+                .await
+                .map_err(|error| missing_ref(error, owner, repo, branch))?;
+            (branch.clone(), sha)
+        }
         None => {
-            transport
-                .repository_metadata(owner, repo, context)
-                .await?
-                .default_branch
+            let (metadata, sha) = tokio::try_join!(
+                transport.repository_metadata(owner, repo, context),
+                provider.resolve_reference(owner, repo, None, false, context),
+            )?;
+            (metadata.default_branch, sha)
         }
     };
     let requested_path = path.as_deref().unwrap_or("").trim_matches('/');
@@ -84,62 +96,28 @@ pub(super) async fn execute<
         requested_path.to_owned()
     };
     let depth = max_depth.map_or(1, super::usize_of);
-    let mut fallback = None;
-    let mut traversal = match traverse(
+    let mut traversal = traverse(
         provider,
         owner,
         repo,
-        &resolved_branch,
+        &commit_sha,
         &clean_path,
         depth,
         context,
     )
-    .await
-    {
-        Ok(value) => value,
-        Err(error) if error.status == Some(404) && requested_branch.is_some() => {
-            // A 404 means the ref OR the path is missing. Only fall back to the
-            // default branch when the requested ref itself does not resolve;
-            // otherwise report the missing path on the requested ref.
-            if transport
-                .ref_exists(owner, repo, &resolved_branch, context)
-                .await?
-            {
-                return Err(error);
-            }
-            let actual = transport
-                .repository_metadata(owner, repo, context)
-                .await?
-                .default_branch;
-            if actual == resolved_branch {
-                return Err(error);
-            }
-            let value =
-                traverse(provider, owner, repo, &actual, &clean_path, depth, context).await?;
-            fallback = Some(json!({
-                "requestedBranch": resolved_branch,
-                "actualBranch": actual,
-                "warning": format!(
-                    "Branch/ref '{}' was not found. Showing '{}' (default branch) instead. Re-query with the correct branch name if branch-specific results are required.",
-                    resolved_branch, actual
-                )
-            }));
-            resolved_branch = actual;
-            value
-        }
-        Err(error) => return Err(error),
-    };
+    .await?;
+    // Directory by directory, in path order: a page of a deep listing
+    // carries each directory's files with its folders instead of every
+    // folder of the tree before the first file.
+    let parent = |path: &str| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_owned();
     traversal.entries.sort_by(|left, right| {
-        let left_dir = left.kind == EntryKind::Dir;
-        let right_dir = right.kind == EntryKind::Dir;
-        right_dir
-            .cmp(&left_dir)
-            .then_with(|| path_depth(&left.path).cmp(&path_depth(&right.path)))
+        parent(&left.path)
+            .cmp(&parent(&right.path))
             .then_with(|| left.path.cmp(&right.path))
     });
 
     let current_page = super::usize_of(*page);
-    let per_page = super::usize_of(*page_size).clamp(1, 200);
+    let per_page = super::usize_of(*page_size).clamp(1, MAX_ENTRIES_PER_PAGE);
     let total_entries = traversal.entries.len();
     let total_pages = total_entries.div_ceil(per_page).max(1);
     let start = current_page.saturating_sub(1).saturating_mul(per_page);
@@ -176,6 +154,10 @@ pub(super) async fn execute<
         "summary": {"totalFiles": total_files, "totalFolders": total_folders},
         "resolvedBranch": resolved_branch,
     });
+    // A caller-supplied full SHA is not restated.
+    if !resolved_branch.eq_ignore_ascii_case(&commit_sha) {
+        value["commitSha"] = json!(commit_sha);
+    }
     if total_pages > 1 {
         value["pagination"] = json!({
             "currentPage": current_page,
@@ -204,16 +186,13 @@ pub(super) async fn execute<
             value["fileSizes"] = Value::Object(file_sizes);
         }
     }
-    if let Some(fallback) = fallback {
-        value["branchFallback"] = fallback;
-    }
     let mut materialize_resume = None;
     if *materialize == Some(true)
         && let Some(outcome) = materialize_tree(
             provider,
             owner,
             repo,
-            &resolved_branch,
+            &commit_sha,
             &page_entries,
             materialize_offset.map_or(0, |offset| usize::try_from(offset).unwrap_or(0)),
             home,
@@ -306,9 +285,14 @@ pub(super) async fn execute<
         value["isPartial"] = json!(true);
         value["partialReasons"] = json!(partial_reasons);
     }
+    // Continuations read the same commit.
+    let pinned = GhStructureQuery {
+        branch: Some(commit_sha.clone()),
+        ..query.clone()
+    };
     attach_continuations(
         &mut value,
-        query,
+        &pinned,
         current_page,
         per_page,
         has_more,
@@ -489,6 +473,21 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
     Ok(traversal)
 }
 
+/// A ref that did not resolve names the ref, like ghGetFileContent does.
+fn missing_ref(error: ProviderError, owner: &str, repo: &str, reference: &str) -> ProviderError {
+    if error.reason != Some(ProviderErrorReason::RefNotFound) {
+        return error;
+    }
+    let mut missing = ProviderError::new(
+        ProviderErrorKind::NotFound,
+        format!("Branch, tag, or SHA not found for {owner}/{repo}: \"{reference}\""),
+    )
+    .with_reason(ProviderErrorReason::RefNotFound);
+    missing.status = error.status;
+    missing.request_id = error.request_id;
+    missing
+}
+
 fn root_is_directory(
     tree: &crate::providers::github::TreeResponse,
     root: &str,
@@ -652,9 +651,6 @@ fn filter_structure(rows: &mut Vec<Value>) {
                 .split('/')
                 .any(|part| ignored_entry(part, EntryKind::Dir))
     });
-}
-fn path_depth(path: &str) -> usize {
-    path.split('/').filter(|part| !part.is_empty()).count()
 }
 fn relative(path: &str, root: &str) -> String {
     if root.is_empty() {

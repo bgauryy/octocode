@@ -50,57 +50,78 @@ async fn resolve_auth(
         .flatten()
 }
 
-/// Call `GET /user` on the GitHub API with the given token and return the
-/// `login` field. Goes through the shared GitHub executor (throttling and
-/// rate-limit state); times out after 5 s and returns `None` on any error.
-async fn fetch_github_username(token: &str, api_base: &str) -> Option<String> {
-    octocode_native::providers::github::login::fetch_authenticated_login(
-        api_base,
-        token,
-        std::time::Duration::from_secs(5),
-    )
-    .await
-}
-
 pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
+    use octocode_native::providers::github::login::{TokenCheck, verify_token};
     let api_base = &runtime.config().resolved.github.api_url;
     let hostname = configured_github_host(runtime);
     let selection = resolve_auth(runtime, &hostname).await;
-    let authenticated = selection.is_some();
+    let token_present = selection.is_some();
     let source = selection.as_ref().map_or("none", |s| s.source_label());
-    let username = match selection.as_ref() {
-        Some(selected) => match &selected.username {
-            Some(username) => Some(username.clone()),
-            None => fetch_github_username(selected.token(), api_base).await,
-        },
+    // A present token proves nothing: GitHub must accept it. A rejected token
+    // is not authenticated; one GitHub could not be asked about is unverified.
+    let check = match selection.as_ref() {
+        Some(selected) => Some(
+            verify_token(
+                api_base,
+                selected.token(),
+                std::time::Duration::from_secs(5),
+            )
+            .await,
+        ),
         None => None,
     };
+    let (authenticated, verification, verified_login) = match check {
+        None => (false, "none", None),
+        Some(TokenCheck::Valid(login)) => (true, "verified", login),
+        Some(TokenCheck::Unverified) => (true, "unverified", None),
+        Some(TokenCheck::Rejected) => (false, "invalid", None),
+    };
+    let username = verified_login.or_else(|| {
+        authenticated
+            .then(|| selection.as_ref().and_then(|s| s.username.clone()))
+            .flatten()
+    });
     if json_out {
         return write_json(
             &json!({
                 "success": true,
                 "authenticated": authenticated,
+                "verification": verification,
                 "username": username,
                 "hostname": hostname,
-                "tokenPresent": authenticated,
-                "tokenConfigured": authenticated,
+                "tokenPresent": token_present,
+                "tokenConfigured": token_present,
                 "tokenSource": source,
                 "publicGitHubAccess": if authenticated { "authenticated" } else { "unauthenticated" }
             }),
             true,
         );
     }
-    if authenticated {
-        if let Some(user) = &username {
-            println!("authenticated as {user} (source: {source})");
-        } else {
-            println!("authenticated (source: {source})");
+    match verification {
+        "verified" | "unverified" => {
+            let note = if verification == "unverified" {
+                "; unverified: GitHub could not be reached"
+            } else {
+                ""
+            };
+            match &username {
+                Some(user) => println!("authenticated as {user} (source: {source}{note})"),
+                None => println!("authenticated (source: {source}{note})"),
+            }
+            0
         }
-        0
-    } else {
-        eprintln!("unauthenticated");
-        eprintln!("Run `octocode auth login` or set GITHUB_TOKEN / GH_TOKEN.");
-        1
+        "invalid" => {
+            eprintln!("invalid token (source: {source}): GitHub rejected it (HTTP 401)");
+            eprintln!(
+                "Run `octocode auth login`, or fix or unset the token; an invalid env token overrides stored login."
+            );
+            1
+        }
+        _ => {
+            eprintln!("unauthenticated");
+            eprintln!("Run `octocode auth login` or set GITHUB_TOKEN / GH_TOKEN.");
+            1
+        }
     }
 }
 

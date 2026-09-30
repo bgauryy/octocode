@@ -217,6 +217,8 @@ describe('usageLines', () => {
     expect(body).not.toContain('[reasoning]');
     expect(body).not.toContain('[goal]');
     expect(body).not.toContain('[path]');
+    // followUp is set by the runtime on next.* continuations, never typed.
+    expect(body).not.toContain('followUp');
   });
 
   it('labels each union branch by its discriminator const and drops it from fields', () => {

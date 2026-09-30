@@ -172,11 +172,12 @@ describe('workspace trust boundary', () => {
 });
 
 describe('storage helpers honor the workspace layer', () => {
-  it('workspace storage.mode beats global', () => {
+  it('storage.mode is home-trusted: a workspace cannot change it', () => {
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     writeGlobal({ storage: { mode: 'persistent' } });
     writeWorkspace({ storage: { mode: 'memory' } });
-    expect(isPersistentStorageEnabled(process.env, cwd)).toBe(false);
-    expect(isPersistentStorageEnabledForExtension(cwd)).toBe(false);
+    expect(isPersistentStorageEnabled(process.env, cwd)).toBe(true);
+    expect(isPersistentStorageEnabledForExtension(cwd)).toBe(true);
   });
 
   it('global applies when the workspace file is silent or invalid', () => {
@@ -188,9 +189,8 @@ describe('storage helpers honor the workspace layer', () => {
     expect(isPersistentStorageEnabled(process.env, cwd)).toBe(false);
   });
 
-  it('extension mode: any layer extension.storage beats any layer storage', () => {
-    writeGlobal({ extension: { storage: { mode: 'persistent' } } });
-    writeWorkspace({ storage: { mode: 'memory' } });
+  it('extension mode: global extension.storage beats global storage', () => {
+    writeGlobal({ storage: { mode: 'memory' }, extension: { storage: { mode: 'persistent' } } });
     expect(isPersistentStorageEnabledForExtension(cwd)).toBe(true);
     expect(isPersistentStorageEnabled(process.env, cwd)).toBe(false);
   });

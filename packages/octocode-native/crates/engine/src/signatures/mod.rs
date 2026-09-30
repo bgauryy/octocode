@@ -339,7 +339,7 @@ fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
         language: entry.language.clone(),
         body_query: entry.body_query,
     };
-    let kept = extract(content, &cfg)?;
+    let kept = extractor::extract_outline(content, &cfg)?;
     renderer::render_skeleton(&kept, entry.comment_style)
 }
 

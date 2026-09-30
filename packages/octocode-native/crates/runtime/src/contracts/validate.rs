@@ -236,6 +236,17 @@ pub fn validate_query(tool_name: &str, query: Value) -> Result<Value, ContractVa
 /// continuation (`followUp: true`) serves the decision of the query that
 /// produced it and omits them. Clasify forwards its briefs to the provider,
 /// so its own schema keeps them required.
+///
+/// `followUp` is deliberately trust-based, not authenticated. The brief is
+/// caller context that keeps an agent's research legible; it grants nothing,
+/// so a hand-written `followUp: true` only lets a caller skip its own notes.
+/// Signing continuations (like the artifact state tokens in `cursor.rs`)
+/// would add a tag to every emitted `next.*`, break replay whenever the host
+/// resolves a different octocode home or memory-only storage, and reject the
+/// common edit of a continuation's page or pageSize. None of that buys a
+/// security property: what a continuation must not forge is already checked
+/// on its own (signed artifact state, content snapshots that reject drift,
+/// the path policy on every row).
 fn missing_brief(tool_name: &str, query: &Value) -> Vec<&'static str> {
     if tool_name == "clasify" || query.get("followUp") == Some(&Value::Bool(true)) {
         return Vec::new();

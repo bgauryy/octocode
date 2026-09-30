@@ -349,17 +349,10 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         {
             return Ok(sha);
         }
-        let url = self
+        let sha = self
             .transport
-            .endpoint()
-            .rest(&["repos", owner, repo, "commits", reference])?;
-        let mut spec = RequestSpec::get(url);
-        spec.headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/vnd.github.sha"),
-        );
-        let page = self.transport.execute(spec, context).await?;
-        let sha = parse_commit_sha(&page.body)?;
+            .commit_sha(owner, repo, reference, context)
+            .await?;
         self.cache
             .put(
                 &partition,
@@ -446,6 +439,53 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
 /// Parse a Contents API response for a single file. Directories (arrays),
 /// symlinks and submodules get their own actionable validation errors instead
 /// of an opaque decode failure.
+impl<R: CredentialResolver> GitHubTransport<R> {
+    /// Resolve `reference` (branch, tag, short SHA, or `HEAD`) to its lowercase
+    /// 40-hex commit SHA in one round trip: the `vnd.github.sha` media type
+    /// returns just the SHA. A 404 means the repository itself did not
+    /// resolve; GitHub answers a missing ref in an existing repository with
+    /// 422 "No commit found". Both failures carry a typed reason.
+    pub async fn commit_sha(
+        &self,
+        owner: &str,
+        repo: &str,
+        reference: &str,
+        context: &RequestContext,
+    ) -> Result<String, ProviderError> {
+        let url = self
+            .endpoint()
+            .rest(&["repos", owner, repo, "commits", reference])?;
+        let mut spec = RequestSpec::get(url);
+        spec.headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github.sha"),
+        );
+        let page = self
+            .execute(spec, context)
+            .await
+            .map_err(classify_ref_failure)?;
+        parse_commit_sha(&page.body)
+    }
+}
+
+/// Type a ref-resolution failure: a 404 is the repository (missing, private,
+/// or hidden from the token), a 422 "No commit found" the ref itself.
+fn classify_ref_failure(error: ProviderError) -> ProviderError {
+    match error.status {
+        Some(404) => {
+            let mut error = error.with_reason(super::ProviderErrorReason::RepositoryNotFound);
+            // GitHub links its commit docs; the failure is the repository.
+            error.documentation_url =
+                Some("https://docs.github.com/rest/repos/repos#get-a-repository".into());
+            error
+        }
+        Some(422) if error.message.starts_with("No commit found") => {
+            error.with_reason(super::ProviderErrorReason::RefNotFound)
+        }
+        _ => error,
+    }
+}
+
 fn parse_content_payload(body: &[u8], path: &str) -> Result<ContentPayload, ProviderError> {
     let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
         ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")

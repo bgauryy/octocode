@@ -154,10 +154,9 @@ fn fallback_hint(tool: ToolId, query: &Value) -> &'static str {
         ToolId::GhCloneRepo => "Verify owner/repo/branch and sparsePath.",
         ToolId::LocalSearch => "Broaden searchText, path, or filters.",
         ToolId::StructureSearch => "Broaden path, depth, or file filters.",
-        // A pattern must parse as a complete node: `const $A = $B` misses
-        // statements that `const $A = $B;` matches.
+        // A pattern must parse as one complete node of the target grammar.
         ToolId::AstSearch if query["operation"] == "match" && query["pattern"].is_string() => {
-            "Write the pattern as a complete node (keep terminators like `;`), check a tree view, then broaden path or filters."
+            "Write the pattern as a complete node with its body, check a tree view, then broaden path or filters."
         }
         ToolId::AstSearch => "Broaden the syntax/name query, path, or filters.",
         ToolId::AstTopology => "Inspect diagnostics, then broaden the graph scope if needed.",
@@ -210,7 +209,7 @@ fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
             "Verify the path with structureSearch operation:\"files\", then retry the exact path."
         }
         (ToolId::AstSearch, "structural.query.compileFailed" | "ast.query.invalidPattern") => {
-            "Make the pattern a complete node (add `;` or the body), or inspect its shape with operation:\"syntaxTree\"."
+            "Make the pattern one complete, parseable node, or inspect its shape with operation:\"syntaxTree\"."
         }
         (ToolId::AstSearch, "ast.policy.inputTooLarge" | "ast.source.limit") => {
             "Target a smaller file or narrower directory scope."

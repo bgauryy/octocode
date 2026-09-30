@@ -52,13 +52,21 @@ pub fn execute_tree(
     let validated = paths
         .validate(q.path.as_str())
         .map_err(super::StructureError::from)?;
+    // Leave out what localSearch leaves out: `.gitignore`d entries (unless
+    // noIgnore) and paths the sensitive-file policy denies. Denied entries
+    // the listing would otherwise show are counted and reported, never
+    // silently dropped.
+    let gitignore = (!q.no_ignore.unwrap_or(false))
+        .then(|| crate::policy::gitignore::GitignoreFilter::new(&validated.canonical));
+    let show_hidden = q.hidden.unwrap_or(false);
+    let withheld = std::sync::atomic::AtomicUsize::new(0);
     let native = octocode_engine::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
             include_root: Some(false),
             recursive: Some(true),
             max_depth: Some(q.walk_depth()),
-            show_hidden: Some(q.hidden.unwrap_or(false)),
+            show_hidden: Some(show_hidden),
             extensions: (!q.extensions.is_empty()).then(|| q.extensions.clone()),
             entry_type: q.entry_type.map(|kind| kind.to_string()),
             exclude_dir: Some(
@@ -68,10 +76,26 @@ pub fn execute_tree(
             limit: Some(MAX_WALK),
             ..Default::default()
         },
-        &|path| super::allow_discovery(path, paths, cancel),
+        &|path| {
+            if gitignore
+                .as_ref()
+                .is_some_and(|filter| filter.is_ignored(path))
+            {
+                return Ok(false);
+            }
+            let allowed = super::allow_discovery(path, paths, cancel)?;
+            let dot = path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with('.'));
+            if !allowed && (show_hidden || !dot) && paths.is_sensitive(path) {
+                withheld.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(allowed)
+        },
     )
     .map_err(super::walk_error)?;
     cancel.check().map_err(super::cancelled)?;
+    let withheld = withheld.into_inner();
 
     let mut files = 0_usize;
     let mut dirs = 0_usize;
@@ -105,6 +129,7 @@ pub fn execute_tree(
         q.path,
         q.max_depth,
         q.hidden,
+        q.no_ignore,
         q.extensions,
         q.entry_type.map(|kind| kind.to_string()),
         q.exclude_dir,
@@ -131,7 +156,10 @@ pub fn execute_tree(
     let mut out = json!({
         "path": super::display_name(&validated.canonical),
         "entries": entries,
-        "summary": format!("{available} entries ({files} files, {dirs} dirs, {})", format_size(bytes)),
+        "summary": withheld_note(
+            format!("{available} entries ({files} files, {dirs} dirs, {})", format_size(bytes)),
+            withheld,
+        ),
         "snapshot": snapshot,
     });
     if total == 0 {
@@ -173,4 +201,16 @@ pub fn execute_tree(
         out["warnings"] = json!(warnings);
     }
     Ok(out)
+}
+
+/// The summary, plus how many entries the sensitive-file policy withheld
+/// (credentials such as `.env.production` or `.npmrc`): their names and
+/// contents stay out of the listing, but their absence is not silent.
+fn withheld_note(summary: String, withheld: usize) -> String {
+    if withheld == 0 {
+        summary
+    } else {
+        let entries = if withheld == 1 { "entry" } else { "entries" };
+        format!("{summary}; {withheld} sensitive {entries} withheld by path policy")
+    }
 }

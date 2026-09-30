@@ -2,7 +2,7 @@
 
 Load when evaluating what a tool returns through CLI and MCP. Why: output is the agent's only evidence; loss, noise, and rigid shapes cost every downstream call.
 
-The normative rules are in `docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md` (Lossless reachable pagination, Evidence and output integrity) and `docs/TOOL_DATA_CONTRACT.md`. This lane executes them.
+The normative rules are in `docs/TOOL_QUALITY.md` (this skill) (Lossless reachable pagination, Evidence and output integrity) and `<repo>/docs/TOOL_DATA_CONTRACT.md`. This lane executes them.
 
 ## Completeness — nothing silently lost
 

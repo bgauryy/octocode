@@ -1,24 +1,20 @@
 # octocode-dev
 
-Repo-internal skill for auditing and hardening Octocode's own tools end to end: core contract (schema, descriptions, MCP/CLI instructions) → native implementation and data flow → output shape and pagination → agent workflow hints → config and docs → cleanup.
+Repo-internal skill and toolbox for developing the Octocode monorepo. It owns the task runner that replaced the root `package.json` scripts, the change pipeline (core contract → generated contract → native → interfaces), the repository's developer docs, and the tool-audit lanes. It is not published.
 
 Entry point: [`SKILL.md`](SKILL.md).
 
-| File | Purpose |
-|---|---|
-| `scripts/tool-inventory.mjs` | Per-tool map: native module, evidence files, variants, zero-hit/unclassified/undescribed input fields |
-| `references/surface-map.md` | Where every layer of a tool lives |
-| `references/contract-audit.md` | Schema, description, instruction checks |
-| `references/implementation-audit.md` | Schema↔code alignment, data flow, efficiency, caching |
-| `references/output-audit.md` | Pagination, truncation, redundancy, rigidity |
-| `references/workflow-audit.md` | Agent chaining, hints, `next.*` |
-| `references/config-docs-audit.md` | Config across surfaces, docs truth |
-| `references/fix-and-verify.md` | Core→native→CLI/MCP landing order and verification gate |
-| `assets/audit-report.md` | Report template |
-
-Run the inventory from anywhere inside the monorepo:
-
 ```bash
-node .agents/skills/octocode-dev/scripts/tool-inventory.mjs            # all tools
-node .agents/skills/octocode-dev/scripts/tool-inventory.mjs localFetch --json
+node skills-dev/octocode-dev/scripts/dev.mjs --help      # all repo tasks
+node skills-dev/octocode-dev/scripts/dev.mjs build:dev   # fast local build
+node skills-dev/octocode-dev/scripts/dev.mjs verify      # full repo contract
 ```
+
+| Folder | Contents |
+|---|---|
+| [`scripts/`](scripts/README.md) | `dev.mjs` task runner, workspace health, docs gate, dependency dedupe, dev setup, publish guard, build helpers, tool inventory |
+| [`docs/`](docs/DEVELOPMENT.md) | Developer docs: [development](docs/DEVELOPMENT.md), [adding config](docs/ADDING_CONFIG.md), [release](docs/RELEASE.md), [tool quality bar](docs/TOOL_QUALITY.md) |
+| [`references/`](references/surface-map.md) | Audit lanes: [surface map](references/surface-map.md), [contract](references/contract-audit.md), [implementation](references/implementation-audit.md), [output](references/output-audit.md), [workflow](references/workflow-audit.md), [config and docs](references/config-docs-audit.md), [fix and verify](references/fix-and-verify.md) |
+| [`assets/`](assets/audit-report.md) | Audit report template |
+
+User-facing docs stay in the repository `docs/` folder (`<repo>/docs/README.md`).

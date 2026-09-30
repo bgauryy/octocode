@@ -33,7 +33,7 @@ pub struct RateLimit {
     pub resource: Option<Box<str>>,
 }
 
-/// Typed discriminator for validation failures whose recovery differs; the
+/// Typed discriminator for provider failures whose recovery differs; the
 /// runtime keys its hints and continuations on this, never on message text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +44,13 @@ pub enum ProviderErrorReason {
     PathIsDirectory,
     /// The requested search page is past GitHub's 1,000-result window.
     SearchWindowExceeded,
+    /// The repository itself did not resolve (missing, private, or not
+    /// visible to the token), as opposed to a path or ref inside it.
+    RepositoryNotFound,
+    /// An explicit branch, tag, or SHA does not exist in the repository.
+    RefNotFound,
+    /// A pull-request number names an issue.
+    PullRequestIsIssue,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -94,13 +94,18 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             "ghScopedZeroUnproven",
         ),
     };
-    let (_, hint) = match code {
-        "findRepository" => ("ghRepoNotFound", "The repository was not found or is private to this token; verify the spelling or discover the current repository name.".to_owned()),
-        "retryRenamed" => ("ghRepoRenamed", format!("The repository was renamed to {}/{}; retry against the renamed repository.", next_query["owner"].as_str().unwrap_or_default(), next_query["repo"].as_str().unwrap_or_default())),
-        "ghRepoArchived" => ("ghRepoArchived", "The repository is archived, so its code-search index may lag or be incomplete; verify its structure and search locally.".to_owned()),
-        _ => ("ghScopedZeroUnproven", "No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.".to_owned()),
+    let hint = match code {
+        "ghRepoNotFound" => "The repository is missing, private, or hidden from this token; check owner/repo spelling and token access.".to_owned(),
+        "ghRepoRenamed" => format!("The repository was renamed to {}/{}; retry against the renamed repository.", next_query["owner"].as_str().unwrap_or_default(), next_query["repo"].as_str().unwrap_or_default()),
+        "ghRepoArchived" => "The repository is archived, so its code-search index may lag or be incomplete; verify its structure and search locally.".to_owned(),
+        _ => "No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.".to_owned(),
     };
     diagnostics.add(code, &hint, false);
+    // A repository the token cannot see is the answer: say so instead of the
+    // generic default-branch note.
+    if code == "ghRepoNotFound" {
+        value["hints"] = json!([hint]);
+    }
     // These are advisory "start a fresh query" actions (renamed repo / a
     // different tool), not next-page continuations of the original search,
     // so stamp page 1 rather than `page + 1`. The canonical continuation
@@ -124,7 +129,8 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     }
     // Re-running the stale name cannot recover results the renamed repository
     // holds: the renamed query is the same search, so it supersedes `retry`.
-    if name == "retryRenamed"
+    // A repository the token cannot see stays unsearchable on retry.
+    if matches!(name, "retryRenamed" | "findRepository")
         && let Some(next) = value.get_mut("next").and_then(Value::as_object_mut)
     {
         next.remove("retry");

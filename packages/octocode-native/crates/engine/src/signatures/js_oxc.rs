@@ -21,8 +21,9 @@ use oxc_ast::ast::{
     TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration, VariableDeclaration,
     VariableDeclarationKind,
 };
+use oxc_ast_visit::{VisitJs, walk_js};
 use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
+use oxc_semantic::{ScopeFlags, SemanticBuilder};
 use oxc_span::{GetSpan, SourceType, Span};
 use serde::Serialize;
 
@@ -1465,7 +1466,101 @@ fn push_opt(out: &mut Vec<DocumentSymbol>, symbol: Option<DocumentSymbol>) {
 
 fn function_symbol(f: &Function, li: &LineIndex) -> Option<DocumentSymbol> {
     let id = f.id.as_ref()?;
-    Some(leaf(id.name.as_str(), kind::FUNCTION, f.span, id.span, li))
+    Some(container(
+        id.name.as_str(),
+        kind::FUNCTION,
+        f.span,
+        id.span,
+        nested_in_function(f, li),
+        li,
+    ))
+}
+
+/// Named declarations inside a function body: function declarations,
+/// function-valued variables, and classes. The tree-sitter extractors report
+/// nested Python and Rust functions the same way, each under its parent.
+/// Ordinary locals stay out of the outline.
+struct NestedDeclarations<'l, 's> {
+    li: &'l LineIndex<'s>,
+    out: Vec<DocumentSymbol>,
+}
+
+impl<'a> VisitJs<'a> for NestedDeclarations<'_, '_> {
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        if job_cancelled() {
+            return;
+        }
+        // A declaration is its own container and collects its own body; a
+        // function expression is transparent, so its declarations belong to
+        // the enclosing named declaration.
+        match it
+            .is_declaration()
+            .then(|| function_symbol(it, self.li))
+            .flatten()
+        {
+            Some(symbol) => self.out.push(symbol),
+            None => walk_js::walk_function(self, it, flags),
+        }
+    }
+
+    fn visit_class(&mut self, it: &Class<'a>) {
+        match it
+            .is_declaration()
+            .then(|| class_symbol(it, self.li))
+            .flatten()
+        {
+            Some(symbol) => self.out.push(symbol),
+            None => walk_js::walk_class(self, it),
+        }
+    }
+
+    fn visit_variable_declarator(&mut self, it: &oxc_ast::ast::VariableDeclarator<'a>) {
+        if let BindingPattern::BindingIdentifier(id) = &it.id
+            && let Some(init) = &it.init
+            && let Some(children) = function_value_children(init, self.li)
+        {
+            self.out.push(container(
+                id.name.as_str(),
+                kind::FUNCTION,
+                it.span,
+                id.span,
+                children,
+                self.li,
+            ));
+            return;
+        }
+        walk_js::walk_variable_declarator(self, it);
+    }
+}
+
+fn nested_in_function(f: &Function, li: &LineIndex) -> Vec<DocumentSymbol> {
+    let mut nested = NestedDeclarations {
+        li,
+        out: Vec::new(),
+    };
+    if let Some(body) = &f.body {
+        nested.visit_function_body(body);
+    }
+    nested.out
+}
+
+/// The nested declarations of a function-valued initializer (`() => {…}`,
+/// `function () {…}`), or `None` when the value is not a function.
+fn function_value_children(init: &Expression, li: &LineIndex) -> Option<Vec<DocumentSymbol>> {
+    let mut nested = NestedDeclarations {
+        li,
+        out: Vec::new(),
+    };
+    match init.without_parentheses() {
+        Expression::ArrowFunctionExpression(arrow) => nested.visit_arrow_function_body(&arrow.body),
+        Expression::FunctionExpression(function) => {
+            if let Some(body) = &function.body {
+                nested.visit_function_body(body);
+            }
+        }
+        _ => return None,
+    }
+    Some(nested.out)
 }
 
 fn class_symbol(class: &Class, li: &LineIndex) -> Option<DocumentSymbol> {
@@ -1479,12 +1574,31 @@ fn class_symbol(class: &Class, li: &LineIndex) -> Option<DocumentSymbol> {
                     _ => kind::METHOD,
                 };
                 if let Some((name, name_span)) = property_key_name(&m.key) {
-                    children.push(leaf(&name, symbol_kind, m.span, name_span, li));
+                    children.push(container(
+                        &name,
+                        symbol_kind,
+                        m.span,
+                        name_span,
+                        nested_in_function(&m.value, li),
+                        li,
+                    ));
                 }
             }
             ClassElement::PropertyDefinition(p) => {
                 if let Some((name, name_span)) = property_key_name(&p.key) {
-                    children.push(leaf(&name, kind::PROPERTY, p.span, name_span, li));
+                    let nested = p
+                        .value
+                        .as_ref()
+                        .and_then(|value| function_value_children(value, li))
+                        .unwrap_or_default();
+                    children.push(container(
+                        &name,
+                        kind::PROPERTY,
+                        p.span,
+                        name_span,
+                        nested,
+                        li,
+                    ));
                 }
             }
             ClassElement::AccessorProperty(a) => {
@@ -1669,11 +1783,17 @@ fn collect_variable(decl: &VariableDeclaration, li: &LineIndex, out: &mut Vec<Do
                     _ if is_const => kind::CONSTANT,
                     _ => kind::VARIABLE,
                 };
-                out.push(leaf(
+                let nested = declarator
+                    .init
+                    .as_ref()
+                    .and_then(|init| function_value_children(init, li))
+                    .unwrap_or_default();
+                out.push(container(
                     id.name.as_str(),
                     symbol_kind,
                     declarator.span,
                     id.span,
+                    nested,
                     li,
                 ));
             }

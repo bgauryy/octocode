@@ -1439,20 +1439,11 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/jev-lab@workspace:packages/octocode-jev-lab":
-  version: 0.0.0-use.local
-  resolution: "@octocodeai/jev-lab@workspace:packages/octocode-jev-lab"
-  dependencies:
-    "@modelcontextprotocol/sdk": "npm:^1.30.0"
-    "@octocodeai/config": "workspace:*"
-  languageName: unknown
-  linkType: soft
-
 "@octocodeai/octocode-agents-communication@workspace:skills/octocode-agents-communication":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-agents-communication@workspace:skills/octocode-agents-communication"
   dependencies:
-    "@octocodeai/config": "npm:20.0.0"
+    "@octocodeai/config": "npm:20.1.0"
   bin:
     octocode-agents-communication: ./scripts/agents-communication
   languageName: unknown
@@ -1468,10 +1459,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.1.6
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=d0ec21&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=1062bc&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/687f8161a93b06526fa04d5612568ea49dc192c5e9598fc6ecdc70ed1ea5323b2f22592d940cb911ea1ad65dc43769f0e81bf0f8172f24239356e3a8b88a56b0
+  checksum: 10c0/a60f21784372242a38e6097b88812a3acc51329fd226efc7c3249a4659d9bdb3575f1dee1bd3747e8d0fcfcb1b1cbac60f0cef0fb5e1b39bb6bd4e9302c41662
   languageName: node
   linkType: hard
 
@@ -3919,7 +3910,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.30.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/config": "npm:20.0.0"
+    "@octocodeai/config": "npm:20.1.0"
     "@octocodeai/octocode-native": "npm:20.0.0"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
@@ -3957,7 +3948,7 @@ __metadata:
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@inquirer/prompts": "npm:^8.7.2"
-    "@octocodeai/config": "npm:20.0.0"
+    "@octocodeai/config": "npm:20.1.0"
     "@octocodeai/octocode-native": "npm:20.0.0"
     "@octocodeai/octocode-skill-installer": "workspace:*"
     "@types/node": "npm:^24.13.4"

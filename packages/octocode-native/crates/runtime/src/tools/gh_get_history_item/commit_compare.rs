@@ -45,6 +45,7 @@ pub(super) async fn commit<R: CredentialResolver>(
     .await?;
     let state = loaded.state;
     let raw = &loaded.first;
+    let listed = state.skipped + loaded.items.len();
     let scoped = scope_files(loaded.items, path);
     let sha = string(raw.get("sha"));
     let message = str_at(raw, "/commit/message").unwrap_or("");
@@ -58,6 +59,24 @@ pub(super) async fn commit<R: CredentialResolver>(
         // A scan stopped at the batch cap never saw the remaining files.
         "changedFilesCountScope":if state.capped {"partial"} else if state.exhausted {"complete"} else {"loaded"}
     });
+    // A path scope counts only its files, while GitHub's line stats cover the
+    // whole commit: name those totals as the commit's, never the scope's.
+    if path.is_some()
+        && let Some(fields) = out.as_object_mut()
+    {
+        let mut totals = serde_json::Map::new();
+        for key in ["additions", "deletions"] {
+            if let Some(value) = fields.remove(key).filter(|value| !value.is_null()) {
+                totals.insert(key.into(), value);
+            }
+        }
+        if state.exhausted && !state.capped {
+            totals.insert("changedFiles".into(), json!(listed));
+        }
+        if !totals.is_empty() {
+            fields.insert("commitTotals".into(), Value::Object(totals));
+        }
+    }
     let (files, page) = paginate_window(
         scoped,
         state.skipped,
@@ -84,6 +103,17 @@ pub(super) async fn compare<R: CredentialResolver>(
     let per = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
     let base = query.base().ok_or_else(|| validation("base is required"))?;
     let head = query.head().ok_or_else(|| validation("head is required"))?;
+    // The head commit is the last of the comparison, often past this commit
+    // page: resolve a movable head (branch, tag) to the commit read so the
+    // echo and every continuation name one comparison. A cross-repository
+    // `owner:ref` head stays as written.
+    let head = if head.contains(':') || is_full_sha(head) {
+        head.to_owned()
+    } else {
+        transport
+            .commit_sha(query.owner(), query.repo(), head, context)
+            .await?
+    };
     let refs = format!("{base}...{head}");
     let (raw, link_more) = fetch(
         transport,
@@ -94,41 +124,61 @@ pub(super) async fn compare<R: CredentialResolver>(
     .await?;
     let total = usize_at(&raw, "/total_commits");
     let more = link_more || page.saturating_mul(per) < total;
-    let (base, head) = compare_identity(&raw, base, head);
-    let commits=array(raw.get("commits").cloned().unwrap_or(json!([]))).into_iter().map(|v|json!({
-        "sha":v["sha"],"messageHeadline":str_at(&v,"/commit/message").unwrap_or("").lines().next().unwrap_or(""),
-        "author":str_at(&v,"/commit/author/name").or_else(||str_at(&v,"/author/login")).unwrap_or("unknown"),"date":str_at(&v,"/commit/author/date").unwrap_or("")
-    })).collect::<Vec<_>>();
+    let (base, head) = compare_identity(&raw, base, &head);
+    // A file page (filePage > 1) carries files only: the commit list is
+    // paged by `page` and was delivered with the first file page.
+    let file_page = query.file_page().unwrap_or(1) > 1;
     let all_files = array(raw.get("files").cloned().unwrap_or(json!([])));
     let file_limit = all_files.len() >= COMPARE_FILE_LIMIT;
     let scoped = scope_files(all_files, query.path());
     let mut out = json!({"type":"compare","owner":query.owner(),"repo":query.repo(),"base":base,"head":head,
         "status": raw.get("status"),
-        "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by"),"totalCommits":total,"commits":commits,
-        "pagination":{"currentPage":page,"perPage":per,"hasMore":more,"nextPage":more.then_some(page+1)},"isPartial":(more||file_limit).then_some(true)});
+        "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by"),"totalCommits":total,
+        "isPartial":(more||file_limit).then_some(true)});
+    if !file_page {
+        out["commits"] = json!(array(raw.get("commits").cloned().unwrap_or(json!([]))).into_iter().map(|v|json!({
+            "sha":v["sha"],"messageHeadline":str_at(&v,"/commit/message").unwrap_or("").lines().next().unwrap_or(""),
+            "author":str_at(&v,"/commit/author/name").or_else(||str_at(&v,"/author/login")).unwrap_or("unknown"),"date":str_at(&v,"/commit/author/date").unwrap_or("")
+        })).collect::<Vec<_>>());
+        // The last commit page past the first needs no page object.
+        if more || page == 1 {
+            out["pagination"] = json!({"currentPage":page,"perPage":per,"hasMore":more,"nextPage":more.then_some(page+1)});
+        }
+    }
     if file_limit {
         out["terminalLimit"] = json!(true);
         out["partialReasons"] = json!(["providerFileLimit"]);
         out["providerLimit"] = json!({"reason":"providerFileLimit","maxFiles":COMPARE_FILE_LIMIT});
     }
-    if !more
-        && page > 1
-        && let Some(out) = out.as_object_mut()
-    {
-        out.remove("pagination");
-    }
     if page == 1 {
         let include_diff = query.include_diff();
         if !include_diff {
             out["changedFiles"] = json!(scoped.len());
+            if file_limit {
+                // GitHub stops listing at 300: the count is a floor.
+                out["changedFilesCountScope"] = json!("partial");
+            }
         }
         // Without includeDiff the page lists paths and line stats only.
         let (files, page) = paginate_collection(scoped, query.file_page(), query.page_size());
+        let mut page = commit_files_pagination(page);
+        if file_limit {
+            page["countScope"] = json!("partial");
+        }
         out["files"] = shape_files(files, include_diff, query);
-        out["filesPagination"] = commit_files_pagination(page);
+        out["filesPagination"] = page;
     }
-    attach_diff_continuations(&mut out, query, ItemOperation::Compare, None, false);
+    // Continuations read the same two commits.
+    let pinned = query.with_compare_refs(
+        out["base"].as_str().unwrap_or_default(),
+        out["head"].as_str().unwrap_or_default(),
+    );
+    attach_diff_continuations(&mut out, &pinned, ItemOperation::Compare, None, false);
     Ok(out)
+}
+
+fn is_full_sha(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn identity(raw: &Value, kind: &str) -> Value {

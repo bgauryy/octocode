@@ -73,7 +73,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
 | `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
 | `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface. OCTOCODE_BETA: shell or trusted home .env |
-| `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed home directory. The environment value is a comma-separated list. ALLOWED_PATHS: shell or trusted home .env |
+| `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. ALLOWED_PATHS: shell or trusted home .env |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. WORKSPACE_ROOT: shell or trusted home .env |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
 | `tools.disabled` | `DISABLE_TOOLS` | unset | string array | Tools removed from the default tool set. |

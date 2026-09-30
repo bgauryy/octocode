@@ -290,6 +290,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     }
     let mut no_selected_files_matched = false;
     let mut first_changed_path = None;
+    let mut unsearched = Vec::new();
+    let mut first_unsearched = None;
     if let Some(loaded) = files_loaded {
         let listed = loaded.state.skipped + loaded.items.len();
         let state = loaded.state;
@@ -305,6 +307,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         );
         no_selected_files_matched = shaped.no_selected_match;
         first_changed_path = shaped.first_path;
+        unsearched = shaped.unsearched;
+        first_unsearched = shaped.first_unsearched;
         if let Some(page) = content_pagination.get_mut("changedFiles") {
             let changed_files = raw
                 .get("changed_files")
@@ -403,15 +407,50 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         out["status"] = json!("empty");
         out["errorCode"] = json!("noSelectedFilesMatched");
         out["hints"] = json!([
-            "No changed file matched the requested patches.files or patches.ranges path. Copy a path from content.changedFiles or request changedFiles:true first."
+            "No changed file matched patches.files or patches.ranges; copy a path from changedFiles or request changedFiles:true."
         ]);
+    }
+    if !unsearched.is_empty() {
+        out["pullRequests"][0]["unsearchedFiles"] = json!(unsearched);
     }
     promote_pr_continuations(&mut out, query);
     attach_full_patch_continuation(&mut out, query);
+    if let Some(path) = first_unsearched {
+        attach_unsearched_read(&mut out, query, &path);
+    }
     if !query.debug() {
         trim_content_pagination(&mut out);
     }
     Ok(out)
+}
+
+/// A `matchString` search that skipped patchless files covers only part of
+/// the diff: mark it partial and offer the literal search of the first
+/// skipped file's source at the PR head (a template for the rest).
+fn attach_unsearched_read(out: &mut Value, query: &HistoryItemRequest, path: &str) {
+    let source_sha = str_at(out, "/pullRequests/0/sourceSha").map(str::to_owned);
+    out["isPartial"] = json!(true);
+    match out.get_mut("partialReasons").and_then(Value::as_array_mut) {
+        Some(reasons) => reasons.push(json!("patchUnavailable")),
+        None => out["partialReasons"] = json!(["patchUnavailable"]),
+    }
+    let (Some(needle), Some(sha)) = (query.match_string(), source_sha) else {
+        return;
+    };
+    if !out.get("next").is_some_and(Value::is_object) {
+        out["next"] = json!({});
+    }
+    out["next"]["searchUnpatchedFile"] = json!({
+        "tool": "ghGetFileContent",
+        "confidence": "high",
+        "query": {
+            "owner": query.owner(),
+            "repo": query.repo(),
+            "path": path,
+            "branch": sha,
+            "matchString": needle,
+        },
+    });
 }
 
 /// Default responses drop pagination that adds nothing once `next.*` is

@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "2a388c88bab5d6789de93b9d124ec02e1ae25b74269132986ee401df38968670",
+  "fingerprint": "6eedcdc6a7ef051489e534b0bb521669c4d0003612f517059a1065f46932bff3",
   "tools": [
     {
       "defaults": [
@@ -3019,7 +3019,7 @@
                                                   "type": "integer"
                                                 },
                                                 "path": {
-                                                  "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                                                  "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                                                   "pattern": "\\S",
                                                   "type": "string"
                                                 },
@@ -3248,7 +3248,7 @@
                                                   "type": "boolean"
                                                 },
                                                 "materializeOffset": {
-                                                  "maximum": 200,
+                                                  "maximum": 500,
                                                   "minimum": 0,
                                                   "type": "integer"
                                                 },
@@ -3273,7 +3273,7 @@
                                                   "type": "integer"
                                                 },
                                                 "pageSize": {
-                                                  "maximum": 200,
+                                                  "maximum": 500,
                                                   "minimum": 1,
                                                   "type": "integer"
                                                 },
@@ -4417,7 +4417,7 @@
                                                   "type": "integer"
                                                 },
                                                 "path": {
-                                                  "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                                                  "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                                                   "pattern": "\\S",
                                                   "type": "string"
                                                 },
@@ -4646,7 +4646,7 @@
                                                   "type": "boolean"
                                                 },
                                                 "materializeOffset": {
-                                                  "maximum": 200,
+                                                  "maximum": 500,
                                                   "minimum": 0,
                                                   "type": "integer"
                                                 },
@@ -4671,7 +4671,7 @@
                                                   "type": "integer"
                                                 },
                                                 "pageSize": {
-                                                  "maximum": 200,
+                                                  "maximum": 500,
                                                   "minimum": 1,
                                                   "type": "integer"
                                                 },
@@ -7767,7 +7767,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -7792,7 +7792,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -9402,7 +9402,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -9559,6 +9559,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -9590,7 +9593,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -9884,12 +9886,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -10024,7 +10026,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -11503,7 +11505,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -14343,7 +14345,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -14368,7 +14370,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -15978,7 +15980,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -16135,6 +16137,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -16166,7 +16171,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -16460,12 +16464,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -16600,7 +16604,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -18079,7 +18083,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -19807,7 +19811,7 @@
                 },
                 "materializeOffset": {
                   "description": "0-based index in this page; resumes capped blob writes.",
-                  "maximum": 200,
+                  "maximum": 500,
                   "minimum": 0,
                   "type": "integer"
                 },
@@ -19838,8 +19842,8 @@
                 },
                 "pageSize": {
                   "default": 100,
-                  "description": "Response size (1-200), not scope.",
-                  "maximum": 200,
+                  "description": "Response size (1-500), not scope.",
+                  "maximum": 500,
                   "minimum": 1,
                   "type": "integer"
                 },
@@ -21076,7 +21080,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -21101,7 +21105,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -22711,7 +22715,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -22868,6 +22872,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -22899,7 +22906,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -23193,12 +23199,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -23333,7 +23339,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -24812,7 +24818,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -25623,7 +25629,7 @@
                               "type": "boolean"
                             },
                             "materializeOffset": {
-                              "maximum": 200,
+                              "maximum": 500,
                               "minimum": 0,
                               "type": "integer"
                             },
@@ -25648,7 +25654,7 @@
                               "type": "integer"
                             },
                             "pageSize": {
-                              "maximum": 200,
+                              "maximum": 500,
                               "minimum": 1,
                               "type": "integer"
                             },
@@ -26133,7 +26139,7 @@
           },
           "materializeOffset": {
             "description": "0-based index in this page; resumes capped blob writes.",
-            "maximum": 200,
+            "maximum": 500,
             "minimum": 0,
             "type": "integer"
           },
@@ -26164,8 +26170,8 @@
           },
           "pageSize": {
             "default": 100,
-            "description": "Response size (1-200), not scope.",
-            "maximum": 200,
+            "description": "Response size (1-500), not scope.",
+            "maximum": 500,
             "minimum": 1,
             "type": "integer"
           },
@@ -27619,7 +27625,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -27644,7 +27650,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -29254,7 +29260,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -29411,6 +29417,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -29442,7 +29451,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -29736,12 +29744,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -29876,7 +29884,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -31355,7 +31363,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -34756,7 +34764,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -34781,7 +34789,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -36391,7 +36399,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -36548,6 +36556,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -36579,7 +36590,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -36873,12 +36883,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -37013,7 +37023,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -38492,7 +38502,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -41057,6 +41067,23 @@
         {
           "absent": [
             "base",
+            "head"
+          ],
+          "present": [
+            "number",
+            "matchString"
+          ],
+          "values": {
+            "debug": false,
+            "minify": "standard"
+          },
+          "when": {
+            "operation": "pullRequest"
+          }
+        },
+        {
+          "absent": [
+            "base",
             "head",
             "matchString"
           ],
@@ -41388,7 +41415,7 @@
                       "type": "integer"
                     },
                     "matchString": {
-                      "description": "Filter text; patches keep matching lines ±3.",
+                      "description": "Filter text; patches keep matching lines ±3; alone, searches all patches.",
                       "type": "string"
                     },
                     "minify": {
@@ -42892,7 +42919,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -42917,7 +42944,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -44527,7 +44554,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -44684,6 +44711,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -44715,7 +44745,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -45009,12 +45038,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -45149,7 +45178,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -46628,7 +46657,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -49658,6 +49687,7 @@
                           "type": "integer"
                         },
                         "commits": {
+                          "description": "This commit page; absent on changed-file pages (filePage > 1).",
                           "items": {
                             "additionalProperties": {},
                             "properties": {
@@ -49796,8 +49826,7 @@
                         "status",
                         "aheadBy",
                         "behindBy",
-                        "totalCommits",
-                        "commits"
+                        "totalCommits"
                       ],
                       "type": "object"
                     },
@@ -50292,7 +50321,7 @@
                 "type": "integer"
               },
               "matchString": {
-                "description": "Filter text; patches keep matching lines ±3.",
+                "description": "Filter text; patches keep matching lines ±3; alone, searches all patches.",
                 "type": "string"
               },
               "minify": {
@@ -52279,7 +52308,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -52304,7 +52333,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -53914,7 +53943,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -54071,6 +54100,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -54102,7 +54134,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -54396,12 +54427,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -54536,7 +54567,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -56015,7 +56046,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -59011,7 +59042,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -59036,7 +59067,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -60646,7 +60677,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -60803,6 +60834,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -60834,7 +60868,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -61128,12 +61161,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -61268,7 +61301,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -62747,7 +62780,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -64164,7 +64197,7 @@
                   "type": "array"
                 },
                 "invertMatch": {
-                  "description": "Return non-matching lines.",
+                  "description": "Select non-matching lines (rg -v); with resultView \"files\" this lists files having any non-matching line. For files lacking the pattern use \"filesWithout\" without invertMatch.",
                   "type": "boolean"
                 },
                 "langType": {
@@ -64230,7 +64263,7 @@
                   "type": "integer"
                 },
                 "path": {
-                  "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                  "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                   "pattern": "\\S",
                   "type": "string"
                 },
@@ -64242,7 +64275,7 @@
                 },
                 "regex": {
                   "default": "rust",
-                  "description": "\"rust\" is linear-time; \"pcre2\" adds lookbehind/backreferences (5s deadline).",
+                  "description": "A mode, not a boolean: \"rust\" is linear-time regex; \"pcre2\" adds lookbehind/backreferences (5s deadline).",
                   "enum": [
                     "literal",
                     "rust",
@@ -65526,7 +65559,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -65551,7 +65584,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -67161,7 +67194,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -67318,6 +67351,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -67349,7 +67385,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -67643,12 +67678,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -67783,7 +67818,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -69262,7 +69297,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -70145,7 +70180,7 @@
                               "type": "integer"
                             },
                             "path": {
-                              "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                              "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                               "pattern": "\\S",
                               "type": "string"
                             },
@@ -71280,7 +71315,7 @@
             "type": "array"
           },
           "invertMatch": {
-            "description": "Return non-matching lines.",
+            "description": "Select non-matching lines (rg -v); with resultView \"files\" this lists files having any non-matching line. For files lacking the pattern use \"filesWithout\" without invertMatch.",
             "type": "boolean"
           },
           "langType": {
@@ -71346,7 +71381,7 @@
             "type": "integer"
           },
           "path": {
-            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
             "pattern": "\\S",
             "type": "string"
           },
@@ -71358,7 +71393,7 @@
           },
           "regex": {
             "default": "rust",
-            "description": "\"rust\" is linear-time; \"pcre2\" adds lookbehind/backreferences (5s deadline).",
+            "description": "A mode, not a boolean: \"rust\" is linear-time regex; \"pcre2\" adds lookbehind/backreferences (5s deadline).",
             "enum": [
               "literal",
               "rust",
@@ -71626,8 +71661,13 @@
                       "minimum": 0,
                       "type": "integer"
                     },
+                    "noIgnore": {
+                      "description": "List .gitignore'd entries, which localSearch also skips.",
+                      "type": "boolean"
+                    },
                     "operation": {
                       "const": "tree",
+                      "default": "tree",
                       "type": "string"
                     },
                     "page": {
@@ -71661,7 +71701,6 @@
                     }
                   },
                   "required": [
-                    "operation",
                     "path"
                   ],
                   "title": "StructureSearchQueryTree",
@@ -73071,7 +73110,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -73096,7 +73135,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -74706,7 +74745,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -74863,6 +74902,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -74894,7 +74936,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -75188,12 +75229,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -75328,7 +75369,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -76807,7 +76848,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -77636,6 +77677,9 @@
                                   "minimum": 0,
                                   "type": "integer"
                                 },
+                                "noIgnore": {
+                                  "type": "boolean"
+                                },
                                 "operation": {
                                   "const": "tree",
                                   "type": "string"
@@ -77667,7 +77711,6 @@
                                 }
                               },
                               "required": [
-                                "operation",
                                 "path"
                               ],
                               "type": "object"
@@ -78599,8 +78642,13 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "noIgnore": {
+                "description": "List .gitignore'd entries, which localSearch also skips.",
+                "type": "boolean"
+              },
               "operation": {
                 "const": "tree",
+                "default": "tree",
                 "type": "string"
               },
               "page": {
@@ -78634,7 +78682,6 @@
               }
             },
             "required": [
-              "operation",
               "path"
             ],
             "title": "StructureSearchQueryTree",
@@ -78890,6 +78937,7 @@
             "path",
             "maxDepth",
             "hidden",
+            "noIgnore",
             "entryType",
             "extensions",
             "excludeDir",
@@ -79124,12 +79172,12 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                      "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                       "pattern": "\\S",
                       "type": "string"
                     },
                     "pattern": {
-                      "description": "Complete ast-grep node with $VARS (keep `;`).",
+                      "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                       "minLength": 1,
                       "pattern": "\\S",
                       "type": "string"
@@ -79290,7 +79338,7 @@
                       "type": "integer"
                     },
                     "path": {
-                      "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                      "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                       "pattern": "\\S",
                       "type": "string"
                     },
@@ -80734,7 +80782,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -80759,7 +80807,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -82369,7 +82417,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -82526,6 +82574,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -82557,7 +82608,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -82851,12 +82901,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -82991,7 +83041,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -84470,7 +84520,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -85339,12 +85389,12 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                                  "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                                   "pattern": "\\S",
                                   "type": "string"
                                 },
                                 "pattern": {
-                                  "description": "Complete ast-grep node with $VARS (keep `;`).",
+                                  "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                                   "minLength": 1,
                                   "pattern": "\\S",
                                   "type": "string"
@@ -85479,7 +85529,7 @@
                                   "type": "integer"
                                 },
                                 "path": {
-                                  "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                                  "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                                   "pattern": "\\S",
                                   "type": "string"
                                 },
@@ -87919,12 +87969,12 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                 "pattern": "\\S",
                 "type": "string"
               },
               "pattern": {
-                "description": "Complete ast-grep node with $VARS (keep `;`).",
+                "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                 "minLength": 1,
                 "pattern": "\\S",
                 "type": "string"
@@ -88085,7 +88135,7 @@
                 "type": "integer"
               },
               "path": {
-                "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                 "pattern": "\\S",
                 "type": "string"
               },
@@ -90649,7 +90699,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -90674,7 +90724,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -92284,7 +92334,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -92441,6 +92491,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -92472,7 +92525,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -92766,12 +92818,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -92906,7 +92958,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -94385,7 +94437,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -99550,7 +99602,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -99575,7 +99627,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -101185,7 +101237,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -101342,6 +101394,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -101373,7 +101428,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -101667,12 +101721,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -101807,7 +101861,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -103286,7 +103340,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -106255,7 +106309,7 @@
                   "type": "integer"
                 },
                 "path": {
-                  "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                  "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                   "pattern": "\\S",
                   "type": "string"
                 },
@@ -107493,7 +107547,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -107518,7 +107572,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -109128,7 +109182,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -109285,6 +109339,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -109316,7 +109373,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -109610,12 +109666,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -109750,7 +109806,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -111229,7 +111285,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -112098,7 +112154,7 @@
                               "type": "integer"
                             },
                             "path": {
-                              "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                              "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                               "pattern": "\\S",
                               "type": "string"
                             },
@@ -112617,7 +112673,7 @@
             "type": "integer"
           },
           "path": {
-            "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+            "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
             "pattern": "\\S",
             "type": "string"
           },
@@ -114802,7 +114858,7 @@
                         "type": "boolean"
                       },
                       "materializeOffset": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -114827,7 +114883,7 @@
                         "type": "integer"
                       },
                       "pageSize": {
-                        "maximum": 200,
+                        "maximum": 500,
                         "minimum": 1,
                         "type": "integer"
                       },
@@ -116437,7 +116493,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -116594,6 +116650,9 @@
                             "minimum": 0,
                             "type": "integer"
                           },
+                          "noIgnore": {
+                            "type": "boolean"
+                          },
                           "operation": {
                             "const": "tree",
                             "type": "string"
@@ -116625,7 +116684,6 @@
                           }
                         },
                         "required": [
-                          "operation",
                           "path"
                         ],
                         "type": "object"
@@ -116919,12 +116977,12 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
                           "pattern": {
-                            "description": "Complete ast-grep node with $VARS (keep `;`).",
+                            "description": "Complete ast-grep node with $VARS; omitted trailing `;`/`,` still match.",
                             "minLength": 1,
                             "pattern": "\\S",
                             "type": "string"
@@ -117059,7 +117117,7 @@
                             "type": "integer"
                           },
                           "path": {
-                            "description": "Use an absolute path to avoid cwd-dependent resolution.",
+                            "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                             "pattern": "\\S",
                             "type": "string"
                           },
@@ -118538,7 +118596,7 @@
                         "type": "integer"
                       },
                       "path": {
-                        "description": "Local file path; use an absolute path to avoid cwd-dependent resolution.",
+                        "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
                         "pattern": "\\S",
                         "type": "string"
                       },

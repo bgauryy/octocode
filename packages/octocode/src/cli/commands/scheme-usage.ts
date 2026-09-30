@@ -68,22 +68,36 @@ function discriminator(
   return first ?? ['', ''];
 }
 
+/** Set by the runtime on emitted next.* continuations, never typed by hand. */
+const RUNTIME_SET_FIELDS = new Set(['followUp']);
+/** A new query states its brief; only a followUp continuation inherits it. */
+const NEW_QUERY_BRIEF = ['goal', 'reasoning'];
+
 function branchUsage(
   branch: JsonObject,
   defs: JsonObject,
   siblings: readonly JsonObject[]
 ): string {
   const props = branchProps(branch);
-  const required = Array.isArray(branch.required)
+  const declared = Array.isArray(branch.required)
     ? branch.required.map(String)
     : [];
+  const required =
+    'followUp' in props
+      ? [
+          ...NEW_QUERY_BRIEF.filter(
+            name => name in props && !declared.includes(name)
+          ),
+          ...declared,
+        ]
+      : declared;
   const [labelKey, labelValue] = discriminator(props, required, defs, siblings);
   const mandatory = required
     .filter(name => name !== labelKey)
     .map(name => `<${name}>`)
     .join(' ');
   const optional = Object.keys(props)
-    .filter(name => !required.includes(name))
+    .filter(name => !required.includes(name) && !RUNTIME_SET_FIELDS.has(name))
     .map(name => `[${name}]`)
     .join(' ');
   const fields = [mandatory, optional].filter(Boolean).join(' ');

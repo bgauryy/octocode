@@ -38,21 +38,37 @@ pub fn validate_request(q: &LocalFetchQuery) -> Result<(), String> {
     }
     Ok(())
 }
+/// Source text from file bytes: UTF-8 when valid; otherwise the encoding
+/// fallback is flagged with a warning. Bytes holding no valid non-ASCII
+/// UTF-8 sequence decode as Latin-1 (ISO-8859-1), one char per byte; text
+/// that is mostly UTF-8 keeps it and replaces the stray bytes (U+FFFD).
+pub fn decode_text(bytes: &[u8]) -> (String, Option<&'static str>) {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return (text.to_owned(), None);
+    }
+    let utf8_multibyte = bytes.utf8_chunks().any(|chunk| !chunk.valid().is_ascii());
+    if utf8_multibyte {
+        return (
+            String::from_utf8_lossy(bytes).into_owned(),
+            Some("Not valid UTF-8: invalid bytes were replaced with U+FFFD."),
+        );
+    }
+    (
+        bytes.iter().map(|&byte| char::from(byte)).collect(),
+        Some(
+            "Not valid UTF-8: decoded as Latin-1 (ISO-8859-1); characters from other 8-bit encodings may be approximate, and byte offsets count the decoded UTF-8 text.",
+        ),
+    )
+}
+
 pub fn is_binary(bytes: &[u8]) -> bool {
     let sample = &bytes[..bytes.len().min(8192)];
     if sample.contains(&0) {
         return true;
     }
-    // A multibyte UTF-8 code point may straddle the 8192-byte sample boundary.
-    // Trim to the last complete code point before judging: a truncated *trailing*
-    // sequence (Utf8Error::error_len() == None) is inconclusive, not binary,
-    // whereas an invalid byte *within* the sample (error_len() == Some(_)) is a
-    // genuine non-text signal.
-    let sample = match std::str::from_utf8(sample) {
-        Ok(text) => text.as_bytes(),
-        Err(error) if error.error_len().is_some() => return true,
-        Err(error) => &sample[..error.valid_up_to()],
-    };
+    // Binary is NUL bytes or a dense run of C0 controls. UTF-8 validity is
+    // an encoding question, not a binary one: Latin-1 and other 8-bit text
+    // is decoded (see `decode_text`), never refused.
     let mut stripped = 0usize;
     let mut controls = 0usize;
     let mut i = 0;
@@ -90,11 +106,16 @@ mod is_binary_tests {
         assert!(!is_binary(&data));
     }
 
+    /// Encoding is not the binary signal: Latin-1 text is text.
     #[test]
-    fn invalid_byte_within_sample_is_binary() {
+    fn invalid_utf8_text_is_not_binary_but_control_bytes_are() {
         let mut data = vec![b'a'; 100];
-        data[50] = 0xff; // genuine invalid UTF-8 byte, not a truncation
-        assert!(is_binary(&data));
+        data[50] = 0xff;
+        assert!(!is_binary(&data));
+        assert!(!is_binary(b"caf\xe9 cr\xe8me br\xfbl\xe9e\n"));
+        let mut controls = vec![b'a'; 100];
+        controls[..10].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 14, 15]);
+        assert!(is_binary(&controls));
     }
 
     #[test]

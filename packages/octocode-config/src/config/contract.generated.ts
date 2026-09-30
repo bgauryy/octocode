@@ -21,7 +21,7 @@ export interface LocalConfigOptions {
   /** Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface. */
   beta?: boolean;
 
-  /** Extra absolute or home-relative roots added to the allowed home directory. */
+  /** Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). */
   /** The environment value is a comma-separated list. */
   allowedPaths?: string[];
 
@@ -342,7 +342,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Extra absolute or home-relative roots added to the allowed home directory.",
+    "description": "Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME).",
     "notes": "The environment value is a comma-separated list.",
     "env": [
       {

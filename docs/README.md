@@ -1,68 +1,53 @@
 # Octocode documentation
 
-Octocode is an agentic toolkit for evidence-driven software engineering. The toolkit combines code research, Agent Skills, CLI and MCP interfaces, native runtime primitives, host integrations, multi-agent coordination, and evaluation infrastructure.
+Each topic has one owner doc; other docs link to it instead of repeating it. The root [README](../README.md) introduces the toolkit.
 
-Use this page to find the document that owns each topic. The root [README](../README.md) introduces the toolkit and its packages.
+## Start here
 
-## Get started
+| Doc | Owns |
+|---|---|
+| [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md) | The concept: evidence dimensions, the research loop, how each part of the protocol works, and measured strengths and limits |
+| [Root README quick start](../README.md#quick-start) | Installing and first run |
+| [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, startup and lifecycle |
+| [OCTOCODE_CLI.md](../packages/octocode/docs/OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
 
-| Goal | Guide |
-|------|-------|
-| Run Octocode from a terminal | [Octocode CLI guide](../packages/octocode/docs/OCTOCODE_CLI.md) |
-| Connect an AI client over MCP | [Octocode MCP server](OCTOCODE_MCP.md) |
-| Configure authentication, storage, tools, and providers | [Configuration and authentication](CONFIGURATION.md) |
-| Understand the security boundary | [Security](SECURITY.md) |
+## Using Octocode
 
-## Research and tool reference
+| Doc | Owns |
+|---|---|
+| [OCTOCODE_RESEARCH_MANIFEST.md](OCTOCODE_RESEARCH_MANIFEST.md) | Choosing and combining tools for local, remote and history research; evidence boundaries |
+| [OCTOCODE_TOOLS.md](OCTOCODE_TOOLS.md) | Every tool's fields, defaults, limits, results and continuations |
+| [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request/result envelope and how evidence and `next.*` continuations carry between tools |
+| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | `clasify`: modes, presets, limits, cache, search handoff and outputs |
+| [CONFIGURATION.md](CONFIGURATION.md) | Config files, precedence, storage and caches, feature gates, troubleshooting |
+| [generated/CONFIG_SETTINGS.md](generated/CONFIG_SETTINGS.md) | Generated table of every setting, env var, default and range |
+| [AUTHENTICATION.md](AUTHENTICATION.md) | GitHub tokens, OAuth login and refresh, `gh` passthrough, Enterprise, the `clasify` key, npm registry credentials |
+| [SECURITY.md](SECURITY.md) | Input validation, secret redaction, filesystem policy, credential protection, egress |
 
-| Topic | Document |
-|-------|----------|
-| Every public tool, field, result, and continuation | [Octocode tools reference](OCTOCODE_TOOLS.md) |
-| Choosing among local text, AST, topology, file, and LSP evidence | [Local code research workflow](LOCAL_RESEARCH_WORKFLOW.md) |
-| Carrying evidence and continuations between tools | [Tool data and handoff contract](TOOL_DATA_CONTRACT.md) |
-| Evidence grades and agent routing rules | [Octocode research manifest](OCTOCODE_RESEARCH_MANIFEST.md) |
-| Judge candidates before reading them — the `clasify` contract, research loop, and examples | [Semantic assessment reference](OCTOCODE_CLASIFY.md) |
-| The broader research-driven development philosophy | [Research-driven development manifest](../MANIFEST.md) |
+## Developing Octocode
 
-## Contributor and quality guides
+| Doc | Owns |
+|---|---|
+| [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md) | Package map, contract pipeline, build/test/lint commands, dev env vars, ownership rules |
+| [ADDING_CONFIG.md](../skills-dev/octocode-dev/docs/ADDING_CONFIG.md) | Adding a configuration setting, section or credential |
+| [TOOL_QUALITY.md](../skills-dev/octocode-dev/docs/TOOL_QUALITY.md) | Acceptance criteria for public tool quality |
+| [RELEASE.md](../skills-dev/octocode-dev/docs/RELEASE.md) | Release checklist and gates |
+| [research/OCTOCODE_BENCHMARK_RESEARCH.md](research/OCTOCODE_BENCHMARK_RESEARCH.md) | Measured benchmark results behind the protocol's claims |
+| [AGENTS.md](../AGENTS.md) | Repository rules for agents working in this repo |
+| [skills-dev/octocode-dev/scripts/README.md](../skills-dev/octocode-dev/scripts/README.md) | Root automation scripts |
 
-| Topic | Document |
-|-------|----------|
-| Acceptance criteria for public tool quality | [Tool quality and agent workflow acceptance](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
-| Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
-| Development and release scripts | [Scripts reference](../scripts/README.md) |
-| Owner-triggered release checklist and gates | [Release checklist](RELEASE.md) |
-| Communication triggers, context costs, and retired Awareness data | [Communication runtime and Awareness retirement](COMMUNICATION_RETIREMENT.md) |
+Each package also has a `README.md` (public purpose) and `ARCHITECTURE.md` (ownership and invariants); [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#packages) links the package map. Benchmark campaigns live in [packages/octocode-benchmark](../packages/octocode-benchmark/README.md), local end-to-end suites in [octocode-local-testing](../octocode-local-testing/README.md).
 
-## Package guides
+## Skills
 
-The monorepo contains 9 primary workspace packages. The [package overview](PACKAGES.md) explains the runtime flow and each package's role; read the package README for its public purpose and its architecture page for ownership, dependencies, and invariants.
-
-| Package | Purpose | Guides |
-|---------|---------|--------|
-| `octocode` | Agent-oriented CLI and toolkit entry point | [README](../packages/octocode/README.md) · [Architecture](../packages/octocode/ARCHITECTURE.md) · [CLI guide](../packages/octocode/docs/OCTOCODE_CLI.md) |
-| `octocode-mcp` | Thin stdio MCP interface | [README](../packages/octocode-mcp/README.md) · [Architecture](../packages/octocode-mcp/ARCHITECTURE.md) |
-| `octocode-mcp-vscode` | VS Code OAuth and multi-editor MCP setup | [README](../packages/octocode-vscode/README.md) · [Architecture](../packages/octocode-vscode/ARCHITECTURE.md) |
-| `@octocodeai/octocode-native` | Consolidated CLI/runtime/engine distribution with separate Rust crates | [README](../packages/octocode-native/README.md) · [Architecture](../packages/octocode-native/ARCHITECTURE.md) · [LSP lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) |
-| `@octocodeai/config` | Shared environment and configuration loader | [README](../packages/octocode-config/README.md) · [Architecture](../packages/octocode-config/ARCHITECTURE.md) |
-| `@octocodeai/octocode-skill-installer` | Durable cross-platform Agent Skill installation | [README](../packages/octocode-skill-installer/README.md) · [Architecture](../packages/octocode-skill-installer/ARCHITECTURE.md) |
-| `@octocodeai/octocode-agents-communication` | Session identity, path leases, messages, and delivery | [README](../skills/octocode-agents-communication/README.md) · [Architecture](../skills/octocode-agents-communication/ARCHITECTURE.md) · [Database protocol](../skills/octocode-agents-communication/scripts/docs/DB.md) |
-| `@octocodeai/octocode-benchmark` | Research benchmarks, evals, graders, and reports | [README](../packages/octocode-benchmark/README.md) · [Architecture](../packages/octocode-benchmark/ARCHITECTURE.md) · [Results](../packages/octocode-benchmark/results/README.md) |
-
-The separately versioned `@octocodeai/octocode-core` package owns public tool schemas, descriptions, and shared MCP/CLI instructions. See the [root package explanation](../README.md#packages) for its relationship to this monorepo.
-
-## Agent Skills
-
-The [`skills/`](../skills) directory contains reusable workflows for research, architecture, documentation, evaluation, prompt design, scraping, browser evidence, and orchestration. Install and inspect them through the CLI:
+| Location | Owns |
+|---|---|
+| [skills/](../skills/README.md) | Published Agent Skills (research, architecture, documentation, evaluation, scraping, orchestration, …); each `SKILL.md` owns its workflow |
+| [skills-beta/](../skills-beta/README.md) | Tested skills not yet published |
+| [skills-dev/](../skills-dev/README.md) | Skills for working on this repository |
 
 ```bash
 npx octocode skill list
 npx octocode skill info octocode-research
 npx octocode skill install octocode-research --platform codex --global
 ```
-
-Each skill owns its operating instructions in `SKILL.md` and loads detailed references only when the task needs them.
-
-## Benchmarks and evaluation
-
-Benchmark methodology, questions, graders, and run artifacts live under [`packages/octocode-benchmark`](../packages/octocode-benchmark). Start with the [benchmark README](../packages/octocode-benchmark/README.md), then use the [results index](../packages/octocode-benchmark/results/README.md) for completed campaigns.

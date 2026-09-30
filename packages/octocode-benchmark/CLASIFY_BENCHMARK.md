@@ -287,7 +287,7 @@ Version 1 used **11,865 input / 140 output Jev tokens**; version 2 used **11,858
 
 For the next agent comparison, use exploratory tasks with overlapping terminology and distributed evidence: retry safety, offline requirements, cache freshness, and migration constraints. Give both arms identical tools, sources, budgets, and tasks; allow optional Jev in one arm without requiring Scout/Judge quotas. Grade relevant-evidence recall and supported findings, especially omitted constraints, alongside host context, provider usage, calls, and latency. Include exact-anchor controls and a strong direct search/section-read baseline. Freeze unseen validation cases after development; do not reuse this probe as a holdout.
 
-Receipts: `.octocode/benchmarks/exploratory-relevance/results/20260924/` contains the initial protocol, both requests/results, MCP receipts, pre-refinement observations, source verification, and source hashes. The production-facing recipe is in [Exploratory relevance](../../docs/OCTOCODE_CLASIFY.md#exploratory-relevance-which-documents-are-worth-reading).
+Receipts: `.octocode/benchmarks/exploratory-relevance/results/20260924/` contains the initial protocol, both requests/results, MCP receipts, pre-refinement observations, source verification, and source hashes. The production-facing recipe is in [Scout over list candidates](../../docs/OCTOCODE_CLASIFY.md#scout-over-list-candidates).
 
 ## Bounded local and GitHub relevance routing
 

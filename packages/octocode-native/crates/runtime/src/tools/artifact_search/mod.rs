@@ -197,18 +197,29 @@ async fn run(
             },
         });
     }
-    if let Some(limit) = page.terminal_limit {
+    if let Some(limit) = page.terminal_limit.as_deref() {
         data["isPartial"] = json!(true);
         data["terminalLimit"] = json!(true);
         data["partialReasons"] = json!([limit]);
     }
     if page.artifacts.is_empty() {
+        // An exact coordinate the registry does not know is not-found, like a
+        // GitHub 404; only a keyword discovery can be empty.
+        if let Some(name) = query.package_name()
+            && page.terminal_limit.is_none()
+        {
+            return Err(ArtifactError::new(
+                "notFound",
+                format!(
+                    "Package {name} not found in the {} registry",
+                    query.artifact_type()
+                ),
+            )
+            .with_status(404)
+            .with_hint("Check the package name and ecosystem, or discover it with keywords."));
+        }
         data["status"] = json!("empty");
-        data["hints"] = json!([if query.package_name().is_some() {
-            "Check the package name and ecosystem coordinate."
-        } else {
-            "Try fewer or broader keywords."
-        }]);
+        data["hints"] = json!(["Try fewer or broader keywords."]);
     }
     Ok(data)
 }
@@ -441,6 +452,39 @@ mod npm_auth_tests {
         )
         .await
         .expect("lookup succeeds");
+    }
+
+    /// D12: a missing exact package is notFound (like the GitHub tools), not
+    /// an empty discovery.
+    #[tokio::test]
+    async fn missing_exact_package_is_not_found() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let query = json!({
+            "type": "npm",
+            "packageName": "no-such-package-zz",
+            "registry": format!("http://127.0.0.1:{}", server.address().port()),
+            "goal": "test", "reasoning": "test",
+        });
+        let deadline = Instant::now() + std::time::Duration::from_secs(300);
+        let error = run(
+            &query,
+            deadline,
+            CancellationToken::new(),
+            true,
+            None,
+            0,
+            false,
+            None,
+        )
+        .await
+        .expect_err("missing package");
+        assert_eq!(error.code, "notFound", "{error:?}");
+        assert_eq!(error.status, Some(404));
+        assert!(error.message.contains("no-such-package-zz"), "{error:?}");
     }
 
     #[tokio::test]

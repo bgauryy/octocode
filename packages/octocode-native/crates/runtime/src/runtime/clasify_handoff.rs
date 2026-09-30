@@ -1,11 +1,16 @@
-//! Search → clasify → read handoff. A wide file-search page suggests one
+//! Search → clasify → read handoff. A wide file-search page for a semantic
+//! search (a `goal` plus a plain multi-word phrase, never an exact literal,
+//! identifier, path, quoted string, alternation, or regex) suggests one
 //! `locate` matrix over its top files, so the host reads decisive windows
-//! instead of whole files. Clasify stays the only semantic tool: this only
-//! shapes its request. Availability is not decided here; the cross-tool `next`
-//! filter drops the handoff when clasify is disabled.
+//! instead of whole files. File count alone never triggers it: a literal
+//! search's hits are already the answer. Clasify stays the only semantic tool:
+//! this only shapes its request. Availability is not decided here; the
+//! cross-tool `next` filter drops the handoff when clasify is disabled.
 use serde_json::{Map, Value, json};
 
-/// Files a page must list before locating beats reading the top hit directly.
+/// Files a semantic search page must list before locating beats reading the
+/// top hit directly. The one handoff threshold; core's clasify gate text names
+/// the same number.
 const WIDE_RESULT_FILES: usize = 8;
 /// Top-ranked files sent to one locate matrix. Three whole files with two
 /// questions stay inside the 25-cell budget once prefiltered.
@@ -129,25 +134,50 @@ fn prefilter(tool: &str, query: &Value, data: &Map<String, Value>) -> Vec<String
     terms
 }
 
-/// A search for one exact identifier (a whole word, or a single token that
-/// only code would spell: `snake_case`, `camelCase`, `$x`, `v2`) already names
-/// what it wants; its hits are the answer, so a locate pass adds only cost.
-fn exact_identifier(query: &Value) -> bool {
-    if query.get("wholeWord") == Some(&Value::Bool(true)) {
-        return true;
-    }
-    let Some(text) = query.get("searchText").and_then(Value::as_str) else {
-        return false;
+/// Whether a search term already names what it wants, so its hits are the
+/// answer and a locate pass adds only cost. Only a plain phrase of two or more
+/// words (letters, digits, `-`, `'`) with no `camelCase` token is semantic;
+/// every single token (`retry`, `spawn_blocking`, `newElementWith`), quoted
+/// string, `a|b` alternation, path (`src/x.rs`), member access, and regex is
+/// literal.
+fn literal_term(term: &str) -> bool {
+    let term = term.trim();
+    let camel = |word: &str| {
+        word.chars()
+            .zip(word.chars().skip(1))
+            .any(|(a, b)| a.is_lowercase() && b.is_uppercase())
     };
-    let mut chars = text.chars();
-    let identifier = chars
-        .next()
-        .is_some_and(|first| first.is_alphabetic() || matches!(first, '_' | '$'))
-        && chars.all(|c| c.is_alphanumeric() || matches!(c, '_' | '$'));
-    identifier
-        && (text.contains(['_', '$'])
-            || text.chars().any(|c| c.is_ascii_digit())
-            || text.chars().skip(1).any(char::is_uppercase))
+    let plain_phrase = term.split_whitespace().nth(1).is_some()
+        && term
+            .chars()
+            .all(|c| c.is_alphanumeric() || c.is_whitespace() || matches!(c, '-' | '\''))
+        && !term.split_whitespace().any(camel);
+    let quoted = term.len() > 1
+        && ['"', '\'', '`']
+            .iter()
+            .any(|q| term.starts_with(*q) && term.ends_with(*q));
+    !plain_phrase || quoted
+}
+
+/// Whether a search reads as described behavior rather than an exact literal.
+/// `localSearch` judges its `searchText` (a `wholeWord` search is an exact
+/// identifier); `ghSearchCode` judges its ANDed `keywords` as one phrase.
+fn semantic_search(tool: &str, query: &Value) -> bool {
+    if tool == "ghSearchCode" {
+        let words: Vec<&str> = query
+            .get("keywords")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        return !literal_term(&words.join(" "));
+    }
+    query.get("wholeWord") != Some(&Value::Bool(true))
+        && query
+            .get("searchText")
+            .and_then(Value::as_str)
+            .is_some_and(|text| !literal_term(text))
 }
 
 fn request(
@@ -166,7 +196,7 @@ fn request(
     }
     let goal: String = query.get("goal")?.as_str()?.chars().take(500).collect();
     let files = data.get("files")?.as_array()?;
-    if files.len() < WIDE_RESULT_FILES || (tool == "localSearch" && exact_identifier(query)) {
+    if files.len() < WIDE_RESULT_FILES || !semantic_search(tool, query) {
         return None;
     }
     let literals = prefilter(tool, query, data);
@@ -283,9 +313,9 @@ mod tests {
         run(
             &mut out,
             "localSearch",
-            &[json!({"goal":"find retry","path":"/repo","searchText":"retry"})],
+            &[json!({"goal":"find retry","path":"/repo","searchText":"retry delay"})],
         );
-        let next = handoff(&out).expect("wide page hands off");
+        let next = handoff(&out).expect("wide semantic page hands off");
         assert_eq!(next["tool"], "clasify");
         let query = &next["query"];
         assert_eq!(
@@ -297,20 +327,129 @@ mod tests {
             query["resources"][0]["context"]["query"]["path"],
             "/repo/src/f0.rs"
         );
-        assert_eq!(query["resources"][0]["prefilter"], json!(["retry"]));
+        assert_eq!(query["resources"][0]["prefilter"], json!(["retry delay"]));
         assert_eq!(query["questions"][0]["questionType"], "locate");
     }
 
     #[test]
-    fn exact_identifier_searches_do_not_hand_off() {
+    fn literal_term_separates_exact_literals_from_described_behavior() {
+        for literal in [
+            "retry",
+            "newElementWith",
+            "spawn_blocking",
+            "$scope",
+            "v2",
+            "\"retry delay\"",
+            "'retry delay'",
+            "`retry delay`",
+            "foo|bar",
+            "retry | backoff",
+            "src/runtime/mod.rs",
+            "config.json",
+            "self.retry",
+            "fn (a|b)\\d+",
+            "sample.?limit",
+            "^use serde",
+            "Result<T, E>",
+            "std::fs read",
+            "useState hook",
+            "",
+            "   ",
+        ] {
+            assert!(literal_term(literal), "literal: {literal:?}");
+        }
+        for semantic in [
+            "retry delay",
+            "how retries back off",
+            "HTTP retry policy",
+            "don't retry twice",
+            "rate-limit handling",
+        ] {
+            assert!(!literal_term(semantic), "semantic: {semantic:?}");
+        }
+    }
+
+    #[test]
+    fn literal_searches_do_not_hand_off() {
         for query in [
             json!({"goal":"who uses it","searchText":"newElementWith","regex":"literal"}),
             json!({"goal":"who uses it","searchText":"spawn_blocking","resultView":"files"}),
             json!({"goal":"who uses it","searchText":"get object","wholeWord":true}),
+            json!({"goal":"who uses it","searchText":"retry"}),
+            json!({"goal":"who uses it","searchText":"\"retry delay\""}),
+            json!({"goal":"who uses it","searchText":"retry|backoff"}),
+            json!({"goal":"who uses it","searchText":"src/retry.rs"}),
+            json!({"goal":"how is the limit enforced","searchText":"sample.?limit"}),
         ] {
             let mut wide = local_rows(12);
             run(&mut wide, "localSearch", std::slice::from_ref(&query));
             assert!(handoff(&wide).is_none(), "{query}");
+        }
+        let files: Vec<Value> = (0..12)
+            .map(|n| json!({"owner":"o","repo":"r","path":format!("a{n}.rs")}))
+            .collect();
+        for keywords in [
+            json!(["sync"]),
+            json!(["useState"]),
+            json!(["spawn_blocking", "tokio"]),
+            json!(["\"retry delay\""]),
+            json!(["retry|backoff"]),
+            json!([]),
+        ] {
+            let mut wide = json!({"results":[{"index":0,"data":{"files":files.clone()}}]});
+            run(
+                &mut wide,
+                "ghSearchCode",
+                &[json!({"goal":"who uses it","owner":"o","keywords":keywords})],
+            );
+            assert!(handoff(&wide).is_none(), "{keywords}");
+        }
+    }
+
+    #[test]
+    fn semantic_search_needs_a_goal() {
+        let mut wide = local_rows(12);
+        run(
+            &mut wide,
+            "localSearch",
+            &[json!({"searchText":"retry delay"})],
+        );
+        assert!(handoff(&wide).is_none());
+    }
+
+    #[test]
+    fn emitted_handoffs_are_schema_valid_clasify_queries() {
+        let mut local = local_rows(9);
+        run(
+            &mut local,
+            "localSearch",
+            &[json!({"goal":"how retries back off","searchText":"retry delay"})],
+        );
+        let files: Vec<Value> = (0..8)
+            .map(|n| json!({"owner":"o","repo":"r","path":format!("a{n}.rs")}))
+            .collect();
+        let mut github = json!({"results":[{"index":0,"data":{"files":files}}]});
+        run(
+            &mut github,
+            "ghSearchCode",
+            &[json!({"goal":"how sync retries","owner":"o","keywords":["sync","retry"]})],
+        );
+        for output in [&local, &github] {
+            let query = handoff(output).expect("handoff")["query"].clone();
+            serde_json::from_value::<crate::contracts::tool_types::ClasifyQuery>(query.clone())
+                .unwrap_or_else(|error| panic!("generated ClasifyQuery: {error}: {query}"));
+            let prepared = crate::contracts::prepare_many_and_validate(
+                "clasify",
+                query.clone(),
+                crate::contracts::PrepareOptions::default(),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "clasify input contract: {:?}: {query}",
+                    error.issues.first().map(|i| (&i.path, &i.message))
+                )
+            });
+            assert_eq!(prepared.len(), 1);
         }
     }
 
@@ -330,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn regex_searches_prefilter_on_the_strings_they_matched() {
+    fn regex_prefilter_uses_the_strings_they_matched() {
         let files: Vec<Value> = (0..9)
             .map(|n| {
                 json!({"path": format!("s{n}.go"), "matches": [
@@ -339,19 +478,13 @@ mod tests {
                 ]})
             })
             .collect();
-        let mut out = json!({"base":"/repo","results":[{"index":0,"data":{"files":files}}]});
-        run(
-            &mut out,
+        let data = json!({"files":files});
+        let terms = prefilter(
             "localSearch",
-            &[
-                json!({"goal":"how is the limit enforced","searchText":"sample.?limit","caseMode":"insensitive"}),
-            ],
+            &json!({"searchText":"sample.?limit","caseMode":"insensitive"}),
+            data.as_object().expect("object"),
         );
-        let query = &handoff(&out).expect("regex page")["query"];
-        assert_eq!(
-            query["resources"][0]["prefilter"],
-            json!(["sampleLimit", "SampleLimit", "sample_limit"])
-        );
+        assert_eq!(terms, vec!["sampleLimit", "SampleLimit", "sample_limit"]);
     }
 
     #[test]
@@ -376,11 +509,22 @@ mod tests {
     #[test]
     fn narrow_pages_and_non_hit_views_stay_lean() {
         let mut narrow = local_rows(WIDE_RESULT_FILES - 1);
-        run(&mut narrow, "localSearch", &[json!({"goal":"g"})]);
+        run(
+            &mut narrow,
+            "localSearch",
+            &[json!({"goal":"g","searchText":"retry delay"})],
+        );
         assert!(handoff(&narrow).is_none());
+        let mut exact = local_rows(WIDE_RESULT_FILES);
+        run(
+            &mut exact,
+            "localSearch",
+            &[json!({"goal":"g","searchText":"retry delay"})],
+        );
+        assert!(handoff(&exact).is_some(), "the threshold is inclusive");
         for query in [
-            json!({"goal":"g","resultView":"filesWithout"}),
-            json!({"goal":"g","invertMatch":true}),
+            json!({"goal":"g","searchText":"retry delay","resultView":"filesWithout"}),
+            json!({"goal":"g","searchText":"retry delay","invertMatch":true}),
         ] {
             let mut wide = local_rows(12);
             run(&mut wide, "localSearch", &[query]);
@@ -394,7 +538,11 @@ mod tests {
             .map(|n| json!({"owner":"o","repo":"r","path":format!("a{n}.rs")}))
             .collect();
         let mut full = json!({"results":[{"index":0,"data":{"files":objects}}]});
-        run(&mut full, "ghSearchCode", &[json!({"goal":"g"})]);
+        run(
+            &mut full,
+            "ghSearchCode",
+            &[json!({"goal":"g","keywords":["retry","backoff"]})],
+        );
         let context = &handoff(&full).expect("full")["query"]["resources"][1]["context"];
         assert_eq!(context["tool"], "ghGetFileContent");
         assert_eq!(context["query"]["path"], "a1.rs");
@@ -404,7 +552,7 @@ mod tests {
         run(
             &mut concise,
             "ghSearchCode",
-            &[json!({"goal":"g","owner":"o","repo":"r"})],
+            &[json!({"goal":"g","owner":"o","repo":"r","keywords":["retry backoff"]})],
         );
         assert_eq!(
             handoff(&concise).expect("concise")["query"]["resources"][0]["context"]["query"]["repo"],
@@ -415,11 +563,19 @@ mod tests {
     #[test]
     fn other_tools_and_unresolvable_local_paths_are_skipped() {
         let mut out = local_rows(9);
-        run(&mut out, "ghSearchRepo", &[json!({"goal":"g"})]);
+        run(
+            &mut out,
+            "ghSearchRepo",
+            &[json!({"goal":"g","keywords":["retry backoff"]})],
+        );
         assert!(handoff(&out).is_none());
         let mut no_base = local_rows(9);
         no_base.as_object_mut().map(|map| map.remove("base"));
-        run(&mut no_base, "localSearch", &[json!({"goal":"g"})]);
+        run(
+            &mut no_base,
+            "localSearch",
+            &[json!({"goal":"g","searchText":"retry delay"})],
+        );
         assert!(handoff(&no_base).is_none());
     }
 
@@ -427,9 +583,9 @@ mod tests {
     fn rows_after_a_rejected_query_keep_their_own_query() {
         // Inputs: 0 ok, 1 rejected, 2 ok, 3 ok. Output rows keep those positions.
         let queries = [
-            json!({"goal":"goal-0","searchText":"a"}),
-            json!({"goal":"goal-2","searchText":"b"}),
-            json!({"goal":"goal-3","searchText":"c"}),
+            json!({"goal":"goal-0","searchText":"retry a"}),
+            json!({"goal":"goal-2","searchText":"retry b"}),
+            json!({"goal":"goal-3","searchText":"retry c"}),
         ];
         let mut out = json!({"base":"/repo","results":[
             {"index":0,"data":{"files": local_rows(9)["results"][0]["data"]["files"].clone()}},
@@ -455,7 +611,7 @@ mod tests {
         run(
             &mut local,
             "localSearch",
-            &[json!({"goal":"find retry","searchText":"retry"})],
+            &[json!({"goal":"find retry","searchText":"retry delay"})],
         );
         let files: Vec<Value> = (0..8)
             .map(|n| json!({"owner":"o","repo":"r","path":format!("a{n}.rs")}))
@@ -464,7 +620,7 @@ mod tests {
         run(
             &mut github,
             "ghSearchCode",
-            &[json!({"goal":"find sync","keywords":["sync"]})],
+            &[json!({"goal":"find sync","keywords":["sync","retry"]})],
         );
         for (tool, output) in [("localSearch", &local), ("ghSearchCode", &github)] {
             assert!(handoff(output).is_some(), "{tool} produced a handoff");

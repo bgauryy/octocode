@@ -9,9 +9,65 @@ Clasify has two modes:
 
 Clasify routes work. It does not prove source facts, global absence, symbol identity, reachability, or edit safety. Read the deciding source after a judgment.
 
+## What Clasify does, and why
+
+Every step below exists for one reason: move a *semantic routing decision* out of the host transcript, then hand the host a small, exact read that proves (or disproves) it.
+
+| # | Step | What happens | Why | Code |
+|---|---|---|---|---|
+| 1 | Availability gate | Without a provider key MCP does not register `clasify`; every cross-tool `next.clasify` is dropped; CLI fails with `missingConfiguration` (exit 5) | Agents never see a route they cannot run | `runtime/continuations.rs` (`filter_unavailable_cross_tool_next`), `octocode-mcp/src/native` |
+| 2 | Preflight | Requires nonblank `goal`/`reasoning` (≤500 chars), 1–25 resources × questions (≤25 cells), optional object `carry` | Reject bad matrices before any read or provider token is spent | `tools/clasify/mod.rs` `preflight` |
+| 3 | Question expansion | `questionType` presets (`sufficient`, `supportsClaim`, `contribution`, `addsEvidence`) expand from contract templates into Noul questions; `locate` accepts only `target`; custom questions pass unchanged | One authored wording (core) instead of ad-hoc prompts per agent | `tools/clasify/questions.rs` |
+| 4 | ID normalization | Flat questions and omitted IDs get stable internal IDs | Deterministic output rows and cache keys | `runtime/clasify_batch.rs` `normalize_ids` |
+| 5 | Context form | Each resource is **Judge** (`context.value`, no retrieval) or **Scout** (`context.{tool,query}`, delegated read) | Judge reuses evidence already held; Scout judges source the host never reads | `runtime/clasify_context.rs` `prepare` |
+| 6 | Secured delegated read | The read query passes the input security policy, runs through the normal dispatcher, and its output is sanitized/redacted like any direct call; 4 concurrent reads per call, 16 per process | Clasify can never read more, or leak more, than the host could with the same tool | `clasify_context.rs`, `clasify_batch.rs` `secured_read`, `ReadLimiter` |
+| 7 | Candidate evidence | Search results split into per-file candidates: snippets (`search`) or bounded hydrated reads (`fileChunks`, ≤5 candidates) at hit-cluster windows, merged when near | Judge each file on real surrounding code, not a 1-line snippet, inside a fixed budget | `clasify_batch.rs` `hydrate_candidates`, `hit_cluster_windows`, `merge_near_windows` |
+| 8 | Locate tagging | One contiguous original-source page is split into passage IDs grouped by innermost declaration (doc comment included); `prefilter` literals narrow the windows | A choice over exclusive passages = P(answer is in that declaration), so the reply is a line range, not prose | `runtime/clasify_locate.rs`, `prefilter_windows` |
+| 9 | Page coalescing | Adjacent ready pages merge; failed pages split runs | Fewer provider calls without hiding failures | `coalesce_pages` |
+| 10 | Judgment cache | SHA-256 key of endpoint + model + state + questions; 256 entries / 8 MiB / 30 min TTL; stores only successful complete answer sets; single-flight per key; process-local | Identical re-asks inside one MCP process are free and never double-billed | `tools/clasify/cache.rs`, `assess_provider_page` |
+| 11 | Provider gate + batching | Process-wide concurrency gate per endpoint (default 10, 1–64); multi-question pages go as one batch when they fit, else singles | Shared state is sent once (measured −62% provider input for 5×3) | `providers/classification/gate.rs`, `tools/clasify/batch.rs` |
+| 12 | Transport | HTTPS (loopback excepted), 4 MiB body cap, deadline + cancellation, `Retry-After` honoured, jittered backoff 0.5–8 s | Bounded latency; no hot loops or unbounded provider responses | `tools/clasify/transport.rs` |
+| 13 | Locate projection | Distribution → declaration-aligned verification window (±2 lines); runner-up window when it reaches 50% of the winner and `exists ≥ 0.5` | Host reads 1–2 small windows; a near-tie is shown instead of guessed | `clasify_locate.rs` (`RUNNER_UP_SHARE`) |
+| 14 | Output shaping | Collapse shared failures, merge receipts/scopes, hoist limitations, literal-target hint | Short, typed rows: IDs + probabilities + source ranges, no source bodies | `runtime/clasify_output.rs` |
+| 15 | Continuations | `next.read` (`localFetch` / `ghGetFileContent` at the returned range), `next.clasify` with `carry`, source tool follow-ups | Every judgment ends in an executable verification step | `clasify_batch.rs`, `continuations.rs` |
+| 16 | Search handoff | A `localSearch`/`ghSearchCode` page with a `goal` and ≥8 files proposes one `locate` over its top 3 files | Read decisive windows instead of whole files after a wide search | `runtime/clasify_handoff.rs` |
+| 17 | Usage telemetry | Provider calls and billed tokens aggregate into opt-in `<home>/stats.json` | Provider cost is tracked separately from host context | `runtime/session_stats.rs` |
+
+### When to call it
+
+```mermaid
+flowchart TD
+    Q([Agent has a question]) --> L{Literal, identifier,<br/>symbol or PR filter?}
+    L -- yes --> S[localSearch / lspSearch / astSearch<br/>ghSearchCode / ghSearchHistory]
+    L -- no --> H{Evidence already<br/>in hand?}
+    H -- yes --> J["clasify Judge<br/>context.value"]
+    H -- no --> K{Known file,<br/>too long to read whole?}
+    K -- no --> R[One bounded read<br/>localFetch / ghGetFileContent]
+    K -- yes --> SC["clasify Scout locate<br/>context.tool + query"]
+    SC --> V[next.read: verify 1-2 windows]
+    J --> D([Decide next action])
+    V --> D
+    S --> D
+    R --> D
+    classDef semantic fill:#fde68a,stroke:#b45309;
+    class J,SC semantic
+```
+
+Why: literal routes are 3–10× cheaper and ~5× faster than a provider round-trip, so Clasify is reserved for questions no literal can answer.
+
+### Known gaps
+
+- The search handoff (step 16) fires on file count (≥8) plus a `goal`, while [Admission](#admission) says file count alone is not a reason and its rule of thumb says two or more files.
+- The exact-identifier skip applies to `localSearch` only; `ghSearchCode` identifier searches still get `next.clasify` (`clasify_handoff.rs` `request`).
+- The judgment cache is process-local: separate CLI invocations never share it; only a long-lived MCP process benefits.
+- `best` requires at least two rows per question (`minItems: 2` in the output contract), so a question with a single located window cannot appear in `best`; read that window from the page `answers.<questionId>.matches`. Fixing this needs a core contract change.
+- `best` rows are closed objects that cannot carry an executable `next.read`; build the verification read from the row's `path`, `startLine`, and `endLine`. Fixing this needs a core contract change.
+
 ## Admission
 
 Use Clasify for an explicit classification request or a measured workflow that improves both answer quality and total host context. The admitted research route is `questionType:"locate"` over unread known files when the target is semantic and no useful literal is known. Direct search and bounded reads remain the default for literals, symbols, and already-known anchors.
+
+Rule of thumb: use Clasify when the target is behavioral and spread across two or more files; skip it for identifiers, literals, and PR filters (`fileFilter`, `matchString`).
 
 The target budget is host-model context. Provider tokens are cheaper and tracked
 separately; they may increase when private assessment prevents larger source
@@ -36,31 +92,71 @@ for the same shared-matrix shape and preserved commit-pinned verification reads.
 
 ## Architecture
 
-```text
-caller question
-    │
-    ├─ context.value ──────────────────────────────┐
-    │                                              │
-    └─ context.{tool,query}                        │
-             │                                     │
-             ▼                                     │
-       validate + secure                           │
-             │                                     │
-             ▼                                     │
-       bounded read capture                        │
-             │                                     │
-       search candidates?                          │
-        ├─ search: snippets/metadata               │
-        └─ fileChunks: bounded candidate reads     │
-             │                                     │
-             └─────────────────────────────────────┤
-                                                   ▼
-                                       independent Jev judgments
-                                       locate: Choice(range) + Noul(exists)
-                                                   │
-                                                   ▼
-                                 IDs + probabilities + source ranges + scopes
-                                  + next.read / next.clasify
+### Pipeline
+
+```mermaid
+flowchart TD
+    IN(["MCP / CLI call<br/>thin interface, no logic"]) --> PF["Preflight<br/>brief, ids, ≤25 cells"]
+    PF --> QX["Expand questionType presets<br/>validate locate"]
+    QX --> CF{Context form}
+    CF -- "context.value (Judge)" --> SEC1[Input security policy]
+    CF -- "context.tool + query (Scout)" --> RD["Secured delegated read<br/>same dispatcher as direct call<br/>4/call, 16/process"]
+    RD --> SAN[Output sanitize + redact]
+    SAN --> CAND{Search result?}
+    CAND -- "search" --> SNIP[Per-file snippet candidates]
+    CAND -- "fileChunks" --> HYD["Hydrate ≤5 candidates<br/>hit-cluster windows"]
+    CAND -- "file read" --> PAGE[Original-source page]
+    PAGE --> LOC["locate: passage IDs<br/>grouped by declaration<br/>+ prefilter"]
+    HYD --> LOC
+    SNIP --> CO[Coalesce pages]
+    LOC --> CO
+    SEC1 --> CO
+    CO --> CACHE{"Judgment cache<br/>sha256 key, 30 min"}
+    CACHE -- hit --> OUT
+    CACHE -- miss --> GATE["Provider gate<br/>concurrency 1–64"]
+    GATE --> BAT{Questions fit<br/>one batch?}
+    BAT -- yes --> P1[One batched request]
+    BAT -- no --> P2[Single requests]
+    P1 --> TR["Transport: HTTPS, deadline,<br/>Retry-After, backoff"]
+    P2 --> TR
+    TR --> OUT["Shape output<br/>probabilities + ranges + receipts"]
+    OUT --> NX["next.read / next.clasify + carry"]
+    OUT -. usage .-> ST[(opt-in stats.json)]
+```
+
+### One locate call
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Agent
+    participant C as clasify (native)
+    participant T as localFetch / ghGetFileContent
+    participant J as Jev provider
+    A->>C: locate target over unread file
+    C->>T: delegated read (secured, bounded)
+    T-->>C: sanitized source page
+    C->>C: tag passages by declaration, apply prefilter
+    C->>J: Choice(passage) + Noul(exists)
+    J-->>C: probabilities
+    C-->>A: window L1416-1423, exists 0.97, next.read
+    A->>T: read only that window
+    T-->>A: exact lines: verify, then act
+    Note over A,C: Source bodies never enter the transcript until the verify read
+```
+
+### Search handoff and availability
+
+```mermaid
+flowchart LR
+    S["localSearch / ghSearchCode<br/>with goal"] --> W{"≥8 files and not<br/>exact identifier?"}
+    W -- no --> N["next: localFetch / lspSearch"]
+    W -- yes --> K{Provider key set?}
+    K -- no --> DROP[next.clasify dropped]
+    K -- yes --> H["next.clasify:<br/>locate over top 3 files"]
+    H --> C[clasify]
+    C --> R["next.read windows"]
+    R --> V[Verify exact source]
 ```
 
 The core package owns the schema, descriptions, limits, and instructions. The native runtime validates the generated contract, executes delegated reads, sanitizes evidence, enforces capture/provider limits, and shapes continuations. CLI and MCP expose the same contract.
@@ -69,16 +165,14 @@ Delegated reads share a limit of four concurrent reads per call and sixteen per 
 
 ## Availability
 
-- Credential: `OCTOCODE_CLASSIFICATION_API`, else the vendor key `OCTOCODE_JEV_KEY`, else `.octocoderc` `classification.api`
-- Optional HTTPS host override: `OCTOCODE_CLASSIFICATION_API_HOST`
-- Provider/model family: Jev; resolved model and usage remain internal telemetry
-- MCP registers `clasify` only when the credential is nonblank at process start.
-- CLI remains callable without a credential and returns an actionable configuration error.
+Clasify needs a classification provider key: `OCTOCODE_CLASSIFICATION_API` (Jev alias `OCTOCODE_JEV_KEY`), with an optional `OCTOCODE_CLASSIFICATION_API_HOST` API root (default `https://api.typesafe.ai`; HTTPS except loopback; home-trusted, never from a workspace). Key setup, source order, and the blank-value kill switch are in [AUTHENTICATION.md](AUTHENTICATION.md#classification-key-clasify); every setting is in [CONFIGURATION.md](CONFIGURATION.md).
 
-Credential resolution is process environment → workspace `.octocode/.env` → global Octocode `.env` (`~/.octocode/.env`, or `$OCTOCODE_HOME/.env`) → private `.octocoderc` `classification.api` (workspace `.octocode/.octocoderc`, then global). CLI and MCP load both files; no project-trust flag is needed for dotenv. Missing or blank file values fall back to the next source. An explicitly empty or whitespace process `OCTOCODE_CLASSIFICATION_API` disables Clasify even when file/vendor-key fallbacks exist. Restart MCP after changing configuration so clients refresh their catalog. Never put credentials in requests, logs, benchmark artifacts, or committed configuration.
+- Without a key, MCP does not register `clasify`, and every cross-tool `next.clasify` is dropped. Restart MCP after changing the key; the catalog is fixed at startup.
+- The CLI still lists it in `octocode scheme` with `availability.enabled:false` and the env hint; a direct call fails with `missingConfiguration` (exit `5`).
+- Provider concurrency: `OCTOCODE_CLASSIFICATION_CONCURRENCY` / `classification.maxConcurrency` (default 10, 1–64). The resolved model and usage stay internal telemetry.
 
 ```bash
-npx octocode config --json
+npx octocode config --check OCTOCODE_CLASSIFICATION_API
 npx octocode scheme clasify --view query --compact
 ```
 
@@ -117,7 +211,7 @@ A resource contains exactly one context form:
 }}}
 ```
 
-The nested read query requires its own `reasoning`. Use the live schema for each read tool rather than copying old examples.
+The nested read query follows that read tool's own schema; `reasoning` there is optional but recommended. Use the live schema for each read tool rather than copying old examples.
 
 ### Questions
 
@@ -131,13 +225,13 @@ Each question uses one primitive:
 
 Choice and Score confidence measures probability concentration, not correctness. Add an explicit `insufficient` label when substantive labels may not fit. There is no universal score or confidence threshold for discarding candidates.
 
-Research presets are `locate`, `contribution`, `addsEvidence`, and `supportsClaim`. Do not combine a preset with custom `type`, `instructions`, or `criteria`.
+Research presets are `locate`, `contribution`, `sufficient`, `addsEvidence` (requires `knownEvidence`), and `supportsClaim`. `sufficient` asks whether the captured page already states the answer, so the host can skip the read. Do not combine a preset with custom `type`, `instructions`, or `criteria`.
 
-`locate` accepts only `target` and applies to a contiguous original-source `localFetch` or `ghGetFileContent` page. The runtime tags small source passages, asks Jev a Choice question to rank them and a Noul question to estimate whether an answer exists, then projects the answer back to original line numbers. Where the engine outlines the language, passages are grouped by their innermost declaration (leading doc comment included) and a doc-comment hit shows the declaration line. The answer is `{exists,matches:[{startLine,endLine,probability}]}` with one match, or two when the page answers (`exists` ≥ 0.5) and the runner-up holds at least half the winner's probability. Each query's `best[questionId]` ranks windows across pages by `exists`, then `probability`. It is shown when the top `exists` is at least 0.5, or when the walk has no `next.clasify`. While a continuation remains and the top `exists` is lower, that ranking travels only as `carry`, so follow the continuation instead of reading the closest non-answer. The last call ranks the whole file. Identifier-like targets add a `hints` entry pointing to localSearch. A file resource may add `prefilter:[terms]` of rare literals: the runtime reads the file once and judges the three densest 600-line windows. Terms that occur throughout the file cover it, and a distinctive search is then cheaper. A finished ranking always has a winner; low `exists` means the returned range is merely the closest passage.
+`locate` accepts only `target` and applies to a contiguous original-source `localFetch` or `ghGetFileContent` page. The runtime tags small source passages, asks Jev a Choice question to rank them and a Noul question to estimate whether an answer exists, then projects the answer back to original line numbers. Where the engine outlines the language, passages are grouped by their innermost declaration (leading doc comment included) and a doc-comment hit shows the declaration line. The answer is `{exists,matches:[{startLine,endLine,probability}]}` with one match, or two when the page answers (`exists` ≥ 0.5) and the runner-up holds at least half the winner's probability. Each query's `best[questionId]` keeps the top three windows across pages, ranked by `exists`, then `probability`; it exists only when a question has two or more candidate windows (otherwise read the page's `matches`). It is shown when the top `exists` is at least 0.5, or when the walk has no `next.clasify`. While a continuation remains and the top `exists` is lower, that ranking travels only as `carry`, so follow the continuation instead of reading the closest non-answer. The last call ranks the whole file. Identifier-like targets add a `hints` entry pointing to localSearch. A file resource may add `prefilter:[terms]` of rare literals: the runtime reads the file once and judges the three densest 600-line windows. Terms that occur throughout the file cover it, and a distinctive search is then cheaper. A finished ranking always has a winner; low `exists` means the returned range is merely the closest passage.
 
 For `locate`, request unminified file reads (`minify` omitted or `"none"`), or use `localSearch`/`ghSearchCode` with `candidateEvidence:"fileChunks"`. Hydrated chunks can still have gaps; those pages remain unsupported. Plain search snippets, repository/tree listings, AST/LSP results, history, and package metadata support the other question types. A matrix combining `locate` with an incompatible tool resource is rejected before retrieval or provider calls; split it into separate matrices. Supplied values and captured pages still undergo source-line validation.
 
-`answers.matches` provides each question’s source coordinates once. These are verification windows around ranked passages, not guaranteed complete declarations or answers. Batch nearby windows into at most five ranges per read call; expand or follow the source if the deciding statement is absent. Even a high score needs source verification. Results contain hints, never captured bodies. MCP returns a single structured payload with empty text content.
+`answers.matches` provides each question’s source coordinates once. These are verification windows around ranked passages, not guaranteed complete declarations or answers. Batch the windows into one read call (up to five queries); expand or follow the source if the deciding statement is absent. Even a high score needs source verification. Results contain hints, never captured bodies. MCP returns the structured payload and mirrors it as JSON in the text content.
 
 Each question must describe one source-local fact. Split lists, conjunctions, and
 facts expected in distant sections into separate questions over the same capture.
@@ -182,7 +276,7 @@ tokens. This is a transport proxy, not proof of model-context savings.
 
 ## Search → clasify → read handoff
 
-A `localSearch` or `ghSearchCode` page that lists at least eight files carries `next.clasify`: one `locate` matrix over its five top-ranked files (`localFetch` / `ghGetFileContent`, whole file, the search goal as the target). Run it unchanged, then read only the returned windows. Narrow pages and non-hit views (`filesWithout`, `countLines`, `countMatches`, `matchOnly`, `invertMatch`) carry no handoff. The handoff is dropped by the same availability filter as every cross-tool `next`, so it never appears while Clasify is disabled. No judgment cache exists: every call re-reads and re-judges. Within a call a resource's capture is reused for all its questions, a continuation that repeats is stopped as a loop, and duplicate paths in one search page collapse; identical resources listed twice are read twice. GitHub reads use the same cache as direct calls.
+A `localSearch` or `ghSearchCode` page that lists at least eight files carries `next.clasify`: one `locate` matrix over its three top-ranked distinct files (`localFetch` / `ghGetFileContent`, whole file, the search goal as the target). Each resource also carries `prefilter` (up to eight terms): the literal `searchText`, the distinct strings a regex matched on the page (none for `pcre2`), or the `ghSearchCode` keywords. Run it unchanged, then read only the returned windows. Narrow pages, exact-identifier `localSearch` queries (`wholeWord`, or a single code-shaped token containing `_`, `$`, a digit, or an inner capital, such as `spawn_blocking` or `newElementWith`), and non-hit views (`filesWithout`, `countLines`, `countMatches`, `matchOnly`, `invertMatch`) carry no handoff. The handoff is dropped by the same availability filter as every cross-tool `next`, so it never appears while Clasify is disabled. Provider judgments use a process-local cache keyed by a SHA-256 of endpoint, model, evidence state, and questions (256 entries, 8 MiB, 30-minute TTL). Only complete successful answer sets are stored, so any change to evidence, brief, or question misses. Identical requests in flight at once share one provider call. The cache lives in the MCP process; each CLI invocation starts empty. Within a call a resource's capture is reused for all its questions, a continuation that repeats is stopped as a loop, and duplicate paths in one search page collapse; identical resources listed twice are read twice. GitHub reads use the same cache as direct calls.
 
 ## Scout over list candidates
 
@@ -197,7 +291,7 @@ One unread list resource fans its returned candidates into independent pages. Ea
 | `ghSearchHistory` | pull request / issue / commit | `item` `owner/repo#n` or `owner/repo@sha` | `ghGetHistoryItem` |
 | `artifactSearch` keyword discovery | package | `item` `type:name` | `artifactSearch` exact lookup |
 
-Bare path lists (`structureSearch` `files`/`tree`, `ghStructure`) stay one page: a name alone is judged better comparatively, so ask a `choice` over the listed paths (measured: judged one by one, every file scored 0.16–0.20 on content questions). Cells are pages × questions (≤25), so clasify lowers the list's `pageSize` to fit; later pages continue through `next.clasify`.
+Bare path lists (`structureSearch` `files`/`tree`, `ghStructure`) stay one page: a name alone is judged better comparatively, so ask a `choice` over the listed paths (measured: judged one by one, every file scored 0.16–0.20 on content questions). Cells are pages × questions (≤25), so for paged lists (`localSearch`, `ghSearchCode`, `astSearch` `match`, `ghSearchRepo`, `ghSearchHistory`, `artifactSearch` keywords) clasify lowers `pageSize` to fit; later pages continue through `next.clasify`.
 
 ### Sufficiency first: read only what is missing
 
@@ -232,6 +326,7 @@ For `localSearch` and `ghSearchCode`, file entries can also be hydrated into bou
 ```json
 {
   "id":"candidate-screen",
+  "goal":"Find where handler registration is implemented.",
   "reasoning":"Test whether bounded hydration improves the next-read decision.",
   "resources":[{
     "id":"hits",
@@ -239,7 +334,8 @@ For `localSearch` and `ghSearchCode`, file entries can also be hydrated into bou
       "tool":"localSearch",
       "candidateEvidence":"fileChunks",
       "query":{
-        "reasoning":"Find implementations of handler registration.",
+        "goal":"Find implementations of handler registration.",
+        "reasoning":"Candidates for the contribution screen.",
         "path":"/abs/repo",
         "searchText":"registerHandler",
         "include":["src/**"],
@@ -249,10 +345,8 @@ For `localSearch` and `ghSearchCode`, file entries can also be hydrated into bou
   }],
   "questions":[{
     "id":"contribution",
-    "question":{
-      "questionType":"contribution",
-      "target":"Where is handler registration implemented?"
-    }
+    "questionType":"contribution",
+    "target":"Where is handler registration implemented?"
   }]
 }
 ```
@@ -284,6 +378,7 @@ Judge is appropriate when the caller already holds a small, sufficient evidence 
 ```json
 {
   "id":"claim-review",
+  "goal":"Decide whether the abort claim holds.",
   "reasoning":"Classify how the held evidence bears on the exact claim.",
   "resources":[{
     "id":"evidence",
@@ -297,15 +392,13 @@ Judge is appropriate when the caller already holds a small, sufficient evidence 
   }],
   "questions":[{
     "id":"support",
-    "question":{
-      "type":"choice",
-      "instructions":"Classify support for the exact claim.",
-      "criteria":{
-        "supported":"Evidence covers the complete claim.",
-        "contradicted":"Evidence conflicts with the claim.",
-        "conflicting":"Evidence supports and conflicts with the claim.",
-        "insufficient":"A deciding condition is missing."
-      }
+    "type":"choice",
+    "instructions":"Classify support for the exact claim.",
+    "criteria":{
+      "supported":"Evidence covers the complete claim.",
+      "contradicted":"Evidence conflicts with the claim.",
+      "conflicting":"Evidence supports and conflicts with the claim.",
+      "insufficient":"A deciding condition is missing."
     }
   }]
 }
@@ -363,7 +456,7 @@ In this repository:
 node packages/octocode/out/octocode.js clasify --input request.json
 ```
 
-Exit codes: `0` judged, `6` continuation available, `5` every resource errored, `2` invalid input.
+Exit codes: `0` judged, `6` continuation available, `5` every resource errored or no key (`missingConfiguration`), `2` invalid input. The full table is in [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md#38-next-steps-and-failure-hints).
 
 ## Removed names
 

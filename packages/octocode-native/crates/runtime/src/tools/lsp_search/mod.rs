@@ -505,8 +505,10 @@ async fn execute_page(
     );
     inferred_project::annotate_compile_database(
         &mut result,
+        &query,
         receipt_config.language_id.as_deref(),
         &path,
+        &receipt_config.workspace_root,
     );
     receipt::attach_provider_context(
         &mut result,

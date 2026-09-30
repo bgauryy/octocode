@@ -90,7 +90,7 @@ Run version synchronization before building release artifacts. It updates the sh
 From the repository root:
 
 ```sh
-node scripts/prepublish.mjs
+node skills-dev/octocode-dev/scripts/prepublish.mjs
 yarn workspace @octocodeai/octocode-native verify
 yarn workspace @octocodeai/octocode-native pack:check
 yarn workspace @octocodeai/octocode-native platforms:check

@@ -6,7 +6,7 @@
   "type": "module",
   "bin": "./scripts/agents-communication",
   "devDependencies": {
-    "@octocodeai/config": "20.0.0"
+    "@octocodeai/config": "20.1.0"
   },
   "scripts": {
     "build": "node src/build-skill.mjs",

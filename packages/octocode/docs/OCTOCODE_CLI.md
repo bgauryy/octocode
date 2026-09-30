@@ -37,16 +37,16 @@ and prints single-line JSON (`--pretty` indents).
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone a repository into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `clasify` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires `OCTOCODE_CLASSIFICATION_API`. |
+| `clasify` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires a classification key (`OCTOCODE_CLASSIFICATION_API`, or `OCTOCODE_JEV_KEY` for the default jev vendor). |
 
 ### System
 
 | Command | Purpose |
 |---|---|
-| `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the public input contract. `--view query` prints the self-contained query schema; `--select FIELD=VALUE` keeps one union branch. Output validation schemas remain internal. |
+| `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the full input contract (default `--view full`). `--view variants` lists branch names, selectors, and examples; `--view query` prints the self-contained query schema, and `--select FIELD=VALUE` (or `variant=NAME`, `--view query` only) keeps one union branch. Output validation schemas remain internal. |
 | `showConfig` | Print the global `.env` path; `--json` includes file existence. Honors `OCTOCODE_HOME`. |
 | `config` | Inspect config paths and key names; `--check KEY`, `--add KEY VALUE`, `--remove KEY`, and `--json`. Values are never printed. |
-| `auth` | GitHub auth status (default; `--json`). `auth login` (device flow; `--refresh`, `--force`, `--hostname`), `auth logout`. |
+| `auth` | GitHub auth: `status` (default; `--json`), `login` (device flow; `--refresh`, `--force`, `--hostname`, `--json`), `logout`. See [`auth`](#auth--github-authentication). |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
 | `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. |
 | `graph` | `graph ingest <path>` builds a persisted code graph under `<workspace>/.octocode/graph/`; `graph query <op>` answers bounded questions from it. See [`graph`](#graph--persisted-code-graph). |
@@ -80,9 +80,10 @@ from context. Use the query view for calls; select a known operation to omit
 unrelated branches. The full view contains one complete input schema for the request envelope; the query view contains one standalone query schema. Output schemas remain internal.
 
 ```bash
+npx octocode scheme <name> --view variants                  # branch names, selectors, examples
 npx octocode scheme <name> --view query                     # self-contained query schema
 npx octocode scheme ghSearchHistory --view query --select operation=commit
-npx octocode scheme <name> --view full                      # descriptions, examples, rules
+npx octocode scheme <name> --view full                      # default: descriptions, examples, rules
 ```
 
 For local tools, use absolute paths in agent or script calls. Relative paths
@@ -96,10 +97,12 @@ resolve from the command cwd, which may differ from the repository root.
 
 `ghCloneRepo` is available in the CLI with persistent storage. `astRewrite` and
 `astTopology` are beta tools and require `OCTOCODE_BETA=true` or
-`local.beta:true`. `clasify` is available when
-`OCTOCODE_CLASSIFICATION_API` is nonblank. All four remain discoverable in the
-CLI catalog with availability metadata, but unavailable tools are omitted from
-MCP registration.
+`local.beta:true`. `clasify` is available when a classification key resolves
+(`OCTOCODE_CLASSIFICATION_API`, else `OCTOCODE_JEV_KEY`; a present-but-blank
+`OCTOCODE_CLASSIFICATION_API` disables it). All four remain discoverable in the
+CLI catalog with availability metadata (`availability.enabled` and the gating
+`envVar`). MCP omits unavailable tools and never registers `ghCloneRepo` or
+`astRewrite`.
 
 ### Research loop
 
@@ -114,8 +117,10 @@ npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs
 npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"goal":"Trace usages.","reasoning":"Trace usages."}'
 ```
 
-Every tool requires nonblank `goal` (what the query must find) and `reasoning` (why it advances the goal) strings. Queries accept a
-single object or a JSON array for a batch (up to 5). Large queries avoid shell
+Every new query requires nonblank `goal` (what the query must find) and
+`reasoning` (why it advances the goal) strings; a `next.*` continuation sent
+with `followUp: true` inherits them. Queries accept a single object, a JSON
+array, or `{"queries":[…]}` for a batch (up to 5). Large queries avoid shell
 quoting with `--input <file>`.
 
 ---
@@ -140,7 +145,7 @@ The CLI and MCP server share cache data under the configured Octocode home:
 | Tree | `tmp/tree/{owner}/{repo}/{commitSha}` | Materialized repository trees |
 | Response | `tmp/response/` | Eligible GitHub and npm response payloads |
 
-`cache status` reports cache location and recent evictions; `cache clear`
+`cache status` prints the cache directory and recent evictions; `cache clear`
 removes cached GitHub responses. See
 [Cache storage and lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#cache-storage-and-lifecycle).
 
@@ -341,24 +346,31 @@ Other results:
 npx octocode install --ide cursor
 npx octocode install --ide claude-code --check
 npx octocode install --ide claude-desktop --force
+npx octocode install --ide cursor --dry-run   # print the config without writing
 ```
 
-Supported clients: Cursor, Claude Desktop, Claude Code, Windsurf, Zed, VS Code
-Cline/Roo/Continue, OpenCode, Trae, Antigravity, Codex, Gemini CLI, Goose, Kiro.
+Supported clients (`install --list`): Cursor, Claude Desktop, Claude Code,
+Windsurf, Zed, VS Code Cline/Roo/Continue, OpenCode, Trae, Antigravity, Codex,
+Gemini CLI, Goose, Kiro. Other flags: `--method npx|bunx|pnpm`,
+`--enable-local true|false`, `--backup` / `--rollback <file>`. Run
+`octocode install --help` for the full list.
 
 ---
 
 ## `auth` — GitHub authentication
 
 ```bash
-npx octocode auth --json
-npx octocode auth login
-npx octocode auth login --refresh
-npx octocode auth logout
+npx octocode auth --json            # same as `auth status --json`
+npx octocode auth login             # OAuth device flow (interactive terminal)
+npx octocode auth login --refresh   # exchange the stored refresh token
+npx octocode auth logout            # delete stored Octocode credentials
 ```
 
-Humans: run `auth login` once. Agents and CI: pass `OCTOCODE_TOKEN`,
-`GH_TOKEN`, or `GITHUB_TOKEN` through the environment.
+Humans: run `auth login` once. Agents and CI: set a token variable
+(`OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, …) in the environment; it takes
+priority over stored logins. Resolution order, storage, refresh, GitHub
+Enterprise, and troubleshooting are in
+[Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md).
 
 ---
 
@@ -373,12 +385,10 @@ npx octocode lsp-server install --all
 
 Use when `lspSearch` reports an LSP server is unavailable.
 
-`lsp-server list` reports the managed-download servers, the
-toolchain-required servers, and a note naming packaged servers. It does not list
-every resolve-if-installed command. Use `lsp-server status FILE_PATH` to inspect
-the complete resolution ladder for one extension, including overrides,
-project-local executables, packaged servers, ecosystem locations, and managed
-downloads.
+`lsp-server list` reports only the managed-download servers and their install
+status. Use `lsp-server status FILE_PATH` to see which language and server a
+file resolves to (overrides, project-local executables, packaged servers,
+ecosystem locations, or managed downloads).
 
 Managed installation supports `rust-analyzer` and `clangd`. Built-in routes
 cover 11 families: JavaScript, TypeScript, Python, Rust, Go, Java, C, C++, CUDA,
@@ -393,7 +403,7 @@ extensions likewise require explicit trusted configuration.
 
 The `octocode` package bundles the complete canonical Octocode skill suite from
 this repo's `skills/` directory at build/publish time. Install can use a bundled
-skill or `--add <local-or-GitHub-source>`. It atomically materializes a durable
+skill or `--add <local-path>` (a directory containing `SKILL.md`). It atomically materializes a durable
 copy under `$OCTOCODE_HOME/skills/<name>`, then optionally links agent-specific
 skill directories to that copy. Links never target an npm or `npx` cache.
 
@@ -403,7 +413,7 @@ npx octocode skill info octocode-research
 npx octocode skill install octocode-research --platform pi --global
 npx octocode skill install --all --platform pi,cursor --global
 npx octocode skill install octocode-research --platform codex --project-dir "$PWD"
-npx octocode skill install --add octocodeai/octocode/skills/octocode-research
+npx octocode skill install --add ./skills/my-skill --platform claude --global
 npx octocode skill check --json
 npx octocode skill remove octocode-research --platform pi
 ```
@@ -415,12 +425,12 @@ Useful flags:
 | `--platform pi,cursor,claude,codex,opencode,copilot,gemini,shared,common,agents,claude-desktop,codex-native,all` | Select agent skill directories. `claude-desktop` maps to `claude`; shared/common/agents/codex-native map to the current Codex `.agents/skills` location. `all` selects the seven distinct destinations. |
 | `--global` | Install selected platform links in user scope. Use exactly one scope with `--platform`. |
 | `--project-dir <dir>` | Install selected platform links in project scope. |
-| `--add <source>` | Install a skill from a local path or GitHub source. |
-| `--path <dir>` | Use a custom canonical skill root instead of `$OCTOCODE_HOME/skills`. |
+| `--add <path>` | Install a skill from a local directory (or its `SKILL.md`). Not combinable with `--all`. |
+| `--path <dir>` | Use a custom canonical skill root instead of `$OCTOCODE_HOME/skills`. Not combinable with `--platform`. |
 | `--mode symlink\|copy\|auto` | Install strategy. `symlink` is the default; `copy` is an explicit portability fallback. |
 | `--force` | Replace existing canonical or destination content that differs. Existing content is preserved by default. |
 | `--upgrade` | Refresh changed bundled content in the canonical store. Managed copies refresh only when they still match the previous canonical content; arbitrary destination drift remains a conflict. |
-| `--dry-run` | Preview actions without writing. |
+| `--dry-run` | Preview actions without writing (with `check --fix`, preview the fixes). |
 | `--fix` | `check` only: refresh the canonical copy and relink broken or stale locations. Never adds platforms (or the workspace, unless `--workspace`) and never replaces a fresh link. |
 | `--workspace` | `check` only: also check the workspace `<cwd>/.agents/skills` directory. |
 | `--no-env` | `check` only: skip skill environment-readiness checks. |
@@ -506,10 +516,10 @@ npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultV
 npx octocode clasify --input request.json
 ```
 
-The CLI keeps `clasify` discoverable when the provider key is absent. If
-called without a nonblank `OCTOCODE_CLASSIFICATION_API`, it exits with an actionable error
-that names the variable and tells the caller to set it. MCP instead omits the
-tool from discovery until the key is available.
+The CLI keeps `clasify` discoverable when the provider key is absent. Called
+without a key, it exits `5` with a `missingConfiguration` error that names
+`OCTOCODE_CLASSIFICATION_API` (and `OCTOCODE_JEV_KEY`). MCP instead omits the
+tool from discovery until a key resolves.
 
 ---
 
@@ -553,6 +563,7 @@ boolean and exits `1` when unset. The global mutation response reports `key`,
 | `--pretty` | Indented JSON (tool output and `scheme`). |
 | `--input <file>` | Read a tool's JSON query from a file. |
 | `--json-errors` | Emit errors as `{"kind":"octocode.toolError","version":1,"error":"…"}` on stdout instead of stderr text — the same envelope as tool input-validation errors (`tool` and `details` when known). Covers argument/unknown-subcommand errors and `scheme`; exit codes are unchanged. |
+| `--redact-emails` | Mask email addresses in GitHub tool output, such as commit authors. Same as `OCTOCODE_REDACT_EMAILS=true` or `output.redactEmails`. |
 | `--no-color` | Disable ANSI color. `NO_COLOR=1` works too. |
 
 ### Exit codes
@@ -563,7 +574,7 @@ boolean and exits `1` when unset. The global mutation response reports `key`,
 | `1` | Empty result / no matches. |
 | `2` | Invalid input or unsupported flags, including any batch row rejected as `invalidInput` while other rows ran. |
 | `3` | A command or tool execution failed with a classified not-found error. |
-| `4` | Authentication failure. |
+| `4` | Authentication or permission failure. |
 | `5` | Tool or API execution error. |
 | `6` | Partial result — the response carries a re-runnable `next.*`, `next.clasify`, or `responsePagination.next` continuation. |
 | `7` | Rate limited. |
@@ -576,20 +587,23 @@ every row succeeded.
 
 ### Environment variables
 
+The CLI and MCP server read the same settings. The ones most often set for
+the CLI:
+
 | Variable | Meaning |
 |---|---|
-| `OCTOCODE_TOKEN` | Highest-priority GitHub token. |
-| `GH_TOKEN` | GitHub CLI compatible token. |
-| `GITHUB_TOKEN` | GitHub token fallback. |
+| `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | GitHub token, in that priority order. See [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md). |
 | `OCTOCODE_HOME` | Override Octocode data and cache location. |
 | `ENABLE_LOCAL` | Enable local filesystem tools. Defaults to `true`. |
-| `TOOLS_TO_RUN` | Strict allowlist for CLI and MCP tools. |
+| `TOOLS_TO_RUN` | Strict allowlist for CLI and MCP tools. A nonempty allowlist replaces the default set. |
 | `DISABLE_TOOLS` | Remove named tools from the default set when `TOOLS_TO_RUN` is unset. |
+| `OCTOCODE_BETA` | Enable the beta tools `astTopology` and `astRewrite`. |
+| `OCTOCODE_REDACT_EMAILS` | Mask email addresses in GitHub output (same as `--redact-emails`). |
 | `NO_COLOR` | Disable terminal color. |
 
-A nonempty
-allowlist replaces the default set, so include every tool that the CLI or MCP
-client must retain. Removed compatibility names are rejected.
+Unknown or removed tool names in `TOOLS_TO_RUN` / `DISABLE_TOOLS` are ignored,
+not aliased. Every other setting is in the
+[configuration reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 ---
 
@@ -599,7 +613,7 @@ client must retain. Removed compatibility names are rejected.
 |---|---|
 | `<toolName> '<json>'` | Direct terminal access to the same named tools exposed through MCP, with identical query contracts. |
 | `scheme <name>` | The schema contract for that tool. Do not guess fields. |
-| `scheme` | The tool catalog with availability — the same tool set MCP clients see. |
+| `scheme` | The full tool catalog with availability. MCP clients see only the available tools, minus the CLI-only `ghCloneRepo` and `astRewrite`. |
 | `install --ide <client>` | Writes MCP client configuration so editors and assistants can call `octocode-mcp`. |
 | `auth` | Manages credentials used by both CLI and MCP flows. |
 | `skill` | Installs bundled Agent Skills locally; no MCP transport required. |
@@ -615,6 +629,7 @@ The code boundary is intentionally thin:
 
 ## Further reading
 
-- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
-- [MCP Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
+- [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
+- [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
+- [MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md)
 - [All tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)

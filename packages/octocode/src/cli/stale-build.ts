@@ -71,7 +71,7 @@ export function maybeWarnAboutStaleBuild(
   );
   if (!staleSource) return;
   (options.warn ?? console.error)(
-    `  Warning: built CLI output looks older than ${staleSource}. Run \`yarn build\` before dogfooding source edits.`
+    `  Warning: built CLI output looks older than ${staleSource}. Run \`node skills-dev/octocode-dev/scripts/dev.mjs build\` before dogfooding source edits.`
   );
 }
 

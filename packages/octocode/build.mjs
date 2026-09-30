@@ -5,7 +5,7 @@ import { chmodSync, readFileSync, writeFileSync } from 'fs';
 import { rm } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { assertDeclaredRuntimeImports } from '../../scripts/runtime-import-contract.mjs';
+import { assertDeclaredRuntimeImports } from '../../skills-dev/octocode-dev/scripts/runtime-import-contract.mjs';
 import { stageSkills } from './scripts/stage-skills.mjs';
 
 const __filename = fileURLToPath(import.meta.url);

@@ -270,6 +270,40 @@ fn files_without_match_inverts_file_set() {
     assert!(r.files[0].path.ends_with("b.txt"));
 }
 
+/// `invertMatch` selects non-matching *lines* (rg -v), so the path views
+/// follow rg: `files` lists files with at least one non-matching line, and
+/// `filesWithout` lists files whose every line matches. Files that merely
+/// lack the pattern are plain `filesWithout`, never `invertMatch`+`files`.
+#[test]
+fn invert_match_path_views_follow_rg_line_semantics() {
+    let t = TmpDir::new();
+    t.write("all.txt", "needle\nneedle\n");
+    t.write("mixed.txt", "needle\nhay\n");
+    t.write("none.txt", "hay\n");
+    let listed = |files_only: bool| {
+        let mut o = opts(t.path(), "needle");
+        o.invert_match = Some(true);
+        o.files_only = Some(files_only);
+        o.files_without_match = Some(!files_only);
+        let mut names = search(o)
+            .expect("ok")
+            .files
+            .into_iter()
+            .map(|file| {
+                Path::new(&file.path)
+                    .file_name()
+                    .expect("name")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(listed(true), ["mixed.txt", "none.txt"]);
+    assert_eq!(listed(false), ["all.txt"]);
+}
+
 #[test]
 fn count_matches_counts_submatches_per_file() {
     let t = TmpDir::new();
@@ -986,8 +1020,14 @@ fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
 fn identifier_search_ranks_the_declaring_source_file_first() {
     let t = TmpDir::new();
     t.write("a_calls.ts", &"newElementWith(el);\n".repeat(9));
-    t.write("b_tests/x.test.ts", "export const newElementWith = 1;\nnewElementWith();\n");
-    t.write("z_src/mutate.ts", "export const newElementWith = <T>(el: T) => el;\n");
+    t.write(
+        "b_tests/x.test.ts",
+        "export const newElementWith = 1;\nnewElementWith();\n",
+    );
+    t.write(
+        "z_src/mutate.ts",
+        "export const newElementWith = <T>(el: T) => el;\n",
+    );
     t.write(
         "y_src/MoreObjects.java",
         "  public static <T> T newElementWith(@Nullable T first) {\n",

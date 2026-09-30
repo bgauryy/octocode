@@ -281,25 +281,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             "invalid GitHub tree response",
         )
     }
-    /// Whether `reference` (branch, tag, or SHA) resolves to a commit.
-    /// `Ok(false)` only on the provider's definitive not-found answers (404, or
-    /// 422 "No commit found"); every other failure propagates.
-    pub async fn ref_exists(
-        &self,
-        owner: &str,
-        repo: &str,
-        reference: &str,
-        context: &RequestContext,
-    ) -> Result<bool, ProviderError> {
-        let url = self
-            .endpoint()
-            .rest(&["repos", owner, repo, "commits", reference])?;
-        match self.execute(RequestSpec::get(url), context).await {
-            Ok(_) => Ok(true),
-            Err(error) if matches!(error.status, Some(404 | 422)) => Ok(false),
-            Err(error) => Err(error),
-        }
-    }
     pub async fn repository_metadata(
         &self,
         owner: &str,
@@ -307,11 +288,18 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         context: &RequestContext,
     ) -> Result<RepositoryMetadata, ProviderError> {
         let url = self.endpoint().rest(&["repos", owner, repo])?;
+        let page = self
+            .execute(RequestSpec::get(url), context)
+            .await
+            .map_err(|error| {
+                if error.status == Some(404) {
+                    error.with_reason(super::ProviderErrorReason::RepositoryNotFound)
+                } else {
+                    error
+                }
+            })?;
         decode(
-            self.execute(RequestSpec::get(url), context)
-                .await?
-                .body
-                .as_ref(),
+            page.body.as_ref(),
             "invalid GitHub repository metadata response",
         )
     }

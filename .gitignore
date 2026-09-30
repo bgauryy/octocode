@@ -12,7 +12,25 @@ campaigns
 *.dxt
 # npm pack output
 *.tgz
-octocode-local-testing
+# octocode-local-testing: the benchmark, harness and reports are tracked;
+# cloned repos and regenerable or raw run output are not.
+octocode-local-testing/repos/*
+!octocode-local-testing/repos/README.md
+octocode-local-testing/seeded/
+octocode-local-testing/bigfiles/
+octocode-local-testing/fixtures/large/
+octocode-local-testing/fixtures/scratch/
+octocode-local-testing/fixtures/rating-*/
+octocode-local-testing/results/
+octocode-local-testing/.octocode/
+octocode-local-testing/bench/validate/*/raw/
+octocode-local-testing/bench/validate/*/out/
+octocode-local-testing/bench/validate/*/probes/
+octocode-local-testing/bench/validate/*/tools/
+octocode-local-testing/bench/validate/*/bin/
+octocode-local-testing/bench/validate/local/fixtures/
+octocode-local-testing/bench/validate/github/runs.jsonl
+octocode-local-testing/bench/validate/github/results.json
 # Package READMEs are authored source and must remain trackable.
 !packages/*/README.md
 !packages/*/npm/*/README.md
@@ -65,3 +83,6 @@ devScripts
 output
 __pycache__
 releases/**
+# Keep the benchmark's markdown result tables (raw JSON stays local).
+!octocode-local-testing/bench/results/
+octocode-local-testing/bench/results/*.json

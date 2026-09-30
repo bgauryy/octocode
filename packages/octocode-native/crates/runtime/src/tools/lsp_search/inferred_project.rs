@@ -1,4 +1,5 @@
-//! TypeScript/JavaScript inferred-project coverage signal.
+//! Single-project coverage signals: TypeScript/JavaScript inferred projects
+//! and clangd without a compilation database.
 //!
 //! Without a `tsconfig.json`/`jsconfig.json` above the anchor file, tsserver
 //! answers from an *inferred* project holding only the opened documents and
@@ -6,6 +7,10 @@
 //! implements this?) then silently miss every file that was never opened.
 //! Such rows are flagged partial with reason `inferredProject`, a hint, and
 //! a lexical `localSearch` fallback over the workspace.
+//!
+//! clangd without a compilation database is the C/C++ analogue: it answers
+//! from the opened file alone, so its incoming-direction rows get reason
+//! `noCompileDatabase` and the same fallback.
 
 use super::LspSearchQuery;
 use super::failure::push_reason;
@@ -98,6 +103,18 @@ pub(super) fn annotate(
         _ if lacks_project_config(Path::new(anchor_path)) => (REASON, INFERRED_WARNING.to_owned()),
         _ => return,
     };
+    flag_partial(row, query, reason, &warning, workspace_root);
+}
+
+/// Mark an incoming-direction row partial: coverage reason, a warning, and
+/// (when the query names its symbol) a lexical `localSearch` fallback.
+fn flag_partial(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    reason: &str,
+    warning: &str,
+    workspace_root: &str,
+) {
     if let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut) {
         let coverage = payload
             .entry("coverage")
@@ -107,7 +124,6 @@ pub(super) fn annotate(
     }
     // A warning, not a hint: the hint policy keeps hints for empty/error rows
     // only, and this caveat matters most when the row looks complete.
-    let warning = warning.as_str();
     let name = query.symbol_name().filter(|name| !name.trim().is_empty());
     match name {
         // Partial only with an executable recovery.
@@ -116,7 +132,7 @@ pub(super) fn annotate(
             row["next"]["textSearch"] = json!({
                 "tool": "localSearch",
                 "confidence": "medium",
-                "why": "Find textual uses the inferred TypeScript project cannot see.",
+                "why": "Find textual uses the language server's project cannot see.",
                 "query": {
                     "path": workspace_root,
                     "searchText": word_pattern(name)
@@ -134,6 +150,9 @@ pub(super) fn annotate(
 
 const CLANGD_LANGUAGE_IDS: [&str; 4] = ["c", "cpp", "objective-c", "objective-cpp"];
 const COMPILE_DATABASE_HINT: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so includes and cross-file symbols are unresolved; generate one (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON) or use astSearch/localSearch.";
+/// Coverage reason of a C/C++ row answered without a compilation database.
+pub(super) const NO_COMPILE_DATABASE_REASON: &str = "noCompileDatabase";
+const NO_COMPILE_DATABASE_WARNING: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so it answered from the opened file alone: references in other files are missing. Generate a compilation database (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; Make: bear -- make), or confirm with next.textSearch.";
 
 /// Whether a clangd compilation database or flags file covers `start`
 /// (clangd also looks in a `build/` subdirectory of each ancestor).
@@ -150,21 +169,37 @@ fn has_compile_database(start: &Path) -> bool {
     })
 }
 
-/// An empty C/C++ answer without a compilation database is almost always the
-/// missing database, not a missing symbol: say so instead of the generic
-/// "verify the anchor" advice.
+/// clangd without a compilation database answers from the opened file only.
+/// An empty answer is almost always the missing database, not a missing
+/// symbol: say so instead of the generic "verify the anchor" advice. A
+/// non-empty incoming-direction answer (references, callers) looks complete
+/// but holds single-file results: flag it partial with the same cause.
 pub(super) fn annotate_compile_database(
     row: &mut Value,
+    query: &LspSearchQuery,
     language_id: Option<&str>,
     anchor_path: &str,
+    workspace_root: &str,
 ) {
+    if !language_id.is_some_and(|id| CLANGD_LANGUAGE_IDS.contains(&id))
+        || !row.is_object()
+        || row.get("status").and_then(Value::as_str) == Some("error")
+        || has_compile_database(Path::new(anchor_path))
+    {
+        return;
+    }
     let empty = row.get("status").and_then(Value::as_str) == Some("empty")
         || row.pointer("/payload/kind").and_then(Value::as_str) == Some("empty");
-    if empty
-        && language_id.is_some_and(|id| CLANGD_LANGUAGE_IDS.contains(&id))
-        && !has_compile_database(Path::new(anchor_path))
-    {
+    if empty {
         row["hints"] = json!([COMPILE_DATABASE_HINT]);
+    } else if is_incoming(&query.operation()) {
+        flag_partial(
+            row,
+            query,
+            NO_COMPILE_DATABASE_REASON,
+            NO_COMPILE_DATABASE_WARNING,
+            workspace_root,
+        );
     }
 }
 
@@ -279,15 +314,33 @@ mod tests {
         if has_compile_database(dir.path()) {
             return; // an ancestor of the temp dir has one
         }
+        let query = refs_query(&format!("file://{}", file.display()));
+        let root = dir.path().to_string_lossy();
+        let path = file.to_string_lossy();
         let mut row = json!({"status":"empty","payload":{"kind":"empty"},"hints":["generic"]});
-        annotate_compile_database(&mut row, Some("cpp"), &file.to_string_lossy());
+        annotate_compile_database(&mut row, &query, Some("cpp"), &path, &root);
         assert_eq!(row["hints"][0], COMPILE_DATABASE_HINT);
+        // References found only in the opened file look complete: flag them.
+        let mut found = refs_row();
+        found["payload"]["locations"] = json!([{"uri":"a.hpp","line":1}]);
+        annotate_compile_database(&mut found, &query, Some("cpp"), &path, &root);
+        assert_eq!(
+            found["payload"]["coverage"]["reason"],
+            NO_COMPILE_DATABASE_REASON
+        );
+        assert!(
+            found["warnings"][0]
+                .as_str()
+                .is_some_and(|warning| warning.contains("compile_commands.json")),
+            "{found}"
+        );
+        assert_eq!(found["next"]["textSearch"]["tool"], "localSearch");
         std::fs::write(dir.path().join("compile_commands.json"), "[]").expect("db");
         let mut row = json!({"status":"empty","payload":{"kind":"empty"},"hints":["generic"]});
-        annotate_compile_database(&mut row, Some("cpp"), &file.to_string_lossy());
+        annotate_compile_database(&mut row, &query, Some("cpp"), &path, &root);
         assert_eq!(row["hints"][0], "generic");
         let mut rust = json!({"status":"empty","payload":{"kind":"empty"},"hints":["generic"]});
-        annotate_compile_database(&mut rust, Some("rust"), &file.to_string_lossy());
+        annotate_compile_database(&mut rust, &query, Some("rust"), &path, &root);
         assert_eq!(rust["hints"][0], "generic");
     }
 

@@ -406,15 +406,36 @@ mod tests {
     }
 
     #[test]
-    fn malformed_utf8_is_binary_and_long_lines_fall_back_to_bytes() {
+    fn latin1_text_decodes_with_a_flag_and_long_lines_fall_back_to_bytes() {
         let t = Temp::new();
-        let malformed = t.0.join("malformed.txt");
-        fs::write(&malformed, [b'a', 0xff, b'b']).expect("malformed fixture should be written");
+        // "café\nnaïve" in ISO-8859-1: text, but not valid UTF-8.
+        let latin1 = t.0.join("latin1.txt");
+        fs::write(&latin1, b"caf\xe9\nna\xefve\n").expect("latin-1 fixture should be written");
         let paths = Paths(t.0.clone());
-        let malformed_result = execute_local_fetch(&q(&malformed), &paths, &Safe, &NeverCancel);
-        assert_eq!(
-            malformed_result.error_code.as_deref(),
-            Some("binaryFileUnsupported")
+        let decoded = execute_local_fetch(&q(&latin1), &paths, &Safe, &NeverCancel);
+        assert_eq!(decoded.error_code, None, "{decoded:?}");
+        assert_eq!(decoded.content.as_deref(), Some("café\nnaïve\n"));
+        assert!(
+            decoded.warnings.iter().any(|w| w.contains("Latin-1")),
+            "{:?}",
+            decoded.warnings
+        );
+        // Mostly UTF-8 with one stray byte stays UTF-8 (lossy), also flagged.
+        let stray = t.0.join("stray.txt");
+        fs::write(
+            &stray,
+            "é \u{2014} ok\n"
+                .bytes()
+                .chain([0xff, b'\n'])
+                .collect::<Vec<_>>(),
+        )
+        .expect("stray fixture should be written");
+        let lossy = execute_local_fetch(&q(&stray), &paths, &Safe, &NeverCancel);
+        assert_eq!(lossy.content.as_deref(), Some("é \u{2014} ok\n\u{fffd}\n"));
+        assert!(
+            lossy.warnings.iter().any(|w| w.contains("UTF-8")),
+            "{:?}",
+            lossy.warnings
         );
 
         let long = t.0.join("long.txt");

@@ -437,6 +437,30 @@ fn largest_array(value: &Value, pointer: &str) -> Option<(String, usize)> {
     best
 }
 
+/// Empty every remaining array of `skeleton` large enough (over a quarter
+/// of `budget`) to matter if repeated per fragment. Returns the skeleton as
+/// it was, still holding them, when any was emptied.
+fn lean_skeleton(skeleton: &mut Value, budget: usize) -> Option<Value> {
+    let mut rest = None;
+    while let Some((relative, chars)) = skeleton
+        .get("data")
+        .and_then(|data| largest_array(data, ""))
+        && chars.saturating_mul(4) > budget
+    {
+        if rest.is_none() {
+            rest = Some(skeleton.clone());
+        }
+        match skeleton
+            .pointer_mut(&format!("/data{relative}"))
+            .and_then(Value::as_array_mut)
+        {
+            Some(items) => items.clear(),
+            None => break,
+        }
+    }
+    rest
+}
+
 /// One row fragment, planned by size before anything is built. Oversized rows
 /// are split into a skeleton (every field except the largest array, emptied)
 /// plus that array's items; a fragment is a slice of those items. An element
@@ -484,6 +508,10 @@ impl FragmentArena {
             self.wholes.push(row);
             return;
         };
+        // Another large array would repeat in every slice of this one: slices
+        // carry it emptied, and the row minus this array follows as its own
+        // fragments, so each item is delivered exactly once.
+        let rest = lean_skeleton(&mut row, budget);
         let base = json_chars(&row);
         // Every fragment repeats the skeleton (stats, pagination, ...). When
         // the skeleton nearly fills the budget, one item per fragment would
@@ -528,6 +556,9 @@ impl FragmentArena {
             chunk_chars += item;
         }
         flush(start, item_chars.len(), out);
+        if let Some(rest) = rest {
+            self.plan(rest, budget, out);
+        }
     }
 
     /// Build one planned fragment, moving its data out of the arena.
@@ -1251,6 +1282,49 @@ mod tests {
         assert_eq!(restart.next_char_offset, Some(0));
     }
 
+    /// D4: a row with two large arrays (a comparison's commits and files)
+    /// delivers each array once; slices of one never repeat the other.
+    #[test]
+    fn rows_scope_never_repeats_a_second_large_array_per_fragment() {
+        let commits = (0..100)
+            .map(|n| json!({"sha":format!("{n:040}"),"messageHeadline":"x".repeat(40)}))
+            .collect::<Vec<_>>();
+        let files = (0..100)
+            .map(|n| format!("M +1 -1 src/file_{n:03}.rs"))
+            .collect::<Vec<_>>();
+        let structured = json!({"results":[{"index":0,"data":{
+            "type":"compare","totalCommits":100,"commits":commits,"files":files
+        }}]});
+        let options = ResponsePageOptions {
+            response_char_length: Some(6_000),
+            response_scope: Some("rows".into()),
+            ..Default::default()
+        };
+        let full = structured.to_string();
+        let (_, first) = paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+        let (mut commits_seen, mut files_seen, mut chars) = (0, 0, 0);
+        for page in 0..first.total_pages {
+            let options = ResponsePageOptions {
+                response_char_offset: Some(page),
+                response_snapshot: Some(first.snapshot.clone()),
+                ..options.clone()
+            };
+            let (envelope, _) =
+                paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+            chars += json_chars(&Value::Object(envelope.clone()));
+            for row in envelope["results"].as_array().unwrap() {
+                commits_seen += row["data"]["commits"].as_array().map_or(0, Vec::len);
+                files_seen += row["data"]["files"].as_array().map_or(0, Vec::len);
+            }
+        }
+        assert_eq!((commits_seen, files_seen), (100, 100));
+        assert!(
+            chars < full.len() + full.len() / 4,
+            "{chars} vs {}",
+            full.len()
+        );
+    }
+
     /// A skeleton (stats, pagination) that nearly fills the budget must not
     /// explode one row into one fragment per match, each repeating it.
     #[test]
@@ -1364,6 +1438,7 @@ mod lazy_page_tests {
         else {
             return vec![row.clone()];
         };
+        let rest = lean_skeleton(&mut skeleton, budget);
         let with_items = |chunk: Vec<Value>| {
             let mut fragment = skeleton.clone();
             if let Some(slot) = fragment.pointer_mut(&pointer) {
@@ -1394,6 +1469,9 @@ mod lazy_page_tests {
         }
         if !chunk.is_empty() {
             fragments.push(with_items(chunk));
+        }
+        if let Some(rest) = rest {
+            fragments.extend(reference_split_row(&rest, budget));
         }
         fragments
     }

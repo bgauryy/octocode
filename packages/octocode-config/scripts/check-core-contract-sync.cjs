@@ -22,17 +22,19 @@ const provenance = JSON.parse(
   readFileSync(join(configRoot, 'contract', 'provenance.json'), 'utf8')
 );
 
-/// Download the npm-published core at the version the workspace root pins
-/// and return the extracted package directory (caller removes tempRoot).
+/// Download the npm-published core at the version config ships against (its
+/// own dependency pin; the root has only dev resolutions) and return the
+/// extracted package directory (caller removes tempRoot).
 function fetchPublishedCore(tempRoot) {
-  const rootPkg = JSON.parse(
-    readFileSync(join(repoRoot, 'package.json'), 'utf8')
-  );
+  const pin = (file, field) => {
+    const pkg = JSON.parse(readFileSync(file, 'utf8'));
+    return pkg[field] && pkg[field]['@octocodeai/octocode-core'];
+  };
   const version =
-    (rootPkg.dependencies && rootPkg.dependencies['@octocodeai/octocode-core']) ||
-    (rootPkg.resolutions && rootPkg.resolutions['@octocodeai/octocode-core']);
+    pin(join(configRoot, 'package.json'), 'dependencies') ||
+    pin(join(repoRoot, 'package.json'), 'resolutions');
   if (!version) {
-    console.error('contract-sync: no @octocodeai/octocode-core version pinned in root package.json.');
+    console.error('contract-sync: no @octocodeai/octocode-core version pinned in packages/octocode-config/package.json dependencies.');
     process.exit(1);
   }
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {

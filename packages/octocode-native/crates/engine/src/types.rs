@@ -216,6 +216,10 @@ pub struct RipgrepStats {
     pub error_count: Option<u32>,
     /// Bounded first failure detail. Counts include every observed failure.
     pub first_error: Option<String>,
+    /// Files searched only up to their first NUL byte (`binaryQuit`), in path
+    /// order and bounded; `binary_file_count` counts all of them.
+    pub binary_files: Option<Vec<String>>,
+    pub binary_file_count: Option<u32>,
 }
 
 #[cfg_attr(feature = "napi-addon", napi(object))]

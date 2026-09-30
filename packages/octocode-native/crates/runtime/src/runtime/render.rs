@@ -600,7 +600,10 @@ pub fn render_local_fetch(response: &Value) -> String {
     if let Some(base) = response["base"].as_str() {
         lines.push(format!("base: {base}"));
     }
-    let rows = response["results"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let rows = response["results"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
     for (position, row) in rows.iter().enumerate() {
         let data = &row["data"];
         let mut metadata = data.clone();
@@ -923,7 +926,10 @@ mod tests {
         assert!(text.starts_with("results:\n- index: 0\n"), "{text}");
         // JSON text stays the exact structured envelope.
         let json_text = render_tool(ToolId::AstSearch, &single, &json!({}), TextFormat::Json);
-        assert_eq!(serde_json::from_str::<Value>(&json_text).expect("json"), single);
+        assert_eq!(
+            serde_json::from_str::<Value>(&json_text).expect("json"),
+            single
+        );
     }
 
     /// Path-list rows (`resultView:"files"`) and count rows render as one

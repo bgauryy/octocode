@@ -14,7 +14,8 @@
 //! files and patch windows, `window` provider-batch paging, `continuations`
 //! every `next.*`, and `graphql` the PR fast path.
 use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
+    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
+    RequestContext,
 };
 use crate::security::scan::ContentScan;
 use crate::tools::result::remove_nulls;
@@ -62,7 +63,8 @@ pub struct HistoryItemRequest {
 
 impl HistoryItemRequest {
     /// Parses a validated `ghGetHistoryItem` row.
-    pub fn from_row(row: Value) -> Result<Self, serde_json::Error> {
+    pub fn from_row(mut row: Value) -> Result<Self, serde_json::Error> {
+        imply_patch_search(&mut row);
         let content = row.get("content").cloned();
         Ok(Self {
             query: serde_json::from_value(row)?,
@@ -73,6 +75,40 @@ impl HistoryItemRequest {
     /// The `content` selector as JSON, for the shaping code's key lookups.
     pub fn content_value(&self) -> Option<Value> {
         self.content.clone()
+    }
+}
+
+/// `matchString` on a pull request filters its patches (and selected
+/// comments and reviews). With no content selected there is nothing for it
+/// to filter, so the literal implies a search of every patch, still narrowed
+/// by `fileFilter`.
+fn imply_patch_search(row: &mut Value) {
+    let selects_nothing = row
+        .get("content")
+        .is_none_or(|content| content.as_object().is_some_and(serde_json::Map::is_empty));
+    if row.get("operation").and_then(Value::as_str) == Some("pullRequest")
+        && row.get("matchString").and_then(Value::as_str).is_some()
+        && selects_nothing
+    {
+        row["content"] = serde_json::json!({"patches": {"mode": "all"}});
+    }
+}
+
+impl HistoryItemRequest {
+    /// This comparison with `base`/`head` replaced (resolved commits), for
+    /// continuations that must read the same two commits.
+    pub(super) fn with_compare_refs(&self, base: &str, head: &str) -> Self {
+        let mut pinned = self.clone();
+        if let GhGetHistoryItemQuery::Compare {
+            base: pinned_base,
+            head: pinned_head,
+            ..
+        } = &mut pinned.query
+        {
+            base.clone_into(pinned_base);
+            head.clone_into(pinned_head);
+        }
+        pinned
     }
 }
 
@@ -288,6 +324,9 @@ pub async fn execute<R: CredentialResolver>(
         Ok(value) => value,
         Err(mut error) => {
             match error.kind {
+                // The number names an issue: the message already says so.
+                ProviderErrorKind::NotFound
+                    if error.reason == Some(ProviderErrorReason::PullRequestIsIssue) => {}
                 ProviderErrorKind::NotFound => {
                     let canonical = "Repository, resource, or path not found";
                     error.message = if matches!(query.operation(), ItemOperation::PullRequest) {
@@ -340,7 +379,14 @@ async fn execute_inner<R: CredentialResolver>(
     validate(query)?;
     check_context(context)?;
     match query.operation() {
-        ItemOperation::PullRequest => pull_request::pull_request(transport, query, context).await,
+        ItemOperation::PullRequest => {
+            match pull_request::pull_request(transport, query, context).await {
+                Err(error) if error.status == Some(404) => {
+                    Err(issue::name_issue_number(transport, query, context, error).await)
+                }
+                result => result,
+            }
+        }
         ItemOperation::Issue => issue::issue(transport, query, context).await,
         ItemOperation::Commit => commit_compare::commit(transport, query, context).await,
         ItemOperation::Compare => commit_compare::compare(transport, query, context).await,

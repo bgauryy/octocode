@@ -344,8 +344,10 @@ try {
       await writeFile(file, source);
       for (const chunkType of ['lines', 'bytes']) {
         for (const matched of [false, true]) {
+          // Byte accounting (sourceBytes/returnedBytes) is debug-only
+          // metadata; continuations carry debug forward.
           let page = await call('localFetch', {
-            path: file, chunkType, chunkSize: chunkType === 'lines' ? 1 : 3,
+            path: file, chunkType, chunkSize: chunkType === 'lines' ? 1 : 3, debug: true,
             ...(matched ? { matchString: 'needle', contextLines: 0, minify: 'standard' } : {}),
           });
           let content = '';
@@ -395,8 +397,11 @@ try {
         wholeWord: true,
         resultView: 'content',
       });
-      assert.equal(data.stats.totalOccurrences, 1);
-      assert.equal(data.stats.capped, false);
+      // Minimal output drops single-page stats: the rows are the count.
+      assert.equal(data.files.length, 1);
+      assert.equal(data.files[0].matches.length, 1);
+      assert.notEqual(data.isPartial, true);
+      assert.equal(data.capped, undefined);
       assert.equal(data.files[0].matches[0].line, 2);
       assert.ok(data.files[0].matches[0].value.includes('function add'));
     });
@@ -428,7 +433,8 @@ try {
       name: 'add',
       kinds: ['function'],
     });
-    assert.equal(data.operation, 'symbols');
+    // Minimal output drops the `operation` request echo.
+    assert.equal(data.operation, undefined);
     assert.equal(data.totalDeclarations, 1);
     assert.equal(data.declarations[0].name, 'add');
     assert.equal(data.declarations[0].kind, 'function');
@@ -450,14 +456,11 @@ try {
       const preview = executeCliTool('astRewrite', [rule]).results[0].data;
       assert.equal(preview.mode, 'preview');
       assert.equal(preview.totalMatches, 2);
-      const applied = executeCliTool('astRewrite', [{
-        ...rule,
-        apply: true,
-        snapshot: preview.snapshot,
-        expectedHashes: Object.fromEntries(
-          preview.files.map(item => [path.join(directory, item.path), item.beforeHash])
-        ),
-      }]).results[0].data;
+      // Apply is the preview's next.apply replayed verbatim: it carries the
+      // snapshot (not echoed in minimal output) and the expected hashes.
+      assert.equal(preview.next?.apply?.tool, 'astRewrite');
+      assert.equal(preview.next.apply.query.apply, true);
+      const applied = executeCliTool('astRewrite', [preview.next.apply.query]).results[0].data;
       assert.equal(applied.mode, 'apply');
       assert.equal(applied.transaction.committed, true);
       assert.equal(await readFile(file, 'utf8'), 'newCall(1);\nnewCall(2);\n');

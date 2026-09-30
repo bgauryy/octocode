@@ -363,7 +363,9 @@ export function createNativeMcp({
       '[octocode-mcp] contract fingerprint mismatch: core ' +
       `${coreFingerprint} (@octocodeai/octocode-core) != native ` +
       `${nativeFingerprint}. Run \`yarn contracts:regen\` and rebuild native (or install ` +
-      'matching octocode packages), or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to override.';
+      'matching octocode packages). To override while iterating locally, set ' +
+      'OCTOCODE_ALLOW_CONTRACT_DRIFT=1; the bundled dist also needs ' +
+      'NODE_ENV=development, and NODE_ENV=production always fails closed.';
     if (env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' && devOverridesAllowed(env)) {
       // stderr, not stdout: stdout is reserved for the MCP stdio protocol.
       // The override is a local-iteration aid only; in production a fingerprint
@@ -386,12 +388,9 @@ export function createNativeMcp({
     capabilities: { tools: { listChanged: false } },
     // Availability-scoped instructions, built by core from the tools the
     // native runtime actually enables — the native catalog carries none.
-    instructions: buildMcpInstructions(
-      availableTools.map(tool => tool.name),
-      {
-        grammarCapabilities: catalog.grammarCapabilities ?? [],
-      }
-    ),
+    // Hosts truncate instructions near 2 KB, so the grammar inventory stays
+    // with `octocode scheme` rather than being appended here.
+    instructions: buildMcpInstructions(availableTools.map(tool => tool.name)),
   });
   const registerTool = server.registerTool.bind(server) as RegisterTool;
 

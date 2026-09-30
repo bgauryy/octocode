@@ -664,39 +664,88 @@
     "id": "ghGetHistoryItem.curated-2",
     "tool": "ghGetHistoryItem",
     "input": {
-      "goal": "Show the large PR file inventory without patches; follow returned pages result.",
-      "reasoning": "Use ghGetHistoryItem for the large PR file inventory without patches; follow returned pages example.",
+      "goal": "Show the large PR: only patch lines matching a literal result.",
+      "reasoning": "Use ghGetHistoryItem for the large PR: only patch lines matching a literal example.",
       "operation": "pullRequest",
       "owner": "microsoft",
       "repo": "TypeScript",
       "number": 51387,
       "content": {
-        "changedFiles": true
+        "patches": {
+          "mode": "all"
+        }
       },
-      "pageSize": 100
+      "matchString": "esbuild",
+      "matchContext": 0
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
-          "goal": "Show the large PR file inventory without patches; follow returned pages result.",
-          "reasoning": "Use ghGetHistoryItem for the large PR file inventory without patches; follow returned pages example.",
+          "goal": "Show the large PR: only patch lines matching a literal result.",
+          "reasoning": "Use ghGetHistoryItem for the large PR: only patch lines matching a literal example.",
           "debug": false,
           "owner": "microsoft",
           "repo": "TypeScript",
-          "pageSize": 100,
           "content": {
-            "changedFiles": true
+            "patches": {
+              "mode": "all"
+            }
           },
+          "matchString": "esbuild",
           "minify": "standard",
           "operation": "pullRequest",
-          "number": 51387
+          "number": 51387,
+          "matchContext": 0
         }
       ]
     }
   },
   {
     "id": "ghGetHistoryItem.curated-3",
+    "tool": "ghGetHistoryItem",
+    "input": {
+      "goal": "Show the large PR: renamed files only result.",
+      "reasoning": "Use ghGetHistoryItem for the large PR: renamed files only example.",
+      "operation": "pullRequest",
+      "owner": "rust-lang",
+      "repo": "rust",
+      "number": 157558,
+      "content": {
+        "changedFiles": true
+      },
+      "fileFilter": {
+        "status": [
+          "renamed"
+        ]
+      }
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the large PR: renamed files only result.",
+          "reasoning": "Use ghGetHistoryItem for the large PR: renamed files only example.",
+          "debug": false,
+          "owner": "rust-lang",
+          "repo": "rust",
+          "content": {
+            "changedFiles": true
+          },
+          "minify": "standard",
+          "operation": "pullRequest",
+          "number": 157558,
+          "fileFilter": {
+            "status": [
+              "renamed"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghGetHistoryItem.curated-4",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the selected raw patch; follow returned character windows result.",
@@ -740,7 +789,7 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-4",
+    "id": "ghGetHistoryItem.curated-5",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the issue detail result.",
@@ -779,7 +828,7 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-5",
+    "id": "ghGetHistoryItem.curated-6",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the exact commit result.",
@@ -808,7 +857,7 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-6",
+    "id": "ghGetHistoryItem.curated-7",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the compare two refs (base...head) result.",
@@ -840,7 +889,7 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-7",
+    "id": "ghGetHistoryItem.curated-8",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the pullRequest result.",
@@ -867,7 +916,7 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-8",
+    "id": "ghGetHistoryItem.curated-9",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the issue result.",
@@ -894,7 +943,7 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-9",
+    "id": "ghGetHistoryItem.curated-10",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the commit result.",
@@ -923,7 +972,7 @@
     }
   },
   {
-    "id": "ghGetHistoryItem.curated-10",
+    "id": "ghGetHistoryItem.curated-11",
     "tool": "ghGetHistoryItem",
     "input": {
       "goal": "Show the compare result.",

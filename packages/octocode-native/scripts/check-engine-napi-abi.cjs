@@ -16,7 +16,7 @@
  * Return types are not compared for the same reason; names + kind + arity are.
  *
  * Exit 0 = surfaces match. Exit 1 = drift (fail the build). Exit 2 = snapshot
- * missing (run `yarn build:dev` first).
+ * missing (run `node skills-dev/octocode-dev/scripts/dev.mjs build:dev` first).
  */
 'use strict';
 
@@ -90,7 +90,7 @@ function main() {
   if (!existsSync(SNAPSHOT)) {
     console.error(
       `check-napi-abi: no ABI snapshot at ${SNAPSHOT}.\n` +
-        `Run \`yarn build:dev\` (or \`yarn build\`) first — scripts/build-native.cjs writes it.`
+        `Run \`node skills-dev/octocode-dev/scripts/dev.mjs build:dev\` (or \`node skills-dev/octocode-dev/scripts/dev.mjs build\`) first — scripts/build-native.cjs writes it.`
     );
     process.exit(2);
   }

@@ -127,8 +127,8 @@ fn collapse_shared_failure(pages: Vec<PageOutcome>) -> Vec<PageOutcome> {
     }]
 }
 
-/// A page whose every answer is a located window needs no page read: the
-/// windows are the reads.
+/// A page whose every answer is a located window needs no whole-page read:
+/// its read narrows to the top window, so the answer is one exact call away.
 fn only_located(answers: &[Result<Value, ClassificationError>]) -> bool {
     !answers.is_empty()
         && answers.iter().all(|answer| {
@@ -136,6 +136,70 @@ fn only_located(answers: &[Result<Value, ClassificationError>]) -> bool {
                 .as_ref()
                 .is_ok_and(|data| data["answer"]["type"] == "locate")
         })
+}
+
+/// Query fields that select a different slice than an explicit line range.
+const SLICE_FIELDS: [&str; 9] = [
+    "fullContent",
+    "matchString",
+    "matchStringIsRegex",
+    "matchStringCaseSensitive",
+    "contextLines",
+    "charOffset",
+    "charLength",
+    "offset",
+    "chunkSize",
+];
+
+/// Point a located page's `next.read` at its most probable window. Without a
+/// line-addressable file read, or when the window names another file, the
+/// page read would only repeat the windows and is dropped.
+fn narrow_read_to_top_window(
+    page: &mut Map<String, Value>,
+    answers: &[Result<Value, ClassificationError>],
+) {
+    let top = answers
+        .iter()
+        .filter_map(|answer| answer.as_ref().ok())
+        .flat_map(|data| data["answer"]["matches"].as_array().into_iter().flatten())
+        .filter(|window| {
+            window["startLine"]
+                .as_u64()
+                .zip(window["endLine"].as_u64())
+                .is_some_and(|(start, end)| start >= 1 && end >= start)
+        })
+        .max_by(|left, right| {
+            let key = |window: &Value| window["probability"].as_f64().unwrap_or(0.0);
+            key(left)
+                .partial_cmp(&key(right))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    let narrowed = top.and_then(|window| {
+        let mut read = page.get("next")?.get("read")?.clone();
+        if !matches!(read["tool"].as_str(), Some("localFetch" | "ghGetFileContent")) {
+            return None;
+        }
+        if let Some(path) = window.get("path")
+            && read["query"].get("path") != Some(path)
+        {
+            return None;
+        }
+        let query = read.get_mut("query")?.as_object_mut()?;
+        for field in SLICE_FIELDS {
+            query.remove(field);
+        }
+        query.insert("startLine".into(), window["startLine"].clone());
+        query.insert("endLine".into(), window["endLine"].clone());
+        Some(read)
+    });
+    match narrowed {
+        Some(read) => {
+            page.insert("next".into(), json!({"read":read}));
+        }
+        None => {
+            page.remove("next");
+        }
+    }
 }
 
 /// Render one resource. `question_ids` orders the per-page answer map.
@@ -163,7 +227,7 @@ pub(super) fn resource(
                 terminal_partial = receipt["coverage"] == "partial";
                 let mut page = page_base(&receipt);
                 if only_located(&answers) {
-                    page.remove("next");
+                    narrow_read_to_top_window(&mut page, &answers);
                 }
                 let mut by_question = Map::new();
                 for (id, answer) in question_ids.iter().zip(answers) {
@@ -452,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn located_pages_state_shared_limits_once_and_no_redundant_reads() {
+    fn located_pages_state_shared_limits_once_and_read_the_top_window() {
         let ids = [json!("q")];
         let ids = ids.iter().collect::<Vec<_>>();
         let limit = "Only a bounded candidate chunk was assessed; unread file content may change the verdict.";
@@ -475,8 +539,11 @@ mod tests {
         assert_eq!(rendered["limitations"], json!([limit]), "{rendered}");
         for page in rendered["pages"].as_array().unwrap() {
             assert!(page.get("limitations").is_none(), "{page}");
-            // The located windows are the reads; the chunk read repeats them.
-            assert!(page.get("next").is_none(), "{page}");
+            // The read narrows to the top located window: one exact call.
+            let query = &page["next"]["read"]["query"];
+            assert_eq!(query["startLine"], 2, "{page}");
+            assert_eq!(query["endLine"], 5, "{page}");
+            assert_eq!(query["path"], page["source"]["path"], "{page}");
             assert!(page["source"].get("modified").is_none(), "{page}");
             assert!(page["source"]["path"].is_string(), "{page}");
         }

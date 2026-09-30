@@ -2,7 +2,7 @@
 
 ## Context budget: tool schemas and instructions
 
-Measured 2026-09-29 with `skills-beta/octocode-context-audit` and a live MCP `tools/list` (13 tools):
+Measured 2026-09-29 with `skills-dev/octocode-context-audit` and a live MCP `tools/list` (13 tools):
 
 | Part | Chars | Share |
 |---|---|---|

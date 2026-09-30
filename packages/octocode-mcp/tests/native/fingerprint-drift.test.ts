@@ -75,6 +75,10 @@ describe('native/core contract identity', () => {
     })();
     expect(error?.message).toContain('0'.repeat(64));
     expect(error?.message).toContain(getNativeContractFingerprint());
+    // The override hint names every condition it needs: the bundled dist
+    // honors it only under NODE_ENV=development (never production).
+    expect(error?.message).toContain('OCTOCODE_ALLOW_CONTRACT_DRIFT=1');
+    expect(error?.message).toContain('NODE_ENV=development');
     expect(created.every(runtime => runtime.closed)).toBe(true);
     expect(stderr).not.toHaveBeenCalled();
   });

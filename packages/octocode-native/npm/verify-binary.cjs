@@ -163,6 +163,7 @@ try {
         path: fixture,
         searchText: 'packaged_binary_needle',
         regex: 'literal',
+        goal: 'Smoke-test the staged native CLI.',
         reasoning: 'Verify the staged native CLI can search a retained-language fixture',
       }),
     ],
@@ -178,6 +179,7 @@ try {
       JSON.stringify({
         operation: 'files',
         path: fixture,
+        goal: 'Smoke-test the staged native CLI.',
         reasoning: 'Verify the staged native CLI can list mixed-language fixture files',
       }),
     ],
@@ -194,6 +196,7 @@ try {
         operation: 'documentSymbols',
         uri: notes,
         workspaceRoot: fixture,
+        goal: 'Smoke-test the staged native CLI.',
         reasoning: 'Verify unavailable semantic routing remains a typed staged-CLI error',
       }),
     ],

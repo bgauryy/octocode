@@ -166,6 +166,10 @@ pub(crate) struct ResolveContext {
     manifests: BTreeMap<String, Arc<Manifest>>,
     /// Python import roots: `.`, `src`, and project roots (pyproject/setup).
     python_roots: Vec<String>,
+    /// Dotted package name of the scan root itself when the root is a
+    /// package (`django` for a scan of `python/django/`), so absolute
+    /// imports naming it resolve inside the scan.
+    python_package: Option<String>,
     /// C/C++ quoted-include search directories after the importer's own.
     include_dirs: Vec<String>,
     /// `-I` directories from compile_commands.json (also for `<...>`).
@@ -345,6 +349,7 @@ impl ResolveContext {
         }
         roots.truncate(MAX_PYTHON_ROOTS);
         self.python_roots = roots;
+        self.python_package = enclosing_python_package(root);
     }
 
     fn load_include_dirs(&mut self, root: &Path, paths: &PathPolicy) {
@@ -458,6 +463,17 @@ impl ResolveContext {
             return true;
         }
         split_package(spec).is_some_and(|(package, _)| self.packages.contains_key(package))
+    }
+
+    /// The scan-root-relative module for an absolute import that names the
+    /// scan root's own package: `django.utils.text` → `utils.text` under a
+    /// scan of `django/`, and `""` for the package itself.
+    pub(crate) fn python_package_local<'s>(&self, spec: &'s str) -> Option<&'s str> {
+        let package = self.python_package.as_deref()?;
+        if spec == package {
+            return Some("");
+        }
+        spec.strip_prefix(package)?.strip_prefix('.')
     }
 
     /// Python import roots ordered for `importer`: roots containing the
@@ -1143,6 +1159,24 @@ fn compile_command_include_dirs(root: &Path, file: &Path, paths: &PathPolicy) ->
         }
     }
     dirs
+}
+
+/// Package directories above a scan root searched for the root's name.
+const MAX_PYTHON_PACKAGE_DEPTH: usize = 16;
+
+/// The dotted package name of `root` when it is a Python package (holds
+/// `__init__.py`): its directory name, prefixed by every enclosing package.
+fn enclosing_python_package(root: &Path) -> Option<String> {
+    let is_package =
+        |dir: &Path| dir.join("__init__.py").is_file() || dir.join("__init__.pyi").is_file();
+    let mut names = Vec::new();
+    let mut dir = root;
+    while is_package(dir) && names.len() < MAX_PYTHON_PACKAGE_DEPTH {
+        names.push(dir.file_name()?.to_string_lossy().into_owned());
+        dir = dir.parent()?;
+    }
+    names.reverse();
+    (!names.is_empty()).then(|| names.join("."))
 }
 
 #[cfg(test)]

@@ -37,23 +37,23 @@ jobs:
       - name: Build
         # build:ci builds the consolidated host runtime and engine addons once,
         # then compiles dependent packages.
-        run: yarn build:ci
+        run: node skills-dev/octocode-dev/scripts/dev.mjs build:ci
 
       - name: Verify docs
-        run: yarn docs:verify
+        run: node skills-dev/octocode-dev/scripts/dev.mjs docs:verify
 
       - name: Lint
         # Native Rust/clippy runs in the target-specific native workflows.
-        run: yarn lint:ci
+        run: node skills-dev/octocode-dev/scripts/dev.mjs lint:ci
 
       - name: Verify build outputs
-        run: node scripts/workspace-health.mjs check-outputs
+        run: node skills-dev/octocode-dev/scripts/workspace-health.mjs check-outputs
 
       - name: Typecheck
-        run: yarn typecheck:ci
+        run: node skills-dev/octocode-dev/scripts/dev.mjs typecheck:ci
 
       - name: Test
-        run: yarn test:ci
+        run: node skills-dev/octocode-dev/scripts/dev.mjs test:ci
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

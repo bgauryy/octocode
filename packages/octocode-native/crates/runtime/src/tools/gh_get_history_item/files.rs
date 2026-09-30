@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 
 /// Changed-file selection shared by the provider scan and output shaping.
+#[derive(Clone, Copy)]
 pub(super) struct FileFilter<'a> {
     pub(super) selected: &'a [String],
     pub(super) needle: Option<&'a str>,
@@ -268,6 +269,11 @@ pub(super) struct ShapedFiles {
     pub(super) no_selected_match: bool,
     /// The page's first file path (the `getSelectedPatches` template).
     pub(super) first_path: Option<String>,
+    /// In-scope text files a `matchString` could not search because GitHub
+    /// sent no patch for them, as compact `!reason path` rows.
+    pub(super) unsearched: Vec<String>,
+    /// The first of those paths (the source-read template).
+    pub(super) first_unsearched: Option<String>,
 }
 
 /// Shape a pull request's changed-file page into `row`: compact inventory
@@ -296,6 +302,15 @@ pub(super) fn shape_pr_files(
         needle: needle.as_deref(),
         scope,
     };
+    let unsearched = match needle.as_deref() {
+        Some(needle) if patch_mode != "none" => unsearched_files(&files, &filter, needle),
+        _ => Vec::new(),
+    };
+    let first_unsearched = unsearched.first().map(|(_, path)| path.clone());
+    let unsearched = unsearched
+        .into_iter()
+        .map(|(reason, path)| format!("!{reason} {path}"))
+        .collect::<Vec<_>>();
     let filtered = files
         .into_iter()
         .filter(|file| filter.matches(file))
@@ -342,6 +357,8 @@ pub(super) fn shape_pr_files(
         return ShapedFiles {
             no_selected_match: false,
             first_path,
+            unsearched,
+            first_unsearched,
         };
     }
     let shaped = patches
@@ -376,7 +393,35 @@ pub(super) fn shape_pr_files(
     ShapedFiles {
         no_selected_match: selection_requested && !selected_path_matched && state.exhausted,
         first_path,
+        unsearched,
+        first_unsearched,
     }
+}
+
+/// Scanned files a patch search skipped: selected and in scope, but GitHub
+/// sent no patch (too large, or omitted past the diff budget) and the path
+/// itself does not match. Binary files hold no text to search. Only REST
+/// entries (with a blob `sha`) say anything about patches.
+fn unsearched_files(
+    files: &[Value],
+    filter: &FileFilter<'_>,
+    needle: &str,
+) -> Vec<(&'static str, String)> {
+    let scope_only = FileFilter {
+        needle: None,
+        ..*filter
+    };
+    files
+        .iter()
+        .filter(|file| {
+            file.get("patch").is_none() && file.get("sha").is_some() && scope_only.matches(file)
+        })
+        .filter_map(|file| {
+            let reason = missing_patch_reason(file).filter(|r| *r != "binary")?;
+            let path = str_at(file, "/filename")?;
+            (!path.to_lowercase().contains(needle)).then(|| (reason, path.to_owned()))
+        })
+        .collect()
 }
 
 fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {

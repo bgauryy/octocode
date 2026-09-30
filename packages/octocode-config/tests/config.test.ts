@@ -201,6 +201,9 @@ describe('PROTECTED_KEYS', () => {
       'OCTOCODE_SCALA_SERVER_PATH',
       'OCTOCODE_ASM_SERVER_PATH',
       'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
+      // Storage mode decides what persists on disk: home-trusted only.
+      'OCTOCODE_STORAGE_MODE',
+      'OCTOCODE_EXTENSION_STORAGE_MODE',
       'OCTOCODE_CARGO',
       'GITHUB_API_URL',
       'OCTOCODE_BETA',

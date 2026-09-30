@@ -404,8 +404,9 @@ pub(super) fn collapse_locate_answer(
 
 /// Locate candidates across every page and resource of one query, ordered by
 /// `exists` and then window probability (never their product: probability
-/// only ranks passages within a page that answers). Present only when a
-/// question has more than one candidate window.
+/// only ranks passages within a page that answers). A single window is kept:
+/// it travels in `carry` and may be the answer, though `best` shows it only
+/// once a second window joins (see `readable_best`).
 pub(super) fn rank_locate(
     resources: &[Value],
     locate_ids: &[&str],
@@ -449,7 +450,7 @@ pub(super) fn rank_locate(
                 }
             }
         }
-        if rows.len() < 2 {
+        if rows.is_empty() {
             continue;
         }
         let key = |row: &Value, field: &str| row[field].as_f64().unwrap_or(0.0);
@@ -470,21 +471,21 @@ pub(super) fn rank_locate(
 }
 
 /// Publish `best` when the walk is finished, or when its top window already
-/// answers. A low-exists ranking on an open walk stays in `carry` only.
+/// answers. A low-exists ranking on an open walk stays in `carry` only, and
+/// so does a lone window: public `best` rows are a 2–3 window ranking.
 pub(super) fn readable_best(best: &Value, walk_open: bool) -> Option<Value> {
-    if !walk_open {
-        return Some(best.clone());
-    }
     let mut kept = Map::new();
     for (id, rows) in best.as_object()? {
+        let Some(rows) = rows.as_array().filter(|rows| rows.len() >= 2) else {
+            continue;
+        };
         let top = rows
-            .as_array()
-            .and_then(|rows| rows.first())
+            .first()
             .and_then(|row| row.get("exists"))
             .and_then(Value::as_f64)
             .unwrap_or(0.0);
-        if top >= RUNNER_UP_MIN_EXISTS {
-            kept.insert(id.clone(), rows.clone());
+        if !walk_open || top >= RUNNER_UP_MIN_EXISTS {
+            kept.insert(id.clone(), Value::Array(rows.clone()));
         }
     }
     (!kept.is_empty()).then_some(Value::Object(kept))
@@ -496,12 +497,13 @@ fn is_candidate_row(row: &Value) -> bool {
             .as_f64()
             .is_some_and(|p| (0.0..=1.0).contains(&p))
     };
-    let line = |field: &str| row[field].as_u64().is_some_and(|line| line >= 1);
+    let line = |field: &str| row[field].as_u64().filter(|line| *line >= 1);
     row["resourceId"].is_string()
         && probability("exists")
         && probability("probability")
         && line("startLine")
-        && line("endLine")
+            .zip(line("endLine"))
+            .is_some_and(|(start, end)| end >= start)
         && row
             .get("path")
             .is_none_or(|path| path.as_str().is_some_and(|path| !path.is_empty()))
@@ -709,13 +711,21 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(lines, vec![900, 700, 1]);
         assert_eq!(best["t"][0]["resourceId"], "r");
+        // A single strong window is kept for carry, though not yet public.
         let single = vec![json!({"resourceId":"r","pages":[page("a.js", 0.9, 0.9, 1)]})];
-        assert!(rank_locate(&single, &["t"], None).is_none());
-        // A carried row from an earlier call joins the ranking; a malformed
-        // one is ignored.
+        let lone = rank_locate(&single, &["t"], None).unwrap();
+        assert_eq!(lone["t"].as_array().unwrap().len(), 1);
+        assert!(readable_best(&lone, false).is_none());
+        assert!(readable_best(&lone, true).is_none());
+        // A lone carried row survives the next call with no new windows.
+        let carried = rank_locate(&[], &["t"], Some(&lone)).unwrap();
+        assert_eq!(carried["t"][0]["startLine"], 1);
+        // A carried row from an earlier call joins the ranking; malformed
+        // ones (out-of-range values, an inverted window) are ignored.
         let carry = json!({"t":[
             {"resourceId":"r","exists":0.99,"startLine":5,"endLine":12,"probability":0.9},
-            {"resourceId":"r","exists":2.0,"startLine":0,"endLine":1,"probability":0.9}
+            {"resourceId":"r","exists":2.0,"startLine":0,"endLine":1,"probability":0.9},
+            {"resourceId":"r","exists":0.98,"startLine":40,"endLine":39,"probability":0.9}
         ]});
         let merged = rank_locate(&single, &["t"], Some(&carry)).unwrap();
         assert_eq!(merged["t"][0]["startLine"], 5);

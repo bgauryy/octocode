@@ -28,18 +28,18 @@ the engine Vitest suite.
 Useful local commands before opening a PR:
 
 ```bash
-yarn health:check
-yarn docs:verify
-yarn lint
-yarn typecheck
-yarn build
-yarn test
+node skills-dev/octocode-dev/scripts/dev.mjs health:check
+node skills-dev/octocode-dev/scripts/dev.mjs docs:verify
+node skills-dev/octocode-dev/scripts/dev.mjs lint
+node skills-dev/octocode-dev/scripts/dev.mjs typecheck
+node skills-dev/octocode-dev/scripts/dev.mjs build
+node skills-dev/octocode-dev/scripts/dev.mjs test
 ```
 
 To run the full repository contract in one command, use:
 
 ```bash
-yarn verify
+node skills-dev/octocode-dev/scripts/dev.mjs verify
 ```
 
 ## Manual Releases
@@ -51,4 +51,4 @@ release order and verification checklist.
 ## Maintenance Notes
 
 - Keep this file aligned with the actual workflow files in this directory.
-- `yarn docs:verify` fails if this README references a workflow that does not exist.
+- `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify` fails if this README references a workflow that does not exist.

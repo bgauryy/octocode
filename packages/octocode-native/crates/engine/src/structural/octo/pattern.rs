@@ -424,8 +424,11 @@ impl CompiledPattern {
         // `false` result leaves the caller's environment unchanged.
         let checkpoint = captures.checkpoint();
         let matched = loop {
+            // ast-grep "smart" strictness, which rewrite uses: once every
+            // pattern node matched, trailing candidate nodes (a trailing
+            // argument comma, a `;` the pattern omitted) do not fail it.
             let Some(first) = pattern_children.first().copied() else {
-                break candidate_children.is_empty();
+                break true;
             };
             let multi = match meta_from_node(first, pattern_source, self.expando) {
                 Some(MetaVar::Multi(name)) => Some(name),
@@ -456,6 +459,13 @@ impl CompiledPattern {
                 depth + 1,
                 budget,
             )? {
+                // Smart strictness again: every pattern node must match, but
+                // candidate trivia the pattern did not spell (punctuation,
+                // comments) is skipped rather than failing the match.
+                if is_skippable_candidate(candidate_first) {
+                    candidate_children = &candidate_children[1..];
+                    continue;
+                }
                 break false;
             }
             pattern_children = &pattern_children[1..];
@@ -522,6 +532,12 @@ impl CompiledPattern {
         }
         Ok(false)
     }
+}
+
+/// Candidate nodes a pattern need not spell: anonymous tokens and extras
+/// such as comments (ast-grep's smart strictness).
+fn is_skippable_candidate(node: Node<'_>) -> bool {
+    !node.is_named() || node.is_extra()
 }
 
 /// Opening/self-closing JSX elements: the nodes `<$T>` matches.

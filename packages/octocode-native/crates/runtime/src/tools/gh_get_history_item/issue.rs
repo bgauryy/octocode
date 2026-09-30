@@ -7,10 +7,40 @@ use super::util::{
 };
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch, validation};
 use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorReason, RequestContext,
+    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
+    RequestContext,
 };
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
+
+/// A pull-request read that 404ed: when the number is an issue, say so with
+/// a typed reason (the caller offers the issue read); otherwise keep the
+/// original not-found.
+pub(super) async fn name_issue_number<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    not_found: ProviderError,
+) -> ProviderError {
+    let Some(number) = query.number().map(|number| number.to_string()) else {
+        return not_found;
+    };
+    let issue_path = ["repos", query.owner(), query.repo(), "issues", &number];
+    match fetch(transport, &issue_path, &[], context).await {
+        Ok((raw, _)) if raw.get("pull_request").is_none_or(Value::is_null) => {
+            let mut error = ProviderError::new(
+                ProviderErrorKind::NotFound,
+                format!(
+                    "#{number} is an issue, not a pull request; read it with operation:\"issue\"."
+                ),
+            )
+            .with_reason(ProviderErrorReason::PullRequestIsIssue);
+            error.status = not_found.status;
+            error
+        }
+        _ => not_found,
+    }
+}
 
 pub(super) async fn issue<R: CredentialResolver>(
     transport: &GitHubTransport<R>,

@@ -969,6 +969,8 @@ fn class_and_interface_heritage_are_edges() {
             (s("extends"), s("I"), s("J"), 2),
             (s("extends"), s("I"), s("K.L"), 2),
             (s("extends"), s("Inner"), s("outer.Base"), 4),
+            // A class declared in a function body is a nested declaration.
+            (s("extends"), s("Local"), s("A"), 6),
         ]
     );
     let js = graph("class A extends React.Component {}\n", "a.js");
@@ -976,4 +978,44 @@ fn class_and_interface_heritage_are_edges() {
         heritage_edges(&js),
         vec![(s("extends"), s("A"), s("React.Component"), 1)]
     );
+}
+
+/// Named functions declared inside function and method bodies are
+/// declarations too, parented to their enclosing declaration, as the
+/// tree-sitter extractors report nested Python and Rust functions.
+#[test]
+fn nested_function_declarations_carry_their_parent() {
+    let src = "export function outer() {\n  function innerA() { return 1; }\n  const innerB = () => 2;\n  const local = 3;\n  if (local) { function guarded() {} }\n  return innerA() + innerB();\n}\nexport class K {\n  method() { function deep() {} return deep; }\n}\nexport const run = () => [1].map(function callback() { function inCallback() {} });\n";
+    let facts: Value =
+        serde_json::from_str(&extract_declarations(src, "n.ts").expect("declarations"))
+            .expect("json");
+    let declarations = facts["declarations"].as_array().expect("declarations");
+    let parent_of = |name: &str| {
+        let row = declarations
+            .iter()
+            .find(|d| d["name"] == name)
+            .unwrap_or_else(|| panic!("missing {name}: {facts}"));
+        let parent = row["parent"].as_str().expect("nested row has a parent");
+        declarations
+            .iter()
+            .find(|d| d["id"] == parent)
+            .and_then(|d| d["name"].as_str())
+            .expect("parent resolves")
+            .to_owned()
+    };
+    assert_eq!(parent_of("innerA"), "outer");
+    assert_eq!(parent_of("innerB"), "outer");
+    assert_eq!(parent_of("guarded"), "outer");
+    assert_eq!(parent_of("deep"), "method");
+    // Locals that are not functions, and expressions that are not
+    // declarations, stay out of the outline.
+    for absent in ["local", "callback"] {
+        assert!(
+            declarations.iter().all(|d| d["name"] != absent),
+            "{absent}: {facts}"
+        );
+    }
+    // A declaration inside an anonymous callback belongs to the enclosing
+    // named declaration.
+    assert_eq!(parent_of("inCallback"), "run");
 }

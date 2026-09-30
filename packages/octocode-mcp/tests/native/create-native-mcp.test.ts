@@ -474,7 +474,9 @@ describe('createNativeMcp registration + execution', () => {
     await instance.close();
   });
 
-  it('delivers the native grammar inventory when AST search is available', async () => {
+  // Hosts truncate server instructions near 2 KB; the grammar inventory is
+  // served by `octocode scheme`, not the MCP instructions.
+  it('keeps the grammar inventory out of the size-bounded MCP instructions', async () => {
     const instance = createNativeMcp({
       env: {},
       binding: bindingFor(() => ({
@@ -500,11 +502,10 @@ describe('createNativeMcp registration + execution', () => {
       instance.server.connect(serverTransport),
       client.connect(clientTransport),
     ]);
-    expect(client.getInstructions()).toContain(
-      'Runtime grammar inventory (structural+outline+graph unless noted): Rust (rust: .rs)'
-    );
-    // Only astSearch is registered, so the grammar note must not name astTopology.
+    expect(client.getInstructions()).not.toContain('Runtime grammar inventory');
+    expect(client.getInstructions()).toContain('astSearch');
     expect(client.getInstructions()).not.toContain('astTopology');
+    expect(client.getInstructions()!.length).toBeLessThanOrEqual(2_000);
     await client.close();
     await instance.close();
   });

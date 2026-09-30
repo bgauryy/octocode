@@ -351,8 +351,15 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
         .as_object()
         .map(|next| next.keys().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    assert_eq!(actions.first().map(String::as_str), Some("findInPatches"), "{first_row}");
-    assert_eq!(first_row["next"]["findInPatches"]["query"]["matchContext"], 0);
+    assert_eq!(
+        actions.first().map(String::as_str),
+        Some("findInPatches"),
+        "{first_row}"
+    );
+    assert_eq!(
+        first_row["next"]["findInPatches"]["query"]["matchContext"],
+        0
+    );
 
     let data = run(&server, follow).await;
     let row = &data["pullRequests"][0];
@@ -526,4 +533,86 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         json!(["src/big.rs"]),
         "{data}"
     );
+}
+
+/// D1: `matchString` searches patches, so a pull-request read with a
+/// literal and no content selection searches every patch (within
+/// `fileFilter`) instead of silently returning only the summary.
+#[tokio::test]
+async fn match_string_without_content_searches_the_filtered_patches() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 3).await;
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/mod/a.ts", Some("@@ -1 +1 @@\n-x\n+import y"), 1, 1),
+            rest_file("src/mod/b.ts", Some("@@ -1 +1 @@\n-x\n+z"), 1, 1),
+            rest_file("lib/c.ts", Some("@@ -1 +1 @@\n-x\n+import w"), 1, 1),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"matchString": "import", "matchContext": 0,
+               "fileFilter": {"paths": ["src/mod/**"]}, "debug": false}),
+    )
+    .await;
+    let files = data["pullRequests"][0]["changedFiles"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let paths = files
+        .iter()
+        .filter_map(|file| file["path"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, vec!["src/mod/a.ts"], "{data}");
+    assert!(
+        files[0]["patch"]
+            .as_str()
+            .unwrap_or("")
+            .contains("+import y"),
+        "{data}"
+    );
+}
+
+/// D2: a patch search never implies absence for files GitHub sent without a
+/// patch: it lists them, marks the row partial, and offers a source read at
+/// the PR head.
+#[tokio::test]
+async fn match_string_lists_the_patchless_files_it_could_not_search() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 4).await;
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/hit.ts", Some("@@ -1 +1 @@\n-x\n+import y"), 1, 1),
+            rest_file("src/module.ts", None, 900, 12),
+            rest_file("src/system.ts", None, 0, 0),
+            rest_file("assets/logo.png", None, 0, 0),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"patches": {"mode": "all"}}, "matchString": "import",
+               "debug": false}),
+    )
+    .await;
+    assert_eq!(data["isPartial"], true, "{data}");
+    let reasons = data["partialReasons"].to_string();
+    assert!(reasons.contains("patchUnavailable"), "{data}");
+    let unsearched = data["pullRequests"][0]["unsearchedFiles"].to_string();
+    assert!(unsearched.contains("src/module.ts"), "{data}");
+    assert!(unsearched.contains("src/system.ts"), "{data}");
+    assert!(
+        !unsearched.contains("logo.png"),
+        "binary is not text: {data}"
+    );
+    let read = &data["next"]["searchUnpatchedFile"];
+    assert_eq!(read["tool"], "ghGetFileContent", "{data}");
+    assert_eq!(read["query"]["branch"], SHA, "{data}");
+    assert_eq!(read["query"]["matchString"], "import", "{data}");
+    assert_eq!(read["query"]["path"], "src/module.ts", "{data}");
 }

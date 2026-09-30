@@ -297,15 +297,19 @@ fn auth_login_and_skill_fail_closed() {
 fn auth_status_honors_personal_access_token_alias() {
     let workspace = Workspace::new();
     for argv in [vec!["auth", "--json"], vec!["auth", "status", "--json"]] {
+        // Unreachable API: the token cannot be verified, so it stays
+        // authenticated but says so.
         let output = workspace
             .cli()
             .env("GITHUB_PERSONAL_ACCESS_TOKEN", "fixture-pat")
+            .env("GITHUB_API_URL", "http://127.0.0.1:1/api/v3")
             .args(&argv)
             .output()
             .expect("auth status");
         assert!(output.status.success(), "{}", stderr(&output));
         let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("auth json");
         assert_eq!(value["authenticated"], true, "{argv:?}");
+        assert_eq!(value["verification"], "unverified", "{argv:?}");
         assert_eq!(value["tokenSource"], "env", "{argv:?}");
     }
 }

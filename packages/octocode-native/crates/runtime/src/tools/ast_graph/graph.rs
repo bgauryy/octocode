@@ -3,13 +3,14 @@ use super::cargo::{CargoCrates, load_cargo_crates};
 use super::packages::{PackageIndex, PackageLink};
 use super::types::*;
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
+    policy::{gitignore::GitignoreFilter, path::PathPolicy},
+    security::ContentSecurity,
+    tools::cancel::CancellationCheck,
 };
 use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex},
 };
 
 /// Scan options beyond the public astTopology query (used by persisted
@@ -172,7 +173,17 @@ pub(crate) fn build_graph_with(
         CargoCrates::default()
     };
     let resolve_context = ResolveContext::load(&built.root, &known, paths, security);
-    let packages = PackageIndex::build(&built.root, &known);
+    let packages = PackageIndex::build(&built.root, &known, &|path| {
+        paths.validate_read(path).is_ok()
+    });
+    if packages.go_module_missing() {
+        built.diagnostics.push(Diagnostic {
+            file: ".".into(),
+            line: None,
+            code: "unsupported-linking".into(),
+            message: "No readable go.mod at or above the scan root, so Go module imports cannot be linked and dependents are unproven. Point astTopology at the module root (the directory with go.mod).".into(),
+        });
+    }
     for skipped in scan.skipped {
         built.diagnostics.push(Diagnostic {
             file: normalize(&skipped.relative_path),
@@ -600,6 +611,54 @@ fn link_file(
             used_in: i.used_in,
         });
     }
+    if ext == "java" {
+        // Same-package classes need no import: link the classes a call
+        // receiver, constructor, or heritage clause names.
+        let mut named = BTreeMap::<&str, u32>::new();
+        let uses = p
+            .calls
+            .iter()
+            .flat_map(|call| {
+                let head = call
+                    .callee
+                    .split(['.', '(', '<'])
+                    .next()
+                    .unwrap_or_default();
+                [Some(head), call.receiver_type.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .map(|name| (name, call.line))
+            })
+            .chain(
+                p.edges
+                    .iter()
+                    .filter(|edge| matches!(edge.relation.as_str(), "extends" | "implements"))
+                    .map(|edge| {
+                        (
+                            edge.to.split(['.', '<']).next().unwrap_or_default(),
+                            edge.line,
+                        )
+                    }),
+            );
+        for (name, line) in uses {
+            let first = named.entry(name).or_insert(line);
+            *first = (*first).min(line);
+        }
+        for (name, line) in named {
+            if let Some(target) = packages.same_package_class(&file, name) {
+                let target = target.to_owned();
+                add_edge(
+                    b,
+                    graph_builder.as_deref_mut(),
+                    &file,
+                    &mut node,
+                    &target,
+                    edge_kind(&ext, "value"),
+                    line,
+                )?;
+            }
+        }
+    }
     for x in p.exports {
         if let Some(spec) = x.source {
             let target = resolve(
@@ -895,7 +954,24 @@ fn resolve(
             imported,
             known,
             &ctx.python_roots_for(importer),
-        );
+        )
+        .or_else(|| {
+            // An absolute import naming the scan root's own package.
+            let local = ctx
+                .python_package_local(spec)
+                .filter(|_| hint == Some("python-absolute"))?;
+            if local.is_empty() {
+                return ["__init__.py", "__init__.pyi"]
+                    .into_iter()
+                    .flat_map(|init| {
+                        [format!("{imported}.py"), format!("{imported}/{init}")]
+                            .into_iter()
+                            .chain([init.to_owned()])
+                    })
+                    .find(|file| known.contains(file));
+            }
+            resolve_python(local, importer, hint, imported, known, &["."])
+        });
     }
     if is_c_family_extension(ext) {
         let quoted = match hint {
@@ -1333,101 +1409,6 @@ fn admit_scope(
     );
     error.next = Some(Box::new(serde_json::Value::Object(next)));
     Err(error)
-}
-
-/// `.gitignore` awareness for the scan's per-path filter. Matchers load
-/// lazily per directory (the walk visits directories before their children,
-/// and an ignored directory is pruned whole). Precedence follows git: the
-/// deepest `.gitignore` with a matching rule decides, then ancestors above
-/// the scan root up to the repository root, then `.git/info/exclude`.
-struct GitignoreFilter {
-    root: PathBuf,
-    /// Matchers above the scan root (nearest first), then info/exclude.
-    outer: Vec<ignore::gitignore::Gitignore>,
-    cache: Mutex<HashMap<PathBuf, Option<Arc<ignore::gitignore::Gitignore>>>>,
-}
-
-impl GitignoreFilter {
-    const MAX_OUTER_LEVELS: usize = 32;
-
-    fn new(root: &Path) -> Self {
-        let mut outer = Vec::new();
-        let mut repository = None;
-        for directory in root.ancestors().take(Self::MAX_OUTER_LEVELS) {
-            if directory != root
-                && let Some(matcher) = Self::load(directory, &directory.join(".gitignore"))
-            {
-                outer.push(matcher);
-            }
-            if directory.join(".git").exists() {
-                repository = Some(directory.to_path_buf());
-                break;
-            }
-        }
-        // Only a real repository scopes ancestor ignore files; without one,
-        // unrelated ignore files above the root must not hide sources.
-        let Some(repository) = repository else {
-            outer.clear();
-            return Self {
-                root: root.to_path_buf(),
-                outer,
-                cache: Mutex::default(),
-            };
-        };
-        if let Some(matcher) = Self::load(
-            &repository,
-            &repository.join(".git").join("info").join("exclude"),
-        ) {
-            outer.push(matcher);
-        }
-        Self {
-            root: root.to_path_buf(),
-            outer,
-            cache: Mutex::default(),
-        }
-    }
-
-    fn load(directory: &Path, file: &Path) -> Option<ignore::gitignore::Gitignore> {
-        if !file.is_file() {
-            return None;
-        }
-        let mut builder = ignore::gitignore::GitignoreBuilder::new(directory);
-        // A malformed line is skipped; the remaining rules still apply.
-        let _ = builder.add(file);
-        builder.build().ok().filter(|matcher| !matcher.is_empty())
-    }
-
-    fn matcher(&self, directory: &Path) -> Option<Arc<ignore::gitignore::Gitignore>> {
-        let mut cache = self
-            .cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        cache
-            .entry(directory.to_path_buf())
-            .or_insert_with(|| Self::load(directory, &directory.join(".gitignore")).map(Arc::new))
-            .clone()
-    }
-
-    fn is_ignored(&self, path: &Path) -> bool {
-        if path == self.root || !path.starts_with(&self.root) {
-            return false;
-        }
-        let is_dir = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());
-        let decide = |matcher: &ignore::gitignore::Gitignore| match matcher.matched(path, is_dir) {
-            ignore::Match::Ignore(_) => Some(true),
-            ignore::Match::Whitelist(_) => Some(false),
-            ignore::Match::None => None,
-        };
-        for directory in path.ancestors().skip(1) {
-            if !directory.starts_with(&self.root) {
-                break;
-            }
-            if let Some(decision) = self.matcher(directory).as_deref().and_then(decide) {
-                return decision;
-            }
-        }
-        self.outer.iter().find_map(decide).unwrap_or(false)
-    }
 }
 
 const WORKSPACE_CONTAINERS: &[&str] =

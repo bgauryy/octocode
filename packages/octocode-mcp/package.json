@@ -7,7 +7,7 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
-    "@octocodeai/config": "20.0.0",
+    "@octocodeai/config": "20.1.0",
     "@octocodeai/octocode-native": "20.0.0",
     "zod": "^4.6.2"
   },
@@ -90,12 +90,12 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
-    "build": "yarn clean && node ../../scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
+    "build": "yarn clean && node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
     "build:ci": "yarn verify && yarn build",
-    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node ../../scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
+    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
     "build:publish": "yarn build",
     "build:types": "node ../../node_modules/typescript/bin/tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
-    "build:watch": "node ../../scripts/esbuild-package.mjs --watch",
+    "build:watch": "node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs --watch",
     "clean": "rm -rf dist/",
     "debug": "npx @modelcontextprotocol/inspector node dist/index.js",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",

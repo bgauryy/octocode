@@ -9,7 +9,7 @@ use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use support::{Workspace, call, row_data, row_status};
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 #[derive(Clone)]
@@ -120,7 +120,7 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents"))
-        .and(query_param("ref", "main"))
+        .and(query_param("ref", sha))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([
             {"name":"one.rs","path":"one.rs","type":"file","size":4,"sha":"1".repeat(40)},
             {"name":"two.rs","path":"two.rs","type":"file","size":4,"sha":"2".repeat(40)}
@@ -128,7 +128,7 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/main"))
+        .and(path_regex("/api/v3/repos/a/b/commits/(main|HEAD)$"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
@@ -1161,5 +1161,307 @@ async fn gh_get_history_item_capped_file_scan_is_not_a_complete_count() {
     let rendered = serde_json::to_string(data).expect("json");
     assert!(rendered.contains("terminalLimit"), "{rendered}");
     assert!(!rendered.contains("\"complete\""), "{rendered}");
+    runtime.close().await;
+}
+
+// ── Validation-bench regressions (2026-09-30) ───────────────────────────────
+
+/// Every hint string anywhere in a row.
+fn all_hints(value: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                if key == "hints"
+                    && let Some(hints) = child.as_array()
+                {
+                    out.extend(hints.iter().filter_map(|h| h.as_str().map(str::to_owned)));
+                }
+                out.extend(all_hints(child));
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|v| out.extend(all_hints(v))),
+        _ => {}
+    }
+    out
+}
+
+/// D7: authentication and binary-file hints arrive whole, never cut
+/// mid-sentence with an ellipsis.
+#[tokio::test]
+async fn github_recovery_hints_are_never_cut_mid_sentence() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/locked"))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(json!({"message":"Bad credentials"})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/contents/img.png")))
+        .and(query_param("ref", sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file", "encoding": "base64",
+            "content": STANDARD.encode([0x89u8, b'P', b'N', b'G', 0, 0, 1]),
+            "size": 7, "sha": "f".repeat(40), "path": "img.png"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for query in [
+        json!({"owner":"a","repo":"b","path":"README.md","branch":"locked","debug":false}),
+        json!({"owner":"a","repo":"b","path":"img.png","branch":sha,"debug":false}),
+    ] {
+        let outcome = call(&runtime, "ghGetFileContent", query)
+            .await
+            .expect("error row");
+        let data = row_data(&outcome);
+        let hints = all_hints(data);
+        assert!(!hints.is_empty(), "{data}");
+        for hint in hints {
+            assert!(!hint.contains('…'), "truncated hint {hint:?} in {data}");
+        }
+    }
+    runtime.close().await;
+}
+
+/// D8: a repository-level 404 (the ref resolution itself 404s) says the
+/// repository is missing, private, or inaccessible to the token; it does not
+/// blame path case, offer a viewTree of the same missing repository, or echo
+/// GitHub's unrelated commits documentation link.
+#[tokio::test]
+async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/ghost/nope/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "message":"Not Found",
+            "documentation_url":"https://docs.github.com/rest/commits/commits#get-a-commit"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner":"ghost","repo":"nope","path":"README.md","debug":false}),
+    )
+    .await
+    .expect("error row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "notFound", "{data}");
+    let rendered = data.to_string();
+    assert!(rendered.contains("private"), "{rendered}");
+    assert!(!rendered.contains("exact case"), "{rendered}");
+    assert!(data.pointer("/next/viewTree").is_none(), "{rendered}");
+    assert!(!rendered.contains("commits#get-a-commit"), "{rendered}");
+    runtime.close().await;
+}
+
+/// D11: a pull-request read of a number that is an issue offers the issue
+/// read instead of a generic not-found.
+#[tokio::test]
+async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/9"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 9, "title": "A bug", "state": "open", "user": {"login": "x"}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"debug":false}),
+    )
+    .await
+    .expect("error row");
+    let data = row_data(&outcome);
+    assert_eq!(row_status(&outcome), "error", "{data}");
+    let read = &data["next"]["readIssue"]["query"];
+    assert_eq!(read["operation"], "issue", "{data}");
+    assert_eq!(read["number"], 9, "{data}");
+    assert!(
+        data["error"].as_str().unwrap_or("").contains("issue"),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+const BASE_SHA: &str = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const HEAD_SHA: &str = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+/// A 150-commit comparison at GitHub's 300-file cap: commit pages of 100.
+async fn mount_capped_compare(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/v2"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(HEAD_SHA))
+        .mount(server)
+        .await;
+    let files = (0..300)
+        .map(|n| json!({"filename":format!("src/f{n:03}.rs"),"status":"modified","additions":1,"deletions":1,"sha":"3".repeat(40)}))
+        .collect::<Vec<_>>();
+    for (page, count) in [(1, 100), (2, 50)] {
+        let commits = (0..count)
+            .map(|n| json!({"sha":format!("{:040x}", page * 1000 + n),"commit":{"message":format!("c{n}"),"author":{"name":"a","date":"2024-01-01T00:00:00Z"}}}))
+            .collect::<Vec<_>>();
+        Mock::given(method("GET"))
+            .and(path_regex(format!(
+                "^/api/v3/repos/a/b/compare/(v1|{BASE_SHA})\\.\\.\\.{HEAD_SHA}$"
+            )))
+            .and(query_param("page", page.to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "status":"ahead","ahead_by":150,"behind_by":0,"total_commits":150,
+                "permalink_url":"https://github.com/a/b/compare/a:1111111...a:2222222",
+                "base_commit":{"sha":BASE_SHA},"merge_base_commit":{"sha":BASE_SHA},
+                "commits":commits,"files":files
+            })))
+            .mount(server)
+            .await;
+    }
+}
+
+/// D4/D5: a comparison resolves `head` to the commit it read and pins its
+/// continuations to it; its 300-file list is not a complete count; a file
+/// page carries only files, and a commit page only commits.
+#[tokio::test]
+async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
+    let server = MockServer::start().await;
+    mount_capped_compare(&server).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let first = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2","pageSize":100,"debug":false}),
+    )
+    .await
+    .expect("compare");
+    let data = row_data(&first).clone();
+    assert_eq!(data["head"], HEAD_SHA, "{data}");
+    assert_eq!(data["base"], BASE_SHA, "{data}");
+    assert_ne!(data["filesPagination"]["countScope"], "complete", "{data}");
+    let commit_page = data["next"]["nextPage"]["query"].clone();
+    assert!(commit_page.get("filePage").is_none(), "{commit_page}");
+    assert_eq!(commit_page["head"], HEAD_SHA, "{commit_page}");
+    let file_page = data["next"]["nextFilePage"]["query"].clone();
+    assert_eq!(file_page["head"], HEAD_SHA, "{file_page}");
+
+    let files = call(&runtime, "ghGetHistoryItem", file_page)
+        .await
+        .expect("file page");
+    let files = row_data(&files);
+    assert!(
+        files.get("commits").is_none(),
+        "file page repeats commits: {files}"
+    );
+    assert_eq!(
+        files["files"].as_array().map(Vec::len),
+        Some(100),
+        "{files}"
+    );
+
+    let commits = call(&runtime, "ghGetHistoryItem", commit_page)
+        .await
+        .expect("commit page");
+    let commits = row_data(&commits);
+    assert!(commits.get("files").is_none(), "{commits}");
+    assert_eq!(
+        commits["commits"].as_array().map(Vec::len),
+        Some(50),
+        "{commits}"
+    );
+    runtime.close().await;
+}
+
+/// D6: a path-scoped commit read counts only the files in scope and labels
+/// the whole-commit line totals as such.
+#[tokio::test]
+async fn path_scoped_commit_labels_whole_commit_totals() {
+    let server = MockServer::start().await;
+    let sha = "abc123def456abc123def456abc123def456abc1";
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": sha,
+            "commit": {"message": "two files", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
+            "stats": {"additions": 30, "deletions": 5, "total": 35},
+            "files": [
+                {"filename": "src/a.rs", "status": "modified", "additions": 10, "deletions": 5},
+                {"filename": "docs/b.md", "status": "modified", "additions": 20, "deletions": 0}
+            ]
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"path":"src/","debug":false}),
+    )
+    .await
+    .expect("commit");
+    let data = row_data(&outcome);
+    assert_eq!(data["changedFiles"], 1, "{data}");
+    assert!(
+        data.get("additions").is_none(),
+        "unlabeled whole-commit total: {data}"
+    );
+    assert_eq!(data["commitTotals"]["additions"], 30, "{data}");
+    assert_eq!(data["commitTotals"]["changedFiles"], 2, "{data}");
+    runtime.close().await;
+}
+
+/// orangu: a whole-file read of a large file stays under the host output
+/// cap (about 40k chars) and continues instead of returning 74–82k.
+#[tokio::test]
+async fn gh_full_content_first_page_stays_under_the_host_output_cap() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let text = (0..6000)
+        .map(|n| format!("fn function_number_{n}(value: usize) -> usize {{ value * {n} }}\n"))
+        .collect::<String>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/src%2Fbig.rs"))
+        .and(query_param("ref", sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file", "encoding": "base64", "content": STANDARD.encode(&text),
+            "size": text.len(), "sha": "f".repeat(40), "path": "src/big.rs"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"src/big.rs","branch":sha,"fullContent":true,"debug":false}),
+    )
+    .await
+    .expect("full content");
+    let rendered = outcome.structured_content.to_string();
+    assert!(
+        rendered.chars().count() <= 40_000,
+        "first page is {} chars",
+        rendered.chars().count()
+    );
+    assert!(
+        rendered.contains("\"continue\"") || rendered.contains("responsePagination"),
+        "no continuation: {}",
+        &rendered[..rendered.len().min(2000)]
+    );
     runtime.close().await;
 }

@@ -21,6 +21,9 @@ pub struct ValidatedPath {
 pub struct PathPolicy {
     roots: Vec<PathBuf>,
     workspace_root: Option<PathBuf>,
+    /// The workspace root with symlinks resolved (e.g. macOS `/var` →
+    /// `/private/var`), so canonical paths still display workspace-relative.
+    workspace_real: Option<PathBuf>,
     home_dir: Option<PathBuf>,
 }
 
@@ -36,9 +39,15 @@ impl PathPolicy {
         {
             add_root(&mut roots, root);
         }
+        let workspace_root = config.workspace_root.map(absolutize);
+        let workspace_real = workspace_root
+            .as_deref()
+            .and_then(projected_canonical_root)
+            .filter(|real| Some(real) != workspace_root.as_ref());
         Ok(Self {
             roots,
-            workspace_root: config.workspace_root.map(absolutize),
+            workspace_root,
+            workspace_real,
             home_dir: home,
         })
     }
@@ -277,6 +286,12 @@ impl PathPolicy {
         is_sensitive_path(path)
     }
 
+    /// Whether the sensitive-file policy (credentials, key material) denies
+    /// `path`, as opposed to a sandbox or I/O denial.
+    pub fn is_sensitive(&self, path: impl AsRef<Path>) -> bool {
+        self.ignored(path.as_ref())
+    }
+
     fn expand_and_resolve(&self, input: &Path) -> PathBuf {
         let expanded = input.to_string_lossy();
         let path = if expanded == "~" {
@@ -289,13 +304,21 @@ impl PathPolicy {
         } else {
             input.to_path_buf()
         };
-        absolutize(path)
+        // Relative tool paths belong to the workspace, not to whatever
+        // directory the host process happened to start in (WORKSPACE_ROOT
+        // exists so a CLI run from /tmp still reads the configured project).
+        match &self.workspace_root {
+            Some(root) if path.is_relative() => normalize(&root.join(path)),
+            _ => absolutize(path),
+        }
     }
 
     pub fn redact(&self, path: impl AsRef<Path>) -> String {
         let normalized = normalize(path.as_ref());
-        if let Some(root) = &self.workspace_root
-            && let Ok(relative) = normalized.strip_prefix(root)
+        if let Some(relative) = [&self.workspace_root, &self.workspace_real]
+            .into_iter()
+            .flatten()
+            .find_map(|root| normalized.strip_prefix(root).ok())
         {
             return if relative.as_os_str().is_empty() {
                 ".".to_owned()
@@ -319,7 +342,7 @@ impl PathPolicy {
 
     /// A denied path for public messages: workspace-relative when the
     /// expanded path lies in the workspace, otherwise the caller's literal
-    /// input. Expansion joins relative input to the process directory, so
+    /// input. Expansion joins relative input to the workspace root, so
     /// echoing the expanded form could add a prefix the caller never sent;
     /// canonical targets such as symlink destinations stay on `redact`.
     fn display_requested(&self, input: &Path, absolute: &Path) -> String {
@@ -674,6 +697,32 @@ mod tests {
         );
         std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
         std::fs::remove_dir_all(outside).expect("remove outside fixture");
+    }
+
+    #[test]
+    fn relative_paths_resolve_against_the_workspace_root_not_the_process_cwd() {
+        let workspace = fixture();
+        std::fs::create_dir_all(workspace.join("src")).expect("src dir");
+        std::fs::write(workspace.join("src/a.ts"), "x").expect("write fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let read = policy
+            .validate_read("src/a.ts")
+            .expect("relative path must resolve under WORKSPACE_ROOT");
+        assert_eq!(
+            read.canonical,
+            std::fs::canonicalize(workspace.join("src/a.ts")).expect("canonical")
+        );
+        assert_eq!(read.display, "src/a.ts");
+        let dir = policy.validate(".").expect("`.` is the workspace root");
+        assert_eq!(
+            dir.canonical,
+            std::fs::canonicalize(&workspace).expect("canonical")
+        );
+        std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
     }
 
     #[test]

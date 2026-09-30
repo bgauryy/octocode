@@ -153,7 +153,7 @@ fn rust_visibility_note(pattern: &str, rust: bool) -> Option<Value> {
     (rust && RUST_VISIBLE_ITEMS.contains(&first)).then(|| {
         json!({
             "code":"structural.pattern.visibilityExact",
-            "severity":"info",
+            "severity":"warning",
             "stage":"match",
             "message":format!("Pattern starts with `{first}` and has no visibility modifier; structural matching is exact, so items declared `pub`/`pub(crate)` are not matched."),
             "recovery":format!("Re-run with `pub {first} …` (or `pub($V) {first} …`), or use a YAML rule on the item kind (e.g. `kind: function_item`) with has/regex constraints to match every visibility.")
@@ -196,16 +196,23 @@ fn execute_match_inner(
     let mut scan_diagnostics: Vec<StructuralDiagnostic> = Vec::new();
     let mut scan_skips = (0_u32, 0_u32, 0_u32);
     let mut skipped_by_prefilter = 0_u32;
+    if meta.is_dir()
+        && let Some(extensions) = &lang_extensions
+    {
+        compile_check(extensions, q)?;
+    }
     let mut files = if meta.is_file() {
         super::validate_file_language(&p.canonical, q.lang_type().as_deref())?;
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
-        let s = security
-            .validate_text_bytes(&bytes, Some(&p.canonical), super::MAX_PARSE_SOURCE_BYTES)
+        // Parse the file as the directory scan does: raw. Output strings
+        // are redacted by the response stage.
+        let source = security
+            .decode_source_bytes(&bytes, super::MAX_PARSE_SOURCE_BYTES)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
         let r = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
             octocode_engine::portable::structural_search_detailed_with_extension(
-                &s.content,
+                &source,
                 &source_path,
                 "cpp",
                 q.pattern().as_deref(),
@@ -213,7 +220,7 @@ fn execute_match_inner(
             )
         } else {
             octocode_engine::portable::structural_search_detailed(
-                &s.content,
+                &source,
                 &source_path,
                 q.pattern().as_deref(),
                 q.rule().as_deref(),
@@ -505,7 +512,7 @@ fn execute_match_inner(
             "code":"structural.query.noMatches",
             "severity":"info",
             "stage":"match",
-            "message":"0 structural matches for the requested pattern in this scope. Patterns must be complete parseable nodes, including punctuation such as trailing semicolons and relevant bodies (`$$$BODY`), return types, or decorators. Confirm the node shape with operation:\"syntaxTree\"; use an explicit YAML rule for partial or relational constraints.",
+            "message":"0 structural matches for the requested pattern in this scope. Patterns must be complete parseable nodes with their relevant bodies (`$$$BODY`), return types, or decorators; trailing punctuation the pattern omits is not required. Confirm the node shape with operation:\"syntaxTree\"; use an explicit YAML rule for partial or relational constraints.",
             "path":path
         }]);
     }
@@ -744,6 +751,41 @@ pub(super) fn has_extension_in(
 
 fn diag(d: StructuralDiagnostic) -> Value {
     json!({"code":d.code,"severity":d.severity,"stage":d.stage,"message":d.message,"path":d.path,"recovery":d.recovery})
+}
+
+/// Compile the query for the directory's grammar before any file is read.
+/// The literal prefilter skips files without the pattern's anchor unparsed,
+/// so an unparseable pattern (`foo(`) would otherwise report `complete` and
+/// empty wherever the anchor is absent. The query fails only when it
+/// compiles for none of the language's extensions (`.tsx` accepts JSX that
+/// `.ts` rejects).
+fn compile_check(
+    extensions: &std::collections::BTreeSet<String>,
+    q: MatchQuery<'_>,
+) -> Result<(), super::AstError> {
+    let mut first_error = None;
+    for extension in extensions {
+        let result = octocode_engine::portable::structural_search_detailed(
+            "",
+            &format!("pattern.{extension}"),
+            q.pattern().as_deref(),
+            q.rule().as_deref(),
+        )
+        .map_err(super::native_error)?;
+        match result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "structural.query.compileFailed")
+        {
+            Some(diagnostic) => {
+                first_error.get_or_insert_with(|| {
+                    super::AstError::new(diagnostic.code.clone(), diagnostic.message.clone())
+                });
+            }
+            None => return Ok(()),
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 fn diagnostic_error(diagnostics: &[StructuralDiagnostic]) -> Option<super::AstError> {

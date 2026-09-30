@@ -440,3 +440,60 @@ fn structure_search_never_reaches_a_parser() {
         }
     }
 }
+
+/// The tree leaves out what localSearch leaves out (gitignored entries,
+/// unless noIgnore) and says how many sensitive entries the path policy
+/// withheld instead of dropping them silently.
+#[test]
+fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "Cargo.lock\n").expect("gitignore");
+    for name in ["Cargo.lock", "main.rs", ".env.production", ".npmrc"] {
+        std::fs::write(root.0.join(name), "x\n").expect("file");
+    }
+    let names = |out: &Value| {
+        out["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .filter_map(|entry| entry.as_str()?.split(' ').next().map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    let out = run(
+        &root.0,
+        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0,"hidden":true}),
+    )
+    .expect("tree");
+    assert_eq!(names(&out), [".gitignore", "main.rs"], "{out}");
+    assert!(
+        out["summary"]
+            .as_str()
+            // `.git`, `.env.production`, `.npmrc`
+            .is_some_and(|summary| summary.ends_with("3 sensitive entries withheld by path policy")),
+        "{out}"
+    );
+    let all = run(
+        &root.0,
+        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0,"hidden":true,"noIgnore":true}),
+    )
+    .expect("tree");
+    assert_eq!(
+        names(&all),
+        [".gitignore", "Cargo.lock", "main.rs"],
+        "{all}"
+    );
+    // Without `hidden`, dot entries are out of view and not counted.
+    let plain = run(
+        &root.0,
+        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0}),
+    )
+    .expect("tree");
+    assert!(
+        !plain["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("withheld"),
+        "{plain}"
+    );
+}

@@ -271,10 +271,11 @@ pub(super) fn provider_failure(
     row
 }
 
-/// A missing local path is not-found (like a GitHub 404), not an execution
-/// failure; every other domain error stays an execution failure.
+/// A missing local path or registry package is not-found (like a GitHub 404),
+/// not an execution failure; every other domain error stays an execution
+/// failure.
 fn error_failure(code: &str) -> FailureKind {
-    if super::response::is_not_found_code(code) {
+    if code == "notFound" || super::response::is_not_found_code(code) {
         FailureKind::NotFound
     } else {
         FailureKind::Execution
@@ -292,6 +293,7 @@ mod provider_failure_tests {
             FailureKind::NotFound
         );
         assert_eq!(error_failure("pathNotFound"), FailureKind::NotFound);
+        assert_eq!(error_failure("notFound"), FailureKind::NotFound);
         assert_eq!(error_failure("fileAccessFailed"), FailureKind::Execution);
     }
 

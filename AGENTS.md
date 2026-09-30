@@ -34,6 +34,7 @@ $OCTO scheme <name> --compact                   # schema before calling
 | Benchmarks / keep-discard | `octocode-eval-benchmark` skill |
 | Evidence-driven semantic crossroads | `octocode-clasify` skill |
 | Offload bulk to local Ollama | `octocode-subagent` skill |
+| Build / test / lint / verify / docs / deps / release, contract or config changes, tool audits | **`octocode-dev` skill** ([`skills-dev/octocode-dev/SKILL.md`](skills-dev/octocode-dev/SKILL.md)) — run tasks with `$DEV <task>` (see [Build](#build)) |
 | After any package change | rebuild → test via real CLI/MCP/skill path — not just compile |
 
 **Skills are first-class** — wired to the same tools; your default entry point for research, architecture, and eval flows.
@@ -78,13 +79,13 @@ Note friction, gaps, or wrong defaults and log them (comment/issue) instead of s
 
 ## Packages
 
-Full overview: [`docs/PACKAGES.md`](docs/PACKAGES.md); each package has its own `ARCHITECTURE.md` and `README.md`.
+Full overview: [`skills-dev/octocode-dev/docs/DEVELOPMENT.md`](skills-dev/octocode-dev/docs/DEVELOPMENT.md); each package has its own `ARCHITECTURE.md` and `README.md`.
 
 | Role | Packages |
 |---|---|
 | Core | `octocode-config` (`@octocodeai/config`: env/config loader + the single contract generator) · `octocode-native` (Rust brain: runtime, GitHub, CLI hosts, N-API, engine) · external `@octocodeai/octocode-core` (authors all tool contracts) |
 | Interfaces | `octocode-mcp` (thin MCP stdio server) · `octocode` (CLI: `<toolName> '<json>'`, `scheme`, `skill`, `config`, `login`/`logout`/`auth`, `install`) · `octocode-vscode` |
-| Support (private) | `octocode-skill-installer` · `octocode-agents-communication` (in `skills/`) · `octocode-benchmark` · `octocode-jev-lab` |
+| Support (private) | `octocode-skill-installer` · `octocode-agents-communication` (in `skills/`) · `octocode-benchmark` |
 
 Local core changes → build core → `yarn contracts:regen` → rebuild consumers.
 
@@ -131,13 +132,14 @@ Published with the CLI; the catalog with "use when" lines is [`skills/README.md`
 
 | Skill | Use when |
 |---|---|
-| [`octocode-context-audit`](skills-beta/octocode-context-audit/) | Agent context feels bloated, or before adding instructions/skills/MCP servers: measures what loads every session vs what is used |
+| [`octocode-architecture-view`](skills-beta/octocode-architecture-view/) | A system's architecture should be an interactive HTML map: layers, modules, dependencies, runtime flows, data stores |
 
 ### Local development — [`skills-dev/`](skills-dev/) (not published; for working on this repository)
 
 | Skill | Use when |
 |---|---|
-| [`octocode-dev`](skills-dev/octocode-dev/) | Auditing/hardening a tool end to end: core schema + descriptions ↔ Rust impl, data flow, MCP/CLI surfaces, docs. `scripts/tool-inventory.mjs`; reports under `.octocode/octocode-dev/` |
+| [`octocode-dev`](skills-dev/octocode-dev/) | **Any dev work in this repo** — load it first. Owns the task runner (`scripts/dev.mjs`, replaces root `package.json` scripts), all repo automation scripts, the change pipeline (contract → native → CLI/MCP → config → docs → release), developer docs (`docs/DEVELOPMENT.md`, `ADDING_CONFIG.md`, `TOOL_QUALITY.md`, `RELEASE.md`), and end-to-end tool audits (`scripts/tool-inventory.mjs`; reports under `.octocode/octocode-dev/`) |
+| [`octocode-context-audit`](skills-dev/octocode-context-audit/) | Agent context feels bloated, or before adding instructions/skills/MCP servers: measures what loads every session vs what is used |
 | [`rust-best-practices`](skills-dev/rust-best-practices/) | Rust choices are open: crates, error shape, module/workspace layout, cargo profiles, deps |
 For AST/LSP implementation work, use `rust-best-practices` with the native package's architecture and engine docs. Record verified engine defects in `.octocode/GOTCHAS.md` and the owning package documentation.
 
@@ -145,16 +147,21 @@ For AST/LSP implementation work, use `rust-best-practices` with the native packa
 
 ## Build
 
+Repo-wide tasks run through the **`octocode-dev` skill**, not root `package.json` scripts (they were removed). Load [`skills-dev/octocode-dev/SKILL.md`](skills-dev/octocode-dev/SKILL.md) for change routes, regen order, and verification gates.
+
 ```bash
-yarn build:dev                                      # FAST local full build (debug) — the default
-yarn build                                          # all packages, RELEASE (slow — see below)
-yarn workspace <pkg-name> <script>                  # single package
-yarn test · yarn lint · yarn typecheck · yarn verify
+DEV='node skills-dev/octocode-dev/scripts/dev.mjs'
+$DEV --help                                         # every task, one line each
+$DEV build:dev                                      # FAST local full build (debug) — the default
+$DEV build                                          # all packages, RELEASE (slow — see below)
+$DEV test · $DEV lint · $DEV typecheck · $DEV verify
+$DEV docs:verify · $DEV health:check · $DEV deps:dedupe [--fix]
+yarn workspace <pkg-name> <script>                  # single package (package scripts are unchanged)
 yarn build:native:all · yarn platforms:check        # 6-platform cross-compile (publish only)
-yarn docs:verify · yarn health:check · yarn deps:dedupe   # docs links, workspace health, dep dedupe
+yarn contracts:regen                                # core → contract/ regen
 ```
 
-**Use `yarn build:dev` locally** (debug native + TS); reserve `yarn build` (release) for release/perf-representative artifacts. Build internals (parallel workspace graph, concurrent native targets, profiles) live in [`packages/octocode-native/ARCHITECTURE.md`](packages/octocode-native/ARCHITECTURE.md). Do **not** commit `.cargo/config.toml` lld/sccache blocks.
+CI calls the same tasks (`.github/workflows/ci.yml`). **Use `$DEV build:dev` locally** (debug native + TS); reserve `$DEV build` (release) for release/perf-representative artifacts. Build internals (parallel workspace graph, concurrent native targets, profiles) live in [`packages/octocode-native/ARCHITECTURE.md`](packages/octocode-native/ARCHITECTURE.md). Do **not** commit `.cargo/config.toml` lld/sccache blocks.
 
 **End-to-end after engine/native/CLI changes:**
 
@@ -171,17 +178,17 @@ $OCTO config --json && $OCTO scheme
 ## Dev setup / publish
 
 ```bash
-yarn devScript && yarn install    # local dev: resolve internal packages from workspace
+$DEV setup && yarn install       # local dev: resolve internal packages from workspace
 ```
 
 **Before publishing:**
 
 ```bash
-node ./scripts/prepublish.mjs --fix   # strip local workspace: resolutions
-yarn install && yarn prepublish       # lockfile + final guard + readme sync
+$DEV prepublish --fix               # strip local workspace: resolutions
+yarn install && $DEV prepublish     # lockfile + final guard
 ```
 
-`prepublish.mjs` can also `--dry-run` (preview) or run without flags (check only). Packages version independently; core publishes **before** packages that embed its contracts. Full gated order: [`docs/RELEASE.md`](docs/RELEASE.md) · scripts: [`scripts/README.md`](scripts/README.md).
+`$DEV prepublish` can also `--dry-run` (preview) or run without flags (check only). Packages version independently; core publishes **before** packages that embed its contracts. Full gated order: [`skills-dev/octocode-dev/docs/RELEASE.md`](skills-dev/octocode-dev/docs/RELEASE.md) · scripts: [`skills-dev/octocode-dev/scripts/README.md`](skills-dev/octocode-dev/scripts/README.md).
 
 ---
 
@@ -198,4 +205,4 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 
 ## Docs
 
-Index: [`docs/README.md`](docs/README.md); `out/docs` copies are build output, so edit `docs/`. Most used: [tools](docs/OCTOCODE_TOOLS.md) · [response fields and handoffs](docs/TOOL_DATA_CONTRACT.md) · [tool quality bar](docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) · [clasify](docs/OCTOCODE_CLASIFY.md) · [configuration](docs/CONFIGURATION.md) (generated settings: `docs/generated/CONFIG_SETTINGS.md`, never hand-edit) · [security](docs/SECURITY.md) · [release](docs/RELEASE.md). Findings logs: [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md) (raw) · [`.octocode/JEV.md`](.octocode/JEV.md) (frozen).
+Index: [`docs/README.md`](docs/README.md); `out/docs` copies are build output, so edit `docs/`. Most used: [tools](docs/OCTOCODE_TOOLS.md) · [response fields and handoffs](docs/TOOL_DATA_CONTRACT.md) · [tool quality bar](skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [clasify](docs/OCTOCODE_CLASIFY.md) · [configuration](docs/CONFIGURATION.md) (generated settings: `docs/generated/CONFIG_SETTINGS.md`, never hand-edit) · [security](docs/SECURITY.md) · [release](skills-dev/octocode-dev/docs/RELEASE.md). Findings logs: [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md) (raw) · [`.octocode/JEV.md`](.octocode/JEV.md) (frozen).

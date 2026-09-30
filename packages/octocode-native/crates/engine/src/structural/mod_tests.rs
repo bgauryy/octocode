@@ -165,6 +165,30 @@ fn finds_call_and_captures_single_metavar() {
     );
 }
 
+/// Search and rewrite compile a pattern the same way: trailing punctuation
+/// the pattern omits (a trailing argument comma, a statement terminator) is
+/// not required of the candidate, as in ast-grep.
+#[test]
+fn pattern_search_matches_what_rewrite_matches() {
+    let src = "throw new Error(\"one\");\nthrow new Error(\n  `two ${x}`,\n);\nexport const answer = 42;\n";
+    let errors = run_pattern(src, "ts", "new Error($MSG)");
+    assert_eq!(
+        errors.iter().map(|m| m.start_line).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(
+        errors[1].metavars.get("MSG").map(Vec::as_slice),
+        Some(&["`two ${x}`".to_owned()][..])
+    );
+    let exports = run_pattern(src, "ts", "export const $N = $V");
+    assert_eq!(exports.len(), 1);
+    assert_eq!(exports[0].start_line, 5);
+    assert_eq!(
+        exports[0].metavars.get("N").map(Vec::as_slice),
+        Some(&["answer".to_owned()][..])
+    );
+}
+
 #[test]
 fn captures_multi_metavar_as_list() {
     let src = "log(1, 2, 3);\n";
@@ -628,6 +652,35 @@ fn both_or_neither_query_errors() {
 #[test]
 fn invalid_pattern_errors() {
     assert!(search("x", "ts", Some("   "), None).is_err());
+}
+
+/// A pattern the grammar cannot parse is an error, not an empty result:
+/// tree-sitter recovers `foo(` with a MISSING `)` the pattern never meant.
+#[test]
+fn unterminated_patterns_are_invalid_not_empty() {
+    for (ext, pattern) in [
+        ("ts", "foo("),
+        ("ts", "if ($A"),
+        ("py", "def f("),
+        ("rs", "foo("),
+    ] {
+        let error = search("foo(1);\n", ext, Some(pattern), None)
+            .err()
+            .unwrap_or_else(|| panic!("{ext} {pattern} must be rejected"));
+        assert!(error.contains("syntax errors"), "{ext} {pattern}: {error}");
+    }
+    // Statement terminators a pattern leaves off stay valid.
+    for (ext, pattern) in [
+        ("ts", "foo($A)"),
+        ("c", "foo($A)"),
+        ("go", "foo($A)"),
+        ("cs", "Log($A)"),
+    ] {
+        assert!(
+            search("x", ext, Some(pattern), None).is_ok(),
+            "{ext} {pattern}"
+        );
+    }
 }
 
 // ── markup / style grammars (HTML/CSS) ────────────────────────────────────
@@ -1242,4 +1295,58 @@ fn structural_review_compile_interruption_keeps_mixed_language_evidence() {
     assert_eq!(detailed.total_matches, 1);
     assert_eq!(detailed.diagnostics[0].code, "structural.parse.interrupted");
     fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// astSearch and astRewrite must agree on what a pattern matches: the same
+/// pattern over the same source yields the same match spans on both paths.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+#[test]
+fn search_and_rewrite_agree_on_pattern_matches() {
+    let cases = [
+        (
+            "ts",
+            "typescript",
+            "throw new Error(\"a\");\nthrow new Error(\n  `b ${x}`,\n);\nf(new Error(c, { cause }));\n",
+            "new Error($MSG)",
+        ),
+        (
+            "ts",
+            "typescript",
+            "export const a = 1;\nexport const b = f(\n  2,\n);\nconst c = 3;\n",
+            "export const $N = $V",
+        ),
+        (
+            "rs",
+            "rust",
+            "fn main() {\n    foo(1);\n    foo(\n        2,\n    );\n    foo(3, 4);\n}\n",
+            "foo($A)",
+        ),
+        (
+            "py",
+            "python",
+            "foo(1)\nfoo(\n    2,\n)\nfoo(3, 4)\n",
+            "foo($A)",
+        ),
+    ];
+    for (ext, language, source, pattern) in cases {
+        let searched = run_pattern(source, ext, pattern)
+            .into_iter()
+            .map(|m| (m.start_line - 1, m.start_col))
+            .collect::<Vec<_>>();
+        let rewritten = structural_rewrite(
+            source,
+            serde_json::json!({
+                "id": "parity",
+                "language": language,
+                "rule": {"pattern": pattern},
+                "fix": "X",
+            }),
+        )
+        .expect("rewrite compiles")
+        .into_iter()
+        .map(|m| (m.range.start.line, m.range.start.column))
+        .collect::<Vec<_>>();
+        assert!(!searched.is_empty(), "{ext} {pattern}");
+        assert_eq!(searched, rewritten, "{ext} {pattern}");
+    }
 }

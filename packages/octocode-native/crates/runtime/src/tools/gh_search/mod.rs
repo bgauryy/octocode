@@ -124,8 +124,11 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     if data.items.is_empty() {
         output.status = Some("empty");
         code_output::empty_scope(value, &mut output.diagnostics, query, transport, context).await?;
-        if value.get("next").is_none() {
-            value["hints"] = json!(["Broaden keywords or remove filters."]);
+        if value.get("hints").is_none() {
+            // Absence in the index is not absence on other branches.
+            value["hints"] = json!([
+                "Code search indexes only default branches; broaden keywords, or read other branches with ghGetFileContent."
+            ]);
         }
     }
     Ok(output)
@@ -513,6 +516,17 @@ mod tests {
             }
         }
 
+        const TREE_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+        /// Resolve `reference` to [`TREE_SHA`], as GitHub's commits endpoint does.
+        async fn mount_ref(server: &MockServer, reference: &str) {
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v3/repos/a/b/commits/{reference}")))
+                .respond_with(ResponseTemplate::new(200).set_body_string(TREE_SHA))
+                .mount(server)
+                .await;
+        }
+
         fn repo_item(name: &str, archived: bool) -> Value {
             json!({
                 "full_name": format!("o/{name}"), "name": name,
@@ -586,6 +600,76 @@ mod tests {
             .expect("search");
             assert!(out.data["next"].get("retry").is_none(), "{}", out.data);
             assert_eq!(out.data["next"]["retryRenamed"]["query"]["repo"], "d");
+        }
+
+        /// D9: an inaccessible repository gets no `retry` for its incomplete
+        /// result (a retry cannot help) and says why the search is empty.
+        #[tokio::test]
+        async fn inaccessible_repository_drops_the_incomplete_retry() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(
+                        json!({"total_count":0,"incomplete_results":true,"items":[]}),
+                    ),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b"))
+                .respond_with(
+                    ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
+            )
+            .await
+            .expect("search");
+            assert!(out.data["next"].get("retry").is_none(), "{}", out.data);
+            assert!(
+                out.data["next"].get("findRepository").is_some(),
+                "{}",
+                out.data
+            );
+            let hint = out.data["hints"][0].as_str().unwrap_or_default();
+            assert!(hint.contains("private"), "{}", out.data);
+        }
+
+        /// D13: an empty code search says the index covers default branches.
+        #[tokio::test]
+        async fn empty_code_search_names_the_default_branch_index() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(
+                        json!({"total_count":0,"incomplete_results":false,"items":[]}),
+                    ),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"default_branch":"main","full_name":"a/b"})),
+                )
+                .mount(&server)
+                .await;
+            for query in [
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","keywords":["needle"]}),
+            ] {
+                let out = run(&server, query).await.expect("search");
+                assert_eq!(out.status, Some("empty"));
+                let hint = out.data["hints"][0].as_str().unwrap_or_default();
+                assert!(hint.contains("default branch"), "{}", out.data);
+                assert!(hint.len() <= 120, "{hint}");
+            }
         }
 
         #[tokio::test]
@@ -747,7 +831,7 @@ mod tests {
             let server = MockServer::start().await;
             Mock::given(method("GET"))
                 .and(path("/api/v3/repos/a/b/contents/missing"))
-                .and(query_param("ref", "dev"))
+                .and(query_param("ref", TREE_SHA))
                 .respond_with(
                     ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})),
                 )
@@ -763,13 +847,7 @@ mod tests {
                 ])))
                 .mount(&server)
                 .await;
-            Mock::given(method("GET"))
-                .and(path("/api/v3/repos/a/b/commits/dev"))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_json(json!({"sha":"0".repeat(40)})),
-                )
-                .mount(&server)
-                .await;
+            mount_ref(&server, "dev").await;
             Mock::given(method("GET"))
                 .and(path("/api/v3/repos/a/b"))
                 .respond_with(
@@ -786,17 +864,11 @@ mod tests {
             assert_eq!(error.kind, ProviderErrorKind::NotFound);
         }
 
+        /// D3: an explicit ref that does not exist is an error naming it,
+        /// never a silent listing of the default branch.
         #[tokio::test]
-        async fn tree_missing_branch_still_falls_back_to_default() {
+        async fn tree_missing_branch_is_an_error_not_a_default_branch_listing() {
             let server = MockServer::start().await;
-            Mock::given(method("GET"))
-                .and(path("/api/v3/repos/a/b/contents"))
-                .and(query_param("ref", "gone"))
-                .respond_with(
-                    ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})),
-                )
-                .mount(&server)
-                .await;
             Mock::given(method("GET"))
                 .and(path("/api/v3/repos/a/b/commits/gone"))
                 .respond_with(
@@ -814,24 +886,98 @@ mod tests {
                 .await;
             Mock::given(method("GET"))
                 .and(path("/api/v3/repos/a/b/contents"))
-                .and(query_param("ref", "main"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!([
                     {"name":"x.rs","path":"x.rs","type":"file","size":1}
                 ])))
                 .mount(&server)
                 .await;
-            let out = run(
+            let error = run(
                 &server,
                 json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":"gone"}),
             )
             .await
-            .expect("fallback");
-            assert_eq!(out.data["branchFallback"]["actualBranch"], "main");
+            .expect_err("a missing ref is an error");
+            assert_eq!(error.kind, ProviderErrorKind::NotFound);
+            assert_eq!(
+                error.reason,
+                Some(crate::providers::github::ProviderErrorReason::RefNotFound)
+            );
+            assert!(error.message.contains("\"gone\""), "{}", error.message);
+        }
+
+        /// D5: a listing names the commit it read, and its next page reads
+        /// that same commit even if the branch moves.
+        #[tokio::test]
+        async fn tree_pins_its_pages_to_the_resolved_commit() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})),
+                )
+                .mount(&server)
+                .await;
+            mount_ref(&server, "HEAD").await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents"))
+                .and(query_param("ref", TREE_SHA))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {"name":"a.rs","path":"a.rs","type":"file","size":1},
+                    {"name":"b.rs","path":"b.rs","type":"file","size":1}
+                ])))
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","pageSize":1}),
+            )
+            .await
+            .expect("tree");
+            assert_eq!(out.data["resolvedBranch"], "main", "{}", out.data);
+            assert_eq!(out.data["commitSha"], TREE_SHA, "{}", out.data);
+            assert_eq!(out.data["next"]["nextPage"]["query"]["branch"], TREE_SHA);
+        }
+
+        /// D10: a deep listing pages directory by directory, so its first
+        /// page carries files, not only folders.
+        #[tokio::test]
+        async fn deep_tree_pages_carry_files_with_their_folders() {
+            let server = MockServer::start().await;
+            mount_ref(&server, "main").await;
+            let mut tree = Vec::new();
+            // 10 top-level folders × 3 subfolders × 3 files: 40 folders
+            // sort before the first file in a folders-first listing.
+            for dir in 0..10 {
+                tree.push(json!({"path":format!("d{dir}"),"type":"tree"}));
+                for sub in 0..3 {
+                    tree.push(json!({"path":format!("d{dir}/s{sub}"),"type":"tree"}));
+                    for file in 0..3 {
+                        tree.push(json!({"path":format!("d{dir}/s{sub}/f{file}.rs"),"type":"blob","size":1}));
+                    }
+                }
+            }
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}")))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"sha":TREE_SHA,"tree":tree,"truncated":false})),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b","branch":"main","maxDepth":5,"pageSize":20}),
+            )
+            .await
+            .expect("tree");
+            let files = out.data["summary"]["totalFiles"].as_u64().unwrap_or(0);
+            assert!(files >= 5, "page 1 lists files: {}", out.data);
         }
 
         #[tokio::test]
         async fn tree_on_a_file_path_is_a_clear_error() {
             let server = MockServer::start().await;
+            mount_ref(&server, "main").await;
             Mock::given(method("GET"))
                 .and(path("/api/v3/repos/a/b/contents/src%2Flib.rs"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -898,6 +1044,7 @@ mod tests {
         #[tokio::test]
         async fn tree_reports_omitted_entries_and_next_page_drops_completed_metadata() {
             let server = MockServer::start().await;
+            mount_ref(&server, "main").await;
             Mock::given(method("GET"))
                 .and(path("/api/v3/repos/a/b/contents"))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!([
@@ -935,6 +1082,7 @@ mod tests {
         #[tokio::test]
         async fn tree_fallback_walk_stops_at_the_directory_fetch_cap() {
             let server = MockServer::start().await;
+            mount_ref(&server, "main").await;
             Mock::given(method("GET"))
                 .and(wiremock::matchers::path_regex("/git/trees/"))
                 .respond_with(ResponseTemplate::new(500))

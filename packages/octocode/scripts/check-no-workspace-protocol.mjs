@@ -14,7 +14,7 @@
  *
  * This guard does NOT enforce version alignment between packages — each package
  * is versioned independently. If you want to sync every package version to the
- * monorepo root, run `node ./scripts/prepublish.mjs --fix` explicitly.
+ * monorepo root, run `node ./skills-dev/octocode-dev/scripts/prepublish.mjs --fix` explicitly.
  */
 import { existsSync, globSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';

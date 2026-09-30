@@ -426,6 +426,95 @@ mod drift_tests {
         assert_eq!(dependents["results"][0]["file"], "main.go", "{dependents}");
     }
 
+    /// A scan rooted below the module root still reads the enclosing
+    /// `go.mod`, so module-path imports into the scanned subtree link.
+    #[test]
+    fn go_subdirectory_roots_resolve_through_the_enclosing_go_mod() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(root.join("go.mod"), "module example.com/app\n").unwrap();
+        std::fs::create_dir_all(root.join("tsdb/chunkenc")).unwrap();
+        std::fs::write(
+            root.join("tsdb/chunkenc/chunk.go"),
+            "package chunkenc\n\nfunc New() int { return 1 }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("tsdb/db.go"),
+            "package tsdb\n\nimport \"example.com/app/tsdb/chunkenc\"\n\nfunc Open() int { return chunkenc.New() }\n",
+        )
+        .unwrap();
+        let out = run(
+            json!({"goal":"test","reasoning":"test","analysis":"dependents","path":root.join("tsdb").to_string_lossy(),"file":"chunkenc/chunk.go"}),
+            root,
+        )
+        .expect("dependents");
+        assert_eq!(out["results"][0]["file"], "db.go", "{out}");
+    }
+
+    /// A scan rooted at a Python package resolves absolute imports that name
+    /// that package (`from pkg.utils.text import x` under root `pkg/`).
+    #[test]
+    fn python_package_roots_resolve_imports_through_their_package_name() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("pkg/utils")).unwrap();
+        std::fs::write(root.join("pkg/__init__.py"), "").unwrap();
+        std::fs::write(root.join("pkg/utils/__init__.py"), "").unwrap();
+        std::fs::write(
+            root.join("pkg/utils/text.py"),
+            "def slug(x):\n    return x\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("pkg/admin.py"),
+            "from pkg.utils.text import slug\n\nprint(slug('a'))\n",
+        )
+        .unwrap();
+        let out = run(
+            json!({"goal":"test","reasoning":"test","analysis":"dependents","path":root.join("pkg").to_string_lossy(),"file":"utils/text.py"}),
+            root,
+        )
+        .expect("dependents");
+        assert_eq!(out["results"][0]["file"], "admin.py", "{out}");
+    }
+
+    /// Java classes of one package use each other without an import.
+    #[test]
+    fn java_same_package_uses_link_without_an_import() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        let dir = root.join("src/com/acme");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Lists.java"),
+            "package com.acme;\n\npublic final class Lists {\n  public static int transform(int x) { return x; }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Multimaps.java"),
+            "package com.acme;\n\nfinal class Multimaps {\n  int run() { return Lists.transform(1); }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Other.java"),
+            "package com.acme;\n\nfinal class Other {\n  int run() { return 2; }\n}\n",
+        )
+        .unwrap();
+        let out = run(
+            json!({"goal":"test","reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"src/com/acme/Lists.java"}),
+            root,
+        )
+        .expect("dependents");
+        let files = out["results"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| row["file"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert_eq!(files, ["src/com/acme/Multimaps.java"], "{out}");
+    }
+
     #[test]
     fn java_class_imports_link_to_the_class_file() {
         let temp = tempfile::TempDir::new().expect("temp");

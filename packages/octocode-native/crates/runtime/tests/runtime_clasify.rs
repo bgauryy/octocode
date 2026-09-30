@@ -1192,7 +1192,8 @@ async fn expanded_cells_fail_before_any_provider_request() {
         .await;
     let workspace = Workspace::new();
     for root in ["a", "b"] {
-        for index in 0..5 {
+        // Six matches per root with pageSize 5: each search has a next page.
+        for index in 0..6 {
             workspace.write(
                 &format!("{root}/candidate{index}.txt"),
                 "needle\nbody evidence\n",
@@ -1238,6 +1239,12 @@ async fn expanded_cells_fail_before_any_provider_request() {
             .iter()
             .flat_map(|r| r["pages"].as_array().unwrap())
             .all(|page| { page["error"]["code"] == "classificationExpandedCellsExceeded" }),
+        "{}",
+        outcome.structured_content
+    );
+    // No page was judged, so a continuation past them would skip them for good.
+    assert!(
+        outcome.structured_content["queries"][0].get("next").is_none(),
         "{}",
         outcome.structured_content
     );
@@ -1801,6 +1808,117 @@ async fn prefilter_window_is_centered_on_the_hit_not_aligned_to_a_bucket() {
 }
 
 #[tokio::test]
+async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(noul_response(0.9))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    // Four hits, each needing its own 600-line window.
+    let hits = [100_u64, 1100, 2100, 3100];
+    let source = (1..=4000_u64)
+        .map(|line| {
+            if hits.contains(&line) {
+                format!("const NEEDLE_{line} = {line}; // NEEDLE_MARK\n")
+            } else {
+                format!("const filler_{line} = {line};\n")
+            }
+        })
+        .collect::<String>();
+    let file = workspace.write("walk.js", source);
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let judged = |content: &serde_json::Value| {
+        content["queries"][0]["resources"][0]["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|page| {
+                (
+                    page["scope"]["startLine"].as_u64().unwrap(),
+                    page["scope"]["endLine"].as_u64().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let covers = |pages: &[(u64, u64)], line: u64| {
+        pages
+            .iter()
+            .any(|(start, end)| (*start..=*end).contains(&line))
+    };
+    let input = |max_chars: Option<u64>| {
+        let mut resource = json!({"id":"f","prefilter":["NEEDLE_MARK"],
+            "context":{"tool":"localFetch","query":{"path":file}}});
+        if let Some(max_chars) = max_chars {
+            resource["maxChars"] = json!(max_chars);
+        }
+        json!({
+            "id":"walk","reasoning":"Judge every hit window.","goal":"Find the needle.",
+            "resources":[resource],
+            "questions":[{"id":"q","type":"noul","instructions":"Is a needle defined?"}]
+        })
+    };
+
+    let first = runtime
+        .execute("walk-1".into(), "clasify".into(), input(None))
+        .await
+        .unwrap();
+    let pages = judged(&first.structured_content);
+    assert_eq!(pages.len(), 3, "{}", first.structured_content);
+    for line in &hits[..3] {
+        assert!(covers(&pages, *line), "{line} in {pages:?}");
+    }
+    assert!(!covers(&pages, 3100));
+    let query = &first.structured_content["queries"][0];
+    assert!(
+        query.to_string().contains("Prefilter"),
+        "dropped hits must be reported: {query}"
+    );
+    let resume = query["next"]["clasify"].clone();
+    assert!(resume.is_object(), "dropped hits need a continuation: {query}");
+    let resumed = runtime
+        .execute("walk-2".into(), "clasify".into(), resume)
+        .await
+        .expect("next.clasify must execute unchanged");
+    let pages = judged(&resumed.structured_content);
+    assert!(covers(&pages, 3100), "{}", resumed.structured_content);
+    assert!(pages.iter().all(|(start, _)| *start > 2100), "{pages:?}");
+    assert!(resumed.structured_content["queries"][0].get("next").is_none());
+
+    // One maxChars budget spans every window: the second window waits for
+    // the next call instead of each window getting its own full budget.
+    let tight = runtime
+        .execute("walk-tight".into(), "clasify".into(), input(Some(20_000)))
+        .await
+        .unwrap();
+    let pages = judged(&tight.structured_content);
+    assert_eq!(pages.len(), 1, "{}", tight.structured_content);
+    assert!(covers(&pages, 100));
+    let resume = &tight.structured_content["queries"][0]["next"]["clasify"]["resources"][0];
+    assert_eq!(resume["prefilter"], json!(["NEEDLE_MARK"]), "{resume}");
+    let from = resume["context"]["query"]["startLine"].as_u64().unwrap();
+    assert!(from > 100 && from <= 1100, "resume at {from}");
+
+    // Local absolute paths never reach the external provider.
+    for request in server.received_requests().await.unwrap() {
+        let body = String::from_utf8_lossy(&request.body);
+        for root in [
+            workspace.workspace.clone(),
+            std::fs::canonicalize(&workspace.workspace).unwrap(),
+        ] {
+            let root = root.to_string_lossy().replace('\\', "/");
+            assert!(!body.contains(&root), "absolute path sent to provider: {body}");
+        }
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated() {
     let server = MockServer::start().await;
     // First response drops answer_1 (partial); later responses are complete.
@@ -1865,5 +1983,64 @@ async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated()
         2,
         "a partial answer set must be asked again, not replayed"
     );
+    runtime.close().await;
+}
+
+/// orangu 09-28: clasify with a ghSearchCode resource failed with
+/// `classificationContextContractViolation` on every resource. A code-search
+/// page must be judged like any other search resource.
+#[tokio::test]
+async fn gh_search_code_resource_is_judged_without_a_context_contract_violation() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.6}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    let items = (0..3)
+        .map(|n| {
+            json!({
+                "name": format!("f{n}.rs"), "path": format!("src/f{n}.rs"),
+                "sha": format!("{n:040}"), "html_url": "https://github.com/o/r",
+                "repository": {"full_name":"o/r","html_url":"https://github.com/o/r","url":"https://api.github.com/repos/o/r"},
+                "text_matches": [{"fragment": format!("fn semaphore_acquire_{n}() {{}}"), "matches": [{"indices":[3,12]}]}]
+            })
+        })
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 3, "incomplete_results": false, "items": items
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "reasoning":"Judge the code-search hits.","goal":"Where the semaphore is acquired.",
+        "resources":[{"id":"hits","context":{"tool":"ghSearchCode","query":{
+            "owner":"o","repo":"r","keywords":["semaphore"]
+        }}}],
+        "questions":[{"id":"relevant","type":"noul","instructions":"Does this acquire the semaphore?"}]
+    });
+    let outcome = runtime
+        .execute("gh-code".into(), "clasify".into(), input)
+        .await
+        .expect("clasify");
+    let rendered = outcome.structured_content.to_string();
+    assert!(!rendered.contains("ContextContractViolation"), "{rendered}");
+    let cell = &outcome.structured_content["queries"][0]["resources"][0];
+    assert_ne!(cell["coverage"], "error", "{cell}");
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("clasify output contract");
     runtime.close().await;
 }

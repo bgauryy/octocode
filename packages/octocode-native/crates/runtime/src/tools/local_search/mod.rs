@@ -743,12 +743,12 @@ mod tests {
         assert_eq!(lines(&first), [5, 8, 9], "{first}");
         // The rows still unseen are named, cheap to read at their lines.
         assert_eq!(
-            first["files"][0]["pagination"]["moreLines"], "1,2,3,4,6,7",
+            first["files"][0]["pagination"]["moreLines"], "1-4,6-7",
             "{first}"
         );
         let second = search_fixture(&[("CacheBuilder.java", &file)], request(2));
         assert_eq!(lines(&second), [1, 6, 7], "{second}");
-        assert_eq!(second["files"][0]["pagination"]["moreLines"], "2,3,4");
+        assert_eq!(second["files"][0]["pagination"]["moreLines"], "2-4");
         let last = search_fixture(&[("CacheBuilder.java", &file)], request(3));
         assert_eq!(lines(&last), [2, 3, 4], "{last}");
         assert!(last["files"][0].get("pagination").is_none(), "{last}");
@@ -1284,12 +1284,14 @@ mod tests {
         let body = serde_json::to_value(&result).expect("serialize");
         assert_eq!(body["files"][0]["matches"][0]["line"], 1, "{body}");
         assert_eq!(body["stats"]["totalOccurrences"], 1, "{body}");
+        // The warning names the file it could not search past the NUL.
         assert!(
             result
                 .warnings
                 .iter()
-                .any(|w| w.starts_with("binaryFileSkipped")),
-            "{body}"
+                .any(|w| w.starts_with("binaryFileSkipped: mixed.txt was searched")),
+            "{:?}",
+            result.warnings
         );
     }
 

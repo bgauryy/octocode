@@ -266,8 +266,19 @@ enum Lead {
 /// Words that open a statement rather than name a type after modifiers
 /// (`pub use x;`, `export default new X()`).
 const STATEMENT_WORDS: &[&[u8]] = &[
-    b"use", b"import", b"return", b"new", b"await", b"throw", b"yield", b"extends",
-    b"implements", b"in", b"of", b"as", b"is",
+    b"use",
+    b"import",
+    b"return",
+    b"new",
+    b"await",
+    b"throw",
+    b"yield",
+    b"extends",
+    b"implements",
+    b"in",
+    b"of",
+    b"as",
+    b"is",
 ];
 
 /// `@Override`, `@Nullable`, `@Component(...)`.
@@ -428,12 +439,21 @@ mod tests {
                 "  public static <T> T firstNonNull(@Nullable T first, @Nullable T second) {",
                 "firstNonNull",
             ),
-            ("  private final long maximumSize = UNSET_INT;", "maximumSize"),
+            (
+                "  private final long maximumSize = UNSET_INT;",
+                "maximumSize",
+            ),
             ("    @Override public String toString() {", "toString"),
-            ("static int parse_config(const char *path) {", "parse_config"),
+            (
+                "static int parse_config(const char *path) {",
+                "parse_config",
+            ),
             ("  public CacheBuilder(Ticker ticker) {", "CacheBuilder"),
             ("  private readonly scene = new Scene();", "scene"),
-            ("func (ng *Engine) exec(ctx context.Context) error {", "exec"),
+            (
+                "func (ng *Engine) exec(ctx context.Context) error {",
+                "exec",
+            ),
             ("func NewEngine(opts EngineOpts) *Engine {", "NewEngine"),
         ] {
             assert_eq!(weight(line, token), DECLARATION_WEIGHT, "{line}");
@@ -441,9 +461,15 @@ mod tests {
         for (line, token) in [
             ("    return firstNonNull(a, b);", "firstNonNull"),
             ("  public void run() { firstNonNull(x); }", "firstNonNull"),
-            ("  public static <T> T firstNonNull(@Nullable T first) {", "first)"),
+            (
+                "  public static <T> T firstNonNull(@Nullable T first) {",
+                "first)",
+            ),
             ("    this.maximumSize = maximumSize;", "maximumSize"),
-            ("func (ng *Engine) exec(ctx context.Context) error {", "Engine"),
+            (
+                "func (ng *Engine) exec(ctx context.Context) error {",
+                "Engine",
+            ),
             ("  static_assert(parse_config(x));", "parse_config"),
         ] {
             assert_ne!(weight(line, token), DECLARATION_WEIGHT, "{line}");

@@ -83,3 +83,44 @@ async fn native_cli_status_uses_host_scoped_gh_and_preserves_json() {
         "x"
     );
 }
+
+/// A token GitHub rejects (401) is present but not authenticated; status
+/// never reports it as a working login.
+#[tokio::test]
+async fn native_cli_status_reports_a_rejected_token_as_invalid() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/user"))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(json!({"message":"Bad credentials"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    for json_out in [true, false] {
+        let mut command = workspace.cli();
+        command
+            .env("GITHUB_TOKEN", "revoked-fixture-token")
+            .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
+            .args(["auth", "status"]);
+        if json_out {
+            command.arg("--json");
+        }
+        let output = tokio::task::spawn_blocking(move || command.output().unwrap())
+            .await
+            .unwrap();
+        if json_out {
+            let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(value["authenticated"], false, "{value}");
+            assert_eq!(value["verification"], "invalid", "{value}");
+            assert_eq!(value["tokenPresent"], true, "{value}");
+        } else {
+            assert_eq!(output.status.code(), Some(1));
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("invalid token"),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}

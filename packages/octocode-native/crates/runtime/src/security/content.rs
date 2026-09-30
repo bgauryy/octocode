@@ -290,6 +290,19 @@ impl ContentSecurity {
         file_path: Option<&Path>,
         max_bytes: usize,
     ) -> Result<SanitizationResult, PolicyError> {
+        let text = self.decode_source_bytes(bytes, max_bytes)?;
+        Ok(self.sanitize_text(&text, file_path))
+    }
+
+    /// Bounded, non-binary source text for a parser, NOT redacted: redacting
+    /// before parsing shifts columns and can break the syntax a pattern
+    /// matches. Every string a tool returns is still redacted by the
+    /// response stage, as for directory scans that read files raw.
+    pub fn decode_source_bytes<'b>(
+        &self,
+        bytes: &'b [u8],
+        max_bytes: usize,
+    ) -> Result<std::borrow::Cow<'b, str>, PolicyError> {
         if bytes.len() > max_bytes {
             return Err(PolicyError::new(
                 PolicyErrorCode::InputTooLarge,
@@ -302,7 +315,7 @@ impl ContentSecurity {
                 "Binary content is not allowed for text output",
             ));
         }
-        Ok(self.sanitize_text(&String::from_utf8_lossy(bytes), file_path))
+        Ok(String::from_utf8_lossy(bytes))
     }
 
     pub fn validate_input_parameters(&self, params: &Value) -> ValidationResult {
@@ -314,14 +327,19 @@ impl ContentSecurity {
                 warnings: vec!["Invalid parameters: must be an object".to_owned()],
             };
         };
-        self.validate_object(object, 0, MAX_STRING_LENGTH)
+        self.validate_object(object, 0, MAX_STRING_LENGTH, false)
     }
 
+    /// `in_context` is true only for an object held under a `context` key
+    /// (clasify's `resources[].context`); its `value` child is evidence and
+    /// gets the evidence-sized limit. A `value` key anywhere else keeps the
+    /// parameter limit.
     fn validate_object(
         &self,
         object: &Map<String, Value>,
         depth: usize,
         limit: usize,
+        in_context: bool,
     ) -> ValidationResult {
         if depth > MAX_DEPTH {
             return ValidationResult {
@@ -336,7 +354,7 @@ impl ContentSecurity {
         let mut valid = true;
         let mut has_secrets = false;
         for (key, value) in object {
-            let limit = if key == "value" {
+            let limit = if in_context && key == "value" {
                 MAX_EVIDENCE_STRING_LENGTH
             } else {
                 limit
@@ -392,7 +410,7 @@ impl ContentSecurity {
                                 array.push(Value::String(result.content));
                             }
                             Value::Object(nested) => {
-                                let result = self.validate_object(nested, depth + 1, limit);
+                                let result = self.validate_object(nested, depth + 1, limit, false);
                                 has_secrets |= result.has_secrets;
                                 valid &= result.is_valid;
                                 warnings.extend(
@@ -419,7 +437,7 @@ impl ContentSecurity {
                     sanitized.insert(key.clone(), Value::Array(array));
                 }
                 Value::Object(nested) => {
-                    let result = self.validate_object(nested, depth + 1, limit);
+                    let result = self.validate_object(nested, depth + 1, limit, key == "context");
                     has_secrets |= result.has_secrets;
                     valid &= result.is_valid;
                     warnings.extend(result.warnings.iter().map(|warning| {
@@ -464,7 +482,7 @@ impl ContentSecurity {
                     Value::String(result.content)
                 }
                 Value::Object(nested) => {
-                    let result = self.validate_object(nested, depth + 1, MAX_STRING_LENGTH);
+                    let result = self.validate_object(nested, depth + 1, MAX_STRING_LENGTH, false);
                     *has_secrets |= result.has_secrets;
                     Value::Object(result.sanitized_params)
                 }
@@ -567,6 +585,9 @@ mod tests {
         assert!(policy.validate_input_parameters(&evidence).is_valid);
         let parameter = serde_json::json!({"searchText":"y".repeat(20_000)});
         assert!(!policy.validate_input_parameters(&parameter).is_valid);
+        // A `value` key outside `context` keeps the parameter cap.
+        let stray = serde_json::json!({"filter":{"value":"z".repeat(20_000)}});
+        assert!(!policy.validate_input_parameters(&stray).is_valid);
     }
 
     #[test]
