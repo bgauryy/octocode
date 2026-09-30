@@ -127,6 +127,22 @@ pub(super) struct HierarchyWalk {
     pub(super) fan_out_capped: Vec<String>,
     /// Results naming a file outside the read policy (skipped).
     pub(super) out_of_policy: usize,
+    /// Results declared in a TypeScript built-in lib file (`lib.*.d.ts`,
+    /// e.g. `String.prototype.toUpperCase`), skipped as call-graph noise.
+    pub(super) builtin_lib: usize,
+}
+
+/// Whether a hierarchy node is declared in a TypeScript built-in lib file
+/// (`…/typescript/lib/lib.<name>.d.ts`): language built-ins, not project or
+/// dependency code.
+pub(super) fn is_builtin_lib_declaration(node: &Value) -> bool {
+    let Some(uri) = node.get("uri").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some((dir, file)) = uri.rsplit_once('/') else {
+        return false;
+    };
+    dir.ends_with("/typescript/lib") && file.starts_with("lib.") && file.ends_with(".d.ts")
 }
 
 /// Memoized node identity and authorization for one walk.
@@ -251,6 +267,10 @@ pub(super) async fn walk_hierarchy(
                 let Some(node) = expansion.node_of(&result).cloned() else {
                     continue;
                 };
+                if is_builtin_lib_declaration(&node) {
+                    walk.builtin_lib += 1;
+                    continue;
+                }
                 if !keys.authorized(&result) {
                     walk.out_of_policy += 1;
                     continue;
@@ -367,8 +387,13 @@ pub(super) fn public_edge(expansion: Expansion, edge: &HierarchyEdge) -> Value {
             (
                 range["startLine"].as_u64().unwrap_or(0),
                 range["startCharacter"].as_u64().unwrap_or(0),
+                range["endLine"].as_u64().unwrap_or(0),
             )
         });
+        // Servers can report one call site as several raw ranges that differ
+        // only in their end column; the public range drops that column, so
+        // identical public sites are one call.
+        ranges.dedup();
         let mut call = serde_json::Map::new();
         call.insert(key.into(), public_hierarchy_node(&edge.node));
         call.insert("fromRanges".into(), json!(ranges));
@@ -449,6 +474,20 @@ pub(super) fn mark_truncation(
     {
         warnings.push(json!(format!(
             "{out_of_policy} hierarchy items outside the allowed read roots were omitted."
+        )));
+    }
+    let builtin_lib = walks
+        .iter()
+        .map(|(_, walk)| walk.builtin_lib)
+        .sum::<usize>();
+    if builtin_lib > 0
+        && let Some(warnings) = row
+            .as_object_mut()
+            .map(|object| object.entry("warnings").or_insert_with(|| json!([])))
+            .and_then(Value::as_array_mut)
+    {
+        warnings.push(json!(format!(
+            "{builtin_lib} TypeScript built-in library items (lib.*.d.ts) were omitted."
         )));
     }
     let tagged = walks.len() > 1;

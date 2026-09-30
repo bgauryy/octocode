@@ -1921,3 +1921,125 @@ fn unresolved_symbol_anchor_reads_the_hinted_lines_and_suggests_near_names() {
         "{row}"
     );
 }
+
+#[test]
+fn call_sites_that_differ_only_in_end_column_publish_once() {
+    let edge = HierarchyEdge {
+        node: node("callee"),
+        parent: None,
+        level: 1,
+        sites: vec![
+            serde_json::json!({"start": {"line": 870, "character": 10}, "end": {"line": 870, "character": 22}}),
+            serde_json::json!({"start": {"line": 870, "character": 10}, "end": {"line": 870, "character": 17}}),
+            serde_json::json!({"start": {"line": 871, "character": 2}, "end": {"line": 871, "character": 5}}),
+        ],
+    };
+    let public = public_edge(Expansion::OutgoingCalls, &edge);
+    assert_eq!(
+        public["fromRanges"],
+        serde_json::json!([
+            {"startLine": 871, "startCharacter": 11, "endLine": 871},
+            {"startLine": 872, "startCharacter": 3, "endLine": 872}
+        ])
+    );
+}
+
+#[test]
+fn typescript_builtin_lib_declarations_are_recognized_only_under_typescript_lib() {
+    let at = |uri: &str| serde_json::json!({"uri": uri});
+    assert!(is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/typescript/lib/lib.es5.d.ts"
+    )));
+    assert!(is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/typescript/lib/lib.dom.d.ts"
+    )));
+    assert!(!is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/@types/node/lib.d.ts"
+    )));
+    assert!(!is_builtin_lib_declaration(&at("file:///repo/src/lib.utils.d.ts")));
+    assert!(!is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/typescript/lib/typescript.d.ts"
+    )));
+    assert!(!is_builtin_lib_declaration(&serde_json::json!({})));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn hierarchy_walk_omits_builtin_lib_items_and_discloses_the_count() {
+    let mut graph = graph(&[("root", &["toUpperCase", "map"])]);
+    graph.uri = Some("file:///repo/node_modules/typescript/lib/lib.es5.d.ts".into());
+    let walk = walk(&graph, 1).await;
+    assert!(walk.edges.is_empty());
+    assert_eq!(walk.builtin_lib, 2);
+    assert_eq!(walk.out_of_policy, 0, "built-ins are not policy failures");
+    let q = query(serde_json::json!({
+        "operation": "callees", "goal": "test", "reasoning": "test",
+        "uri": "file:///repo/a.ts",
+        "position": {"line": 0, "character": 0}
+    }));
+    let mut row = serde_json::json!({"status": "hasResults", "payload": {"kind": "callees", "items": []}});
+    mark_truncation(&mut row, &q, &[(Expansion::OutgoingCalls, &walk)]);
+    assert_eq!(
+        row["warnings"],
+        serde_json::json!(["2 TypeScript built-in library items (lib.*.d.ts) were omitted."])
+    );
+}
+
+#[test]
+fn diagnostic_severity_is_published_by_name() {
+    let (items, _) = diagnostic_items(Some(serde_json::json!([
+        {"severity": 1, "message": "e", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}},
+        {"severity": 2, "message": "w"},
+        {"severity": 3, "message": "i"},
+        {"severity": 4, "message": "h"},
+        {"severity": 9, "message": "unknown"},
+        {"message": "none"}
+    ])));
+    let severities = items
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|item| item.get("severity").cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        severities,
+        vec![
+            Some(serde_json::json!("error")),
+            Some(serde_json::json!("warning")),
+            Some(serde_json::json!("information")),
+            Some(serde_json::json!("hint")),
+            Some(serde_json::json!(9)),
+            None,
+        ]
+    );
+    assert_eq!(
+        items[0]["displayRange"],
+        serde_json::json!({"startLine": 1, "startCharacter": 1, "endLine": 1})
+    );
+}
+
+#[test]
+fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
+    let body = (0..200)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut location = serde_json::json!({
+        "uri": "file:///repo/a.ts",
+        "content": body,
+        "displayRange": {"startLine": 426, "endLine": 625}
+    });
+    cap_declaration_content(&mut location);
+    let content = location["content"].as_str().expect("content");
+    let lines = content.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), MAX_DECLARATION_CONTENT_LINES + 1);
+    assert_eq!(lines[0], "line 0");
+    assert_eq!(lines[MAX_DECLARATION_CONTENT_LINES - 1], "line 59");
+    assert_eq!(
+        lines[MAX_DECLARATION_CONTENT_LINES],
+        "… 140 more lines omitted (source lines 486-625); read them with localFetch startLine/endLine."
+    );
+    let short = "a\nb\nc";
+    let mut small = serde_json::json!({"content": short, "displayRange": {"startLine": 1, "endLine": 3}});
+    cap_declaration_content(&mut small);
+    assert_eq!(small["content"], short, "short bodies are untouched");
+}

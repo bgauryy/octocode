@@ -108,6 +108,10 @@ pub(super) async fn locations(
             for location in &mut page {
                 apply_context_lines(location, context_lines, sources).await;
             }
+        } else {
+            for location in &mut page {
+                cap_declaration_content(location);
+            }
         }
         let mut page = page.into_iter().map(public_location).collect::<Vec<_>>();
         let shared_uri = shared_location_uri(&page);
@@ -199,6 +203,40 @@ pub(super) async fn apply_context_lines(
         "startLine": start + 1,
         "endLine": end,
     });
+}
+
+/// Most lines of an enclosing declaration a location carries by default.
+/// `contextLines` replaces the body with an explicit window instead.
+pub(super) const MAX_DECLARATION_CONTENT_LINES: usize = 60;
+
+/// Keep the first [`MAX_DECLARATION_CONTENT_LINES`] of a location's default
+/// declaration body and end it with a marker naming the omitted source lines,
+/// so a class definition does not ship its whole body.
+pub(super) fn cap_declaration_content(location: &mut Value) {
+    let Some(content) = location.get("content").and_then(Value::as_str) else {
+        return;
+    };
+    let lines = content.split('\n').collect::<Vec<_>>();
+    if lines.len() <= MAX_DECLARATION_CONTENT_LINES {
+        return;
+    }
+    let omitted = lines.len() - MAX_DECLARATION_CONTENT_LINES;
+    let start = location
+        .pointer("/displayRange/startLine")
+        .and_then(Value::as_u64)
+        .map(|start| start as usize);
+    let marker = match start {
+        Some(start) => format!(
+            "… {omitted} more lines omitted (source lines {}-{}); read them with localFetch startLine/endLine.",
+            start + MAX_DECLARATION_CONTENT_LINES,
+            start + lines.len() - 1
+        ),
+        None => format!("… {omitted} more lines omitted; read them with localFetch."),
+    };
+    let mut capped = lines[..MAX_DECLARATION_CONTENT_LINES].join("\n");
+    capped.push('\n');
+    capped.push_str(&marker);
+    location["content"] = json!(capped);
 }
 
 pub(super) fn compact_location(value: Value) -> Value {

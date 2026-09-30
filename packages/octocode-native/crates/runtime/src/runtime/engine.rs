@@ -1058,6 +1058,8 @@ impl ToolRuntime {
                         receipts,
                         response_query,
                         options,
+                        mcp,
+                        text_format,
                         &context,
                     );
                 }

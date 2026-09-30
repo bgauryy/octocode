@@ -439,7 +439,7 @@ pub(super) fn disabled_macro_diagnostics(items: &Value) -> bool {
 
 /// Replace the zero-based LSP `range` on a diagnostic (and on each related
 /// location) with the one-based public `displayRange` every other result uses.
-fn publish_diagnostic_ranges(mut item: Value) -> Value {
+pub(super) fn publish_diagnostic_ranges(mut item: Value) -> Value {
     fn swap(object: &mut Value) {
         if let Some(display) = object.get("range").and_then(public_range)
             && let Some(map) = object.as_object_mut()
@@ -449,6 +449,18 @@ fn publish_diagnostic_ranges(mut item: Value) -> Value {
         }
     }
     swap(&mut item);
+    // LSP `DiagnosticSeverity` 1–4, by name like every other Octocode
+    // diagnostic; an unknown number passes through unchanged.
+    let label = match item.get("severity").and_then(Value::as_u64) {
+        Some(1) => Some("error"),
+        Some(2) => Some("warning"),
+        Some(3) => Some("information"),
+        Some(4) => Some("hint"),
+        _ => None,
+    };
+    if let Some(label) = label {
+        item["severity"] = json!(label);
+    }
     if let Some(related) = item
         .get_mut("relatedInformation")
         .and_then(Value::as_array_mut)

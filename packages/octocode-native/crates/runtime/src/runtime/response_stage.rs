@@ -97,12 +97,15 @@ pub(super) fn finish(
 
 /// Clasify receipts from [`super::clasify_batch::execute`]. They carry scoped
 /// nested queries and page at the evidence level (`next.clasify`): no
-/// continuation filling or compaction, no text rendering, and no replaying
-/// auto-pagination, which would re-run inference.
+/// continuation filling and no replaying auto-pagination, which would re-run
+/// inference. Text renders in the configured `output.format` when an MCP
+/// caller (or `render_text`) asks, like every other tool.
 pub(super) fn finish_receipts(
     receipts: super::clasify_batch::Receipts,
     response_query: Value,
     options: ResponsePageOptions,
+    mcp: bool,
+    text_format: super::render::TextFormat,
     context: &ExecutionContext,
 ) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
     let tool = ToolId::Clasify.as_str();
@@ -124,12 +127,16 @@ pub(super) fn finish_receipts(
     }
     let all_failed = response_all_failed(&structured);
     context.check()?;
+    let rendered_text = (options.render_text.unwrap_or(mcp) || failure.is_some()).then(|| {
+        super::render::render_tool(ToolId::Clasify, &structured, &response_query, text_format)
+    });
+    context.check()?;
     seal(
         Sealed {
             tool: tool.into(),
             structured,
             response_query,
-            rendered_text: None,
+            rendered_text,
             options,
             failure,
             all_failed,
@@ -405,6 +412,8 @@ mod tests {
             },
             json!({"queries":[]}),
             ResponsePageOptions::default(),
+            false,
+            super::super::render::TextFormat::Yaml,
             &context(),
         )
         .expect("stage runs")
@@ -416,6 +425,37 @@ mod tests {
             .unwrap()
             .remove("debug");
         assert_eq!(outcome.structured_content["queries"], expected);
-        assert!(outcome.content.is_empty(), "receipts are never rendered");
+        assert!(outcome.content.is_empty(), "non-MCP receipts are not rendered");
+    }
+
+    #[test]
+    fn mcp_clasify_receipts_render_in_the_configured_text_format() {
+        let receipt = json!({"queries":[{"queryId":"q","resources":[{"resourceId":"r","coverage":"complete",
+            "pages":[{"answers":{"a":{"noul":0.5}}}]}]}]});
+        let render = |format| {
+            finish_receipts(
+                super::super::clasify_batch::Receipts {
+                    structured: receipt.clone(),
+                    source_digest: None,
+                    failure: None,
+                },
+                json!({"queries":[]}),
+                ResponsePageOptions::default(),
+                true,
+                format,
+                &context(),
+            )
+            .expect("stage runs")
+            .expect("valid envelope")
+        };
+        let yaml = render(super::super::render::TextFormat::Yaml);
+        assert_eq!(yaml.content.len(), 1);
+        let text = &yaml.content[0].text;
+        assert!(text.contains("queryId: q"), "{text}");
+        assert!(!text.trim_start().starts_with('{'), "{text}");
+        assert_eq!(yaml.structured_content["queries"], receipt["queries"]);
+        let json_text = render(super::super::render::TextFormat::Json);
+        let parsed: Value = serde_json::from_str(&json_text.content[0].text).expect("json text");
+        assert_eq!(parsed["queries"], receipt["queries"]);
     }
 }
