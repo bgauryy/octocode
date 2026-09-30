@@ -1,0 +1,98 @@
+{
+  "qid": "G04",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "6e4c1354f42e754f5f7f065acdc356ae4eac5aa13cc4b657f724f0e407cfa524",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on all core facts: keyword and non-identifier warnings, soft keywords excluded, the lower-case check for explicit names only, the expose_value=False empty-name warnings, and the outside-Click stacklevel. Fact 2 is partly covered (no --True/None, hyphen normalization or explicit-name override). Fact 6 is partly covered: it mentions the 8.6.0 changelog but not that nothing which worked before now raises. No line numbers, disclosed."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says click.option('--x','Foo_Bar') currently names foo_bar; in 8.x the explicit name is kept as given and only 9.0 will lower-case it"
+      ],
+      "notes": "Covers the same core facts plus --True/--None and migration guidance from the upgrade guide. Misreads the upgrade guide's ambiguous wording about the current Foo_Bar name. No line numbers, disclosed."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on all core facts: keyword and non-identifier warnings, soft keywords excluded, the lower-case check for explicit names only, the expose_value=False empty-name warnings, and the outside-Click stacklevel. Fact 2 is partly covered (no --True/None, hyphen normalization or explicit-name override). Fact 6 is partly covered: it mentions the 8.6.0 changelog but not that nothing which worked before now raises. No line numbers, disclosed."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says click.option('--x','Foo_Bar') currently names foo_bar; in 8.x the explicit name is kept as given and only 9.0 will lower-case it"
+      ],
+      "notes": "Covers the same core facts plus --True/--None and migration guidance from the upgrade guide. Misreads the upgrade guide's ambiguous wording about the current Foo_Bar name. No line numbers, disclosed."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1263614,
+  "num_turns": 5,
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 9010,
+    "cache_read_input_tokens": 46107,
+    "output_tokens": 51,
+    "context_tokens": 55127,
+    "total_tokens": 55178,
+    "first_request_context": 9653,
+    "fixed_overhead_tokens": 48265,
+    "research_tokens": 6913,
+    "max_request_context": 11639
+  },
+  "timedOut": false
+}

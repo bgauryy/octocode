@@ -1,0 +1,128 @@
+{
+  "qid": "G09",
+  "worker": "rg-gh",
+  "started": "2026-09-30T07:10:46.374Z",
+  "promptSha256": "837047d4f8bd84e20af19238147dbbf1080cc08d6436be7724ff8517e6d1064a",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 19751,
+  "status": "ok",
+  "answer": "**Root cause:** `ConfigWrapper.core_config()` wrote derived alias settings into the model's own config dict. Because of that write, a derived value looked like a declared one and was inherited by subclasses.\n\n- `core_config()` set `validate_by_alias=True` and `validate_by_name=populate_by_name` on `self.config_dict`. That dict is the model's `model_config`, or the caller's mapping for `TypeAdapter(config=...)` and `validate_call(config=...)`. The old code is in the `-` lines of the PR diff, in `pydantic/_internal/_config.py`.\n- A subclass's config is merged over its parent's. So a parent declaring `populate_by_name=True` passed its derived `validate_by_name=True` down to the child.\n- The `validate_by_name is None` guard then blocked re-deriving from the child's own `populate_by_name=False`. The child ended up with `validate_by_name=True` while a standalone model with the same config had `False`.\n- The result was that `Child(x=1)` succeeded, although the field's alias `'X'` should have been required (the issue's example, issue #13786).\n- The same write also changed user-owned mappings. The issue shows `{'populate_by_name': True}` gaining the two derived keys after `TypeAdapter` and `validate_call`.\n\n**Fix:** PR #13825, \"Do not mutate `model_config` attribute\". It was merged on 2026-09-25 as `5da36b5de4f44a572ca5c12104fd2f8669fd feca`, and its description says \"Fixes #13786\".\n\n- **Effective config:** `ConfigWrapper` now has a second slot, `effective_config`. It is built once in `__init__` by a new `_build_effective_config()`, which derives the alias settings on a copy (`{**config, ...}`). The `validate-by-alias-and-name-false` check moved into this function.\n- **Declared config:** `config_dict` stays as the user declared it and is documented as never to be mutated. Both `__getattr__` and `core_config()` now read `effective_config`.\n- **Copy on entry:** `prepare_config()` now calls `config.copy()`, so the wrapper never mutates a mapping the user passed in.\n- **Deprecation warning:** the `schema_generator` warning moved from `core_config()` to `check_deprecated()`.\n- **Signatures:** the `validate_by_name` parameter was removed from signature generation in `_signature.py`, `_model_construction.py` and `_dataclasses.py`. Signatures now use only `validate_by_alias`.\n- **Tests:** tests were added or changed in `tests/test_config.py`, `test_model_signature.py` and `test_deprecated_validate_arguments.py`.\n\n**Behaviour change:** `Model.model_config` for `{'populate_by_name': True}` no longer includes `validate_by_alias` and `validate_by_name`. The PR description says this needs a blog post entry.\n\n**Caveats:**\n- I read the PR diff only up to the `_signature.py` changes. I did not read the rest of the diff (`pydantic/config.py`, `deprecated/decorator.py` and the tests), and I did not check the merged code on `main` or the test contents.\n- Two earlier PRs for the same issue, #13787 and #13794, were closed without merging. #13787 was probably the issue author's own patch that copied the config inside `core_config`, but I didn't confirm that.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 9964,
+    "cache_read_input_tokens": 20435,
+    "output_tokens": 809,
+    "context_tokens": 30407,
+    "total_tokens": 31216,
+    "first_request_context": 5024,
+    "fixed_overhead_tokens": 20096,
+    "research_tokens": 11120,
+    "max_request_context": 11901
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3087,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 342,
+      "cache_read_input_tokens": 5022,
+      "output_tokens": 40
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2750,
+      "cache_read_input_tokens": 5364,
+      "output_tokens": 9
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3785,
+      "cache_read_input_tokens": 8114,
+      "output_tokens": 744
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 9964,
+    "cache_read_input_tokens": 20435,
+    "output_tokens": 1530
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1530,
+      "cacheReadInputTokens": 20435,
+      "cacheCreationInputTokens": 9964,
+      "webSearchRequests": 0,
+      "costUSD": 0.059259,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 34,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.059259,
+  "duration_ms": 18497,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "Bash:gh": 3
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh issue view 13786 -R pydantic/pydantic --comments | head -100; gh pr list -R pydantic/pydantic --search \\\"13786\\\" --state all --json number,title,url,state | head -30\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh issue view 13786 -R pydantic/pydantic --json title,body,state,url,comments 2>&1 | head -60; echo ----; gh pr view 13825 -R pydantic/pydantic --json title,body,mergeCommit,files,mergedAt 2>&1 | head -80\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh pr diff 13825 -R pydantic/pydantic 2>&1 | sed -n 1,200p\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The second call, `gh issue view 13786 --json title,body,state,url,comments`, returned the whole issue body. That body contained the root cause, a reproduction and the affected code path. The first call's `gh pr list --search \"13786\"` found the candidate PRs (#13787, #13794, #13825). `gh pr view 13825 --json ...` gave the merge commit and file list. `gh pr diff 13825` showed the actual fix.\n\n2. **Did not help:** The first call's `gh issue view --comments | head -100` printed nothing, so I had to repeat it with `--json`. I cut the diff with `sed -n 1,200p` and never read the rest, meaning `config.py`, `deprecated/decorator.py` and the tests. I did not check the merged code on `main`. I also did not open the closed PRs #13787 and #13794. My guess that #13787 was the issue author's patch is unverified, though I said so.\n\n3. **Next time:** I would use `--json` from the start. I would read the full diff, or at least the test hunks. I would open PR #13787 briefly to check who wrote it.\n\n4. **Confidence:** Medium-high on the root cause and the fix, because the issue text and the diff agree. One error to correct: in my answer, the merge SHA `5da36b5de4f44a572ca5c12104fd2f8669fd feca` has a stray space and may be mistyped. Use the value from the `gh pr view` output, not my transcription.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1345,
+      "cache_read_input_tokens": 11899,
+      "output_tokens": 4,
+      "context_tokens": 13246,
+      "total_tokens": 13250,
+      "first_request_context": 13246,
+      "fixed_overhead_tokens": 13246,
+      "research_tokens": 4,
+      "max_request_context": 13246
+    },
+    "cost_usd": 0.0754328,
+    "toolCallsAttempted": 0
+  }
+}

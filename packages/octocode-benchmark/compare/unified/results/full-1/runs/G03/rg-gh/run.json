@@ -1,0 +1,106 @@
+{
+  "qid": "G03",
+  "worker": "rg-gh",
+  "started": "2026-09-30T07:09:27.935Z",
+  "promptSha256": "13bcdbb19ad0193a1fb23c8928cdaa2e489ac2f407f1854ba1cc51e064647153",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 12780,
+  "status": "ok",
+  "answer": "**The bug:** when a pool client was taken out of rotation, it could still pick up queued requests, and the pool lost track of it. This happened after a failed connect (`connectionError`) and when a client was evicted by `clientTtl`. The PR text says the pool reported zero connections while the socket was open. `pool.destroy()` neither aborted the request nor closed the socket (PR #5881 body).\n\n**Root cause** (from the diff, `lib/dispatcher/pool.js` and `round-robin-pool.js`): the `connectionError` handlers only spliced the client out of `kClients`. The client was not closed. Its drain listener kept pulling requests from the pool queue onto it. `destroy()` and `close()` iterate only `kClients`, so they could not reach it. The old `kRemoveClient` called `client.close(() => {})` and forgot the client, so `close()` and `destroy()` also missed a client that was still finishing requests.\n\n**The fix (merge commit `da911f087c62952640fdacccf4e759b295ad300c`):**\n1. **`lib/dispatcher/pool-base.js`** adds `kRetireClient` and a `kRetiring` map. The map holds clients removed from `kClients` that haven't finished closing, each with a promise that settles when it does.\n   - `kRetireClient` splices the client out of `kClients` and registers it in `kRetiring`. It then calls `client.close(cb)`, which deletes the entry and resolves the promise. The callback form is used because custom `factory` dispatchers may not return a promise.\n   - `kRemoveClient` now delegates to `kRetireClient`.\n   - A shared `closeClients()` helper also awaits the retiring clients, so `pool.close()` waits for them.\n   - `[kDestroy]` also destroys the clients in `kRetiring`, so `pool.destroy()` aborts their in-flight requests.\n2. **`pool.js`** (`connectionError` handler) now calls `kRetireClient(target)` instead of only splicing. The old comment said the client couldn't be closed in that state. The queue is now re-drained if `resumeQueued || this[kQueued] > 0`, so queued requests go to another or new client.\n3. **`round-robin-pool.js`** gets the same change: it retires clients on `connectionError` and calls `kDrainQueue` if `kQueued > 0`.\n4. **Tests:** the new `test/pool-retired-clients.js` runs for both `Pool` and `RoundRobinPool`. It covers three cases:\n   - Queued requests go to a new client after a connect failure.\n   - `destroy()` aborts in-flight requests on a retired client, both after a connection error and after `clientTtl` eviction.\n   - `close()` waits for a client evicted by `clientTtl`.\n\n**Uncertainty:** I read the diff and PR body only. I didn't run the tests or check the code at the merge commit. The `clientTtl` eviction path goes through `kRemoveClient`, whose code isn't in the diff. I inferred that path from the tests and the `kRemoveClient` change.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10748,
+    "cache_read_input_tokens": 6979,
+    "output_tokens": 756,
+    "context_tokens": 17731,
+    "total_tokens": 18487,
+    "first_request_context": 5046,
+    "fixed_overhead_tokens": 10092,
+    "research_tokens": 8395,
+    "max_request_context": 12685
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3109,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7639,
+      "cache_read_input_tokens": 5044,
+      "output_tokens": 740
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10748,
+    "cache_read_input_tokens": 6979,
+    "output_tokens": 1125
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1125,
+      "cacheReadInputTokens": 6979,
+      "cacheCreationInputTokens": 10748,
+      "webSearchRequests": 0,
+      "costUSD": 0.0556458,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0556458,
+  "duration_ms": 11574,
+  "num_turns": 2,
+  "toolCallCount": 1,
+  "toolCounts": {
+    "Bash:gh": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files; gh pr diff 5881 -R nodejs/undici\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** I made one Bash call that ran `gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files` followed by `gh pr diff 5881`. It returned the PR rationale, the merge SHA and the full diff together. That was enough to answer, and the added test file confirmed the intended behavior.\n\n2. **Did not help:** Nothing failed and I made no repeated calls. The diff was long, mostly the 228-line test file, so it cost tokens. The diff shows only changed hunks. It did not show `kRemoveClient`'s callers or the `clientTtl` eviction code. That means my claim about the TTL path is inferred from the tests and comments, not seen directly. I also didn't open the PR's review comments or a linked issue, so I have no maintainer discussion of the root cause.\n\n3. **Next time:** I would run `gh pr view` with `--json comments,reviews` and `gh api` for the linked issue. I would also `rg kRemoveClient` against a checkout, or fetch the file at the merge SHA, to confirm the TTL eviction path.\n\n4. **Confidence:** High for the core mechanism, because the PR body and the diff agree with each other. Medium for the `clientTtl` detail, because I never saw that code. I also didn't run the tests.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1232,
+      "cache_read_input_tokens": 12683,
+      "output_tokens": 1,
+      "context_tokens": 13917,
+      "total_tokens": 13918,
+      "first_request_context": 13917,
+      "fixed_overhead_tokens": 13917,
+      "research_tokens": 1,
+      "max_request_context": 13917
+    },
+    "cost_usd": 0.06746440000000001,
+    "toolCallsAttempted": 0
+  }
+}

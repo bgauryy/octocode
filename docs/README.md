@@ -7,7 +7,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | Doc | Owns |
 |---|---|
 | [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md) | The concept: evidence dimensions, the research loop, how each part of the protocol works, and measured strengths and limits |
-| [BENCHMARKS.md](BENCHMARKS.md) | Agent-vs-agent results: a Claude agent with Octocode against the same agent with `rg` and `gh`, on 20 GitHub and local questions: correctness, tokens, cost, time |
+| [BENCHMARKS.md](BENCHMARKS.md) | Agent benchmark results (pending). The unified benchmark lives in `packages/octocode-benchmark/compare/unified/` |
 | [Root README quick start](../README.md#quick-start) | Installing and first run |
 | [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, startup and lifecycle |
 | [OCTOCODE_CLI.md](../packages/octocode/docs/OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |

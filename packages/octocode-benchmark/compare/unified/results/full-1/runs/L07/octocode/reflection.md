@@ -1,0 +1,7 @@
+1. **Helped:** The `localSearch` for `getURLFromRedirectError` (with `maxMatchesPerFile`) was the fastest step. It listed every consumer in one call: app-render, action-handler, app-route module, and make-get-server-inserted-html. The `localFetch` full read of `redirect.ts` gave the digest format and the helper functions. The batched `localFetch` line-range reads of `app-render.tsx` and `module.ts` showed where the status code and `Location` header are set.
+
+2. **Did not help:** My first two calls failed validation because I left out the `queries` wrapper and passed a string for a boolean. That cost one round trip. The `module.ts` read ended mid-expression at `status: actionStore.isAction`, so I never saw the actual status values. I also did not open `action-handler.ts:1325`, `make-get-server-inserted-html.tsx`, or the `RedirectStatusCode` enum. My answer reports the numeric codes only from doc comments, though it says so.
+
+3. **Next time:** I'd get the queries schema right on the first call. I'd read `module.ts` a few lines further, and open `redirect-status-code.ts` and the action-handler region in the same batch. I'd also add a `localSearch` for `RedirectStatusCode` to confirm the numeric values.
+
+4. **Confidence:** Medium-high on the core mechanism (throw an error with a digest, catch it, set the status code and `Location` header), because I read that source directly. Medium on the server-action and meta-tag details, which I inferred without reading.

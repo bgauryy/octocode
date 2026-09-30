@@ -1,0 +1,7 @@
+1. **Helped:** One call did the work: `ghGetHistoryItem` (operation pullRequest, #5881) with `content: {body, changedFiles, patches: {mode: "all"}}`. It returned the PR body, all four file patches and the new test file together. The patch comments in `pool-base.js`, `pool.js` and `round-robin-pool.js` explained the cause and the fix. Because the PR number was known, I skipped search tools.
+
+2. **Did not help:** Nothing failed and I made no wasted calls. The patch output collapsed unchanged context to `...`, so I couldn't see how `kOnDrain` and `kDestroy` fit around the edits. I stated the `kOnDrain` behavior only as the patch comment says it. The PR body's "Bug Fixes" section was N/A, so the description gave only the symptoms.
+
+3. **Next time:** Add a `ghGetFileContent` read of `lib/dispatcher/pool-base.js` at the merge commit. Use `matchString` for `kOnDrain` and `kRetiring`. That would confirm the drain claim directly and give real line numbers. My answer cited files and patch content but no `path:line` references, because the diff hunks didn't give reliable ones.
+
+4. **Confidence:** Medium-high. The mechanism and fix come straight from the diff and its comments. The `kOnDrain` claim and exact lines are unverified.

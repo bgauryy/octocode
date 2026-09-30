@@ -1,0 +1,75 @@
+{
+  "qid": null,
+  "worker": "rg-gh",
+  "started": "2026-09-30T07:06:15.051Z",
+  "promptSha256": "c8c0265d75e4be4462439a7794fde78a6e238ab5bb2bc90a02f2564f04d58767",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 3164,
+  "status": "ok",
+  "answer": "OK",
+  "tokens": {
+    "requests": 1,
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 3092,
+    "cache_read_input_tokens": 1935,
+    "output_tokens": 4,
+    "context_tokens": 5029,
+    "total_tokens": 5033,
+    "first_request_context": 5029,
+    "fixed_overhead_tokens": 5029,
+    "research_tokens": 4,
+    "max_request_context": 5029
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3092,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 4
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 3092,
+    "cache_read_input_tokens": 1935,
+    "output_tokens": 4
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 4,
+      "cacheReadInputTokens": 1935,
+      "cacheCreationInputTokens": 3092,
+      "webSearchRequests": 0,
+      "costUSD": 0.012799000000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.012799000000000001,
+  "duration_ms": 1566,
+  "num_turns": 1,
+  "toolCallCount": 0,
+  "toolCounts": {},
+  "counters": {},
+  "toolCalls": [],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "probe": "overhead"
+}

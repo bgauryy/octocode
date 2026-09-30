@@ -1,0 +1,7 @@
+**Helped:** The first `localSearch` for `keep_stack` in `json_sax.hpp` found the callback parser class immediately. That is what let me skip browsing the tree. The batched `localFetch` of lines 500-720 and 990-1130 returned the core logic: `start_object`, `key`, `end_object` and `handle_value`. The `localSearch` for "discarded" in `parser.hpp` gave the top-level discard-to-null behaviour and its line numbers.
+
+**Did not help:** My line ranges were guesses, so I never saw `end_array`, `remove_discarded_value` or the body of `parse()` in `parser.hpp`. The `localSearch` hits in `parser.hpp` were only match lines with no context. I cited `:128` and `:130` from those lines and did not read the code around them. I marked the ranges for `key()` and `end_object` as approximate in the answer because I never pinned them down. No tool errors occurred.
+
+**Next time:** I would batch a `localFetch` with `matchString` for `end_array` and `remove_discarded_value` in the same call as the first read. I would also read `parser.hpp` around lines 110-135 directly. I could also have used `astSearch` symbols on `json_sax.hpp` to get exact function line numbers.
+
+**Confidence:** Medium-high. The main mechanism is directly supported by code I read. The array-end behaviour and the exact ranges for `key()` and `end_object` are inferred or approximate.

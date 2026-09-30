@@ -190,18 +190,9 @@ The concept, the research loop, and the measured advantages (and where plain too
 
 ## Benchmarks
 
-An agent-vs-agent eval (2026-09-30): the same Claude model answers 20 GitHub and local code-research questions, once with the Octocode MCP server and once with only `rg` and `gh`. Each agent picks its own tool calls, and a blind judge grades every answer after verifying the facts itself. 3 passes, 60 runs per side:
+A unified, doc-driven agent benchmark lives in [`packages/octocode-benchmark/compare/unified/`](packages/octocode-benchmark/compare/unified/README.md): the same Claude model answers 30 pinned questions (10 GitHub: PR review, code research, bug root-cause; 20 local, on cloned repos in 8 languages), once per worker. Each worker is defined only by its instruction doc and tool profile (Octocode MCP vs `rg` + `gh`). A blind Opus judge scores quality against evaluator-only references, and tokens are split into fixed overhead and research tokens.
 
-| | With Octocode | Without (`rg` + `gh`) |
-|---|--:|--:|
-| Correct answers | 48 / 60 | 56 / 60 |
-| Total tokens per run | 209.8k | 60.7k |
-| Cost per run | $0.115 | $0.078 |
-| Tool calls per run | 4.2 | 6.5 |
-
-With Octocode, the agent made fewer tool calls and spent fewer research tokens. Each request, though, carries about 36k more tokens of tool definitions and instructions, so the total is higher. Its answers lost points mainly on approximate line numbers.
-
-Full tables, per-question results, method and limitations: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+Results pending; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ---
 

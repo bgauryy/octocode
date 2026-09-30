@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call fixed my first failure. It used `gh api "repos/Kludex/starlette/contents/starlette/$f.py?ref=63c5760d8a"` with the raw Accept header. That pinned the commit and fetched four files in one loop, so I didn't need a clone. The third call was a single command that printed `_exception_handler.py`, `exceptions.py`, and the `__call__` in `errors.py` with line numbers. That gave me all the citations I needed.
+
+2. **Did not help:** My first call failed because zsh tried to glob the unquoted `?`. It also wrote files into `/tmp`, which already held unrelated scripts, and the `wc -l *.py` listing was noise. I never checked the local checkout directories. I also never fetched `routing.py` or `RequestBodyLimitMiddleware`. Because of that, the answer doesn't cover per-route exception wrapping or how the router raises.
+
+3. **Next time:** I'd quote the URLs from the start. I'd use a fresh `mktemp` directory. I'd add `rg -n "wrap_app_handling_exceptions"` across the fetched files, or fetch `routing.py`, to verify the call sites.
+
+4. **Confidence:** High for the stack order and the handler lookup, because I read the code directly at the pinned commit. Medium for completeness, because I skipped the router and the body-limit middleware, and I said so in the answer.

@@ -1,0 +1,7 @@
+1. **Helped:** The `localSearch` for `func extrapolatedRate|func funcRate|func funcIncrease` in `promql/` gave exact line anchors on the first successful try. The batched `localFetch` (lines 435-720 plus 808-822) then returned the whole implementation and the wrappers in one round trip. That was enough to answer the question.
+
+2. **Did not help:** My first `localSearch` failed validation because I left out the required `goal` and `reasoning` fields. That cost one wasted call. I also did not read `extendedRate` or `extendedHistogramRate`. I did not identify the helper ending near line 435, or check whether `funcRate` has another wrapper for histograms. I gave an approximate line for the `resultFloat` subtraction ("~line 508") instead of a checked one. I ran no LSP or `astSearch` step to confirm the call graph, and I did not check the tests.
+
+3. **Next time:** I would fill in the `goal` and `reasoning` fields on every call. I would use `localFetch` with `matchString` on `last.F - first.F` to get an exact citation line. I would also read `extendedRate` when the question could involve smoothed or anchored selectors.
+
+4. **Confidence:** Medium-high. The core algorithm (reset correction, 1.1× extrapolation threshold, zero-point cap, division by the range for `rate`) comes straight from the source I read. The peripheral claims (line numbers and the smoothed/anchored path) are less certain, and I flagged them as unverified.

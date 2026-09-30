@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` for `generateEtags` under `packages/next/src` gave the whole call chain in one call. It listed `config-shared`, `base-server`, `send-payload`, `router-server` and `pages-handler`. The batched `localFetch` of four line ranges then gave the deciding code in one round trip, including the `generateEtags && payload !== null` check in `send-payload.ts` and the `etag: config.generateEtags` option in `router-server.ts`.
+
+2. **Did not help:** Two calls failed schema validation. `localFetch` needed `goal` and `reasoning` on every row and rejected `defaultExcludes`. `localSearch` rejected `pageSize` as a string. The first search returned `isPartial` / `terminalLimit`, so I couldn't be sure the usage list was complete. The re-run I meant to do with `resultView: "files"` never went through, so I never confirmed the list. I also never opened `generateETag`, `sendEtagResponse` or `serveStatic`, so parts of my answer rest on inference from names and comments.
+
+3. **Next time:** Fill in every required field correctly on the first try. Use `resultView: "files"` first to get a complete file list. Read `generateETag` and `sendEtagResponse`, and check the app-router path. Use `lspSearch` for definitions instead of guessing what a name does.
+
+4. **Confidence:** Medium-high on the main flow, because I read those lines directly. Medium on completeness and on what `sendEtagResponse` and `serveStatic` do.

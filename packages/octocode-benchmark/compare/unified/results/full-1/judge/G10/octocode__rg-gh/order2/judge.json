@@ -1,0 +1,98 @@
+{
+  "qid": "G10",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "eca16ac001874237b8f4f77d7d9a66522fc31b37c6c63274b2e726db2ff1fa01",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and specific; per-test reasons match the source; names #5047/#5054/#7010. Minor omissions (io_copy_bidirectional missing from the un-gated list, tokio/tests/udp.rs not named) and an unnecessary caveat about pagination."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "SO_LINGER ignored in three places in tcp_socket.rs (actually two: basic_linger and the linger macro test)"
+      ],
+      "notes": "Complete and mostly accurate; correctly notes the io/util/mod.rs URL fix and the uds_cred rewording. Less specific about individual test names."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and specific; per-test reasons match the source; names #5047/#5054/#7010. Minor omissions (io_copy_bidirectional missing from the un-gated list, tokio/tests/udp.rs not named) and an unnecessary caveat about pagination."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "SO_LINGER ignored in three places in tcp_socket.rs (actually two: basic_linger and the linger macro test)"
+      ],
+      "notes": "Complete and mostly accurate; correctly notes the io/util/mod.rs URL fix and the uds_cred rewording. Less specific about individual test names."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.18865319999999997,
+  "num_turns": 5,
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 16628,
+    "cache_read_input_tokens": 57346,
+    "output_tokens": 47,
+    "context_tokens": 73984,
+    "total_tokens": 74031,
+    "first_request_context": 11053,
+    "fixed_overhead_tokens": 55265,
+    "research_tokens": 18766,
+    "max_request_context": 19257
+  },
+  "timedOut": false
+}

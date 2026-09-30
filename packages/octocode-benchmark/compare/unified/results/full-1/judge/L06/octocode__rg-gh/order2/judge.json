@@ -1,0 +1,94 @@
+{
+  "qid": "L06",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "58f3c7f8032c673c17310286501b01205258d0a7068443cd57a65ebd427205ec",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; covers config, base-server flow, pages handler and app-page-runtime callers, the dynamic-payload null check, and static-file etag. Omits the etag algorithm (fact 5); the sendEtagResponse/304 behavior is an honestly flagged inference that turns out correct. Payload line cited as 63 (actual 64)."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and nearly the same as X, but cites only the pages-handler route-module caller (no app-page-runtime template). Omits the etag algorithm; 304 behavior inferred with a clear caveat. Slightly less complete than X on fact 3."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; covers config, base-server flow, pages handler and app-page-runtime callers, the dynamic-payload null check, and static-file etag. Omits the etag algorithm (fact 5); the sendEtagResponse/304 behavior is an honestly flagged inference that turns out correct. Payload line cited as 63 (actual 64)."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and nearly the same as X, but cites only the pages-handler route-module caller (no app-page-runtime template). Omits the etag algorithm; 304 behavior inferred with a clear caveat. Slightly less complete than X on fact 3."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.0917008,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7857,
+    "cache_read_input_tokens": 12044,
+    "output_tokens": 11,
+    "context_tokens": 19905,
+    "total_tokens": 19916,
+    "first_request_context": 9419,
+    "fixed_overhead_tokens": 18838,
+    "research_tokens": 1078,
+    "max_request_context": 10486
+  },
+  "timedOut": false
+}

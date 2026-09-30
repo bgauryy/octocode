@@ -1,0 +1,98 @@
+{
+  "qid": "G04",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "d1d822f1b9eb581c260923f05681b4fdbdc55a8364874fdbbaa1feb533651f55",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "States click.option('--x','Foo_Bar') currently names foo_bar; in 8.x the explicit name is kept as given, and 9.0 will lower-case it"
+      ],
+      "notes": "Covers most facts plus migration guidance; no file line citations; partial on fact 6 (mentions 8.6.0 only)."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate coverage of keyword and identifier checks, soft keywords, derived names not triggering the normalization warning, the expose_value=False empty-name case and the stacklevel helper. No line citations; fact 6 only partially covered."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "States click.option('--x','Foo_Bar') currently names foo_bar; in 8.x the explicit name is kept as given, and 9.0 will lower-case it"
+      ],
+      "notes": "Covers most facts plus migration guidance; no file line citations; partial on fact 6 (mentions 8.6.0 only)."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate coverage of keyword and identifier checks, soft keywords, derived names not triggering the normalization warning, the expose_value=False empty-name case and the stacklevel helper. No line citations; fact 6 only partially covered."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.09791559999999999,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8453,
+    "cache_read_input_tokens": 12278,
+    "output_tokens": 13,
+    "context_tokens": 20735,
+    "total_tokens": 20748,
+    "first_request_context": 9653,
+    "fixed_overhead_tokens": 19306,
+    "research_tokens": 1442,
+    "max_request_context": 11082
+  },
+  "timedOut": false
+}

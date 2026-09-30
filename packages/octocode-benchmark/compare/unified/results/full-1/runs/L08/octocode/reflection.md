@@ -1,0 +1,7 @@
+1. **Helped:** The `localSearch` regex query `sampleLimit|errSampleLimit|ErrSampleLimit` over `scrape/` returned line anchors in `scrape.go`, `scrape_append_v2.go` and `target.go`. That gave me the whole enforcement path in one call. The batched `localFetch` of four ranges then gave the deciding source: `limitAppender` in `target.go`, `appenderWithLimits`, and `checkAddError`. Batching kept it to two productive calls.
+
+2. **Did not help:** Both first attempts failed schema validation. `localSearch` was rejected because I passed `exclude` and `contextLines` as strings, not as an array and a number. `localFetch` was rejected because `goal` and `reasoning` are required per query. Each cost a round trip. The search also had a second page of 16 matches that I never read. I skipped where `sl.sampleLimit` is set from the job config, and I never read the code after the loop that decides whether the scrape's samples are discarded. My answer says both are unverified, but a couple more fetches would have closed them.
+
+3. **Next time:** I'd read the tool schemas before the first call. I'd add a search for `sampleLimit` in `newScrapeLoop` and the config wiring. I'd also read the rollback/commit code after the `sampleLimitErr` handling.
+
+4. **Confidence:** High for the enforcement mechanism, because I read the cited lines directly. Medium for completeness, because of the two gaps above.

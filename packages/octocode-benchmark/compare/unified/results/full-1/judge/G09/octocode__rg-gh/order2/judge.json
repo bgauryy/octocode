@@ -1,0 +1,98 @@
+{
+  "qid": "G09",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "c73d65ab2916105ce0e4dadc256973af5521ebbdffc05e46c3699bb561c44497",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause and fix design. Metaclass assignment detail not named explicitly and no commit SHA given. No path:line citations; cites only the PR and issue."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Merge commit SHA quoted as '5da36b5de4f44a572ca5c12104fd2f8669fd feca'; the actual SHA is 5da36b5de4f44a572ca5c12104fd2f8669dfeaca"
+      ],
+      "notes": "Same content as X plus the list of changed test files, but with a garbled merge commit SHA and no path:line citations."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause and fix design. Metaclass assignment detail not named explicitly and no commit SHA given. No path:line citations; cites only the PR and issue."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Merge commit SHA quoted as '5da36b5de4f44a572ca5c12104fd2f8669fd feca'; the actual SHA is 5da36b5de4f44a572ca5c12104fd2f8669dfeaca"
+      ],
+      "notes": "Same content as X plus the list of changed test files, but with a garbled merge commit SHA and no path:line citations."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1041694,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8562,
+    "cache_read_input_tokens": 12887,
+    "output_tokens": 14,
+    "context_tokens": 21453,
+    "total_tokens": 21467,
+    "first_request_context": 10262,
+    "fixed_overhead_tokens": 20524,
+    "research_tokens": 943,
+    "max_request_context": 11191
+  },
+  "timedOut": false
+}

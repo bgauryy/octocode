@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call was the most useful. It ran a `grep -n` over `json_sax.hpp` for `keep_stack`, `ref_stack`, `callback` and related terms. That showed the whole callback-parser class (about lines 509-1130) in one pass. The second call then printed the exact regions I needed: `key()`, `handle_value`, `remove_discarded_value`, and `parser::parse`. The third call added `end_object`. I guessed the file location from the nlohmann layout and was right, so I never had to search for it.
+
+2. **Did not help:** The first grep printed a lot of output, and much of it came from the non-callback DOM parser class. I never viewed `end_array` in full. I cited it as "~748-807" from grep hits alone and flagged that in the answer. Also, I never confirmed the commit hash of the checkout. I assumed it was at the pinned commit, as the task said.
+
+3. **Next time:** I would first grep for the class name to get its line range, then read that range once with `sed`. I would also read `end_array` directly, so I wouldn't have to hedge on its line numbers. I would run `git rev-parse HEAD` to confirm the pin.
+
+4. **Confidence:** High for the mechanism and the cited lines, because I read them directly. Medium-high for the `end_array` details, which I inferred from grep output and from its similarity to `end_object`.

@@ -1,0 +1,16 @@
+{
+ "tokens": {
+  "requests": 1,
+  "input_tokens": 2,
+  "cache_creation_input_tokens": 17974,
+  "cache_read_input_tokens": 540,
+  "output_tokens": 8,
+  "context_tokens": 18516,
+  "total_tokens": 18524,
+  "first_request_context": 18516,
+  "fixed_overhead_tokens": 18516,
+  "research_tokens": 8,
+  "max_request_context": 18516
+ },
+ "cost_usd": 0.098638
+}

@@ -53,11 +53,11 @@ The `./engine` subpath exposes primitives, never tool policy. Publishing is in `
 
 **`@octocodeai/octocode-skill-installer`.** Private library bundled into the CLI: durable canonical skill copies, per-platform links or copies, upgrades, conflict policy and atomic replacement.
 
-**`@octocodeai/octocode-benchmark`.** Private agent-vs-agent eval: a Claude agent with the Octocode MCP server against the same agent with `rg` and `gh`, graded by a blind judge. Start at its README (`<repo>/packages/octocode-benchmark/README.md`).
+**`@octocodeai/octocode-benchmark`.** Private unified agent benchmark: workers defined by an instruction doc plus a tool profile (Octocode MCP vs `rg` + `gh`) answer 30 pinned questions, graded by a blind Opus judge against evaluator-only references. Start at `<repo>/packages/octocode-benchmark/compare/unified/README.md`.
 
 **`skills/`.** Public Agent Skills installed by `octocode skill install`; each folder owns its `SKILL.md`. `skills-beta/` holds tested but unpublished skills, `skills-dev/` skills for working on this repo. `skills/octocode-agents-communication` is also a workspace package (session identity, path leases, messages).
 
-**`octocode-local-testing/`.** Not a package. `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `validate/` holds validation reports and `repos/` the pinned clones (including the eval corpus). See its README (`<repo>/octocode-local-testing/README.md`); agent-vs-agent results are in `<repo>/docs/BENCHMARKS.md`.
+**`octocode-local-testing/`.** Not a package. `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `validate/` holds validation reports and `repos/` the pinned clones (including the benchmark corpus). See its README (`<repo>/octocode-local-testing/README.md`); benchmark results are in `<repo>/docs/BENCHMARKS.md` (pending).
 
 ## Contract pipeline
 

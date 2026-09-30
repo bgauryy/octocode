@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call did most of the work. It ran `git log -1` to confirm the pinned SHA, then `rg -n "merge_content"` over the source (tests excluded), then a second `rg` over the tests. That one call gave every definition, call site and export. The second Bash call used `sed` to read `base.py:366-380`, `base.py:435-460`, `ai.py:655-670` and the test at `test_messages.py:1085-1112`. That separated the two-argument call sites from the spread ones (`base.py:453`, `ai.py:665`).
+
+2. **Did not help:** I never read the body of `merge_content` (past `base.py:380`). That left the question of whether a pairwise fold gives identical results, and I could only flag it as unverified. I also didn't search outside `libs/core`, so I can't say whether other packages in the repo call the function. The `sed` output cut the parametrize decorator, so I inferred the `others` shape in the test from the visible cases. None of the calls errored, and I made no repeated calls.
+
+3. **Next time:** I'd add `sed -n 380,440p base.py` to the second call to read the merge logic. I'd also run `rg merge_content` across the whole repo, not just `libs/core`.
+
+4. **Confidence:** High for the call-site list, since it came straight from `rg` and the code I read. Medium for the claim that the tests would only need a small change, because I didn't see the top of the test's parametrize block. The fold-equivalence point is unverified.

@@ -1,0 +1,7 @@
+1. **Helped:** The `gh api` call that downloaded `httpx/_client.py` at the pinned SHA was the fastest route. Saving it to `/tmp/c.py` let me search it locally. The `rg` for `proxy|proxies|mounts|_transport_for_url` pointed me straight to lines 239, 685–716, 760 and 1005. Fetching `_utils.py` the same way gave me `get_environment_proxies` and `URLPattern`. Because I pinned the SHA, the line numbers are reliable.
+
+2. **Did not help:** My first `find` and `ls` of the local repos directory found nothing for httpx, so that call was wasted. The shell cwd also kept resetting, so I had to `cd /tmp` every time. My `rg -A75 | rg` filter on `URLPattern` showed only the docstring lines, so I had to make a second fetch with `sed 162,235p`. That second fetch is why the `priority` line range in my answer is approximate (`~200-210`) when I could have given it exactly. I also did not open `_init_proxy_transport` (lines 740–758), so I never saw how the proxy transport is constructed.
+
+3. **Next time:** I would run `gh api` for the pinned SHA first, without searching local directories. I would print exact ranges with `sed -n` or `rg -n` and skip the piped greps. I would cite exact line numbers for every claim.
+
+4. **Confidence:** High on the overall mechanism, because I read the code for every step. Medium-high on the exact line numbers. Only the `priority` range is approximate.

@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetHistoryItem` call (body plus `changedFiles`) gave the merge SHA, the file inventory and the size in one shot. The second `ghGetHistoryItem` call, with `fileFilter` on four paths and `patches: all`, returned the diffs I needed for `applications.py`, `routing.py` and `background.py`. I did not have to page through 36 files. `ghGetFileContent` on `_runtime.py` at the merge SHA gave the environment auto-configuration logic with line-level detail.
+
+2. **Did not help:** I batched three files in one `ghGetFileContent` call. The response was paginated at the response level, so only `_runtime.py` came back. `_api.py` and the docs were left on page 2, and I never fetched it. I also never read `_asgi.py`, the tests or the rest of the `pyproject.toml` patch, which was truncated. My answer flagged these gaps. Its claims about span contents and data exposure remain unverified.
+
+3. **Next time:** Fetch the big files one per call, or set `responseCharLength` high enough for all three. Continue the `next` pagination when it is offered. Use `matchString` on the patch for `attributes` or `body` to check for PII exposure. Read `_asgi.py` with `minify: symbols` first.
+
+4. **Confidence:** Medium. The routing, lifespan and dependency claims are grounded in diffs I read. The telemetry contents and the double-instrumentation behavior are inferred, not verified.

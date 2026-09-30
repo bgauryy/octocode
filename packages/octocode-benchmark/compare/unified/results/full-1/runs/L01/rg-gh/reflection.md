@@ -1,0 +1,7 @@
+1. **Helped:** My first Bash call combined `git rev-parse HEAD` with one `rg` for `APPEND_SLASH|should_redirect_with_slash|get_full_path...`, restricted to three files. It confirmed the pinned commit and located every relevant line at once. The second call, a `sed` of `common.py` lines 30-125 plus `request.py` lines 215-245, gave me the full logic. That was two calls in total, and I already knew where to look.
+
+2. **Did not help:** Nothing errored and I made no repeated calls. My first `rg` was restricted to guessed files, so it could have missed usages elsewhere. I did not open `is_valid_path` in `django/urls`. I also did not find where `should_append_slash` is set, for example the decorator that disables the redirect. I said both in my answer. The `cd` in each call was redundant, since the working directory changed anyway.
+
+3. **Next time:** I'd add a repo-wide `rg` for `should_append_slash` and `def is_valid_path`, in parallel with the file reads. That would close both gaps.
+
+4. **Confidence:** High for the main flow: the 404 check in `process_response`, the conditions in `should_redirect_with_slash`, and the path building. I read that code directly at the pinned commit. Medium-high for the peripheral claims about the opt-out attribute and `is_valid_path` behavior, which I did not verify.

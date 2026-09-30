@@ -1,0 +1,47 @@
+{
+  "qid": "L20",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 10,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        10
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 10,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        10
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "tie"
+  ],
+  "referenceIssues": [
+    "The reference calls the four call sites the full non-test set, but showconfig.go:47 also uses GetResolveJsonModule as a method value, which affects --showConfig output."
+  ],
+  "judgeCost": 0.2301992
+}

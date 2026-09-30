@@ -1,0 +1,7 @@
+1. **Helped:** Two calls did the work. `localSearch` for `function debounce`, restricted to `lodash.js`, returned line 10403 immediately. Then one `localFetch` with `startLine`/`endLine` 10403–10525 returned the whole implementation. No other calls were needed.
+
+2. **Did not help:** Nothing failed and I made no wasted calls. The `localFetch` output had no line numbers, so I counted offsets by hand from 10403 to cite line numbers. That is why I flagged them as possibly off by a line or two. I should have avoided that: I could have run a `localSearch` with a `matchString` for `shouldInvoke`, `leadingEdge` and similar, which returns exact line anchors. I never checked `debounce.js` or the docs, and I didn't read the tests or history. I also didn't verify that this file is the only definition. The `include` filter covered both `debounce.js` and `lodash.js`, but only `lodash.js` matched.
+
+3. **Next time:** Add one anchor-returning `localSearch` for the key function names, so the citations are exact instead of computed by hand.
+
+4. **Confidence:** High on the behavior. It comes straight from the fetched source, which showed `shouldInvoke`, `remainingWait`, and the `maxing` branches in `debounced`. Medium on the exact line numbers for the individual helper functions.

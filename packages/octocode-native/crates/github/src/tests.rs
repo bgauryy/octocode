@@ -1420,3 +1420,98 @@ async fn cancel_while_reading_an_error_body_is_cancelled() {
         .expect_err("cancelled");
     assert_eq!(error.kind, ProviderErrorKind::Cancelled, "{error:?}");
 }
+
+fn code_search_request() -> CodeSearchRequest {
+    CodeSearchRequest {
+        include_fragments: false,
+        query: "secret org:acme".into(),
+        page: 1,
+        per_page: 10,
+    }
+}
+
+/// Production shape: one process-wide transport with an anonymous resolver,
+/// the credential resolved per request. A cached search page fetched with
+/// one token must never answer a request made with another.
+#[tokio::test]
+async fn code_search_cache_is_scoped_to_the_request_credential() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 0, "incomplete_results": false, "items": []
+        })))
+        .expect(3)
+        .mount(&server)
+        .await;
+    let (transport, _) = executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+    let context = |token: Option<&str>| {
+        RequestContext::with_resolved_credential(
+            Duration::from_secs(5),
+            1 << 20,
+            token.map(|token| ResolvedCredential::new(token, CredentialSource::Storage)),
+        )
+    };
+    for token in [Some("alice"), Some("alice"), Some("bob"), None] {
+        transport
+            .search_code(&code_search_request(), &context(token))
+            .await
+            .expect("search");
+    }
+}
+
+#[tokio::test]
+async fn incomplete_code_search_pages_are_not_cached() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 0, "incomplete_results": true, "items": []
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let (transport, _) =
+        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
+    let context = || RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    for _ in 0..2 {
+        let page = transport
+            .search_code(&code_search_request(), &context())
+            .await
+            .expect("search");
+        assert!(page.incomplete_results);
+    }
+}
+
+#[test]
+fn rest_routes_reject_dot_segments() {
+    let endpoint = GitHubEndpoint::github_com();
+    for bad in [".", ".."] {
+        let error = endpoint
+            .rest(&["repos", bad, "r", "pulls"])
+            .expect_err("dot segment must not rewrite the route");
+        assert_eq!(error.kind, ProviderErrorKind::Validation);
+    }
+    assert_eq!(
+        endpoint
+            .rest(&["repos", "o", "r", "contents", "a/../b"])
+            .expect("encoded path segment")
+            .path(),
+        "/repos/o/r/contents/a%2F..%2Fb"
+    );
+}
+
+#[test]
+fn plain_http_api_base_is_limited_to_loopback() {
+    let parse = |raw: &str| GitHubEndpoint::new(url::Url::parse(raw).expect("URL"));
+    for allowed in [
+        "https://ghe.example.com/api/v3",
+        "http://127.0.0.1:8080/api/v3",
+        "http://localhost:3000/",
+        "http://[::1]:9000/",
+    ] {
+        assert!(parse(allowed).is_ok(), "{allowed}");
+    }
+    let error = parse("http://ghe.example.com/api/v3").expect_err("cleartext token");
+    assert_eq!(error.kind, ProviderErrorKind::Configuration);
+}

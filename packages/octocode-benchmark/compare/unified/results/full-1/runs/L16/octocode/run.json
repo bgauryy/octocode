@@ -1,0 +1,161 @@
+{
+  "qid": "L16",
+  "worker": "octocode",
+  "started": "2026-09-30T07:14:20.924Z",
+  "promptSha256": "a40f8935e01224ede96e8c3e596483a428b32e84873ffff83c6fc7b891ddfe80",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 17846,
+  "status": "ok",
+  "answer": "The two settings decide how many segments `LocalCache` creates, how large each segment's hash table is, and how the size cap is divided across segments. The evidence is from `guava/src/com/google/common/cache/`. I did not read the bodies of `CacheBuilder.maximumSize` and `concurrencyLevel`, only their declaration lines.\n\n**Builder side**\n- `CacheBuilder.java:199` sets `DEFAULT_CONCURRENCY_LEVEL = 4`.\n- `concurrencyLevel(int)` is at `CacheBuilder.java:463` and `getConcurrencyLevel()` at `:473`.\n- `maximumSize(long)` is at `CacheBuilder.java:499`.\n- These are only settings. The structure is built in the `LocalCache` constructor.\n\n**Segment count from `concurrencyLevel`** (`LocalCache.java:250`, `:285-293`)\n- The level is first capped at `MAX_SEGMENTS`: `concurrencyLevel = min(builder.getConcurrencyLevel(), MAX_SEGMENTS)`.\n- The segment count is a power of two. The loop starts at `segmentCount = 1` and doubles it while `segmentCount < concurrencyLevel`. The result is the smallest power of two that reaches the level, so the count is the level rounded up to a power of two. The code comment says \"exceeds\", but the `<` test also stops when the count equals the level.\n- From that count it derives `segmentShift = 32 - shift` and `segmentMask = segmentCount - 1`. These select a segment from a key's hash bits.\n- It then allocates `this.segments = newSegmentArray(segmentCount)`.\n\n**Effect of `maximumSize`** (`LocalCache.java:287-289`, `:295-311`)\n- `maximumSize` becomes `maxWeight`, and `evictsBySize()` becomes true.\n- The doubling loop then has an extra condition, `segmentCount * 20L <= maxWeight`. So a small maximum size means fewer segments than the concurrency level asks for.\n- The code comment says the goal is at least 10 entries per segment, but the check is `* 20L`. Because the count doubles, this yields at least 10 per segment after the last doubling.\n- The reason given is that size eviction happens per segment, not globally. Too many segments would make eviction look random.\n- Each segment gets its own cap. `maxSegmentWeight = maxWeight / segmentCount + 1`, and the `maxWeight % segmentCount` remainder is used to decrement it from segment index `remainder` onward. The segment caps therefore sum exactly to `maxWeight`.\n- Without size eviction, segments are created with `UNSET_INT` as their cap.\n- For unweighted caches, the initial capacity is also clamped to `maxWeight` (`:280-282`).\n\n**Per-segment table sizing** (`LocalCache.java:2000` and the constructor code above)\n- Each segment's initial capacity is `initialCapacity / segmentCount`, rounded up. That is then rounded up to a power of two for `segmentSize`.\n- Each `Segment` gets its own `AtomicReferenceArray` table and its own `maxSegmentWeight`, stats counter, and access/write/recency queues.\n- The segment constructor calls `initTable`. That sets `threshold = length * 3 / 4`. When there is no custom weigher and the threshold equals `maxSegmentWeight`, it adds 1 to avoid expanding the table before eviction (`LocalCache.java:1976-1979`).\n\n**Net effect:** `concurrencyLevel` sets an upper bound on the number of independently locked segments (rounded to a power of two). `maximumSize` can reduce that number and splits the size cap across the segments.\n\n**Uncertainty:** I did not look up the value of `MAX_SEGMENTS`. I only read the `LocalCache` and `Segment` code paths listed above.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 8320,
+    "cache_read_input_tokens": 161749,
+    "output_tokens": 867,
+    "context_tokens": 170077,
+    "total_tokens": 170944,
+    "first_request_context": 40903,
+    "fixed_overhead_tokens": 163612,
+    "research_tokens": 7332,
+    "max_request_context": 45851
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3372,
+      "cache_read_input_tokens": 37529,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 290,
+      "cache_read_input_tokens": 40901,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 937,
+      "cache_read_input_tokens": 41191,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3721,
+      "cache_read_input_tokens": 42128,
+      "output_tokens": 791
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 8320,
+    "cache_read_input_tokens": 161749,
+    "output_tokens": 2129
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 2129,
+      "cacheReadInputTokens": 161749,
+      "cacheCreationInputTokens": 8320,
+      "webSearchRequests": 0,
+      "costUSD": 0.08693580000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.08693580000000001,
+  "duration_ms": 16412,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 3,
+    "mcp__octocode__localFetch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0,
+    "followUp uses": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"segmentShift|segmentMask|maxSegmentWeight|int segmentCount\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache/LocalCache.java\",\"regex\":\"rust\"}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"queries\":[{\"searchText\":\"segmentShift|segmentMask|maxSegmentWeight|segmentCount|concurrencyLevel\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache/LocalCache.java\",\"goal\":\"find segment sizing logic\",\"reasoning\":\"locate constructor\"}]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache/LocalCache.java\",\"startLine\":245,\"endLine\":325,\"goal\":\"read constructor\",\"reasoning\":\"segment sizing\"},{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache/LocalCache.java\",\"startLine\":1960,\"endLine\":2005,\"goal\":\"segment ctor\",\"reasoning\":\"per-segment max weight\"}]}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"queries\":[{\"searchText\":\"DEFAULT_CONCURRENCY_LEVEL =|maximumSize\\\\(long|concurrencyLevel\\\\(int|int getConcurrencyLevel\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache/CacheBuilder.java\",\"goal\":\"builder defaults\",\"reasoning\":\"line refs\"}]}"
+    }
+  ],
+  "toolErrorCount": 1,
+  "toolErrors": [
+    {
+      "tool_use_id": "toolu_019HLn8x5GpFx5bjzBna2SCB",
+      "text": "Input validation error: Invalid arguments for tool localSearch: queries.0: goal: Invalid input: expected nonoptional, received undefined, queries.0: reasoning: Invalid input: expected nonoptional, received undefined"
+    }
+  ],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**Helped:** The first `localSearch` call, with a regex over `segmentShift|segmentMask|segmentCount|concurrencyLevel` on `LocalCache.java`, found the constructor logic at lines 250 and 285-293 in one step. The batched `localFetch` of lines 245-325 and 1960-2005 then gave the sizing loop, the per-segment weight split and `initTable`. The `localSearch` on `CacheBuilder.java` gave the line numbers for the defaults and the declarations.\n\n**Did not help:** My first `localSearch` call failed validation because I left out the required `goal` and `reasoning`, which wasted a call. The search output truncated matches at 10 per page with \"moreLines\" hints. I did not need the rest, but it hid `MAX_SEGMENTS` and the other occurrences.\n\n**Next time:** I would include `goal` and `reasoning` in every query from the start. I would also fetch the `MAX_SEGMENTS` definition and the bodies of `CacheBuilder.maximumSize` and `concurrencyLevel`. I skipped both, so my answer names the cap but not its value, and cites those two methods only by declaration line.\n\n**Confidence:** High for the segment sizing and eviction split, because I read the source directly and cited lines. Medium-high for the `initTable` threshold detail, which I cited from the `Segment` range I fetched. I did not verify the `MAX_SEGMENTS` value and said so.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1527,
+      "cache_read_input_tokens": 45849,
+      "output_tokens": 8,
+      "context_tokens": 47378,
+      "total_tokens": 47386,
+      "first_request_context": 47378,
+      "fixed_overhead_tokens": 47378,
+      "research_tokens": 8,
+      "max_request_context": 47378
+    },
+    "cost_usd": 0.10706760000000001,
+    "toolCallsAttempted": 0
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "description": "Claude Code Bash tool, unrestricted shell (rg, gh, standard Linux commands). No MCP servers. GitHub write commands are denied for safety.",
+  "tools": "Bash",
+  "allowedTools": [
+    "Bash"
+  ],
+  "disallowedTools": [
+    "Bash(gh repo clone:*)",
+    "Bash(gh repo create:*)",
+    "Bash(gh repo delete:*)",
+    "Bash(gh repo fork:*)",
+    "Bash(gh repo edit:*)",
+    "Bash(gh pr create:*)",
+    "Bash(gh pr comment:*)",
+    "Bash(gh pr review:*)",
+    "Bash(gh pr merge:*)",
+    "Bash(gh pr close:*)",
+    "Bash(gh pr edit:*)",
+    "Bash(gh pr checkout:*)",
+    "Bash(gh issue create:*)",
+    "Bash(gh issue comment:*)",
+    "Bash(gh issue close:*)",
+    "Bash(gh issue edit:*)",
+    "Bash(gh auth:*)",
+    "Bash(gh secret:*)",
+    "Bash(gh gist:*)",
+    "Bash(gh release create:*)",
+    "Bash(gh workflow run:*)"
+  ],
+  "mcpServers": {},
+  "addCorpusDirs": true,
+  "isolation": {
+    "allowedToolPattern": "^Bash$",
+    "forbidMcpServers": true
+  },
+  "counters": []
+}

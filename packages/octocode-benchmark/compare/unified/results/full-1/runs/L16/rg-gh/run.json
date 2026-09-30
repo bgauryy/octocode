@@ -1,0 +1,117 @@
+{
+  "qid": "L16",
+  "worker": "rg-gh",
+  "started": "2026-09-30T07:14:16.921Z",
+  "promptSha256": "a40f8935e01224ede96e8c3e596483a428b32e84873ffff83c6fc7b891ddfe80",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 14981,
+  "status": "ok",
+  "answer": "**Answer:** `CacheBuilder` only stores these settings. `LocalCache`'s constructor uses them to decide how many `Segment`s the cache has, and how much weight budget each segment gets. Eviction by size then runs per segment, not across the whole cache.\n\nAll paths below are under `guava/src/com/google/common/cache/`.\n\n**Builder side (`CacheBuilder.java`)**\n- `concurrencyLevel` defaults to 4 (`DEFAULT_CONCURRENCY_LEVEL`, line 199). `getConcurrencyLevel()` returns that default when the field is unset (line 474).\n- `maximumSize(long)` sets `maximumSize` (line 508). `getMaximumWeight()` returns `maximumSize` when no weigher is set (line 607). So `LocalCache` treats a size limit as a weight limit where every entry weighs 1.\n- The Javadoc says that when `concurrencyLevel` is above 1, each segment gets its own limit of roughly `maximumSize / concurrencyLevel` (lines 481-483).\n\n**Segment count (`LocalCache.java:250-295`)**\n- The concurrency level is capped at `MAX_SEGMENTS = 1 << 16` (lines 150, 250).\n- The segment count starts at 1 and doubles while `segmentCount < concurrencyLevel`. If size-based eviction is on, it also requires `segmentCount * 20L <= maxWeight` (lines 287-291). That gives a power of two, and each segment gets at least about 10 entries of budget. The comment at lines 280-284 explains why: eviction is per segment, so too many segments for a small maximum makes eviction look random.\n- `segmentShift = 32 - log2(segmentCount)` and `segmentMask = segmentCount - 1` (lines 292-293). `segmentFor(hash)` picks a segment with `segments[(hash >>> segmentShift) & segmentMask]` (line 1768).\n- `segments` is an array of `Segment` objects. Each is a separate hash table with its own lock and its own access queue (used for LRU-style eviction).\n- Example: `maximumSize(100)` with `concurrencyLevel(16)` gives 4 segments, because 8 × 20 = 160 > 100, so doubling stops at 4.\n\n**Per-segment maximum (`LocalCache.java:307-318`)**\n- `maxSegmentWeight = maxWeight / segmentCount + 1`. It drops by 1 once the loop index reaches `maxWeight % segmentCount`. This makes the segment maximums add up exactly to `maxWeight`.\n- When there is no size limit, segments get `UNSET_INT` instead (line 321).\n- Each segment is created with its own initial table size. That size is the initial capacity divided by the segment count, rounded up to a power of two (lines 297-305).\n- For a plain `maximumSize` with no custom weigher, the initial capacity is also capped at `maxWeight` (lines 276-278).\n\n**Eviction (`Segment.evictEntries`, lines 2657-2676)**\n- Each segment compares its own `totalWeight` to its own `maxSegmentWeight`. It evicts from the head of its own access queue until it is under the limit.\n- If a single new entry is heavier than the segment maximum, that entry is removed by itself.\n- So the cache as a whole can hold slightly fewer than `maximumSize` entries, and eviction is only approximately global LRU. `concurrencyLevel(1)` gives one segment and stricter eviction; the Javadoc mentions this at about line 452.\n\n**Uncertainty:** I read the constructor and `evictEntries` closely. I did not trace the `Segment` constructor's table sizing beyond line 2000, nor the `UNSET_INT` branch of that constructor.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8015,
+    "cache_read_input_tokens": 14994,
+    "output_tokens": 863,
+    "context_tokens": 23015,
+    "total_tokens": 23878,
+    "first_request_context": 5139,
+    "fixed_overhead_tokens": 15417,
+    "research_tokens": 8461,
+    "max_request_context": 9952
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3202,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2785,
+      "cache_read_input_tokens": 5137,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2028,
+      "cache_read_input_tokens": 7922,
+      "output_tokens": 830
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8015,
+    "cache_read_input_tokens": 14994,
+    "output_tokens": 1694
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1694,
+      "cacheReadInputTokens": 14994,
+      "cacheCreationInputTokens": 8015,
+      "webSearchRequests": 0,
+      "costUSD": 0.052010799999999996,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.052010799999999996,
+  "duration_ms": 13709,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "Bash:cd": 2
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/java; git log -1 --format=%H 2>&1 | head -1; f=$(find . -path '*common/cache/LocalCache.java' | grep -v android | head -1); echo $f; rg -n \\\"segmentShift|segmentMask|segmentCount|maxSegmentWeight|evictsBySize|MAX_SEGMENTS|concurrencyLevel|segmentSize\\\" $f | head -80; rg -n \\\"maximumSize|concurrencyLevel|DEFAULT_CONCURRENCY\\\" $(dirname $f)/CacheBuilder.java | head -40\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache; sed -n 245,325p LocalCache.java; sed -n 1765,1769p LocalCache.java; sed -n 2655,2685p LocalCache.java\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** My first Bash call did most of the work. It combined `git log -1`, a `find` for `LocalCache.java`, and two `rg` searches on the segment and concurrency terms. That one call gave me the pinned SHA, the file path, and the line numbers for the constructor logic and the `CacheBuilder` getters. The second call was `sed -n 245,325p`, which showed the segment-count loop and the per-segment weight split in full. The same call printed `segmentFor` and `evictEntries`, so I could cite them.\n\n2. **Did not help:** The first `rg` on `CacheBuilder.java` returned a lot of Javadoc lines, but that was minor. I did not check where `getMaximumWeight` is used at line 607, or the `Segment` constructor at line 2000. Because of that I said in the answer that I hadn't traced the table sizing there. I also never ran `git status` to confirm the checkout was clean, so the line numbers rest on the HEAD SHA matching. The `find` might have missed an android variant, but I excluded it on purpose.\n\n3. **Next time:** I would read the `Segment` constructor and the `getMaximumWeight` region in the same `sed` call as the others, so the answer needs no \"not traced\" caveat.\n\n4. **Confidence:** High. Every claim comes from code I read at the pinned SHA, and it matches the in-source comments. The 4-segment example comes from my own arithmetic, not from running code.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1606,
+      "cache_read_input_tokens": 9950,
+      "output_tokens": 1,
+      "context_tokens": 11558,
+      "total_tokens": 11559,
+      "first_request_context": 11558,
+      "fixed_overhead_tokens": 11558,
+      "research_tokens": 1,
+      "max_request_context": 11558
+    },
+    "cost_usd": 0.0652388,
+    "toolCallsAttempted": 0
+  }
+}

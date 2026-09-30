@@ -1,0 +1,48 @@
+{
+  "qid": "L11",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 9,
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": [
+        "harness.rs:508 described as the path for a future that panicked during poll; it is cancel_task (cancellation). The poll panic mapping is panic_to_error at harness.rs:546",
+        "harness.rs:508 described as the panic path for a panicking future; it is cancel_task (cancellation path); poll-time panic mapping is at harness.rs:546"
+      ]
+    },
+    "rg-gh": {
+      "quality": 10,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        10
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2673694
+}

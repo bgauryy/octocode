@@ -1,0 +1,96 @@
+{
+  "qid": "L13",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "35e46f75231d5ad8f4ec69f48a0adc58d1d45deeafd8f0ae15cb43aa0c354eb5",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 6,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says the propagated deletion is a DEL; it is UNLINK when lazyfree-lazy-expire is enabled",
+        "t_string.c line range 468-478 is off (getGenericCommand/getCommand are at 456-472)"
+      ],
+      "notes": "Correct core flow and replica/pause/config cases. No dispatch path, thin on the deletion step, no flush step. Few precise citations."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Content is accurate, including DEL/UNLINK via lazyfree_lazy_expire and the extra KEY_TRIMMED case. Several expireIfNeeded citations are off by 7-10 lines (3050-3053 vs 3043-3046, 3058-3059 vs 3050-3051, 3070 vs 3061, 3073-3082 vs 3063-3072). No processCommand/call dispatch and no also_propagate flush; fact 1 is only partly covered."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 6,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says the propagated deletion is a DEL; it is UNLINK when lazyfree-lazy-expire is enabled",
+        "t_string.c line range 468-478 is off (getGenericCommand/getCommand are at 456-472)"
+      ],
+      "notes": "Correct core flow and replica/pause/config cases. No dispatch path, thin on the deletion step, no flush step. Few precise citations."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Content is accurate, including DEL/UNLINK via lazyfree_lazy_expire and the extra KEY_TRIMMED case. Several expireIfNeeded citations are off by 7-10 lines (3050-3053 vs 3043-3046, 3058-3059 vs 3050-3051, 3070 vs 3061, 3073-3082 vs 3063-3072). No processCommand/call dispatch and no also_propagate flush; fact 1 is only partly covered."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1611786,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 14123,
+    "cache_read_input_tokens": 27353,
+    "output_tokens": 22,
+    "context_tokens": 41482,
+    "total_tokens": 41504,
+    "first_request_context": 10676,
+    "fixed_overhead_tokens": 32028,
+    "research_tokens": 9476,
+    "max_request_context": 16752
+  },
+  "timedOut": false
+}

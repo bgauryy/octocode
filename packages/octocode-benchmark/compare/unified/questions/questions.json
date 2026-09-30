@@ -1,0 +1,356 @@
+{
+ "version": 1,
+ "note": "Plain developer questions: repo@ref (or PR/issue) and what the asker wants to know. No hints, steps, paths, or tool names. Answer keys are judge-only, in ../references/.",
+ "questions": [
+  {
+   "id": "G01",
+   "category": "github-pr-review",
+   "repos": [
+    {
+     "repo": "fastapi/fastapi",
+     "sha": "4b3949cd9e5932f76217131fceabc74145c3db24"
+    }
+   ],
+   "question": "Review fastapi/fastapi PR #16403 (\"Add native OpenTelemetry support\"). What does it change in runtime behavior, and what should a reviewer watch out for?"
+  },
+  {
+   "id": "G02",
+   "category": "github-pr-review",
+   "repos": [
+    {
+     "repo": "pydantic/pydantic",
+     "sha": "617abdb1bb95b6a5d7808937cac7ef2fdbe918d9"
+    }
+   ],
+   "question": "Review pydantic/pydantic PR #13824 (\"Add a `counter` core schema\"). How does validation of `collections.Counter` fields behave after this PR compared to before?"
+  },
+  {
+   "id": "G03",
+   "category": "github-pr-review",
+   "repos": [
+    {
+     "repo": "nodejs/undici",
+     "sha": "da911f087c62952640fdacccf4e759b295ad300c"
+    }
+   ],
+   "question": "What bug does nodejs/undici PR #5881 (\"fix(pool): ensure that removed clients don't pick up requests\") fix, and how does the fix work?"
+  },
+  {
+   "id": "G04",
+   "category": "github-pr-review",
+   "repos": [
+    {
+     "repo": "pallets/click",
+     "sha": "06b2a678741131fd577ce170e23e5ca0aeba0309"
+    }
+   ],
+   "question": "What does pallets/click PR #3866 deprecate, and which parameter declarations now produce a warning?"
+  },
+  {
+   "id": "G05",
+   "category": "github-code-research",
+   "repos": [
+    {
+     "repo": "psf/requests",
+     "sha": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60"
+    }
+   ],
+   "question": "In psf/requests at commit 611c6162cb, how does a Session follow redirects, and what does it change about the request between hops?"
+  },
+  {
+   "id": "G06",
+   "category": "github-code-research",
+   "repos": [
+    {
+     "repo": "encode/httpx",
+     "sha": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254"
+    }
+   ],
+   "question": "In encode/httpx at commit b5addb64f0, how does the synchronous Client decide whether a request goes through a proxy or connects directly?"
+  },
+  {
+   "id": "G07",
+   "category": "github-code-research",
+   "repos": [
+    {
+     "repo": "Kludex/starlette",
+     "sha": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c"
+    }
+   ],
+   "question": "In Kludex/starlette at commit 63c5760d8a, how is an application's middleware stack assembled, and how do raised exceptions reach their handlers?"
+  },
+  {
+   "id": "G08",
+   "category": "github-bug-rca",
+   "repos": [
+    {
+     "repo": "sveltejs/svelte",
+     "sha": "6eb720a1b7cafca3ebe0ab5c76674272cd3044f9"
+    }
+   ],
+   "question": "What is the root cause of sveltejs/svelte issue #18837, and how was it fixed?"
+  },
+  {
+   "id": "G09",
+   "category": "github-bug-rca",
+   "repos": [
+    {
+     "repo": "pydantic/pydantic",
+     "sha": "0384c970e37a59b344e75161eb106ea9996378ba"
+    }
+   ],
+   "question": "What is the root cause of pydantic/pydantic issue #13786, and how was it fixed?"
+  },
+  {
+   "id": "G10",
+   "category": "github-pr-review",
+   "repos": [
+    {
+     "repo": "tokio-rs/tokio",
+     "sha": "32312ae0d6f0b1c6457f1323e3e7f568f448d0db"
+    }
+   ],
+   "question": "Review tokio-rs/tokio PR #8156 (\"net: enable Miri tests for TCP socket\"). What does it change, and which networking tests still don't run under Miri, and why?"
+  },
+  {
+   "id": "L01",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "django/django",
+     "sha": "4fab678a0739d54401ccee7eb587553657c9f76e",
+     "dir": "python"
+    }
+   ],
+   "question": "In django/django at commit 4fab678a07, how does the automatic redirect from a URL without a trailing slash to the one with a slash work?"
+  },
+  {
+   "id": "L02",
+   "category": "local-locate",
+   "repos": [
+    {
+     "repo": "django/django",
+     "sha": "4fab678a0739d54401ccee7eb587553657c9f76e",
+     "dir": "python"
+    }
+   ],
+   "question": "In django/django at commit 4fab678a07, where does Django stop you from saving an object whose foreign key points to an unsaved instance, and how does that check work?"
+  },
+  {
+   "id": "L03",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "django/django",
+     "sha": "4fab678a0739d54401ccee7eb587553657c9f76e",
+     "dir": "python"
+    }
+   ],
+   "question": "In django/django at commit 4fab678a07, how do callbacks registered with `transaction.on_commit` get stored, discarded and eventually run?"
+  },
+  {
+   "id": "L04",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "langchain-ai/langchain",
+     "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+     "dir": "langchain"
+    }
+   ],
+   "question": "In langchain-ai/langchain at commit 67ee6cb63d, how does LangChain core's tool decorator build a tool's argument schema and description from a plain function when docstring parsing is enabled?"
+  },
+  {
+   "id": "L05",
+   "category": "local-impact",
+   "repos": [
+    {
+     "repo": "langchain-ai/langchain",
+     "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+     "dir": "langchain"
+    }
+   ],
+   "question": "In langchain-ai/langchain at commit 67ee6cb63d, what in langchain-core would be affected if the public helper that merges streamed message-chunk content accepted exactly two contents instead of a variable number?"
+  },
+  {
+   "id": "L06",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "vercel/next.js",
+     "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+     "dir": "nextjs"
+    }
+   ],
+   "question": "In vercel/next.js at commit d155ba9ebf, how does the `generateEtags` config option end up affecting HTTP responses?"
+  },
+  {
+   "id": "L07",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "vercel/next.js",
+     "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+     "dir": "nextjs"
+    }
+   ],
+   "question": "In vercel/next.js at commit d155ba9ebf, how does calling the App Router's `redirect()` or `permanentRedirect()` on the server turn into an HTTP response?"
+  },
+  {
+   "id": "L08",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "prometheus/prometheus",
+     "sha": "ea954809ceafceb53ecfa295ab0947753929de9e",
+     "dir": "go"
+    }
+   ],
+   "question": "In prometheus/prometheus at commit ea954809ce, how is a scrape job's sample limit enforced?"
+  },
+  {
+   "id": "L09",
+   "category": "local-semantic",
+   "repos": [
+    {
+     "repo": "prometheus/prometheus",
+     "sha": "ea954809ceafceb53ecfa295ab0947753929de9e",
+     "dir": "go"
+    }
+   ],
+   "question": "In prometheus/prometheus at commit ea954809ce, how does Prometheus mark series as stale when they disappear from a scrape or when a target stops being scraped?"
+  },
+  {
+   "id": "L10",
+   "category": "local-semantic",
+   "repos": [
+    {
+     "repo": "prometheus/prometheus",
+     "sha": "ea954809ceafceb53ecfa295ab0947753929de9e",
+     "dir": "go"
+    }
+   ],
+   "question": "In prometheus/prometheus at commit ea954809ce, how does PromQL compute `rate()` and `increase()` over counter samples?"
+  },
+  {
+   "id": "L11",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "tokio-rs/tokio",
+     "sha": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
+     "dir": "rust"
+    }
+   ],
+   "question": "In tokio-rs/tokio at commit facc6fc47e, how does a spawned task's output get from the task to whoever awaits its `JoinHandle`?"
+  },
+  {
+   "id": "L12",
+   "category": "local-semantic",
+   "repos": [
+    {
+     "repo": "tokio-rs/tokio",
+     "sha": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
+     "dir": "rust"
+    }
+   ],
+   "question": "In tokio-rs/tokio at commit facc6fc47e, the multi-threaded scheduler sometimes runs a task woken by the currently running task next on the same worker. How does that optimization work, and what limits it?"
+  },
+  {
+   "id": "L13",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "redis/redis",
+     "sha": "20bb2cfc54aa08c8fdfb8c4c0a8b8258e811711e",
+     "dir": "c"
+    }
+   ],
+   "question": "In redis/redis at commit 20bb2cfc54, what happens when a client runs GET on a string key whose TTL has already expired?"
+  },
+  {
+   "id": "L14",
+   "category": "local-semantic",
+   "repos": [
+    {
+     "repo": "lodash/lodash",
+     "sha": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
+     "dir": "javascript"
+    }
+   ],
+   "question": "In lodash/lodash at commit 2b5e6f7399, how does `debounce` decide when to call the wrapped function, including what the `maxWait` option does?"
+  },
+  {
+   "id": "L15",
+   "category": "local-semantic",
+   "repos": [
+    {
+     "repo": "google/guava",
+     "sha": "4d41665af1b05bad09039b82cb2a1a474a7bceaf",
+     "dir": "java"
+    }
+   ],
+   "question": "In google/guava at commit 4d41665af1, how do Guava's immutable hash sets defend against many elements with colliding hash codes?"
+  },
+  {
+   "id": "L16",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "google/guava",
+     "sha": "4d41665af1b05bad09039b82cb2a1a474a7bceaf",
+     "dir": "java"
+    }
+   ],
+   "question": "In google/guava at commit 4d41665af1, how do `CacheBuilder`'s `maximumSize` and `concurrencyLevel` settings shape the cache's internal structure?"
+  },
+  {
+   "id": "L17",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "JamesNK/Newtonsoft.Json",
+     "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+     "dir": "csharp"
+    }
+   ],
+   "question": "In JamesNK/Newtonsoft.Json at commit 52fa3aef1f, how are required members enforced when deserializing an object?"
+  },
+  {
+   "id": "L18",
+   "category": "local-semantic",
+   "repos": [
+    {
+     "repo": "nlohmann/json",
+     "sha": "f422b753cca0143b2c8545df2e1422171a2f9cd5",
+     "dir": "cpp"
+    }
+   ],
+   "question": "In nlohmann/json at commit f422b753cc, how does parsing with a parser callback that rejects some elements produce the resulting JSON value?"
+  },
+  {
+   "id": "L19",
+   "category": "local-trace",
+   "repos": [
+    {
+     "repo": "microsoft/TypeScript",
+     "sha": "4f5ddae224b9529a69b571f631fe3a2cb283162f",
+     "dir": "typescript"
+    }
+   ],
+   "question": "In microsoft/TypeScript at commit 4f5ddae224, how does the `moduleDetection` compiler option decide whether a file is treated as a module or a script in the Go-based compiler?"
+  },
+  {
+   "id": "L20",
+   "category": "local-impact",
+   "repos": [
+    {
+     "repo": "microsoft/TypeScript",
+     "sha": "4f5ddae224b9529a69b571f631fe3a2cb283162f",
+     "dir": "typescript"
+    }
+   ],
+   "question": "In microsoft/TypeScript at commit 4f5ddae224, what would be affected in the Go-based compiler if we changed how the default value of `resolveJsonModule` is computed?"
+  }
+ ]
+}

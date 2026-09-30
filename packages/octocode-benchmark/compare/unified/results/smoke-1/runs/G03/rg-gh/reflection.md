@@ -1,0 +1,7 @@
+1. **Helped:** One parallel Bash call, `gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files,url` chained with `gh pr diff 5881 -R nodejs/undici`, returned everything I needed. The diff shows the exact mechanism (`kRetireClient`, `kRetiring`, `closeClients`, the `kDestroy` change, the `connectionError` handlers). The removed comment in `pool.js` and the new test file confirmed the intent. The JSON `mergeCommit` field gave me the SHA.
+
+2. **Did not help:** Nothing was wasted, since I made only one call. The PR body is thin, with "Bug Fixes: N/A", so the diff had to carry the explanation. I did not open the source at the merge commit, so I could not give post-merge line numbers. I also didn't check the `clientTtl` eviction path beyond what the diff and tests show. The answer says both of those limits.
+
+3. **Next time:** I would fetch the PR review comments and linked issues (`gh pr view --comments`) to see maintainer discussion. I would also fetch `pool-base.js` at `da911f0` with `gh api` or a local checkout, to cite line numbers and confirm how `kRemoveClient` is called on the TTL path.
+
+4. **Confidence:** High on the bug and mechanism, because they come directly from the diff and the PR text. Medium-high on the `clientTtl` detail, since I inferred it from the tests and did not read the eviction code.

@@ -1,0 +1,94 @@
+{
+  "qid": "G05",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "ff5cfc7500dbae850e1fba4245bc856bf29890b6478e40969ad1ff6e0c5ccc25",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5-partial",
+        "1-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate loop and per-hop changes; skips Session.send integration, default limit 30, and REDIRECT_STATI. Citations mostly approximate."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1-partial",
+        "2",
+        "3",
+        "4",
+        "5-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers Session.send resolve_redirects/history/_next plus all per-hop changes. Missing is_redirect status set and default value 30. Some line cites off by 4-6 but generally supportive."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5-partial",
+        "1-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate loop and per-hop changes; skips Session.send integration, default limit 30, and REDIRECT_STATI. Citations mostly approximate."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1-partial",
+        "2",
+        "3",
+        "4",
+        "5-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers Session.send resolve_redirects/history/_next plus all per-hop changes. Missing is_redirect status set and default value 30. Some line cites off by 4-6 but generally supportive."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1253724,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11234,
+    "cache_read_input_tokens": 24782,
+    "output_tokens": 29,
+    "context_tokens": 36022,
+    "total_tokens": 36051,
+    "first_request_context": 10493,
+    "fixed_overhead_tokens": 31479,
+    "research_tokens": 4572,
+    "max_request_context": 13863
+  },
+  "timedOut": false
+}
