@@ -1,0 +1,5 @@
+# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "documentSymbols", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"summary":{"totalSymbols":3,"returnedSymbols":3,"topLevelSymbols":2,"kinds":{"function":1,"class":1,"method":1}},"payload":{"kind":"documentSymbols","symbols":[{"name":"alphaNeedle","kind":"function","line":3,"character":17,"endLine":6,"childCount":1},{"name":"Widget","kind":"class","line":8,"character":14,"endLine":13,"childCount":1},{"name":"run","kind":"method","line":9,"character":3,"endLine":12,"childCount":0,"containerName":"Widget"}]},"path":"a.ts"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

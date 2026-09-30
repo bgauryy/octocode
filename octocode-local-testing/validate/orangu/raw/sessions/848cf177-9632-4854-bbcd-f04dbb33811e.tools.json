@@ -1,0 +1,1351 @@
+{
+  "schemaVersion": "1",
+  "sessionId": "848cf177-9632-4854-bbcd-f04dbb33811e",
+  "source": "claude-code",
+  "revision": "ccb47986ed8085e1250f095a",
+  "view": "tools",
+  "scope": {
+    "totals": "whole-session"
+  },
+  "coverage": {
+    "evidenceVersion": 22,
+    "observationCoverage": {
+      "skills": "partial",
+      "hooks": "partial",
+      "permissions": "partial"
+    },
+    "totalLines": 4173,
+    "badLines": 0,
+    "recordCounts": {
+      "mode": 36,
+      "permission-mode": 36,
+      "atis-latch": 36,
+      "file-history-snapshot": 3,
+      "user": 1004,
+      "attachment": 1231,
+      "last-prompt": 36,
+      "ai-title": 35,
+      "assistant": 1664,
+      "system": 22,
+      "queue-operation": 68,
+      "file-history-delta": 1,
+      "cost-state": 1
+    },
+    "unknownRecordTypes": {},
+    "unknownBlockTypes": {},
+    "attachmentTypes": {
+      "environment": 29,
+      "model": 11,
+      "deferred_tools_delta": 21,
+      "agent_listing_delta": 11,
+      "mcp_instructions_delta": 11,
+      "skill_listing": 17,
+      "‹stripped›#da7de14e550d": 11,
+      "total_tokens_reminder": 859,
+      "instructions": 11,
+      "‹stripped›#431da900f7c1": 11,
+      "date": 11,
+      "‹stripped›#8c682b0ec397": 11,
+      "‹stripped›#e8d500851780": 11,
+      "prompt_snapshot": 22,
+      "‹stripped›#9cd9603810bc": 2,
+      "deferred_tools_record": 138,
+      "edited_text_file": 20,
+      "queued_command": 17,
+      "silent_turn_reminder": 3,
+      "nested_memory": 4
+    },
+    "attachmentBytes": {
+      "environment": 12738,
+      "model": 2728,
+      "deferred_tools_delta": 15020,
+      "agent_listing_delta": 30316,
+      "mcp_instructions_delta": 24277,
+      "skill_listing": 220353,
+      "‹stripped›#da7de14e550d": 1364,
+      "total_tokens_reminder": 78169,
+      "instructions": 201256,
+      "‹stripped›#431da900f7c1": 16755,
+      "date": 385,
+      "‹stripped›#8c682b0ec397": 913,
+      "‹stripped›#e8d500851780": 2728,
+      "prompt_snapshot": 937961,
+      "‹stripped›#9cd9603810bc": 96,
+      "deferred_tools_record": 22863,
+      "edited_text_file": 13949,
+      "queued_command": 18822,
+      "silent_turn_reminder": 417,
+      "nested_memory": 1828
+    },
+    "systemSubtypes": {
+      "turn_duration": 20,
+      "away_summary": 2
+    },
+    "warnings": [],
+    "parseMs": 324,
+    "bytes": 16939825,
+    "reconciliation": {
+      "usageEventsTotal": 146181108,
+      "turnsPlusAgentsTotal": 146181108,
+      "matchesWithinPct": 0,
+      "ok": true
+    }
+  },
+  "totals": {
+    "summary": 1,
+    "entities": 406,
+    "trace": 2086,
+    "timeline": 1930,
+    "metrics": 2825,
+    "issues": 17,
+    "questions": 13,
+    "detectors": 39,
+    "components": 152,
+    "files": 377,
+    "errors": 4,
+    "git": 0,
+    "tools": 10
+  },
+  "rows": [
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:Bash",
+      "kind": "tool",
+      "name": "Bash",
+      "data": {
+        "name": "Bash",
+        "category": "exec",
+        "count": 824,
+        "operations": 0,
+        "errors": 52,
+        "unresolved": 0,
+        "totalMs": 8126222,
+        "avgMs": 9862,
+        "p50Ms": 1115,
+        "p95Ms": 38644,
+        "maxMs": 521448,
+        "timed": 824,
+        "resultBytesTotal": 2728496,
+        "resultBytesMax": 166872,
+        "inputBytesTotal": 435779,
+        "parallelShare": 0.123,
+        "mainCount": 52,
+        "agentCount": 772,
+        "params": [
+          {
+            "key": "command",
+            "calls": 824,
+            "errors": 52,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "description",
+            "calls": 227,
+            "errors": 3,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "timeout",
+            "calls": 120,
+            "errors": 8,
+            "types": [
+              "number"
+            ]
+          },
+          {
+            "key": "run_in_background",
+            "calls": 8,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 824
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "text",
+            "calls": 821
+          },
+          {
+            "format": "json",
+            "calls": 3
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "interrupted",
+            "calls": 772,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "isImage",
+            "calls": 772,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "noOutputExpected",
+            "calls": 772,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "stderr",
+            "calls": 772,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "stdout",
+            "calls": 772,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "bashEditDiff",
+            "calls": 177,
+            "errors": 0,
+            "types": [
+              "object"
+            ]
+          },
+          {
+            "key": "backgroundTaskId",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "backgroundCwdHint",
+            "calls": 7,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "persistedOutputPath",
+            "calls": 6,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "persistedOutputSize",
+            "calls": 6,
+            "errors": 0,
+            "types": [
+              "number"
+            ]
+          },
+          {
+            "key": "staleReadFileStateHint",
+            "calls": 6,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "returnCodeInterpretation",
+            "calls": 5,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "timedOutAfterMs",
+            "calls": 2,
+            "errors": 0,
+            "types": [
+              "number"
+            ]
+          }
+        ],
+        "resultBlocks": [],
+        "truncatedResults": 0,
+        "persistedResults": 6,
+        "errorShapes": [
+          {
+            "shape": "is_error",
+            "calls": 36
+          },
+          {
+            "shape": "exit:1",
+            "calls": 12
+          },
+          {
+            "shape": "exit:2",
+            "calls": 4
+          }
+        ],
+        "repetition": {
+          "calls": 160,
+          "bytes": 1705179,
+          "duplicateLineBytes": 42578,
+          "p95DuplicateLineRatio": 0.109,
+          "p50Redundancy": 0.105,
+          "unstructured": 0,
+          "tableLike": 24,
+          "jsonParseable": 0,
+          "truncated": 0,
+          "prefixes": [
+            {
+              "class": "path",
+              "calls": 12,
+              "savedBytes": 22202
+            },
+            {
+              "class": "json-key",
+              "calls": 28,
+              "savedBytes": 13763
+            },
+            {
+              "class": "token",
+              "calls": 63,
+              "savedBytes": 8749
+            },
+            {
+              "class": "url",
+              "calls": 5,
+              "savedBytes": 929
+            }
+          ]
+        }
+      },
+      "evidencePath": "tools.byName.0",
+      "status": "failed"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:Write",
+      "kind": "tool",
+      "name": "Write",
+      "data": {
+        "name": "Write",
+        "category": "write",
+        "count": 60,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 48397,
+        "avgMs": 807,
+        "p50Ms": 14,
+        "p95Ms": 3458,
+        "maxMs": 15690,
+        "timed": 60,
+        "resultBytesTotal": 13350,
+        "resultBytesMax": 282,
+        "inputBytesTotal": 256029,
+        "parallelShare": 0.717,
+        "mainCount": 1,
+        "agentCount": 59,
+        "params": [
+          {
+            "key": "content",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "file_path",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 60
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "text",
+            "calls": 60
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "content",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "filePath",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "originalFile",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "null",
+              "string"
+            ]
+          },
+          {
+            "key": "structuredPatch",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "array"
+            ]
+          },
+          {
+            "key": "type",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "userModified",
+            "calls": 60,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "memdirStamped",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          }
+        ],
+        "resultBlocks": [],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": []
+      },
+      "evidencePath": "tools.byName.1",
+      "status": "succeeded"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:Edit",
+      "kind": "tool",
+      "name": "Edit",
+      "data": {
+        "name": "Edit",
+        "category": "edit",
+        "count": 44,
+        "operations": 0,
+        "errors": 1,
+        "unresolved": 0,
+        "totalMs": 144267,
+        "avgMs": 3279,
+        "p50Ms": 2192,
+        "p95Ms": 10693,
+        "maxMs": 12112,
+        "timed": 44,
+        "resultBytesTotal": 7721,
+        "resultBytesMax": 372,
+        "inputBytesTotal": 53778,
+        "parallelShare": 0.795,
+        "mainCount": 0,
+        "agentCount": 44,
+        "params": [
+          {
+            "key": "file_path",
+            "calls": 44,
+            "errors": 1,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "new_string",
+            "calls": 44,
+            "errors": 1,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "old_string",
+            "calls": 44,
+            "errors": 1,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "replace_all",
+            "calls": 44,
+            "errors": 1,
+            "types": [
+              "boolean"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 44
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "text",
+            "calls": 44
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "filePath",
+            "calls": 43,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "newString",
+            "calls": 43,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "oldString",
+            "calls": 43,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "originalFile",
+            "calls": 43,
+            "errors": 0,
+            "types": [
+              "null",
+              "string"
+            ]
+          },
+          {
+            "key": "replaceAll",
+            "calls": 43,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "structuredPatch",
+            "calls": 43,
+            "errors": 0,
+            "types": [
+              "array"
+            ]
+          },
+          {
+            "key": "userModified",
+            "calls": 43,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "contentNotInModelContext",
+            "calls": 41,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "staleRecovered",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          }
+        ],
+        "resultBlocks": [],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": [
+          {
+            "shape": "is_error",
+            "calls": 1
+          }
+        ]
+      },
+      "evidencePath": "tools.byName.2",
+      "status": "failed"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:Agent",
+      "kind": "tool",
+      "name": "Agent",
+      "data": {
+        "name": "Agent",
+        "category": "agent",
+        "count": 10,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 244515,
+        "avgMs": 24452,
+        "p50Ms": 11565,
+        "p95Ms": 84589,
+        "maxMs": 84589,
+        "timed": 10,
+        "resultBytesTotal": 11000,
+        "resultBytesMax": 1100,
+        "inputBytesTotal": 49042,
+        "parallelShare": 0.8,
+        "mainCount": 10,
+        "agentCount": 0,
+        "params": [
+          {
+            "key": "description",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "prompt",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "subagent_type",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "isolation",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 10
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "content-blocks",
+            "calls": 10
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "agentId",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "canReadOutputFile",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "description",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "isAsync",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "outputFile",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "prompt",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "resolvedModel",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "status",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "resultBlocks": [
+          {
+            "type": "text",
+            "calls": 10,
+            "blocks": 10
+          }
+        ],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": []
+      },
+      "evidencePath": "tools.byName.3",
+      "status": "succeeded"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:SubagentHandback",
+      "kind": "tool",
+      "name": "SubagentHandback",
+      "data": {
+        "name": "SubagentHandback",
+        "category": "agent",
+        "count": 10,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 9524,
+        "avgMs": 952,
+        "p50Ms": 942,
+        "p95Ms": 1156,
+        "maxMs": 1156,
+        "timed": 10,
+        "resultBytesTotal": 940,
+        "resultBytesMax": 94,
+        "inputBytesTotal": 69378,
+        "parallelShare": 0,
+        "mainCount": 0,
+        "agentCount": 10,
+        "params": [
+          {
+            "key": "message",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 10
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "content-blocks",
+            "calls": 10
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "message",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "success",
+            "calls": 10,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          }
+        ],
+        "resultBlocks": [
+          {
+            "type": "text",
+            "calls": 10,
+            "blocks": 10
+          }
+        ],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": []
+      },
+      "evidencePath": "tools.byName.4",
+      "status": "succeeded"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:Read",
+      "kind": "tool",
+      "name": "Read",
+      "data": {
+        "name": "Read",
+        "category": "read",
+        "count": 7,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 1016,
+        "avgMs": 145,
+        "p50Ms": 116,
+        "p95Ms": 289,
+        "maxMs": 289,
+        "timed": 7,
+        "resultBytesTotal": 113811,
+        "resultBytesMax": 36969,
+        "inputBytesTotal": 1060,
+        "parallelShare": 0.286,
+        "mainCount": 0,
+        "agentCount": 7,
+        "params": [
+          {
+            "key": "file_path",
+            "calls": 7,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "offset",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "number"
+            ]
+          },
+          {
+            "key": "limit",
+            "calls": 2,
+            "errors": 0,
+            "types": [
+              "number"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 7
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "text",
+            "calls": 7
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "file",
+            "calls": 7,
+            "errors": 0,
+            "types": [
+              "object"
+            ]
+          },
+          {
+            "key": "type",
+            "calls": 7,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "resultBlocks": [],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": [],
+        "repetition": {
+          "calls": 3,
+          "bytes": 109411,
+          "duplicateLineBytes": 0,
+          "p95DuplicateLineRatio": 0,
+          "p50Redundancy": 0.09,
+          "unstructured": 0,
+          "tableLike": 3,
+          "jsonParseable": 0,
+          "truncated": 0,
+          "prefixes": []
+        }
+      },
+      "evidencePath": "tools.byName.5",
+      "status": "succeeded"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:SendMessage",
+      "kind": "tool",
+      "name": "SendMessage",
+      "data": {
+        "name": "SendMessage",
+        "category": "agent",
+        "count": 4,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 5761,
+        "avgMs": 1440,
+        "p50Ms": 1085,
+        "p95Ms": 2547,
+        "maxMs": 2547,
+        "timed": 4,
+        "resultBytesTotal": 1308,
+        "resultBytesMax": 375,
+        "inputBytesTotal": 2873,
+        "parallelShare": 0.5,
+        "mainCount": 4,
+        "agentCount": 0,
+        "params": [
+          {
+            "key": "content",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "message",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "recipient",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "summary",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "to",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "type",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 4
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "content-blocks",
+            "calls": 4
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "message",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "success",
+            "calls": 4,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          },
+          {
+            "key": "display",
+            "calls": 3,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "msg_id",
+            "calls": 3,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "pin",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "object"
+            ]
+          }
+        ],
+        "resultBlocks": [
+          {
+            "type": "text",
+            "calls": 4,
+            "blocks": 4
+          }
+        ],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": []
+      },
+      "evidencePath": "tools.byName.6",
+      "status": "succeeded"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:Skill",
+      "kind": "tool",
+      "name": "Skill",
+      "data": {
+        "name": "Skill",
+        "category": "skill",
+        "count": 1,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 22,
+        "avgMs": 22,
+        "p50Ms": 22,
+        "p95Ms": 22,
+        "maxMs": 22,
+        "timed": 1,
+        "resultBytesTotal": 31,
+        "resultBytesMax": 31,
+        "inputBytesTotal": 174,
+        "parallelShare": 1,
+        "mainCount": 1,
+        "agentCount": 0,
+        "params": [
+          {
+            "key": "args",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "skill",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 1
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "text",
+            "calls": 1
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "commandName",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "success",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "boolean"
+            ]
+          }
+        ],
+        "resultBlocks": [],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": []
+      },
+      "evidencePath": "tools.byName.7",
+      "status": "succeeded"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:ToolSearch",
+      "kind": "tool",
+      "name": "ToolSearch",
+      "data": {
+        "name": "ToolSearch",
+        "category": "search",
+        "count": 1,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 4,
+        "avgMs": 4,
+        "p50Ms": 4,
+        "p95Ms": 4,
+        "maxMs": 4,
+        "timed": 1,
+        "resultBytesTotal": 53,
+        "resultBytesMax": 53,
+        "inputBytesTotal": 46,
+        "parallelShare": 0,
+        "mainCount": 1,
+        "agentCount": 0,
+        "params": [
+          {
+            "key": "max_results",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "number"
+            ]
+          },
+          {
+            "key": "query",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "inputFormats": [
+          {
+            "format": "json",
+            "calls": 1
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "content-blocks",
+            "calls": 1
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "matches",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "array"
+            ]
+          },
+          {
+            "key": "query",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          },
+          {
+            "key": "total_deferred_tools",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "number"
+            ]
+          }
+        ],
+        "resultBlocks": [
+          {
+            "type": "tool_reference",
+            "calls": 1,
+            "blocks": 1
+          }
+        ],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": []
+      },
+      "evidencePath": "tools.byName.8",
+      "status": "succeeded"
+    },
+    {
+      "id": "848cf177-9632-4854-bbcd-f04dbb33811e:tool-profile:ListAgents",
+      "kind": "tool",
+      "name": "ListAgents",
+      "data": {
+        "name": "ListAgents",
+        "category": "agent",
+        "count": 1,
+        "operations": 0,
+        "errors": 0,
+        "unresolved": 0,
+        "totalMs": 37,
+        "avgMs": 37,
+        "p50Ms": 37,
+        "p95Ms": 37,
+        "maxMs": 37,
+        "timed": 1,
+        "resultBytesTotal": 561,
+        "resultBytesMax": 561,
+        "inputBytesTotal": 2,
+        "parallelShare": 1,
+        "mainCount": 1,
+        "agentCount": 0,
+        "params": [],
+        "inputFormats": [
+          {
+            "format": "empty",
+            "calls": 1
+          }
+        ],
+        "omittedParamCalls": 0,
+        "paramPaths": [],
+        "partialParamPathCalls": 0,
+        "results": [
+          {
+            "format": "text",
+            "calls": 1
+          }
+        ],
+        "resultKeys": [
+          {
+            "key": "listing",
+            "calls": 1,
+            "errors": 0,
+            "types": [
+              "string"
+            ]
+          }
+        ],
+        "resultBlocks": [],
+        "truncatedResults": 0,
+        "persistedResults": 0,
+        "errorShapes": []
+      },
+      "evidencePath": "tools.byName.9",
+      "status": "succeeded"
+    }
+  ],
+  "total": 10,
+  "shown": 10,
+  "nextCursor": null,
+  "notes": [
+    "Current harness declarations are separate: orangu harness --json. Missing observations do not establish non-use.",
+    "Times are epoch milliseconds; durations may overlap. Contexts are independent per agent. Attributed request tokens can overlap across skills, plugins and MCPs.",
+    "Untimed events remain visible without time filters. Hook timestamps locate recorded outcomes; durations do not establish their start time. Issue groups can overlap and do not count unique failures."
+  ]
+}

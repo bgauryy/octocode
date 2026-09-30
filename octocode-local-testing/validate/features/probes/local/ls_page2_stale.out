@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"queries": [{"snapshot": "lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168", "page": 2, "pageSize": 10, "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many", "matchContentLength": 200, "searchText": "needle", "contextLines": 0, "followUp": true}]}
+# env: None
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"error":"Search snapshot cannot be continued (resultsChanged); restart the search.","errorCode":"staleSnapshot","next":{"restart":{"tool":"localSearch","confidence":"exact","why":"Start a new search against the current source.","query":{"contextLines":0,"followUp":true,"matchContentLength":200,"pageSize":10,"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many","searchText":"needle"}}}},"status":"error"}]}

@@ -1,42 +1,22 @@
 # Benchmark architecture
 
-`@octocodeai/octocode-benchmark` is a private, source-only evaluation workspace. It measures research behavior and resource use; it is not a production dependency and must not become a second implementation of tool policy.
-
-## Campaign boundaries
-
-Each campaign owns its corpus, protocol, arms, receipts, graders, and report format under one directory. Results from different campaigns are not directly comparable unless a shared protocol explicitly says they are.
-
-- `compare/terra-v3` is the current locked-corpus tool comparison.
-- `compare/advanced-research-v1` is a separate local/GitHub diagnostic.
-- `compare/github-questions` and `results/` retain the historical GitHub campaign.
-- `evals/` contains focused deterministic regression gates.
+`@octocodeai/octocode-benchmark` is a private, source-only eval workspace. It measures how a Claude agent researches code with Octocode compared with the same agent using `rg` and `gh`. It is not a production dependency and does not reimplement tool policy: the Octocode arm runs the real MCP server build.
 
 ## Data flow
 
 ```text
-frozen cases + corpus + arm config
-              │
-              ▼
-       preflight / eligibility
-              │
-              ▼
-      isolated arm execution
-              │
-              ▼
- raw receipts + resource measures
-              │
-              ▼
- deterministic grading / blind review
-              │
-              ▼
-          campaign report
+questions.json ──► run.mjs ──► results/<run-id>/<qid>/<arm>/pass<k>/  (stream, answer, run.json)
+                                   │
+                    judge.mjs ◄────┘  scrubbed answers as X/Y, both orders, tie-break
+                                   │
+                                   ▼
+                  report.mjs ──► summary.json, report.md, docs/BENCHMARKS.md
 ```
 
 ## Invariants
 
-- Freeze cases and scoring before evaluating the change under test.
-- Keep raw observations separate from derived scores and narrative conclusions.
-- Record tool versions, source fingerprints, corpus revisions, and exclusions.
-- Never silently combine character, token, time, or quality metrics from incompatible campaigns.
-- Repository-layout probes are allowed because this package is internal, but preflight must fail clearly when required artifacts are absent.
-- Benchmark findings inform a keep/discard decision; they do not override production tests or security gates.
+- Solvers get only the question, the corpus paths, and a neutral request for evidence. Arm-specific coaching, answer keys, judge output and earlier attempts never reach them.
+- Both arms use the same model, prompt, turn limit and timeout. Their only difference is the tool configuration in `run.mjs`.
+- A run records the hashes of its questions, harness, MCP config and server build. The harness refuses to resume a run ID after any of them changes; a corrected harness means rerunning both arms.
+- Every published number comes from `summary.json` through `report.mjs`. `docs/BENCHMARKS.md` is generated, not hand-edited.
+- Raw streams stay local (gitignored). Unresolved judge verdicts are reported and excluded from correctness totals, never dropped silently.

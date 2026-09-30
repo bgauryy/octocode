@@ -1,0 +1,6871 @@
+{
+  "runId": "full-2026-09-30",
+  "generatedAt": "2026-09-30T01:59:49.724Z",
+  "setup": {
+    "model": "sonnet",
+    "maxTurns": 40,
+    "timeoutMs": 1200000,
+    "passes": 3,
+    "concurrency": 4,
+    "claudeVersion": "2.1.285 (Claude Code)",
+    "corpus": [
+      {
+        "repo": "langchain-ai/langchain",
+        "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain",
+        "head": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125"
+      },
+      {
+        "repo": "vercel/next.js",
+        "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs",
+        "head": "d155ba9ebfffe4742efefda8d68c2e0e8e490924"
+      }
+    ],
+    "hashes": {
+      "questionsJson": "c219bd5acc3d07c1b86107fbfaf8f8b739f57080e974c6f241081414315ea54b",
+      "runMjs": "645ffa171ed905264b804df11cb88b62b071dc1aa3d20abb0e1f84554fce9670",
+      "libMjs": "9a93e70d1325ccd210ff4767e0fe2369260ef99c00061f070b460ad4b904aa7c",
+      "mcpConfig": "d7de92e240b7f632c19bae8e63a4ccacc39b6a7a4a1c7a2290022cd20f4622fd",
+      "mcpServerDist": "9ab5b3c8e31adf95e67b978b0e559397f62edf06f81239d6738f6931d8a33447",
+      "userOctocoderc": "6a8d7781850c7c72a77ddc7e66a1ae9c8cf051e79cbd0192bb6883b7b55cc847",
+      "armFlags": {
+        "octocode": "6db92e5af4d2c58dd43876a9513c8c4cc2dee482789d1805fa01d8054f6642dc",
+        "rg-gh": "88a90c0cda44e53055cd5afd822259ae809b551a68d831a9412e1b1a1179c83d"
+      },
+      "prompts": {
+        "G01/octocode": "1de908b34420561949fee6a973c2b47d5600309b25d3688169924d1d17af2144",
+        "G01/rg-gh": "33ac66d6fb4bcad8db0d8a5bb95541dd1a5545d5f00f3743d42e08a80d9868ab",
+        "G02/octocode": "be532a6385bded4300e133e29d846c2cc2ac0fc1e6a5baea38e5ec41ee04d257",
+        "G02/rg-gh": "6360dd260ee5ae816e7833144454ed3dad096712b0704f3f1d35a05724952080",
+        "G03/octocode": "1c7ada9258a418ba16b7b0fc163192cdd1da6d9789947c08705aad93d53b3e30",
+        "G03/rg-gh": "c469a28339e493d29cc377a56f759055ff0f7d4c6ec645907d9486d23dd3daa9",
+        "G04/octocode": "8f677b08d12b1f66170423f5b50ce469ae66aace7afff60bc184a52cdfc5fec4",
+        "G04/rg-gh": "69d22fc94a023b496e663a617729511e90cea2b09270fe92b42417b9ab98f2b0",
+        "G05/octocode": "c48672f6818358b11582823714ff069128baee96973543e75e171cc9a49da0e2",
+        "G05/rg-gh": "79cdb9962d0605369b2210219d2a37b86543ada60eb289a19860f07227189936",
+        "G06/octocode": "d82d41e5907d433567521149bcc659ea281a9c8a981db4980bea6fc1685bb9aa",
+        "G06/rg-gh": "40fe7a29639b3f7eb67df0cca12e5a0fd90eb3a712799e526dfa1d2c7385db16",
+        "G07/octocode": "3d5e53b0666f9845d596c94005ef5f3c7129af9a00e8e6cae68588f395655b09",
+        "G07/rg-gh": "51034731763a3b4be5d436eb30ab90996cff12f249df8d84ea6e113f4cfc9674",
+        "G08/octocode": "0ce81227cbe6f4d547ece4453b4e51722084c7d16e2011d6b2bbf386cd68a544",
+        "G08/rg-gh": "2b2cefd6598cb5e175e9a5871f5324945699959e02984743746b3e6f55dab56e",
+        "G09/octocode": "6effce59b6c916a5beec8c926d40e8840b510673269511213c0e45b02558ab75",
+        "G09/rg-gh": "36da19d7f32a13b46401e640b5dfaa2e3c2636cd5566e36e294aa75bb95c08ba",
+        "G10/octocode": "6051172ed52bccd91cd3f8d28a4e942658877f37c488d16d7bea7c69f409f75c",
+        "G10/rg-gh": "ddc2d6d770b953d8c0e5b6b3c4fa08026964c94f635faba53e7a23b3b2832380",
+        "L01/octocode": "79ef95a6bf8e8b609e766b1722a34716abdc7bf57fcc0ba15ead06f6f4b4478f",
+        "L01/rg-gh": "0f93b45139362029cf6784c3b083d8e548158d3464fa2024a80eab76532963e5",
+        "L02/octocode": "1669ae5f0f4fc9c6a08930c7e511e27d4ab500165be010e7eeac4ba00bae53a9",
+        "L02/rg-gh": "55d5f6949bd3c5bb934ef5379fb9ba2f00c71b5d1a2d90a402db9d928d58bbe6",
+        "L03/octocode": "968b3665b57e3f20facfcaf08aeb5d979b2bacccddc529702bbaa450d4948d76",
+        "L03/rg-gh": "10a482993943baf0dd34c366e5358077ed7cb75605a9233c99fe637de7bd689d",
+        "L04/octocode": "9963bfe93fd5037387a9614be89c8811cdb4af5df937c3c6fa1be26c43f0b78d",
+        "L04/rg-gh": "80cad4ae34c8e9cdac9a849a128729d2e789961cc97c7bca0a53dad97d171132",
+        "L05/octocode": "16c0f5f8cbef652a22e15642fbf0498b6b74e8d4a7014701418a3cb13f89e849",
+        "L05/rg-gh": "9739a44d83ce6530dbeef62d8335fe626db14a2f882a4280e71d30cc40da7918",
+        "L06/octocode": "3f96ef8d6170b49dd1b6d7d06e11357dc8459da5f75427925784b18f2cf0ee18",
+        "L06/rg-gh": "596f97154b3bbf8adb65a279dae86440c09b174a3df7c52002506269fa55a2d3",
+        "L07/octocode": "191bc79ff38fa960290b735a947e71a785320d68660d51be200509145b0e7d34",
+        "L07/rg-gh": "ef16681deb4e51419168958f138e47f98f1397b0ed83137b58eaab7ff2e87b13",
+        "L08/octocode": "856d6eb74abe64cc0cd8dff0da577cd1ab27d75e4514f6e7d46b06c47f07a676",
+        "L08/rg-gh": "20a858aed3940a9f79406817ecfdf7b617bfce473d75eaa61f1fb211a100b503",
+        "L09/octocode": "d64ffe2eba7f3ce06c98f7761a3ec7627a4a550cc9fed533668f1e790a5ea5e3",
+        "L09/rg-gh": "dd54285814b46d46411905653f7b6b327790e61bada4470ba2751a144d0b9f20",
+        "L10/octocode": "d7222385933c5b0b103907d41000d000abb4f1898b53c0d38a6325fb77242ffe",
+        "L10/rg-gh": "a59b1e1f9f1000159eae01b17fb2b57227227fdba80193b7459c2cb7464fb094"
+      }
+    },
+    "createdAt": "2026-09-30T01:27:43.761Z"
+  },
+  "overhead": {
+    "method": "first API call input of each run × API calls in the run",
+    "byArm": {
+      "octocode": {
+        "firstCallInputMedian": 40675.5,
+        "apiCallsMean": 4.5
+      },
+      "rg-gh": {
+        "firstCallInputMedian": 4653.5,
+        "apiCallsMean": 6.066666666666666
+      }
+    }
+  },
+  "byArm": {
+    "octocode": {
+      "runs": 60,
+      "missing": 0,
+      "statuses": {
+        "ok": 60
+      },
+      "judged": 60,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 48,
+      "partial": 12,
+      "wrong": 0,
+      "meanScore": 2.8,
+      "passMeanScores": [
+        2.85,
+        2.9,
+        2.65
+      ],
+      "passScoreSpread": 0.25,
+      "passCorrect": [
+        17,
+        18,
+        13
+      ],
+      "passTotalTokens": [
+        4319164,
+        4193031,
+        4073794
+      ],
+      "tokens": {
+        "input_fresh": {
+          "total": 540,
+          "mean": 9,
+          "median": 8
+        },
+        "cache_write": {
+          "total": 717143,
+          "mean": 11952.383333333333,
+          "median": 9761
+        },
+        "cache_read": {
+          "total": 11697966,
+          "mean": 194966.1,
+          "median": 161293.5
+        },
+        "input_total": {
+          "total": 12415649,
+          "mean": 206927.48333333334,
+          "median": 168114
+        },
+        "output": {
+          "total": 170340,
+          "mean": 2839,
+          "median": 2486.5
+        },
+        "total_tokens": {
+          "total": 12585989,
+          "mean": 209766.48333333334,
+          "median": 169935
+        },
+        "overhead_tokens": {
+          "total": 10995394,
+          "mean": 183256.56666666668,
+          "median": 162532
+        },
+        "research_tokens": {
+          "total": 1590595,
+          "mean": 26509.916666666668,
+          "median": 13006
+        }
+      },
+      "cost": {
+        "total": 6.9126452,
+        "mean": 0.11521075333333333,
+        "median": 0.09101699999999999
+      },
+      "calls": {
+        "total": 252,
+        "mean": 4.2,
+        "median": 3
+      },
+      "turns": {
+        "total": 312,
+        "mean": 5.2,
+        "median": 4
+      },
+      "firstCallInput": {
+        "total": 2441778,
+        "mean": 40696.3,
+        "median": 40675.5
+      },
+      "apiCalls": {
+        "total": 270,
+        "mean": 4.5,
+        "median": 4
+      },
+      "wall_s": {
+        "total": 1564.388,
+        "mean": 26.07313333333333,
+        "median": 21.151
+      },
+      "toolErrors": 36,
+      "denials": 0,
+      "isolationFailures": 0
+    },
+    "rg-gh": {
+      "runs": 60,
+      "missing": 0,
+      "statuses": {
+        "ok": 60
+      },
+      "judged": 60,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 56,
+      "partial": 4,
+      "wrong": 0,
+      "meanScore": 2.933333333333333,
+      "passMeanScores": [
+        2.95,
+        2.9,
+        2.95
+      ],
+      "passScoreSpread": 0.050000000000000266,
+      "passCorrect": [
+        19,
+        18,
+        19
+      ],
+      "passTotalTokens": [
+        1250500,
+        1392128,
+        997372
+      ],
+      "tokens": {
+        "input_fresh": {
+          "total": 728,
+          "mean": 12.133333333333333,
+          "median": 10
+        },
+        "cache_write": {
+          "total": 631047,
+          "mean": 10517.45,
+          "median": 8201.5
+        },
+        "cache_read": {
+          "total": 2850128,
+          "mean": 47502.13333333333,
+          "median": 27771
+        },
+        "input_total": {
+          "total": 3481903,
+          "mean": 58031.71666666667,
+          "median": 36734
+        },
+        "output": {
+          "total": 158097,
+          "mean": 2634.95,
+          "median": 2262.5
+        },
+        "total_tokens": {
+          "total": 3640000,
+          "mean": 60666.666666666664,
+          "median": 39222.5
+        },
+        "overhead_tokens": {
+          "total": 1710833,
+          "mean": 28513.883333333335,
+          "median": 23440
+        },
+        "research_tokens": {
+          "total": 1929167,
+          "mean": 32152.783333333333,
+          "median": 13988.5
+        }
+      },
+      "cost": {
+        "total": 4.6766396000000015,
+        "mean": 0.07794399333333336,
+        "median": 0.0626479
+      },
+      "calls": {
+        "total": 392,
+        "mean": 6.533333333333333,
+        "median": 5
+      },
+      "turns": {
+        "total": 452,
+        "mean": 7.533333333333333,
+        "median": 6
+      },
+      "firstCallInput": {
+        "total": 280546,
+        "mean": 4675.766666666666,
+        "median": 4653.5
+      },
+      "apiCalls": {
+        "total": 364,
+        "mean": 6.066666666666666,
+        "median": 5
+      },
+      "wall_s": {
+        "total": 1491.6350000000002,
+        "mean": 24.860583333333338,
+        "median": 21.9525
+      },
+      "toolErrors": 124,
+      "denials": 123,
+      "isolationFailures": 0
+    }
+  },
+  "slices": {
+    "surface:github": {
+      "key": "surface",
+      "value": "github",
+      "n": 10,
+      "octocode": {
+        "runs": 30,
+        "missing": 0,
+        "statuses": {
+          "ok": 30
+        },
+        "judged": 30,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 28,
+        "partial": 2,
+        "wrong": 0,
+        "meanScore": 2.933333333333333,
+        "passMeanScores": [
+          3,
+          3,
+          2.8
+        ],
+        "passScoreSpread": 0.20000000000000018,
+        "passCorrect": [
+          10,
+          10,
+          8
+        ],
+        "passTotalTokens": [
+          1618707,
+          1462114,
+          1501922
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 206,
+            "mean": 6.866666666666666,
+            "median": 6
+          },
+          "cache_write": {
+            "total": 280953,
+            "mean": 9365.1,
+            "median": 8791.5
+          },
+          "cache_read": {
+            "total": 4242356,
+            "mean": 141411.86666666667,
+            "median": 121517
+          },
+          "input_total": {
+            "total": 4523515,
+            "mean": 150783.83333333334,
+            "median": 129959
+          },
+          "output": {
+            "total": 59228,
+            "mean": 1974.2666666666667,
+            "median": 1714.5
+          },
+          "total_tokens": {
+            "total": 4582743,
+            "mean": 152758.1,
+            "median": 132626.5
+          },
+          "overhead_tokens": {
+            "total": 4185335,
+            "mean": 139511.16666666666,
+            "median": 121992
+          },
+          "research_tokens": {
+            "total": 397408,
+            "mean": 13246.933333333332,
+            "median": 10368.5
+          }
+        },
+        "cost": {
+          "total": 2.5649751999999997,
+          "mean": 0.08549917333333332,
+          "median": 0.08595030000000001
+        },
+        "calls": {
+          "total": 81,
+          "mean": 2.7,
+          "median": 2
+        },
+        "turns": {
+          "total": 111,
+          "mean": 3.7,
+          "median": 3
+        },
+        "firstCallInput": {
+          "total": 1219053,
+          "mean": 40635.1,
+          "median": 40621
+        },
+        "apiCalls": {
+          "total": 103,
+          "mean": 3.433333333333333,
+          "median": 3
+        },
+        "wall_s": {
+          "total": 611.6239999999999,
+          "mean": 20.387466666666665,
+          "median": 19.506
+        },
+        "toolErrors": 3,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 30,
+        "missing": 0,
+        "statuses": {
+          "ok": 30
+        },
+        "judged": 30,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 30,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3,
+          3,
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          10,
+          10,
+          10
+        ],
+        "passTotalTokens": [
+          397457,
+          417186,
+          320089
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 302,
+            "mean": 10.066666666666666,
+            "median": 10
+          },
+          "cache_write": {
+            "total": 238700,
+            "mean": 7956.666666666667,
+            "median": 7762
+          },
+          "cache_read": {
+            "total": 835879,
+            "mean": 27862.633333333335,
+            "median": 24997.5
+          },
+          "input_total": {
+            "total": 1074881,
+            "mean": 35829.36666666667,
+            "median": 32483
+          },
+          "output": {
+            "total": 59851,
+            "mean": 1995.0333333333333,
+            "median": 1670
+          },
+          "total_tokens": {
+            "total": 1134732,
+            "mean": 37824.4,
+            "median": 34113.5
+          },
+          "overhead_tokens": {
+            "total": 697467,
+            "mean": 23248.9,
+            "median": 22945
+          },
+          "research_tokens": {
+            "total": 437265,
+            "mean": 14575.5,
+            "median": 11973.5
+          }
+        },
+        "cost": {
+          "total": 1.7210898000000001,
+          "mean": 0.05736966,
+          "median": 0.052865
+        },
+        "calls": {
+          "total": 148,
+          "mean": 4.933333333333334,
+          "median": 5
+        },
+        "turns": {
+          "total": 178,
+          "mean": 5.933333333333334,
+          "median": 6
+        },
+        "firstCallInput": {
+          "total": 138429,
+          "mean": 4614.3,
+          "median": 4601
+        },
+        "apiCalls": {
+          "total": 151,
+          "mean": 5.033333333333333,
+          "median": 5
+        },
+        "wall_s": {
+          "total": 638.7650000000001,
+          "mean": 21.29216666666667,
+          "median": 21.177500000000002
+        },
+        "toolErrors": 43,
+        "denials": 43,
+        "isolationFailures": 0
+      }
+    },
+    "surface:local": {
+      "key": "surface",
+      "value": "local",
+      "n": 10,
+      "octocode": {
+        "runs": 30,
+        "missing": 0,
+        "statuses": {
+          "ok": 30
+        },
+        "judged": 30,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 20,
+        "partial": 10,
+        "wrong": 0,
+        "meanScore": 2.6666666666666665,
+        "passMeanScores": [
+          2.7,
+          2.8,
+          2.5
+        ],
+        "passScoreSpread": 0.2999999999999998,
+        "passCorrect": [
+          7,
+          8,
+          5
+        ],
+        "passTotalTokens": [
+          2700457,
+          2730917,
+          2571872
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 334,
+            "mean": 11.133333333333333,
+            "median": 11
+          },
+          "cache_write": {
+            "total": 436190,
+            "mean": 14539.666666666666,
+            "median": 10568
+          },
+          "cache_read": {
+            "total": 7455610,
+            "mean": 248520.33333333334,
+            "median": 232759.5
+          },
+          "input_total": {
+            "total": 7892134,
+            "mean": 263071.13333333336,
+            "median": 244578.5
+          },
+          "output": {
+            "total": 111112,
+            "mean": 3703.733333333333,
+            "median": 3480
+          },
+          "total_tokens": {
+            "total": 8003246,
+            "mean": 266774.86666666664,
+            "median": 248010.5
+          },
+          "overhead_tokens": {
+            "total": 6810059,
+            "mean": 227001.96666666667,
+            "median": 224268.5
+          },
+          "research_tokens": {
+            "total": 1193187,
+            "mean": 39772.9,
+            "median": 22472.5
+          }
+        },
+        "cost": {
+          "total": 4.34767,
+          "mean": 0.14492233333333332,
+          "median": 0.1269036
+        },
+        "calls": {
+          "total": 171,
+          "mean": 5.7,
+          "median": 5
+        },
+        "turns": {
+          "total": 201,
+          "mean": 6.7,
+          "median": 6
+        },
+        "firstCallInput": {
+          "total": 1222725,
+          "mean": 40757.5,
+          "median": 40754
+        },
+        "apiCalls": {
+          "total": 167,
+          "mean": 5.566666666666666,
+          "median": 5.5
+        },
+        "wall_s": {
+          "total": 952.7640000000001,
+          "mean": 31.758800000000004,
+          "median": 32.468500000000006
+        },
+        "toolErrors": 33,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 30,
+        "missing": 0,
+        "statuses": {
+          "ok": 30
+        },
+        "judged": 30,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 26,
+        "partial": 4,
+        "wrong": 0,
+        "meanScore": 2.8666666666666667,
+        "passMeanScores": [
+          2.9,
+          2.8,
+          2.9
+        ],
+        "passScoreSpread": 0.10000000000000009,
+        "passCorrect": [
+          9,
+          8,
+          9
+        ],
+        "passTotalTokens": [
+          853043,
+          974942,
+          677283
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 426,
+            "mean": 14.2,
+            "median": 12
+          },
+          "cache_write": {
+            "total": 392347,
+            "mean": 13078.233333333334,
+            "median": 10954
+          },
+          "cache_read": {
+            "total": 2014249,
+            "mean": 67141.63333333333,
+            "median": 51679
+          },
+          "input_total": {
+            "total": 2407022,
+            "mean": 80234.06666666667,
+            "median": 65117.5
+          },
+          "output": {
+            "total": 98246,
+            "mean": 3274.866666666667,
+            "median": 3314
+          },
+          "total_tokens": {
+            "total": 2505268,
+            "mean": 83508.93333333333,
+            "median": 68367.5
+          },
+          "overhead_tokens": {
+            "total": 1013366,
+            "mean": 33778.86666666667,
+            "median": 28722
+          },
+          "research_tokens": {
+            "total": 1491902,
+            "mean": 49730.066666666666,
+            "median": 34549.5
+          }
+        },
+        "cost": {
+          "total": 2.9555497999999996,
+          "mean": 0.09851832666666666,
+          "median": 0.09060599999999999
+        },
+        "calls": {
+          "total": 244,
+          "mean": 8.133333333333333,
+          "median": 6.5
+        },
+        "turns": {
+          "total": 274,
+          "mean": 9.133333333333333,
+          "median": 7.5
+        },
+        "firstCallInput": {
+          "total": 142117,
+          "mean": 4737.233333333334,
+          "median": 4735
+        },
+        "apiCalls": {
+          "total": 213,
+          "mean": 7.1,
+          "median": 6
+        },
+        "wall_s": {
+          "total": 852.8699999999999,
+          "mean": 28.428999999999995,
+          "median": 27.9595
+        },
+        "toolErrors": 81,
+        "denials": 80,
+        "isolationFailures": 0
+      }
+    },
+    "category:locate": {
+      "key": "category",
+      "value": "locate",
+      "n": 3,
+      "octocode": {
+        "runs": 9,
+        "missing": 0,
+        "statuses": {
+          "ok": 9
+        },
+        "judged": 9,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 9,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3,
+          3,
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          3,
+          3,
+          3
+        ],
+        "passTotalTokens": [
+          298637,
+          377378,
+          336133
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 48,
+            "mean": 5.333333333333333,
+            "median": 6
+          },
+          "cache_write": {
+            "total": 51436,
+            "mean": 5715.111111111111,
+            "median": 5214
+          },
+          "cache_read": {
+            "total": 950590,
+            "mean": 105621.11111111111,
+            "median": 119160
+          },
+          "input_total": {
+            "total": 1002074,
+            "mean": 111341.55555555556,
+            "median": 124114
+          },
+          "output": {
+            "total": 10074,
+            "mean": 1119.3333333333333,
+            "median": 1167
+          },
+          "total_tokens": {
+            "total": 1012148,
+            "mean": 112460.88888888889,
+            "median": 124890
+          },
+          "overhead_tokens": {
+            "total": 975309,
+            "mean": 108367.66666666667,
+            "median": 121791
+          },
+          "research_tokens": {
+            "total": 36839,
+            "mean": 4093.222222222222,
+            "median": 3697
+          }
+        },
+        "cost": {
+          "total": 0.4966979999999999,
+          "mean": 0.05518866666666666,
+          "median": 0.0534206
+        },
+        "calls": {
+          "total": 18,
+          "mean": 2,
+          "median": 2
+        },
+        "turns": {
+          "total": 27,
+          "mean": 3,
+          "median": 3
+        },
+        "firstCallInput": {
+          "total": 365768,
+          "mean": 40640.88888888889,
+          "median": 40660
+        },
+        "apiCalls": {
+          "total": 24,
+          "mean": 2.6666666666666665,
+          "median": 3
+        },
+        "wall_s": {
+          "total": 104.471,
+          "mean": 11.607888888888889,
+          "median": 11.181
+        },
+        "toolErrors": 2,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 9,
+        "missing": 0,
+        "statuses": {
+          "ok": 9
+        },
+        "judged": 9,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 9,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3,
+          3,
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          3,
+          3,
+          3
+        ],
+        "passTotalTokens": [
+          70467,
+          58614,
+          70053
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 70,
+            "mean": 7.777777777777778,
+            "median": 8
+          },
+          "cache_write": {
+            "total": 40385,
+            "mean": 4487.222222222223,
+            "median": 4660
+          },
+          "cache_read": {
+            "total": 149898,
+            "mean": 16655.333333333332,
+            "median": 16987
+          },
+          "input_total": {
+            "total": 190353,
+            "mean": 21150.333333333332,
+            "median": 20992
+          },
+          "output": {
+            "total": 8781,
+            "mean": 975.6666666666666,
+            "median": 988
+          },
+          "total_tokens": {
+            "total": 199134,
+            "mean": 22126,
+            "median": 21895
+          },
+          "overhead_tokens": {
+            "total": 161690,
+            "mean": 17965.555555555555,
+            "median": 18312
+          },
+          "research_tokens": {
+            "total": 37444,
+            "mean": 4160.444444444444,
+            "median": 3896
+          }
+        },
+        "cost": {
+          "total": 0.27946960000000004,
+          "mean": 0.031052177777777783,
+          "median": 0.03421
+        },
+        "calls": {
+          "total": 27,
+          "mean": 3,
+          "median": 3
+        },
+        "turns": {
+          "total": 36,
+          "mean": 4,
+          "median": 4
+        },
+        "firstCallInput": {
+          "total": 41587,
+          "mean": 4620.777777777777,
+          "median": 4639
+        },
+        "apiCalls": {
+          "total": 35,
+          "mean": 3.888888888888889,
+          "median": 4
+        },
+        "wall_s": {
+          "total": 104.774,
+          "mean": 11.641555555555556,
+          "median": 11.194
+        },
+        "toolErrors": 9,
+        "denials": 9,
+        "isolationFailures": 0
+      }
+    },
+    "category:history": {
+      "key": "category",
+      "value": "history",
+      "n": 4,
+      "octocode": {
+        "runs": 12,
+        "missing": 0,
+        "statuses": {
+          "ok": 12
+        },
+        "judged": 12,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 12,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3,
+          3,
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          4,
+          4,
+          4
+        ],
+        "passTotalTokens": [
+          588726,
+          536693,
+          540095
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 74,
+            "mean": 6.166666666666667,
+            "median": 6
+          },
+          "cache_write": {
+            "total": 126015,
+            "mean": 10501.25,
+            "median": 11467
+          },
+          "cache_read": {
+            "total": 1518195,
+            "mean": 126516.25,
+            "median": 121569
+          },
+          "input_total": {
+            "total": 1644284,
+            "mean": 137023.66666666666,
+            "median": 133090
+          },
+          "output": {
+            "total": 21230,
+            "mean": 1769.1666666666667,
+            "median": 1501.5
+          },
+          "total_tokens": {
+            "total": 1665514,
+            "mean": 138792.83333333334,
+            "median": 134539
+          },
+          "overhead_tokens": {
+            "total": 1502964,
+            "mean": 125247,
+            "median": 121857
+          },
+          "research_tokens": {
+            "total": 162550,
+            "mean": 13545.833333333334,
+            "median": 12682
+          }
+        },
+        "cost": {
+          "total": 1.0201470000000001,
+          "mean": 0.08501225000000001,
+          "median": 0.0885684
+        },
+        "calls": {
+          "total": 29,
+          "mean": 2.4166666666666665,
+          "median": 2
+        },
+        "turns": {
+          "total": 41,
+          "mean": 3.4166666666666665,
+          "median": 3
+        },
+        "firstCallInput": {
+          "total": 487454,
+          "mean": 40621.166666666664,
+          "median": 40610
+        },
+        "apiCalls": {
+          "total": 37,
+          "mean": 3.0833333333333335,
+          "median": 3
+        },
+        "wall_s": {
+          "total": 232.98400000000004,
+          "mean": 19.415333333333336,
+          "median": 18.667499999999997
+        },
+        "toolErrors": 1,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 12,
+        "missing": 0,
+        "statuses": {
+          "ok": 12
+        },
+        "judged": 12,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 12,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3,
+          3,
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          4,
+          4,
+          4
+        ],
+        "passTotalTokens": [
+          157497,
+          184457,
+          112969
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 106,
+            "mean": 8.833333333333334,
+            "median": 9
+          },
+          "cache_write": {
+            "total": 116462,
+            "mean": 9705.166666666666,
+            "median": 7893
+          },
+          "cache_read": {
+            "total": 317733,
+            "mean": 26477.75,
+            "median": 23875.5
+          },
+          "input_total": {
+            "total": 434301,
+            "mean": 36191.75,
+            "median": 32414.5
+          },
+          "output": {
+            "total": 20622,
+            "mean": 1718.5,
+            "median": 1521
+          },
+          "total_tokens": {
+            "total": 454923,
+            "mean": 37910.25,
+            "median": 33874
+          },
+          "overhead_tokens": {
+            "total": 243661,
+            "mean": 20305.083333333332,
+            "median": 20751.5
+          },
+          "research_tokens": {
+            "total": 211262,
+            "mean": 17605.166666666668,
+            "median": 11973.5
+          }
+        },
+        "cost": {
+          "total": 0.7358266000000001,
+          "mean": 0.061318883333333345,
+          "median": 0.051511600000000005
+        },
+        "calls": {
+          "total": 50,
+          "mean": 4.166666666666667,
+          "median": 4
+        },
+        "turns": {
+          "total": 62,
+          "mean": 5.166666666666667,
+          "median": 5
+        },
+        "firstCallInput": {
+          "total": 55202,
+          "mean": 4600.166666666667,
+          "median": 4589
+        },
+        "apiCalls": {
+          "total": 53,
+          "mean": 4.416666666666667,
+          "median": 4.5
+        },
+        "wall_s": {
+          "total": 247.88100000000003,
+          "mean": 20.656750000000002,
+          "median": 20.314
+        },
+        "toolErrors": 12,
+        "denials": 12,
+        "isolationFailures": 0
+      }
+    },
+    "category:trace": {
+      "key": "category",
+      "value": "trace",
+      "n": 4,
+      "octocode": {
+        "runs": 12,
+        "missing": 0,
+        "statuses": {
+          "ok": 12
+        },
+        "judged": 12,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 8,
+        "partial": 4,
+        "wrong": 0,
+        "meanScore": 2.6666666666666665,
+        "passMeanScores": [
+          2.75,
+          2.5,
+          2.75
+        ],
+        "passScoreSpread": 0.25,
+        "passCorrect": [
+          3,
+          2,
+          3
+        ],
+        "passTotalTokens": [
+          834970,
+          788225,
+          834818
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 112,
+            "mean": 9.333333333333334,
+            "median": 10
+          },
+          "cache_write": {
+            "total": 105470,
+            "mean": 8789.166666666666,
+            "median": 8701.5
+          },
+          "cache_read": {
+            "total": 2323708,
+            "mean": 193642.33333333334,
+            "median": 204939.5
+          },
+          "input_total": {
+            "total": 2429290,
+            "mean": 202440.83333333334,
+            "median": 213271.5
+          },
+          "output": {
+            "total": 28723,
+            "mean": 2393.5833333333335,
+            "median": 2578
+          },
+          "total_tokens": {
+            "total": 2458013,
+            "mean": 204834.41666666666,
+            "median": 215835
+          },
+          "overhead_tokens": {
+            "total": 2276332,
+            "mean": 189694.33333333334,
+            "median": 203125
+          },
+          "research_tokens": {
+            "total": 181681,
+            "mean": 15140.083333333334,
+            "median": 12610
+          }
+        },
+        "cost": {
+          "total": 1.1740756,
+          "mean": 0.09783963333333334,
+          "median": 0.10146820000000001
+        },
+        "calls": {
+          "total": 52,
+          "mean": 4.333333333333333,
+          "median": 4
+        },
+        "turns": {
+          "total": 64,
+          "mean": 5.333333333333333,
+          "median": 5
+        },
+        "firstCallInput": {
+          "total": 487778,
+          "mean": 40648.166666666664,
+          "median": 40651
+        },
+        "apiCalls": {
+          "total": 56,
+          "mean": 4.666666666666667,
+          "median": 5
+        },
+        "wall_s": {
+          "total": 260.74,
+          "mean": 21.728333333333335,
+          "median": 21.151
+        },
+        "toolErrors": 11,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 12,
+        "missing": 0,
+        "statuses": {
+          "ok": 12
+        },
+        "judged": 12,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 10,
+        "partial": 2,
+        "wrong": 0,
+        "meanScore": 2.8333333333333335,
+        "passMeanScores": [
+          2.75,
+          2.75,
+          3
+        ],
+        "passScoreSpread": 0.25,
+        "passCorrect": [
+          3,
+          3,
+          4
+        ],
+        "passTotalTokens": [
+          143538,
+          165189,
+          129414
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 126,
+            "mean": 10.5,
+            "median": 10
+          },
+          "cache_write": {
+            "total": 80297,
+            "mean": 6691.416666666667,
+            "median": 6754.5
+          },
+          "cache_read": {
+            "total": 328935,
+            "mean": 27411.25,
+            "median": 22727
+          },
+          "input_total": {
+            "total": 409358,
+            "mean": 34113.166666666664,
+            "median": 29491.5
+          },
+          "output": {
+            "total": 28783,
+            "mean": 2398.5833333333335,
+            "median": 2360.5
+          },
+          "total_tokens": {
+            "total": 438141,
+            "mean": 36511.75,
+            "median": 31445
+          },
+          "overhead_tokens": {
+            "total": 291787,
+            "mean": 24315.583333333332,
+            "median": 23275
+          },
+          "research_tokens": {
+            "total": 146354,
+            "mean": 12196.166666666666,
+            "median": 9439
+          }
+        },
+        "cost": {
+          "total": 0.675057,
+          "mean": 0.05625475,
+          "median": 0.054643
+        },
+        "calls": {
+          "total": 72,
+          "mean": 6,
+          "median": 6
+        },
+        "turns": {
+          "total": 84,
+          "mean": 7,
+          "median": 7
+        },
+        "firstCallInput": {
+          "total": 55530,
+          "mean": 4627.5,
+          "median": 4630
+        },
+        "apiCalls": {
+          "total": 63,
+          "mean": 5.25,
+          "median": 5
+        },
+        "wall_s": {
+          "total": 266.87600000000003,
+          "mean": 22.23966666666667,
+          "median": 21.5885
+        },
+        "toolErrors": 21,
+        "denials": 21,
+        "isolationFailures": 0
+      }
+    },
+    "category:semantic": {
+      "key": "category",
+      "value": "semantic",
+      "n": 5,
+      "octocode": {
+        "runs": 15,
+        "missing": 0,
+        "statuses": {
+          "ok": 15
+        },
+        "judged": 15,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 11,
+        "partial": 4,
+        "wrong": 0,
+        "meanScore": 2.7333333333333334,
+        "passMeanScores": [
+          2.8,
+          3,
+          2.4
+        ],
+        "passScoreSpread": 0.6000000000000001,
+        "passCorrect": [
+          4,
+          5,
+          2
+        ],
+        "passTotalTokens": [
+          1393464,
+          1284518,
+          1313012
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 166,
+            "mean": 11.066666666666666,
+            "median": 12
+          },
+          "cache_write": {
+            "total": 243446,
+            "mean": 16229.733333333334,
+            "median": 16489
+          },
+          "cache_read": {
+            "total": 3686753,
+            "mean": 245783.53333333333,
+            "median": 268170
+          },
+          "input_total": {
+            "total": 3930365,
+            "mean": 262024.33333333334,
+            "median": 286204
+          },
+          "output": {
+            "total": 60629,
+            "mean": 4041.9333333333334,
+            "median": 4416
+          },
+          "total_tokens": {
+            "total": 3990994,
+            "mean": 266066.26666666666,
+            "median": 291568
+          },
+          "overhead_tokens": {
+            "total": 3384683,
+            "mean": 225645.53333333333,
+            "median": 244926
+          },
+          "research_tokens": {
+            "total": 606311,
+            "mean": 40420.73333333333,
+            "median": 43120
+          }
+        },
+        "cost": {
+          "total": 2.3177566000000005,
+          "mean": 0.1545171066666667,
+          "median": 0.1756278
+        },
+        "calls": {
+          "total": 80,
+          "mean": 5.333333333333333,
+          "median": 6
+        },
+        "turns": {
+          "total": 95,
+          "mean": 6.333333333333333,
+          "median": 7
+        },
+        "firstCallInput": {
+          "total": 611412,
+          "mean": 40760.8,
+          "median": 40796
+        },
+        "apiCalls": {
+          "total": 83,
+          "mean": 5.533333333333333,
+          "median": 6
+        },
+        "wall_s": {
+          "total": 540.7379999999999,
+          "mean": 36.0492,
+          "median": 37.404
+        },
+        "toolErrors": 13,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 15,
+        "missing": 0,
+        "statuses": {
+          "ok": 15
+        },
+        "judged": 15,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 13,
+        "partial": 2,
+        "wrong": 0,
+        "meanScore": 2.8666666666666667,
+        "passMeanScores": [
+          3,
+          2.8,
+          2.8
+        ],
+        "passScoreSpread": 0.20000000000000018,
+        "passCorrect": [
+          5,
+          4,
+          4
+        ],
+        "passTotalTokens": [
+          362299,
+          401039,
+          384127
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 226,
+            "mean": 15.066666666666666,
+            "median": 14
+          },
+          "cache_write": {
+            "total": 198263,
+            "mean": 13217.533333333333,
+            "median": 13170
+          },
+          "cache_read": {
+            "total": 896755,
+            "mean": 59783.666666666664,
+            "median": 57593
+          },
+          "input_total": {
+            "total": 1095244,
+            "mean": 73016.26666666666,
+            "median": 74671
+          },
+          "output": {
+            "total": 52221,
+            "mean": 3481.4,
+            "median": 3536
+          },
+          "total_tokens": {
+            "total": 1147465,
+            "mean": 76497.66666666667,
+            "median": 78085
+          },
+          "overhead_tokens": {
+            "total": 536473,
+            "mean": 35764.86666666667,
+            "median": 33523
+          },
+          "research_tokens": {
+            "total": 610992,
+            "mean": 40732.8,
+            "median": 45598
+          }
+        },
+        "cost": {
+          "total": 1.4950650000000003,
+          "mean": 0.09967100000000002,
+          "median": 0.11055340000000001
+        },
+        "calls": {
+          "total": 112,
+          "mean": 7.466666666666667,
+          "median": 6
+        },
+        "turns": {
+          "total": 127,
+          "mean": 8.466666666666667,
+          "median": 7
+        },
+        "firstCallInput": {
+          "total": 71099,
+          "mean": 4739.933333333333,
+          "median": 4773
+        },
+        "apiCalls": {
+          "total": 113,
+          "mean": 7.533333333333333,
+          "median": 7
+        },
+        "wall_s": {
+          "total": 460.814,
+          "mean": 30.720933333333335,
+          "median": 31.171
+        },
+        "toolErrors": 45,
+        "denials": 44,
+        "isolationFailures": 0
+      }
+    },
+    "category:multi-hop": {
+      "key": "category",
+      "value": "multi-hop",
+      "n": 4,
+      "octocode": {
+        "runs": 12,
+        "missing": 0,
+        "statuses": {
+          "ok": 12
+        },
+        "judged": 12,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 8,
+        "partial": 4,
+        "wrong": 0,
+        "meanScore": 2.6666666666666665,
+        "passMeanScores": [
+          2.75,
+          3,
+          2.25
+        ],
+        "passScoreSpread": 0.75,
+        "passCorrect": [
+          3,
+          4,
+          1
+        ],
+        "passTotalTokens": [
+          1203367,
+          1206217,
+          1049736
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 140,
+            "mean": 11.666666666666666,
+            "median": 11
+          },
+          "cache_write": {
+            "total": 190776,
+            "mean": 15898,
+            "median": 10568
+          },
+          "cache_read": {
+            "total": 3218720,
+            "mean": 268226.6666666667,
+            "median": 232759.5
+          },
+          "input_total": {
+            "total": 3409636,
+            "mean": 284136.3333333333,
+            "median": 244578.5
+          },
+          "output": {
+            "total": 49684,
+            "mean": 4140.333333333333,
+            "median": 3263
+          },
+          "total_tokens": {
+            "total": 3459320,
+            "mean": 288276.6666666667,
+            "median": 248010.5
+          },
+          "overhead_tokens": {
+            "total": 2856106,
+            "mean": 238008.83333333334,
+            "median": 224697.5
+          },
+          "research_tokens": {
+            "total": 603214,
+            "mean": 50267.833333333336,
+            "median": 22472.5
+          }
+        },
+        "cost": {
+          "total": 1.903968,
+          "mean": 0.158664,
+          "median": 0.12512579999999998
+        },
+        "calls": {
+          "total": 73,
+          "mean": 6.083333333333333,
+          "median": 5
+        },
+        "turns": {
+          "total": 85,
+          "mean": 7.083333333333333,
+          "median": 6
+        },
+        "firstCallInput": {
+          "total": 489366,
+          "mean": 40780.5,
+          "median": 40754
+        },
+        "apiCalls": {
+          "total": 70,
+          "mean": 5.833333333333333,
+          "median": 5.5
+        },
+        "wall_s": {
+          "total": 425.455,
+          "mean": 35.45458333333333,
+          "median": 33.4795
+        },
+        "toolErrors": 9,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 12,
+        "missing": 0,
+        "statuses": {
+          "ok": 12
+        },
+        "judged": 12,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 12,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3,
+          3,
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          4,
+          4,
+          4
+        ],
+        "passTotalTokens": [
+          516699,
+          582829,
+          300809
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 200,
+            "mean": 16.666666666666668,
+            "median": 15
+          },
+          "cache_write": {
+            "total": 195640,
+            "mean": 16303.333333333334,
+            "median": 11154
+          },
+          "cache_read": {
+            "total": 1156807,
+            "mean": 96400.58333333333,
+            "median": 54550.5
+          },
+          "input_total": {
+            "total": 1352647,
+            "mean": 112720.58333333333,
+            "median": 65082
+          },
+          "output": {
+            "total": 47690,
+            "mean": 3974.1666666666665,
+            "median": 3294
+          },
+          "total_tokens": {
+            "total": 1400337,
+            "mean": 116694.75,
+            "median": 68376
+          },
+          "overhead_tokens": {
+            "total": 477222,
+            "mean": 39768.5,
+            "median": 35821
+          },
+          "research_tokens": {
+            "total": 923115,
+            "mean": 76926.25,
+            "median": 32555
+          }
+        },
+        "cost": {
+          "total": 1.4912214000000001,
+          "mean": 0.12426845000000002,
+          "median": 0.0869646
+        },
+        "calls": {
+          "total": 131,
+          "mean": 10.916666666666666,
+          "median": 7.5
+        },
+        "turns": {
+          "total": 143,
+          "mean": 11.916666666666666,
+          "median": 8.5
+        },
+        "firstCallInput": {
+          "total": 57128,
+          "mean": 4760.666666666667,
+          "median": 4735
+        },
+        "apiCalls": {
+          "total": 100,
+          "mean": 8.333333333333334,
+          "median": 7.5
+        },
+        "wall_s": {
+          "total": 411.28999999999996,
+          "mean": 34.274166666666666,
+          "median": 30.9315
+        },
+        "toolErrors": 37,
+        "denials": 37,
+        "isolationFailures": 0
+      }
+    }
+  },
+  "tokenRatios": {
+    "questions": 20,
+    "mean": 4.368300458818056,
+    "median": 4.222457097809632,
+    "geomean": 4.102470847261534,
+    "ofSums": 3.457689285714286,
+    "octocodeFewer": 0,
+    "researchMean": 1.0822624793138116,
+    "researchMedian": 0.9164539706711521
+  },
+  "perQuestion": [
+    {
+      "qid": "G01",
+      "surface": "github",
+      "category": "locate",
+      "source": "Q1",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 125183,
+        "meanResearchTokens": 3388,
+        "meanCost": 0.0535284,
+        "meanCalls": 2,
+        "meanWall": 12.236333333333334,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 23304,
+        "meanResearchTokens": 4992,
+        "meanCost": 0.03241873333333334,
+        "meanCalls": 3,
+        "meanWall": 11.500333333333332,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 5.371738757294885,
+      "researchTokenRatio": 0.6786858974358975
+    },
+    {
+      "qid": "G02",
+      "surface": "github",
+      "category": "history",
+      "source": "Q3",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 129517,
+        "meanResearchTokens": 7742,
+        "meanCost": 0.06477580000000001,
+        "meanCalls": 3.3333333333333335,
+        "meanWall": 15.042333333333332,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 21297,
+        "meanResearchTokens": 6061.666666666667,
+        "meanCost": 0.03429753333333333,
+        "meanCalls": 3,
+        "meanWall": 14.607,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 6.0814668732685355,
+      "researchTokenRatio": 1.2772064888644488
+    },
+    {
+      "qid": "G03",
+      "surface": "github",
+      "category": "history",
+      "source": "Q5",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 149034.66666666666,
+        "meanResearchTokens": 13696.666666666666,
+        "meanCost": 0.09597346666666666,
+        "meanCalls": 2.3333333333333335,
+        "meanWall": 24.78033333333333,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 63475.666666666664,
+        "meanResearchTokens": 37520,
+        "meanCost": 0.10310013333333334,
+        "meanCalls": 6,
+        "meanWall": 27.881999999999994,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 2.3479023457807977,
+      "researchTokenRatio": 0.3650497512437811
+    },
+    {
+      "qid": "G04",
+      "surface": "github",
+      "category": "trace",
+      "source": "Q6",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 169924.33333333334,
+        "meanResearchTokens": 7500.333333333333,
+        "meanCost": 0.06992246666666667,
+        "meanCalls": 4.333333333333333,
+        "meanWall": 17.430333333333333,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 19716.333333333332,
+        "meanResearchTokens": 2905.3333333333335,
+        "meanCost": 0.02797393333333333,
+        "meanCalls": 2.6666666666666665,
+        "meanWall": 13.539,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 8.618455087998107,
+      "researchTokenRatio": 2.5815741165672326
+    },
+    {
+      "qid": "G05",
+      "surface": "github",
+      "category": "history",
+      "source": "Q13",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 134857.33333333334,
+        "meanResearchTokens": 12999.333333333334,
+        "meanCost": 0.08649213333333333,
+        "meanCalls": 2,
+        "meanWall": 19.913333333333334,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 38412,
+        "meanResearchTokens": 13887.333333333334,
+        "meanCost": 0.0572298,
+        "meanCalls": 4.666666666666667,
+        "meanWall": 21.819333333333333,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 3.51081259328682,
+      "researchTokenRatio": 0.936056838365897
+    },
+    {
+      "qid": "G06",
+      "surface": "github",
+      "category": "semantic",
+      "source": "Q17",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 131931.33333333334,
+        "meanResearchTokens": 9878.333333333334,
+        "meanCost": 0.08657180000000002,
+        "meanCalls": 2,
+        "meanWall": 27.435333333333332,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 35473.333333333336,
+        "meanResearchTokens": 12150,
+        "meanCost": 0.057889600000000006,
+        "meanCalls": 5.333333333333333,
+        "meanWall": 20.736,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 3.7191693290734826,
+      "researchTokenRatio": 0.8130315500685872
+    },
+    {
+      "qid": "G07",
+      "surface": "github",
+      "category": "trace",
+      "source": "Q19",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 245328.66666666666,
+        "meanResearchTokens": 28668,
+        "meanCost": 0.12364706666666668,
+        "meanCalls": 4.333333333333333,
+        "meanWall": 28.05933333333333,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 46057.333333333336,
+        "meanResearchTokens": 18434.666666666668,
+        "meanCost": 0.07553393333333334,
+        "meanCalls": 9,
+        "meanWall": 32.065000000000005,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 5.326592942130098,
+      "researchTokenRatio": 1.5551135541732966
+    },
+    {
+      "qid": "G08",
+      "surface": "github",
+      "category": "history",
+      "source": "Q22",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 141762.33333333334,
+        "meanResearchTokens": 19745.333333333332,
+        "meanCost": 0.0928076,
+        "meanCalls": 2,
+        "meanWall": 17.92533333333333,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 28456.333333333332,
+        "meanResearchTokens": 12951.666666666666,
+        "meanCost": 0.050648066666666665,
+        "meanCalls": 3,
+        "meanWall": 18.31866666666667,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 4.9817498155068005,
+      "researchTokenRatio": 1.5245399562475872
+    },
+    {
+      "qid": "G09",
+      "surface": "github",
+      "category": "multi-hop",
+      "source": "Q24",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "partial"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 129349,
+        "meanResearchTokens": 7372,
+        "meanCost": 0.07222213333333334,
+        "meanCalls": 2,
+        "meanWall": 18.429666666666666,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 43949.333333333336,
+        "meanResearchTokens": 14576,
+        "meanCost": 0.05381473333333334,
+        "meanCalls": 5.666666666666667,
+        "meanWall": 24.667999999999996,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 2.943139069231236,
+      "researchTokenRatio": 0.5057628979143798
+    },
+    {
+      "qid": "G10",
+      "surface": "github",
+      "category": "semantic",
+      "source": "Q29",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "partial"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 170693.33333333334,
+        "meanResearchTokens": 21479.333333333332,
+        "meanCost": 0.10905086666666668,
+        "meanCalls": 2.6666666666666665,
+        "meanWall": 22.622333333333334,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 58102.666666666664,
+        "meanResearchTokens": 22276.333333333332,
+        "meanCost": 0.08079013333333333,
+        "meanCalls": 7,
+        "meanWall": 27.78633333333333,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 2.9377882828097395,
+      "researchTokenRatio": 0.9642221191398943
+    },
+    {
+      "qid": "L01",
+      "surface": "local",
+      "category": "locate",
+      "source": "p01-langchain-runnable-config-declarations",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 86378.66666666667,
+        "meanResearchTokens": 5050,
+        "meanCost": 0.0551318,
+        "meanCalls": 1,
+        "meanWall": 10.452333333333334,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 16346,
+        "meanResearchTokens": 2410,
+        "meanCost": 0.027048666666666665,
+        "meanCalls": 2,
+        "meanWall": 9.537,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 5.284391696235573,
+      "researchTokenRatio": 2.095435684647303
+    },
+    {
+      "qid": "L02",
+      "surface": "local",
+      "category": "locate",
+      "source": "p08-next-react-create-context",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 125821,
+        "meanResearchTokens": 3841.6666666666665,
+        "meanCost": 0.056905800000000006,
+        "meanCalls": 3,
+        "meanWall": 12.135,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 26728,
+        "meanResearchTokens": 5079.333333333333,
+        "meanCost": 0.033689133333333336,
+        "meanCalls": 4,
+        "meanWall": 13.887333333333336,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 4.707460341215205,
+      "researchTokenRatio": 0.7563328520803255
+    },
+    {
+      "qid": "L03",
+      "surface": "local",
+      "category": "trace",
+      "source": "p18-langchain-runnable-config-flow",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "partial",
+          "partial"
+        ],
+        "meanScore": 2.3333333333333335,
+        "meanTotalTokens": 202406.66666666666,
+        "meanResearchTokens": 12542,
+        "meanCost": 0.10078559999999999,
+        "meanCalls": 5,
+        "meanWall": 20.661333333333335,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "partial",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 48868.333333333336,
+        "meanResearchTokens": 19314.666666666668,
+        "meanCost": 0.06968606666666666,
+        "meanCalls": 7,
+        "meanWall": 22.541,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 4.141877834998806,
+      "researchTokenRatio": 0.6493510976114869
+    },
+    {
+      "qid": "L04",
+      "surface": "local",
+      "category": "trace",
+      "source": "p19-next-config-loading-flow",
+      "octocode": {
+        "verdicts": [
+          "partial",
+          "partial",
+          "correct"
+        ],
+        "meanScore": 2.3333333333333335,
+        "meanTotalTokens": 201678,
+        "meanResearchTokens": 11850,
+        "meanCost": 0.0970034,
+        "meanCalls": 3.6666666666666665,
+        "meanWall": 20.76233333333333,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "partial",
+          "correct"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 31405,
+        "meanResearchTokens": 8130,
+        "meanCost": 0.05182506666666666,
+        "meanCalls": 5.333333333333333,
+        "meanWall": 20.813666666666666,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 6.421843655468875,
+      "researchTokenRatio": 1.4575645756457565
+    },
+    {
+      "qid": "L05",
+      "surface": "local",
+      "category": "multi-hop",
+      "source": "p20-cross-repo-tracing-extension-points",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "partial"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 191622,
+        "meanResearchTokens": 15119,
+        "meanCost": 0.0996222,
+        "meanCalls": 4,
+        "meanWall": 25.774333333333335,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 38353,
+        "meanResearchTokens": 13229.666666666666,
+        "meanCost": 0.061173066666666664,
+        "meanCalls": 6.333333333333333,
+        "meanWall": 19.112,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 4.99627147811123,
+      "researchTokenRatio": 1.1428103504749427
+    },
+    {
+      "qid": "L06",
+      "surface": "local",
+      "category": "multi-hop",
+      "source": "A02 — Configuration cache collisions and observable work",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 286978.3333333333,
+        "meanResearchTokens": 27601.333333333332,
+        "meanCost": 0.14900666666666665,
+        "meanCalls": 5.333333333333333,
+        "meanWall": 39.17033333333333,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 87924,
+        "meanResearchTokens": 46801.333333333336,
+        "meanCost": 0.1119484,
+        "meanCalls": 10.666666666666666,
+        "meanWall": 36.257666666666665,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 3.2639362783009567,
+      "researchTokenRatio": 0.589755277627418
+    },
+    {
+      "qid": "L07",
+      "surface": "local",
+      "category": "multi-hop",
+      "source": "A10 — Route parameter encoding and optional catch-all semantics",
+      "octocode": {
+        "verdicts": [
+          "partial",
+          "correct",
+          "partial"
+        ],
+        "meanScore": 2.3333333333333335,
+        "meanTotalTokens": 545157.3333333334,
+        "meanResearchTokens": 150979,
+        "meanCost": 0.313805,
+        "meanCalls": 13,
+        "meanWall": 58.443999999999996,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 296552.6666666667,
+        "meanResearchTokens": 233098,
+        "meanCost": 0.27013760000000003,
+        "meanCalls": 21,
+        "meanWall": 57.059,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 1.8383153976022246,
+      "researchTokenRatio": 0.647706115024582
+    },
+    {
+      "qid": "L08",
+      "surface": "local",
+      "category": "semantic",
+      "source": "A03 — Retry only the failed batch members",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "partial"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 318944.3333333333,
+        "meanResearchTokens": 46795,
+        "meanCost": 0.17864193333333334,
+        "meanCalls": 7,
+        "meanWall": 46.85966666666667,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 95383,
+        "meanResearchTokens": 52177,
+        "meanCost": 0.11208580000000001,
+        "meanCalls": 10,
+        "meanWall": 37.136,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 3.3438278659020297,
+      "researchTokenRatio": 0.8968511029764072
+    },
+    {
+      "qid": "L09",
+      "surface": "local",
+      "category": "semantic",
+      "source": "A04 — Fallback boundaries and exception injection",
+      "octocode": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 337239,
+        "meanResearchTokens": 65191.666666666664,
+        "meanCost": 0.1978924,
+        "meanCalls": 7,
+        "meanWall": 42.859,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "correct",
+          "partial"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 78372.33333333333,
+        "meanResearchTokens": 48050,
+        "meanCost": 0.11545533333333334,
+        "meanCalls": 5.333333333333333,
+        "meanWall": 31.95233333333334,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 4.303036360620458,
+      "researchTokenRatio": 1.356746444675685
+    },
+    {
+      "qid": "L10",
+      "surface": "local",
+      "category": "semantic",
+      "source": "A06 — Streaming versus invoking a composed pipeline",
+      "octocode": {
+        "verdicts": [
+          "partial",
+          "correct",
+          "partial"
+        ],
+        "meanScore": 2.3333333333333335,
+        "meanTotalTokens": 371523.3333333333,
+        "meanResearchTokens": 58759.333333333336,
+        "meanCost": 0.20042853333333333,
+        "meanCalls": 8,
+        "meanWall": 40.46966666666667,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct",
+          "partial",
+          "correct"
+        ],
+        "meanScore": 2.6666666666666665,
+        "meanTotalTokens": 115157,
+        "meanResearchTokens": 69010.66666666667,
+        "meanCost": 0.13213413333333335,
+        "meanCalls": 9.666666666666666,
+        "meanWall": 35.994,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 3.226233171525251,
+      "researchTokenRatio": 0.851452915491325
+    }
+  ],
+  "comparison": {
+    "questionsCompared": 20,
+    "octocodeBetter": [],
+    "rgBetter": [
+      "L07"
+    ],
+    "similar": [
+      "G01",
+      "G02",
+      "G03",
+      "G04",
+      "G05",
+      "G06",
+      "G07",
+      "G08",
+      "G09",
+      "G10",
+      "L01",
+      "L02",
+      "L03",
+      "L04",
+      "L05",
+      "L06",
+      "L08",
+      "L09",
+      "L10"
+    ],
+    "meanDelta": -0.1333333333333333
+  },
+  "clasify": {
+    "runs": 60,
+    "runsWithClasify": 0,
+    "totalCalls": 0,
+    "questions": [],
+    "outcomeWith": {
+      "runs": 0,
+      "missing": 0,
+      "statuses": {},
+      "judged": 0,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 0,
+      "partial": 0,
+      "wrong": 0,
+      "meanScore": null,
+      "passMeanScores": [],
+      "passScoreSpread": null,
+      "passCorrect": [],
+      "passTotalTokens": [],
+      "tokens": {
+        "input_fresh": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "cache_write": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "cache_read": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "input_total": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "output": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "total_tokens": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "overhead_tokens": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "research_tokens": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        }
+      },
+      "cost": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "calls": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "turns": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "firstCallInput": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "apiCalls": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "wall_s": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "toolErrors": 0,
+      "denials": 0,
+      "isolationFailures": 0
+    },
+    "outcomeWithout": {
+      "runs": 60,
+      "missing": 0,
+      "statuses": {
+        "ok": 60
+      },
+      "judged": 60,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 48,
+      "partial": 12,
+      "wrong": 0,
+      "meanScore": 2.8,
+      "passMeanScores": [
+        2.85,
+        2.9,
+        2.65
+      ],
+      "passScoreSpread": 0.25,
+      "passCorrect": [
+        17,
+        18,
+        13
+      ],
+      "passTotalTokens": [
+        4319164,
+        4193031,
+        4073794
+      ],
+      "tokens": {
+        "input_fresh": {
+          "total": 540,
+          "mean": 9,
+          "median": 8
+        },
+        "cache_write": {
+          "total": 717143,
+          "mean": 11952.383333333333,
+          "median": 9761
+        },
+        "cache_read": {
+          "total": 11697966,
+          "mean": 194966.1,
+          "median": 161293.5
+        },
+        "input_total": {
+          "total": 12415649,
+          "mean": 206927.48333333334,
+          "median": 168114
+        },
+        "output": {
+          "total": 170340,
+          "mean": 2839,
+          "median": 2486.5
+        },
+        "total_tokens": {
+          "total": 12585989,
+          "mean": 209766.48333333334,
+          "median": 169935
+        },
+        "overhead_tokens": {
+          "total": 10995394,
+          "mean": 183256.56666666668,
+          "median": 162532
+        },
+        "research_tokens": {
+          "total": 1590595,
+          "mean": 26509.916666666668,
+          "median": 13006
+        }
+      },
+      "cost": {
+        "total": 6.9126452,
+        "mean": 0.11521075333333333,
+        "median": 0.09101699999999999
+      },
+      "calls": {
+        "total": 252,
+        "mean": 4.2,
+        "median": 3
+      },
+      "turns": {
+        "total": 312,
+        "mean": 5.2,
+        "median": 4
+      },
+      "firstCallInput": {
+        "total": 2441778,
+        "mean": 40696.3,
+        "median": 40675.5
+      },
+      "apiCalls": {
+        "total": 270,
+        "mean": 4.5,
+        "median": 4
+      },
+      "wall_s": {
+        "total": 1564.388,
+        "mean": 26.07313333333333,
+        "median": 21.151
+      },
+      "toolErrors": 36,
+      "denials": 0,
+      "isolationFailures": 0
+    }
+  },
+  "judge": {
+    "pairs": 60,
+    "orderAgree": 51,
+    "firstPairScoreAgree": 51,
+    "firstPairPreferredAgree": 35,
+    "tiebreaks": 9,
+    "unresolvedArmVerdicts": 0,
+    "calls": 129,
+    "parseFailures": 0,
+    "cost": 21.328808599999995,
+    "preferred": {
+      "octocode": 35,
+      "rg-gh": 60,
+      "tie": 34
+    }
+  },
+  "isolation": {
+    "solverRuns": 120,
+    "failures": [],
+    "deniedCalls": {
+      "octocode": 0,
+      "rg-gh": 123
+    },
+    "offAllowlistAttempts": 157
+  },
+  "runs": [
+    {
+      "qid": "G01",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 5214,
+      "cache_read": 119160,
+      "output": 1108,
+      "input_total": 124380,
+      "total_tokens": 125488,
+      "overhead_tokens": 121791,
+      "research_tokens": 3697,
+      "first_call_input": 40597,
+      "api_calls": 3,
+      "cost": 0.055779999999999996,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 14.018,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G01",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 5199,
+      "cache_read": 18119,
+      "output": 995,
+      "input_total": 23326,
+      "total_tokens": 24321,
+      "overhead_tokens": 18312,
+      "research_tokens": 6009,
+      "first_call_input": 4578,
+      "api_calls": 4,
+      "cost": 0.03438580000000001,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 12.596,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 2,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G01",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 5074,
+      "cache_read": 119163,
+      "output": 928,
+      "input_total": 124243,
+      "total_tokens": 125171,
+      "overhead_tokens": 121797,
+      "research_tokens": 3374,
+      "first_call_input": 40599,
+      "api_calls": 3,
+      "cost": 0.0534206,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 12.221,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G01",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 4109,
+      "cache_read": 16242,
+      "output": 896,
+      "input_total": 20359,
+      "total_tokens": 21255,
+      "overhead_tokens": 18320,
+      "research_tokens": 2935,
+      "first_call_input": 4580,
+      "api_calls": 4,
+      "cost": 0.0286604,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 11.194,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 2,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G01",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 4945,
+      "cache_read": 119163,
+      "output": 776,
+      "input_total": 124114,
+      "total_tokens": 124890,
+      "overhead_tokens": 121797,
+      "research_tokens": 3093,
+      "first_call_input": 40599,
+      "api_calls": 3,
+      "cost": 0.0513846,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 10.47,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G01",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 5170,
+      "cache_read": 18170,
+      "output": 988,
+      "input_total": 23348,
+      "total_tokens": 24336,
+      "overhead_tokens": 18304,
+      "research_tokens": 6032,
+      "first_call_input": 4576,
+      "api_calls": 4,
+      "cost": 0.03421,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 10.711,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 2,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G02",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 6499,
+      "cache_read": 121523,
+      "output": 1323,
+      "input_total": 128028,
+      "total_tokens": 129351,
+      "overhead_tokens": 121779,
+      "research_tokens": 7572,
+      "first_call_input": 40593,
+      "api_calls": 3,
+      "cost": 0.0635426,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 15.5,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 1,
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G02",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 4841,
+      "cache_read": 12973,
+      "output": 1045,
+      "input_total": 17820,
+      "total_tokens": 18865,
+      "overhead_tokens": 13716,
+      "research_tokens": 5149,
+      "first_call_input": 4572,
+      "api_calls": 3,
+      "cost": 0.0324206,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 14.665,
+      "toolCounts": {
+        "Bash:gh": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G02",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 6736,
+      "cache_read": 121517,
+      "output": 1528,
+      "input_total": 128259,
+      "total_tokens": 129787,
+      "overhead_tokens": 121773,
+      "research_tokens": 8014,
+      "first_call_input": 40591,
+      "api_calls": 3,
+      "cost": 0.0665394,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 14.9,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 1,
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__localFetch": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G02",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 5226,
+      "cache_read": 20000,
+      "output": 1280,
+      "input_total": 25234,
+      "total_tokens": 26514,
+      "overhead_tokens": 18280,
+      "research_tokens": 8234,
+      "first_call_input": 4570,
+      "api_calls": 4,
+      "cost": 0.037720000000000004,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 16.513,
+      "toolCounts": {
+        "Bash:gh": 3,
+        "Bash:other": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 1,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G02",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 6495,
+      "cache_read": 121517,
+      "output": 1395,
+      "input_total": 128018,
+      "total_tokens": 129413,
+      "overhead_tokens": 121773,
+      "research_tokens": 7640,
+      "first_call_input": 40591,
+      "api_calls": 3,
+      "cost": 0.06424540000000001,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 14.727,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 1,
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G02",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 4578,
+      "cache_read": 12740,
+      "output": 1188,
+      "input_total": 17324,
+      "total_tokens": 18512,
+      "overhead_tokens": 13710,
+      "research_tokens": 4802,
+      "first_call_input": 4570,
+      "api_calls": 3,
+      "cost": 0.032752,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 12.643,
+      "toolCounts": {
+        "Bash:gh": 2,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G03",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 11607,
+      "cache_read": 167689,
+      "output": 2803,
+      "input_total": 179304,
+      "total_tokens": 182107,
+      "overhead_tokens": 162408,
+      "research_tokens": 19699,
+      "first_call_input": 40602,
+      "api_calls": 4,
+      "cost": 0.10801179999999999,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 26.807,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G03",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 15918,
+      "cache_read": 43853,
+      "output": 3226,
+      "input_total": 59785,
+      "total_tokens": 63011,
+      "overhead_tokens": 32067,
+      "research_tokens": 30944,
+      "first_call_input": 4581,
+      "api_calls": 7,
+      "cost": 0.10473060000000001,
+      "turns": 9,
+      "calls": 8,
+      "wall_s": 33.91,
+      "toolCounts": {
+        "Bash:gh": 4,
+        "Bash:rg": 2,
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G03",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 10368,
+      "cache_read": 119802,
+      "output": 2650,
+      "input_total": 130176,
+      "total_tokens": 132826,
+      "overhead_tokens": 121800,
+      "research_tokens": 11026,
+      "first_call_input": 40600,
+      "api_calls": 3,
+      "cost": 0.0919444,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 23.168,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G03",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 24504,
+      "cache_read": 63453,
+      "output": 2616,
+      "input_total": 87967,
+      "total_tokens": 90583,
+      "overhead_tokens": 22895,
+      "research_tokens": 67688,
+      "first_call_input": 4579,
+      "api_calls": 5,
+      "cost": 0.13688660000000002,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 27.374,
+      "toolCounts": {
+        "Bash:gh": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G03",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 9925,
+      "cache_read": 119811,
+      "output": 2429,
+      "input_total": 129742,
+      "total_tokens": 132171,
+      "overhead_tokens": 121806,
+      "research_tokens": 10365,
+      "first_call_input": 40602,
+      "api_calls": 3,
+      "cost": 0.0879642,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 24.366,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G03",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 10019,
+      "cache_read": 24536,
+      "output": 2268,
+      "input_total": 34565,
+      "total_tokens": 36833,
+      "overhead_tokens": 22905,
+      "research_tokens": 13928,
+      "first_call_input": 4581,
+      "api_calls": 5,
+      "cost": 0.0676832,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 22.362,
+      "toolCounts": {
+        "Bash:gh": 4,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G04",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 6921,
+      "cache_read": 206348,
+      "output": 1763,
+      "input_total": 213279,
+      "total_tokens": 215042,
+      "overhead_tokens": 203030,
+      "research_tokens": 12012,
+      "first_call_input": 40606,
+      "api_calls": 5,
+      "cost": 0.0866036,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 21.026,
+      "toolCounts": {
+        "mcp__octocode__ghGetFileContent": 3,
+        "mcp__octocode__ghSearchCode": 2,
+        "mcp__octocode__artifactSearch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G04",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 3449,
+      "cache_read": 11570,
+      "output": 809,
+      "input_total": 15025,
+      "total_tokens": 15834,
+      "overhead_tokens": 13761,
+      "research_tokens": 2073,
+      "first_call_input": 4587,
+      "api_calls": 3,
+      "cost": 0.024211999999999997,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 11.802,
+      "toolCounts": {
+        "Bash:gh": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G04",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 5605,
+      "cache_read": 120000,
+      "output": 1137,
+      "input_total": 125611,
+      "total_tokens": 126748,
+      "overhead_tokens": 121818,
+      "research_tokens": 4930,
+      "first_call_input": 40606,
+      "api_calls": 3,
+      "cost": 0.057802,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 17.123,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 2,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G04",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 3827,
+      "cache_read": 16842,
+      "output": 1030,
+      "input_total": 20677,
+      "total_tokens": 21707,
+      "overhead_tokens": 18340,
+      "research_tokens": 3367,
+      "first_call_input": 4585,
+      "api_calls": 4,
+      "cost": 0.0289924,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 13.273,
+      "toolCounts": {
+        "Bash:gh": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G04",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 5204,
+      "cache_read": 161549,
+      "output": 1222,
+      "input_total": 166761,
+      "total_tokens": 167983,
+      "overhead_tokens": 162424,
+      "research_tokens": 5559,
+      "first_call_input": 40606,
+      "api_calls": 4,
+      "cost": 0.0653618,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 14.142,
+      "toolCounts": {
+        "mcp__octocode__ghGetFileContent": 3,
+        "mcp__octocode__ghSearchCode": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G04",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 3791,
+      "cache_read": 16587,
+      "output": 1222,
+      "input_total": 20386,
+      "total_tokens": 21608,
+      "overhead_tokens": 18332,
+      "research_tokens": 3276,
+      "first_call_input": 4583,
+      "api_calls": 4,
+      "cost": 0.0307174,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 15.542,
+      "toolCounts": {
+        "Bash:gh": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G05",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 11366,
+      "cache_read": 121619,
+      "output": 1429,
+      "input_total": 132991,
+      "total_tokens": 134420,
+      "overhead_tokens": 121860,
+      "research_tokens": 12560,
+      "first_call_input": 40620,
+      "api_calls": 3,
+      "cost": 0.08408979999999999,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 18.214,
+      "toolCounts": {
+        "mcp__octocode__ghSearchHistory": 1,
+        "mcp__octocode__ghGetHistoryItem": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G05",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 7714,
+      "cache_read": 31111,
+      "output": 1552,
+      "input_total": 38837,
+      "total_tokens": 40389,
+      "overhead_tokens": 27594,
+      "research_tokens": 12795,
+      "first_call_input": 4599,
+      "api_calls": 6,
+      "cost": 0.05262220000000001,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 23.103,
+      "toolCounts": {
+        "Bash:gh": 4,
+        "Bash:other": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 1,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G05",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 11568,
+      "cache_read": 121615,
+      "output": 1469,
+      "input_total": 133189,
+      "total_tokens": 134658,
+      "overhead_tokens": 121854,
+      "research_tokens": 12804,
+      "first_call_input": 40618,
+      "api_calls": 3,
+      "cost": 0.08529700000000001,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 20.554,
+      "toolCounts": {
+        "mcp__octocode__ghSearchHistory": 1,
+        "mcp__octocode__ghGetHistoryItem": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G05",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 11791,
+      "cache_read": 28961,
+      "output": 1569,
+      "input_total": 40762,
+      "total_tokens": 42331,
+      "overhead_tokens": 22985,
+      "research_tokens": 19346,
+      "first_call_input": 4597,
+      "api_calls": 5,
+      "cost": 0.0686662,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 20.907,
+      "toolCounts": {
+        "Bash:gh": 4,
+        "Bash:other": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 1,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G05",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 12468,
+      "cache_read": 121428,
+      "output": 1592,
+      "input_total": 133902,
+      "total_tokens": 135494,
+      "overhead_tokens": 121860,
+      "research_tokens": 13634,
+      "first_call_input": 40620,
+      "api_calls": 3,
+      "cost": 0.09008959999999999,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 20.972,
+      "toolCounts": {
+        "mcp__octocode__ghSearchHistory": 1,
+        "mcp__octocode__ghGetHistoryItem": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G05",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 7862,
+      "cache_read": 23215,
+      "output": 1429,
+      "input_total": 31087,
+      "total_tokens": 32516,
+      "overhead_tokens": 22995,
+      "research_tokens": 9521,
+      "first_call_input": 4599,
+      "api_calls": 5,
+      "cost": 0.050401,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 21.448,
+      "toolCounts": {
+        "Bash:gh": 3,
+        "Bash:other": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 1,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G06",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 8607,
+      "cache_read": 120937,
+      "output": 2877,
+      "input_total": 129550,
+      "total_tokens": 132427,
+      "overhead_tokens": 122055,
+      "research_tokens": 10372,
+      "first_call_input": 40685,
+      "api_calls": 3,
+      "cost": 0.0873974,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 26.03,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G06",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 7152,
+      "cache_read": 23203,
+      "output": 2042,
+      "input_total": 30365,
+      "total_tokens": 32407,
+      "overhead_tokens": 23330,
+      "research_tokens": 9077,
+      "first_call_input": 4666,
+      "api_calls": 5,
+      "cost": 0.0536886,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 18.669,
+      "toolCounts": {
+        "Bash:other": 5,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 5,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G06",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 7816,
+      "cache_read": 120153,
+      "output": 3283,
+      "input_total": 127975,
+      "total_tokens": 131258,
+      "overhead_tokens": 122049,
+      "research_tokens": 9209,
+      "first_call_input": 40683,
+      "api_calls": 3,
+      "cost": 0.08813660000000001,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 31.279,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G06",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 8365,
+      "cache_read": 26400,
+      "output": 2016,
+      "input_total": 34775,
+      "total_tokens": 36791,
+      "overhead_tokens": 23320,
+      "research_tokens": 13471,
+      "first_call_input": 4664,
+      "api_calls": 5,
+      "cost": 0.05892,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 21.494,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G06",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 8613,
+      "cache_read": 120937,
+      "output": 2553,
+      "input_total": 129556,
+      "total_tokens": 132109,
+      "overhead_tokens": 122055,
+      "research_tokens": 10054,
+      "first_call_input": 40685,
+      "api_calls": 3,
+      "cost": 0.08418139999999999,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 24.997,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G06",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 8431,
+      "cache_read": 26581,
+      "output": 2200,
+      "input_total": 35022,
+      "total_tokens": 37222,
+      "overhead_tokens": 23320,
+      "research_tokens": 13902,
+      "first_call_input": 4664,
+      "api_calls": 5,
+      "cost": 0.0610602,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 22.045,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G07",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 11983,
+      "cache_read": 216640,
+      "output": 2780,
+      "input_total": 228633,
+      "total_tokens": 231413,
+      "overhead_tokens": 203120,
+      "research_tokens": 28293,
+      "first_call_input": 40624,
+      "api_calls": 5,
+      "cost": 0.11908000000000002,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 30.267,
+      "toolCounts": {
+        "mcp__octocode__ghGetFileContent": 3,
+        "mcp__octocode__ghSearchCode": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G07",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 8202,
+      "cache_read": 43876,
+      "output": 3727,
+      "input_total": 52092,
+      "total_tokens": 55819,
+      "overhead_tokens": 32221,
+      "research_tokens": 23598,
+      "first_call_input": 4603,
+      "api_calls": 7,
+      "cost": 0.0788812,
+      "turns": 11,
+      "calls": 10,
+      "wall_s": 33.576,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:gh": 8
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G07",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 10772,
+      "cache_read": 214967,
+      "output": 2612,
+      "input_total": 225749,
+      "total_tokens": 228361,
+      "overhead_tokens": 203130,
+      "research_tokens": 25231,
+      "first_call_input": 40626,
+      "api_calls": 5,
+      "cost": 0.1122214,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 21.461,
+      "toolCounts": {
+        "mcp__octocode__ghGetFileContent": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G07",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 8683,
+      "cache_read": 40575,
+      "output": 4061,
+      "input_total": 49272,
+      "total_tokens": 53333,
+      "overhead_tokens": 32235,
+      "research_tokens": 21098,
+      "first_call_input": 4605,
+      "api_calls": 7,
+      "cost": 0.083485,
+      "turns": 12,
+      "calls": 11,
+      "wall_s": 37.331,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:gh": 9
+      },
+      "clasifyCalls": 0,
+      "denials": 3,
+      "offAllowlist": 2,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G07",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 13232,
+      "cache_read": 259489,
+      "output": 3479,
+      "input_total": 272733,
+      "total_tokens": 276212,
+      "overhead_tokens": 243732,
+      "research_tokens": 32480,
+      "first_call_input": 40622,
+      "api_calls": 6,
+      "cost": 0.1396398,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 32.45,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G07",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 7306,
+      "cache_read": 18578,
+      "output": 3128,
+      "input_total": 25892,
+      "total_tokens": 29020,
+      "overhead_tokens": 18412,
+      "research_tokens": 10608,
+      "first_call_input": 4603,
+      "api_calls": 4,
+      "cost": 0.0642356,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 25.288,
+      "toolCounts": {
+        "Bash:other": 1,
+        "Bash:gh": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 1,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G08",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 13331,
+      "cache_read": 128036,
+      "output": 1475,
+      "input_total": 141373,
+      "total_tokens": 142848,
+      "overhead_tokens": 122025,
+      "research_tokens": 20823,
+      "first_call_input": 40675,
+      "api_calls": 3,
+      "cost": 0.0936932,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 17.267,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G08",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 8275,
+      "cache_read": 25459,
+      "output": 1490,
+      "input_total": 33742,
+      "total_tokens": 35232,
+      "overhead_tokens": 18608,
+      "research_tokens": 16624,
+      "first_call_input": 4652,
+      "api_calls": 4,
+      "cost": 0.0531078,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 18.363,
+      "toolCounts": {
+        "Bash:gh": 2,
+        "Bash:other": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 1,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G08",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 12332,
+      "cache_read": 125613,
+      "output": 1471,
+      "input_total": 137951,
+      "total_tokens": 139422,
+      "overhead_tokens": 122019,
+      "research_tokens": 17403,
+      "first_call_input": 40673,
+      "api_calls": 3,
+      "cost": 0.0891726,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 17.388,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G08",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 7810,
+      "cache_read": 15647,
+      "output": 1566,
+      "input_total": 23463,
+      "total_tokens": 25029,
+      "overhead_tokens": 13950,
+      "research_tokens": 11079,
+      "first_call_input": 4650,
+      "api_calls": 3,
+      "cost": 0.0500414,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 19.721,
+      "toolCounts": {
+        "Bash:gh": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G08",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 13320,
+      "cache_read": 128025,
+      "output": 1666,
+      "input_total": 141351,
+      "total_tokens": 143017,
+      "overhead_tokens": 122007,
+      "research_tokens": 21010,
+      "first_call_input": 40669,
+      "api_calls": 3,
+      "cost": 0.095557,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 19.121,
+      "toolCounts": {
+        "mcp__octocode__ghGetHistoryItem": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G08",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "history",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 7924,
+      "cache_read": 15785,
+      "output": 1393,
+      "input_total": 23715,
+      "total_tokens": 25108,
+      "overhead_tokens": 13956,
+      "research_tokens": 11152,
+      "first_call_input": 4652,
+      "api_calls": 3,
+      "cost": 0.048795,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 16.872,
+      "toolCounts": {
+        "Bash:gh": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G09",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 7316,
+      "cache_read": 120058,
+      "output": 1626,
+      "input_total": 127380,
+      "total_tokens": 129006,
+      "overhead_tokens": 121977,
+      "research_tokens": 7029,
+      "first_call_input": 40659,
+      "api_calls": 3,
+      "cost": 0.06954760000000001,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 16.628,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G09",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 16,
+      "cache_write": 6572,
+      "cache_read": 47510,
+      "output": 2890,
+      "input_total": 54098,
+      "total_tokens": 56988,
+      "overhead_tokens": 37104,
+      "research_tokens": 19884,
+      "first_call_input": 4638,
+      "api_calls": 8,
+      "cost": 0.064722,
+      "turns": 9,
+      "calls": 8,
+      "wall_s": 31.189,
+      "toolCounts": {
+        "Bash:gh": 5,
+        "Bash:other": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 4,
+      "offAllowlist": 3,
+      "toolErrors": 4,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G09",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 7509,
+      "cache_read": 120057,
+      "output": 1987,
+      "input_total": 127572,
+      "total_tokens": 129559,
+      "overhead_tokens": 121977,
+      "research_tokens": 7582,
+      "first_call_input": 40659,
+      "api_calls": 3,
+      "cost": 0.0739294,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 19.631,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G09",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 5488,
+      "cache_read": 25726,
+      "output": 1771,
+      "input_total": 31224,
+      "total_tokens": 32995,
+      "overhead_tokens": 23200,
+      "research_tokens": 9795,
+      "first_call_input": 4640,
+      "api_calls": 5,
+      "cost": 0.044827200000000005,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 19.519,
+      "toolCounts": {
+        "Bash:gh": 3,
+        "Bash:other": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 1,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G09",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 6,
+      "cache_write": 7504,
+      "cache_read": 120057,
+      "output": 1915,
+      "input_total": 127567,
+      "total_tokens": 129482,
+      "overhead_tokens": 121977,
+      "research_tokens": 7505,
+      "first_call_input": 40659,
+      "api_calls": 3,
+      "cost": 0.0731894,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 19.03,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G09",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 6287,
+      "cache_read": 33565,
+      "output": 2001,
+      "input_total": 39864,
+      "total_tokens": 41865,
+      "overhead_tokens": 27816,
+      "research_tokens": 14049,
+      "first_call_input": 4636,
+      "api_calls": 6,
+      "cost": 0.051895,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 23.296,
+      "toolCounts": {
+        "Bash:gh": 3,
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G10",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 16489,
+      "cache_read": 176629,
+      "output": 3479,
+      "input_total": 193126,
+      "total_tokens": 196605,
+      "overhead_tokens": 162776,
+      "research_tokens": 33829,
+      "first_call_input": 40694,
+      "api_calls": 4,
+      "cost": 0.13608779999999998,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 28.215,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G10",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 9077,
+      "cache_read": 42642,
+      "output": 2858,
+      "input_total": 51733,
+      "total_tokens": 54591,
+      "overhead_tokens": 32711,
+      "research_tokens": 21880,
+      "first_call_input": 4673,
+      "api_calls": 7,
+      "cost": 0.07344439999999999,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 29.785,
+      "toolCounts": {
+        "Bash:gh": 4,
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G10",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 13164,
+      "cache_read": 168913,
+      "output": 2239,
+      "input_total": 182085,
+      "total_tokens": 184324,
+      "overhead_tokens": 162784,
+      "research_tokens": 21540,
+      "first_call_input": 40696,
+      "api_calls": 4,
+      "cost": 0.10884460000000001,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 19.381,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G10",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 18,
+      "cache_write": 10950,
+      "cache_read": 52278,
+      "output": 3402,
+      "input_total": 63246,
+      "total_tokens": 66648,
+      "overhead_tokens": 42057,
+      "research_tokens": 24591,
+      "first_call_input": 4673,
+      "api_calls": 9,
+      "cost": 0.08831160000000002,
+      "turns": 10,
+      "calls": 9,
+      "wall_s": 27.871,
+      "toolCounts": {
+        "Bash:gh": 6,
+        "Bash:other": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 6,
+      "offAllowlist": 3,
+      "toolErrors": 6,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G10",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 6,
+      "cache_write": 8970,
+      "cache_read": 119941,
+      "output": 2234,
+      "input_total": 128917,
+      "total_tokens": 131151,
+      "overhead_tokens": 122082,
+      "research_tokens": 9069,
+      "first_call_input": 40694,
+      "api_calls": 3,
+      "cost": 0.08222020000000001,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 20.271,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 1,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G10",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "github",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 10180,
+      "cache_read": 39682,
+      "output": 3193,
+      "input_total": 49876,
+      "total_tokens": 53069,
+      "overhead_tokens": 32711,
+      "research_tokens": 20358,
+      "first_call_input": 4673,
+      "api_calls": 7,
+      "cost": 0.0806144,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 25.703,
+      "toolCounts": {
+        "Bash:gh": 4,
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L01",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 4,
+      "cache_write": 9513,
+      "cache_read": 78183,
+      "output": 1176,
+      "input_total": 87700,
+      "total_tokens": 88876,
+      "overhead_tokens": 81330,
+      "research_tokens": 7546,
+      "first_call_input": 40665,
+      "api_calls": 2,
+      "cost": 0.0654566,
+      "turns": 2,
+      "calls": 1,
+      "wall_s": 11.181,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L01",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 5190,
+      "cache_read": 11474,
+      "output": 1158,
+      "input_total": 16670,
+      "total_tokens": 17828,
+      "overhead_tokens": 13932,
+      "research_tokens": 3896,
+      "first_call_input": 4644,
+      "api_calls": 3,
+      "cost": 0.0346468,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 10.654,
+      "toolCounts": {
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 2,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L01",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 4,
+      "cache_write": 5845,
+      "cache_read": 78183,
+      "output": 919,
+      "input_total": 84032,
+      "total_tokens": 84951,
+      "overhead_tokens": 81330,
+      "research_tokens": 3621,
+      "first_call_input": 40665,
+      "api_calls": 2,
+      "cost": 0.048214599999999996,
+      "turns": 2,
+      "calls": 1,
+      "wall_s": 9.01,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L01",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 3298,
+      "cache_read": 11465,
+      "output": 695,
+      "input_total": 14769,
+      "total_tokens": 15464,
+      "overhead_tokens": 13938,
+      "research_tokens": 1526,
+      "first_call_input": 4646,
+      "api_calls": 3,
+      "cost": 0.022447,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 8.623,
+      "toolCounts": {
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 2,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L01",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 4,
+      "cache_write": 5860,
+      "cache_read": 78181,
+      "output": 1264,
+      "input_total": 84045,
+      "total_tokens": 85309,
+      "overhead_tokens": 81326,
+      "research_tokens": 3983,
+      "first_call_input": 40663,
+      "api_calls": 2,
+      "cost": 0.0517242,
+      "turns": 2,
+      "calls": 1,
+      "wall_s": 11.166,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L01",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 3409,
+      "cache_read": 11521,
+      "output": 810,
+      "input_total": 14936,
+      "total_tokens": 15746,
+      "overhead_tokens": 13938,
+      "research_tokens": 1808,
+      "first_call_input": 4646,
+      "api_calls": 3,
+      "cost": 0.024052200000000003,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 9.334,
+      "toolCounts": {
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 2,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L02",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 4,
+      "cache_write": 4922,
+      "cache_read": 78180,
+      "output": 1167,
+      "input_total": 83106,
+      "total_tokens": 84273,
+      "overhead_tokens": 81324,
+      "research_tokens": 2949,
+      "first_call_input": 40662,
+      "api_calls": 2,
+      "cost": 0.047001999999999995,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 9.737,
+      "toolCounts": {
+        "mcp__octocode__astSearch": 1,
+        "mcp__octocode__localSearch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L02",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 4660,
+      "cache_read": 22497,
+      "output": 1151,
+      "input_total": 27167,
+      "total_tokens": 28318,
+      "overhead_tokens": 23195,
+      "research_tokens": 5123,
+      "first_call_input": 4639,
+      "api_calls": 5,
+      "cost": 0.0346694,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 12.951,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L02",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 4806,
+      "cache_read": 160919,
+      "output": 1523,
+      "input_total": 165733,
+      "total_tokens": 167256,
+      "overhead_tokens": 162640,
+      "research_tokens": 4616,
+      "first_call_input": 40660,
+      "api_calls": 4,
+      "cost": 0.0666538,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 14.46,
+      "toolCounts": {
+        "mcp__octocode__astSearch": 1,
+        "mcp__octocode__localSearch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L02",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 8,
+      "cache_write": 3997,
+      "cache_read": 16987,
+      "output": 903,
+      "input_total": 20992,
+      "total_tokens": 21895,
+      "overhead_tokens": 18556,
+      "research_tokens": 3339,
+      "first_call_input": 4639,
+      "api_calls": 4,
+      "cost": 0.028431400000000003,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 12.489,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 1,
+      "offAllowlist": 2,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L02",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 5257,
+      "cache_read": 119458,
+      "output": 1213,
+      "input_total": 124721,
+      "total_tokens": 125934,
+      "overhead_tokens": 121974,
+      "research_tokens": 3960,
+      "first_call_input": 40658,
+      "api_calls": 3,
+      "cost": 0.057061600000000004,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 12.208,
+      "toolCounts": {
+        "mcp__octocode__astSearch": 2,
+        "mcp__octocode__localSearch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L02",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "locate",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 5353,
+      "cache_read": 23423,
+      "output": 1185,
+      "input_total": 28786,
+      "total_tokens": 29971,
+      "overhead_tokens": 23195,
+      "research_tokens": 6776,
+      "first_call_input": 4639,
+      "api_calls": 5,
+      "cost": 0.0379666,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 16.222,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 9723,
+      "cache_read": 203531,
+      "output": 3364,
+      "input_total": 213264,
+      "total_tokens": 216628,
+      "overhead_tokens": 203420,
+      "research_tokens": 13208,
+      "first_call_input": 40684,
+      "api_calls": 5,
+      "cost": 0.1132582,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 23.103,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 12,
+      "cache_write": 6266,
+      "cache_read": 31598,
+      "output": 2464,
+      "input_total": 37876,
+      "total_tokens": 40340,
+      "overhead_tokens": 27990,
+      "research_tokens": 12350,
+      "first_call_input": 4665,
+      "api_calls": 6,
+      "cost": 0.0560476,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 18.859,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 10,
+      "cache_write": 8479,
+      "cache_read": 207439,
+      "output": 2653,
+      "input_total": 215928,
+      "total_tokens": 218581,
+      "overhead_tokens": 203430,
+      "research_tokens": 15151,
+      "first_call_input": 40686,
+      "api_calls": 5,
+      "cost": 0.10195380000000001,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 19.976,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 4,
+        "mcp__octocode__localFetch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 9578,
+      "cache_read": 46268,
+      "output": 2964,
+      "input_total": 55860,
+      "total_tokens": 58824,
+      "overhead_tokens": 32669,
+      "research_tokens": 26155,
+      "first_call_input": 4667,
+      "api_calls": 7,
+      "cost": 0.0772336,
+      "turns": 8,
+      "calls": 7,
+      "wall_s": 23.519,
+      "toolCounts": {
+        "Bash:other": 5,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 3,
+      "offAllowlist": 5,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 8,
+      "cache_write": 7315,
+      "cache_read": 162144,
+      "output": 2544,
+      "input_total": 169467,
+      "total_tokens": 172011,
+      "overhead_tokens": 162744,
+      "research_tokens": 9267,
+      "first_call_input": 40686,
+      "api_calls": 4,
+      "cost": 0.0871448,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 18.905,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 9150,
+      "cache_read": 35065,
+      "output": 3214,
+      "input_total": 44227,
+      "total_tokens": 47441,
+      "overhead_tokens": 28002,
+      "research_tokens": 19439,
+      "first_call_input": 4667,
+      "api_calls": 6,
+      "cost": 0.075777,
+      "turns": 9,
+      "calls": 8,
+      "wall_s": 25.245,
+      "toolCounts": {
+        "Bash:other": 3,
+        "Bash:rg": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 3,
+      "offAllowlist": 3,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L04",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 8,
+      "cache_write": 8766,
+      "cache_read": 161038,
+      "output": 2075,
+      "input_total": 169812,
+      "total_tokens": 171887,
+      "overhead_tokens": 162704,
+      "research_tokens": 9183,
+      "first_call_input": 40676,
+      "api_calls": 4,
+      "cost": 0.08803760000000001,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 17.854,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L04",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 6812,
+      "cache_read": 22784,
+      "output": 1939,
+      "input_total": 29606,
+      "total_tokens": 31545,
+      "overhead_tokens": 23275,
+      "research_tokens": 8270,
+      "first_call_input": 4655,
+      "api_calls": 5,
+      "cost": 0.0512148,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 21.317,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L04",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 10,
+      "cache_write": 8637,
+      "cache_read": 203210,
+      "output": 2678,
+      "input_total": 211857,
+      "total_tokens": 214535,
+      "overhead_tokens": 203380,
+      "research_tokens": 11155,
+      "first_call_input": 40676,
+      "api_calls": 5,
+      "cost": 0.10199,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 21.276,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L04",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 10,
+      "cache_write": 6536,
+      "cache_read": 22522,
+      "output": 2257,
+      "input_total": 29068,
+      "total_tokens": 31325,
+      "overhead_tokens": 23275,
+      "research_tokens": 8050,
+      "first_call_input": 4655,
+      "api_calls": 5,
+      "cost": 0.0532384,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 21.86,
+      "toolCounts": {
+        "Bash:other": 3,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 3,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L04",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 8833,
+      "cache_read": 207353,
+      "output": 2416,
+      "input_total": 216196,
+      "total_tokens": 218612,
+      "overhead_tokens": 203400,
+      "research_tokens": 15212,
+      "first_call_input": 40680,
+      "api_calls": 5,
+      "cost": 0.1009826,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 23.157,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L04",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 6697,
+      "cache_read": 22670,
+      "output": 1968,
+      "input_total": 29377,
+      "total_tokens": 31345,
+      "overhead_tokens": 23275,
+      "research_tokens": 8070,
+      "first_call_input": 4655,
+      "api_calls": 5,
+      "cost": 0.051022,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 19.264,
+      "toolCounts": {
+        "Bash:other": 4,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 4,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L05",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 9170,
+      "cache_read": 208104,
+      "output": 2930,
+      "input_total": 217284,
+      "total_tokens": 220214,
+      "overhead_tokens": 203645,
+      "research_tokens": 16569,
+      "first_call_input": 40729,
+      "api_calls": 5,
+      "cost": 0.1076208,
+      "turns": 5,
+      "calls": 4,
+      "wall_s": 23.982,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 1,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L05",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 6893,
+      "cache_read": 24665,
+      "output": 1994,
+      "input_total": 31568,
+      "total_tokens": 33562,
+      "overhead_tokens": 23560,
+      "research_tokens": 10002,
+      "first_call_input": 4712,
+      "api_calls": 5,
+      "cost": 0.052465,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 17.123,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L05",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 9799,
+      "cache_read": 210283,
+      "output": 2843,
+      "input_total": 220092,
+      "total_tokens": 222935,
+      "overhead_tokens": 203665,
+      "research_tokens": 19270,
+      "first_call_input": 40733,
+      "api_calls": 5,
+      "cost": 0.1097026,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 35.225,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 3,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L05",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 10,
+      "cache_write": 9077,
+      "cache_read": 26505,
+      "output": 2513,
+      "input_total": 35592,
+      "total_tokens": 38105,
+      "overhead_tokens": 23550,
+      "research_tokens": 14555,
+      "first_call_input": 4710,
+      "api_calls": 5,
+      "cost": 0.06675900000000001,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 19.323,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L05",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 6,
+      "cache_write": 8695,
+      "cache_read": 120756,
+      "output": 2260,
+      "input_total": 129457,
+      "total_tokens": 131717,
+      "overhead_tokens": 122199,
+      "research_tokens": 9518,
+      "first_call_input": 40733,
+      "api_calls": 3,
+      "cost": 0.08154320000000001,
+      "turns": 3,
+      "calls": 2,
+      "wall_s": 18.116,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 1,
+        "mcp__octocode__localFetch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L05",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 8201,
+      "cache_read": 32686,
+      "output": 2493,
+      "input_total": 40899,
+      "total_tokens": 43392,
+      "overhead_tokens": 28260,
+      "research_tokens": 15132,
+      "first_call_input": 4710,
+      "api_calls": 6,
+      "cost": 0.0642952,
+      "turns": 8,
+      "calls": 7,
+      "wall_s": 20.89,
+      "toolCounts": {
+        "Bash:other": 2,
+        "Bash:rg": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L06",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 12238,
+      "cache_read": 256815,
+      "output": 4021,
+      "input_total": 269065,
+      "total_tokens": 273086,
+      "overhead_tokens": 245730,
+      "research_tokens": 27356,
+      "first_call_input": 40955,
+      "api_calls": 6,
+      "cost": 0.14054899999999998,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 38.931,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L06",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 18,
+      "cache_write": 13231,
+      "cache_read": 73363,
+      "output": 4523,
+      "input_total": 86612,
+      "total_tokens": 91135,
+      "overhead_tokens": 44406,
+      "research_tokens": 46729,
+      "first_call_input": 4934,
+      "api_calls": 9,
+      "cost": 0.1128626,
+      "turns": 15,
+      "calls": 14,
+      "wall_s": 44.078,
+      "toolCounts": {
+        "Bash:other": 3,
+        "Bash:rg": 11
+      },
+      "clasifyCalls": 0,
+      "denials": 3,
+      "offAllowlist": 3,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L06",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 14661,
+      "cache_read": 255236,
+      "output": 5594,
+      "input_total": 269909,
+      "total_tokens": 275503,
+      "overhead_tokens": 245730,
+      "research_tokens": 29773,
+      "first_call_input": 40955,
+      "api_calls": 6,
+      "cost": 0.1656552,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 46.846,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L06",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 18,
+      "cache_write": 15164,
+      "cache_read": 73652,
+      "output": 4039,
+      "input_total": 88834,
+      "total_tokens": 92873,
+      "overhead_tokens": 44424,
+      "research_tokens": 48449,
+      "first_call_input": 4936,
+      "api_calls": 9,
+      "cost": 0.11581240000000001,
+      "turns": 12,
+      "calls": 11,
+      "wall_s": 34.021,
+      "toolCounts": {
+        "Bash:other": 8,
+        "Bash:rg": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 8,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L06",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 11337,
+      "cache_read": 297399,
+      "output": 3596,
+      "input_total": 308750,
+      "total_tokens": 312346,
+      "overhead_tokens": 286671,
+      "research_tokens": 25675,
+      "first_call_input": 40953,
+      "api_calls": 7,
+      "cost": 0.14081580000000002,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 31.734,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 3,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L06",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 14461,
+      "cache_read": 61591,
+      "output": 3698,
+      "input_total": 76066,
+      "total_tokens": 79764,
+      "overhead_tokens": 34538,
+      "research_tokens": 45226,
+      "first_call_input": 4934,
+      "api_calls": 7,
+      "cost": 0.1071702,
+      "turns": 8,
+      "calls": 7,
+      "wall_s": 30.674,
+      "toolCounts": {
+        "Bash:other": 5,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 5,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L07",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 20,
+      "cache_write": 37934,
+      "cache_read": 535231,
+      "output": 7876,
+      "input_total": 573185,
+      "total_tokens": 581061,
+      "overhead_tokens": 407790,
+      "research_tokens": 173271,
+      "first_call_input": 40779,
+      "api_calls": 10,
+      "cost": 0.3375822,
+      "turns": 14,
+      "calls": 13,
+      "wall_s": 64.413,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 6,
+        "mcp__octocode__localFetch": 6,
+        "mcp__octocode__structureSearch": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L07",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 26,
+      "cache_write": 42235,
+      "cache_read": 285510,
+      "output": 7243,
+      "input_total": 327771,
+      "total_tokens": 335014,
+      "overhead_tokens": 61880,
+      "research_tokens": 273134,
+      "first_call_input": 4760,
+      "api_calls": 13,
+      "cost": 0.298524,
+      "turns": 24,
+      "calls": 23,
+      "wall_s": 55.799,
+      "toolCounts": {
+        "Bash:other": 6,
+        "Bash:rg": 17
+      },
+      "clasifyCalls": 0,
+      "denials": 5,
+      "offAllowlist": 6,
+      "toolErrors": 5,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L07",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 20,
+      "cache_write": 35516,
+      "cache_read": 534661,
+      "output": 8023,
+      "input_total": 570197,
+      "total_tokens": 578220,
+      "overhead_tokens": 407770,
+      "research_tokens": 170450,
+      "first_call_input": 40777,
+      "api_calls": 10,
+      "cost": 0.3292662,
+      "turns": 17,
+      "calls": 16,
+      "wall_s": 55.332,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 9,
+        "mcp__octocode__structureSearch": 2,
+        "mcp__octocode__localFetch": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L07",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 36,
+      "cache_write": 43229,
+      "cache_read": 366954,
+      "output": 8637,
+      "input_total": 410219,
+      "total_tokens": 418856,
+      "overhead_tokens": 85644,
+      "research_tokens": 333212,
+      "first_call_input": 4758,
+      "api_calls": 18,
+      "cost": 0.33274880000000007,
+      "turns": 24,
+      "calls": 23,
+      "wall_s": 68.55,
+      "toolCounts": {
+        "Bash:other": 11,
+        "Bash:rg": 12
+      },
+      "clasifyCalls": 0,
+      "denials": 8,
+      "offAllowlist": 11,
+      "toolErrors": 8,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L07",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 18,
+      "cache_write": 29097,
+      "cache_read": 440063,
+      "output": 7013,
+      "input_total": 469178,
+      "total_tokens": 476191,
+      "overhead_tokens": 366975,
+      "research_tokens": 109216,
+      "first_call_input": 40775,
+      "api_calls": 9,
+      "cost": 0.2745666,
+      "turns": 11,
+      "calls": 10,
+      "wall_s": 55.587,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 5,
+        "mcp__octocode__localFetch": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L07",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 18,
+      "cache_write": 24802,
+      "cache_read": 105080,
+      "output": 5888,
+      "input_total": 129900,
+      "total_tokens": 135788,
+      "overhead_tokens": 42840,
+      "research_tokens": 92948,
+      "first_call_input": 4760,
+      "api_calls": 9,
+      "cost": 0.17914000000000002,
+      "turns": 18,
+      "calls": 17,
+      "wall_s": 46.828,
+      "toolCounts": {
+        "Bash:other": 11,
+        "Bash:rg": 6
+      },
+      "clasifyCalls": 0,
+      "denials": 4,
+      "offAllowlist": 11,
+      "toolErrors": 4,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L08",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 16,
+      "cache_write": 16438,
+      "cache_read": 361024,
+      "output": 5142,
+      "input_total": 377478,
+      "total_tokens": 382620,
+      "overhead_tokens": 326584,
+      "research_tokens": 56036,
+      "first_call_input": 40823,
+      "api_calls": 8,
+      "cost": 0.18940880000000002,
+      "turns": 11,
+      "calls": 10,
+      "wall_s": 44.974,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 6,
+        "mcp__octocode__localFetch": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L08",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 18,
+      "cache_write": 14330,
+      "cache_read": 74148,
+      "output": 4954,
+      "input_total": 88496,
+      "total_tokens": 93450,
+      "overhead_tokens": 43218,
+      "research_tokens": 50232,
+      "first_call_input": 4802,
+      "api_calls": 9,
+      "cost": 0.1217256,
+      "turns": 10,
+      "calls": 9,
+      "wall_s": 40.903,
+      "toolCounts": {
+        "Bash:other": 3,
+        "Bash:rg": 6
+      },
+      "clasifyCalls": 0,
+      "denials": 3,
+      "offAllowlist": 3,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L08",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 18022,
+      "cache_read": 268170,
+      "output": 5364,
+      "input_total": 286204,
+      "total_tokens": 291568,
+      "overhead_tokens": 244938,
+      "research_tokens": 46630,
+      "first_call_input": 40823,
+      "api_calls": 6,
+      "cost": 0.179386,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 43.927,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 2,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L08",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 20,
+      "cache_write": 13170,
+      "cache_read": 94267,
+      "output": 3898,
+      "input_total": 107457,
+      "total_tokens": 111355,
+      "overhead_tokens": 48000,
+      "research_tokens": 63355,
+      "first_call_input": 4800,
+      "api_calls": 10,
+      "cost": 0.11055340000000001,
+      "turns": 13,
+      "calls": 12,
+      "wall_s": 32.521,
+      "toolCounts": {
+        "Bash:other": 6,
+        "Bash:rg": 6
+      },
+      "clasifyCalls": 0,
+      "denials": 4,
+      "offAllowlist": 6,
+      "toolErrors": 5,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L08",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 12,
+      "cache_write": 15932,
+      "cache_read": 261595,
+      "output": 5106,
+      "input_total": 277539,
+      "total_tokens": 282645,
+      "overhead_tokens": 244926,
+      "research_tokens": 37719,
+      "first_call_input": 40821,
+      "api_calls": 6,
+      "cost": 0.16713100000000003,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 51.678,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 3,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L08",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 16,
+      "cache_write": 12330,
+      "cache_read": 64832,
+      "output": 4166,
+      "input_total": 77178,
+      "total_tokens": 81344,
+      "overhead_tokens": 38400,
+      "research_tokens": 42944,
+      "first_call_input": 4800,
+      "api_calls": 8,
+      "cost": 0.1039784,
+      "turns": 10,
+      "calls": 9,
+      "wall_s": 37.984,
+      "toolCounts": {
+        "Bash:other": 4,
+        "Bash:rg": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 3,
+      "offAllowlist": 4,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L09",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 23852,
+      "cache_read": 279296,
+      "output": 5279,
+      "input_total": 303160,
+      "total_tokens": 308439,
+      "overhead_tokens": 244872,
+      "research_tokens": 63567,
+      "first_call_input": 40812,
+      "api_calls": 6,
+      "cost": 0.20408120000000002,
+      "turns": 8,
+      "calls": 7,
+      "wall_s": 44.152,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 4,
+        "mcp__octocode__localFetch": 3
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L09",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 16753,
+      "cache_read": 58577,
+      "output": 3777,
+      "input_total": 75344,
+      "total_tokens": 79121,
+      "overhead_tokens": 33523,
+      "research_tokens": 45598,
+      "first_call_input": 4789,
+      "api_calls": 7,
+      "cost": 0.1165254,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 33.319,
+      "toolCounts": {
+        "Bash:other": 5,
+        "Bash:rg": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 5,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L09",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 21657,
+      "cache_read": 322442,
+      "output": 4563,
+      "input_total": 344113,
+      "total_tokens": 348676,
+      "overhead_tokens": 285642,
+      "research_tokens": 63034,
+      "first_call_input": 40806,
+      "api_calls": 7,
+      "cost": 0.19677440000000002,
+      "turns": 8,
+      "calls": 7,
+      "wall_s": 51.222,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 5,
+        "mcp__octocode__localFetch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L09",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 17273,
+      "cache_read": 57090,
+      "output": 3536,
+      "input_total": 74375,
+      "total_tokens": 77911,
+      "overhead_tokens": 28722,
+      "research_tokens": 49189,
+      "first_call_input": 4787,
+      "api_calls": 6,
+      "cost": 0.115894,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 31.171,
+      "toolCounts": {
+        "Bash:other": 3,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 3,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L09",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 22154,
+      "cache_read": 328588,
+      "output": 3846,
+      "input_total": 350756,
+      "total_tokens": 354602,
+      "overhead_tokens": 285628,
+      "research_tokens": 68974,
+      "first_call_input": 40804,
+      "api_calls": 7,
+      "cost": 0.1928216,
+      "turns": 8,
+      "calls": 7,
+      "wall_s": 33.203,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 5,
+        "mcp__octocode__localFetch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L09",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 12,
+      "cache_write": 17066,
+      "cache_read": 57593,
+      "output": 3414,
+      "input_total": 74671,
+      "total_tokens": 78085,
+      "overhead_tokens": 28722,
+      "research_tokens": 49363,
+      "first_call_input": 4787,
+      "api_calls": 6,
+      "cost": 0.11394660000000001,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 31.367,
+      "toolCounts": {
+        "Bash:other": 3,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 3,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L10",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 16,
+      "cache_write": 17461,
+      "cache_read": 351137,
+      "output": 4759,
+      "input_total": 368614,
+      "total_tokens": 373373,
+      "overhead_tokens": 326352,
+      "research_tokens": 47021,
+      "first_call_input": 40794,
+      "api_calls": 8,
+      "cost": 0.1876934,
+      "turns": 9,
+      "calls": 8,
+      "wall_s": 37.404,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 4,
+        "mcp__octocode__localFetch": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L10",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 18,
+      "cache_write": 14926,
+      "cache_read": 83490,
+      "output": 4296,
+      "input_total": 98434,
+      "total_tokens": 102730,
+      "overhead_tokens": 42957,
+      "research_tokens": 59773,
+      "first_call_input": 4773,
+      "api_calls": 9,
+      "cost": 0.11939800000000002,
+      "turns": 11,
+      "calls": 10,
+      "wall_s": 34.555,
+      "toolCounts": {
+        "Bash:other": 4,
+        "Bash:rg": 6
+      },
+      "clasifyCalls": 0,
+      "denials": 4,
+      "offAllowlist": 4,
+      "toolErrors": 4,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L10",
+      "arm": "octocode",
+      "pass": 2,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 17523,
+      "cache_read": 306739,
+      "output": 4416,
+      "input_total": 324276,
+      "total_tokens": 328692,
+      "overhead_tokens": 285572,
+      "research_tokens": 43120,
+      "first_call_input": 40796,
+      "api_calls": 7,
+      "cost": 0.1756278,
+      "turns": 8,
+      "calls": 7,
+      "wall_s": 37.443,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 3,
+        "mcp__octocode__localFetch": 4
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 2,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L10",
+      "arm": "rg-gh",
+      "pass": 2,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 18,
+      "cache_write": 18199,
+      "cache_read": 86501,
+      "output": 3616,
+      "input_total": 104718,
+      "total_tokens": 108334,
+      "overhead_tokens": 42957,
+      "research_tokens": 65377,
+      "first_call_input": 4773,
+      "api_calls": 9,
+      "cost": 0.1262922,
+      "turns": 10,
+      "calls": 9,
+      "wall_s": 30.718,
+      "toolCounts": {
+        "Bash:other": 4,
+        "Bash:rg": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 4,
+      "offAllowlist": 4,
+      "toolErrors": 4,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L10",
+      "arm": "octocode",
+      "pass": 3,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 16,
+      "cache_write": 26748,
+      "cache_read": 380252,
+      "output": 5489,
+      "input_total": 407016,
+      "total_tokens": 412505,
+      "overhead_tokens": 326368,
+      "research_tokens": 86137,
+      "first_call_input": 40796,
+      "api_calls": 8,
+      "cost": 0.23796439999999996,
+      "turns": 10,
+      "calls": 9,
+      "wall_s": 46.562,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 4,
+        "mcp__octocode__localFetch": 5
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L10",
+      "arm": "rg-gh",
+      "pass": 3,
+      "surface": "local",
+      "category": "semantic",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 22,
+      "cache_write": 20061,
+      "cache_read": 109471,
+      "output": 4853,
+      "input_total": 129554,
+      "total_tokens": 134407,
+      "overhead_tokens": 52525,
+      "research_tokens": 81882,
+      "first_call_input": 4775,
+      "api_calls": 11,
+      "cost": 0.15071220000000002,
+      "turns": 11,
+      "calls": 10,
+      "wall_s": 42.709,
+      "toolCounts": {
+        "Bash:other": 4,
+        "Bash:rg": 6
+      },
+      "clasifyCalls": 0,
+      "denials": 4,
+      "offAllowlist": 4,
+      "toolErrors": 4,
+      "isolationOk": true,
+      "isolationProblems": []
+    }
+  ]
+}

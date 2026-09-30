@@ -1,0 +1,13 @@
+== no key: scratch OCTOCODE_HOME, env blank
+{"error":"clasify requires OCTOCODE_CLASSIFICATION_API (or the jev vendor's OCTOCODE_JEV_KEY). Create a classification provider API key (https://docs.typesafe.ai/introduction) and set OCTOCODE_CLASSIFICATION_API before retrying.","errorCode":"missingConfiguration"}
+exit=5
+== no key --json-errors
+{"error":"clasify requires OCTOCODE_CLASSIFICATION_API (or the jev vendor's OCTOCODE_JEV_KEY). Create a classification provider API key (https://docs.typesafe.ai/introduction) and set OCTOCODE_CLASSIFICATION_API before retrying.","errorCode":"missingConfiguration"}
+exit=5
+== explicit blank OCTOCODE_CLASSIFICATION_API with real home (file fallbacks present)
+{"error":"clasify requires OCTOCODE_CLASSIFICATION_API (or the jev vendor's OCTOCODE_JEV_KEY). Create a classification provider API key (https://docs.typesafe.ai/introduction) and set OCTOCODE_CLASSIFICATION_API before retrying.","errorCode":"missingConfiguration"}
+exit=5
+== scheme availability with blank
+{"name":"clasify","description":"Classify supplied state or locate answers in unread resources without returning bodies.","fields":"[questions*, resources*, carry?, id?]","availability":{"enabled":false,"envVar":"OCTOCODE_CLASSIFICATION_API|OCTOCODE_JEV_KEY","hint":"OCTOCODE_CLASSIFICATION_API in a .env file is shadowed by the process environment"}} instr mentions clasify: false
+== wide localSearch with key blank: next.clasify present?
+done

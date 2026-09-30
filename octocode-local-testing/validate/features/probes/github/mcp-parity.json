@@ -1,0 +1,75 @@
+{
+ "toolCount": 13,
+ "names": [
+  "artifactSearch",
+  "astSearch",
+  "clasify",
+  "ghGetFileContent",
+  "ghGetHistoryItem",
+  "ghSearchCode",
+  "ghSearchHistory",
+  "ghSearchRepo",
+  "ghStructure",
+  "localFetch",
+  "localSearch",
+  "lspSearch",
+  "structureSearch"
+ ],
+ "hasClone": false,
+ "file": {
+  "isError": false,
+  "bytes": 542,
+  "sc": {
+   "results": [
+    {
+     "index": 0,
+     "data": {
+      "files": [
+       {
+        "path": "package.json",
+        "content": "{\n\t\"name\": \"@sindresorhus/is\",\n\t\"version\": \"8.1.0\",\n\t\"description\": \"Type check values\",\n\t\"license\": \"MIT\",\n\t\"repository\": \"sindresorhus/is\",\n\t\"funding\": \"https://github.com/sindresorhus/is?sponsor=1\",\n\t\"author\": {\n",
+        "totalLines": 76,
+        "sourceLineRanges": [
+         {
+          "start": 1,
+          "end": 8
+         }
+        ],
+        "sourceBytes": 1635,
+        "returnedBytes": 215,
+        "commitSha": "e9c026c611c1160eaad50da00be4e676b626018f",
+        "fileType": "config",
+        "lastModified": "2026-05-11T11:22:19Z",
+        "lastModifiedBy": "Sindre Sorhus"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ },
+ "clone": {
+  "isError": true,
+  "text": "{\"code\":-32602,\"message\":\"Tool ghCloneRepo not found\"}"
+ },
+ "prNext": {
+  "tool": "ghGetHistoryItem",
+  "confidence": "exact",
+  "query": {
+   "operation": "pullRequest",
+   "charLength": 200,
+   "content": {
+    "body": true
+   },
+   "repo": "react",
+   "number": 37193,
+   "owner": "facebook",
+   "charOffset": 200,
+   "followUp": true
+  }
+ },
+ "prNextRun": {
+  "isError": false,
+  "text": "type: pullRequests\npullRequests:\n- number: 37193\n  title: Add `onBrowserBailout` Fizz option\n  state: merged\n  author: gnoff\n  sourceSha: dde3dade9a955fea14462859a0cfb686ab9e767b\n  createdAt: 2026-08-03T19:02:44Z\n  mergeCommitSha: 2042572329425f9ebf35ae6287ea5bab72b2c497\n  changedFilesCount: 17\n  body: receives the original recoverable error and `ErrorInfo`, defaults to a noop, and runs only when Fizz successfully recovers by deferring work to the browser. Recoverables consumed within Suspense o"
+ }
+}

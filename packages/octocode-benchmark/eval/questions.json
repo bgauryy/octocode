@@ -1,0 +1,301 @@
+{
+  "version": 1,
+  "frozen": "2026-09-30",
+  "questions": [
+    {
+      "id": "G01",
+      "surface": "github",
+      "category": "locate",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q1",
+        "sourceId": "gh-route-regex-builder"
+      },
+      "repos": [],
+      "question": "In `vercel/next.js` on `canary`, locate the exported `getRouteRegex()` function. Name its file, the internal helper it calls to parameterize the route, and the top-level fields returned by `getRouteRegex()`."
+    },
+    {
+      "id": "G02",
+      "surface": "github",
+      "category": "history",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q3",
+        "sourceId": "gh-flask-route-history"
+      },
+      "repos": [],
+      "question": "In `pallets/flask`, identify the current file and owning base class for the `route` decorator. Then explain, from the changed code in commit `705e5268` rather than its title alone, what route-registration behavior it introduced."
+    },
+    {
+      "id": "G03",
+      "surface": "github",
+      "category": "history",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q5",
+        "sourceId": "gh-vue-pr-diff-review"
+      },
+      "repos": [],
+      "question": "Review the code changes in `vuejs/core` PR `#15035`. Name at least two concrete hydration/interoperability scenarios fixed by the patch and explain why changes were required in both `runtime-core` and `runtime-vapor`."
+    },
+    {
+      "id": "G04",
+      "surface": "github",
+      "category": "trace",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q6",
+        "sourceId": "gh-express-router-trace"
+      },
+      "repos": [],
+      "question": "On the current default branch of `expressjs/express`, determine whether the layer-matching loop lives in that repository. If not, cite the dependency that leads to the implementation repository, then name the function that advances layers and the helper that tests one layer against the path, with their files."
+    },
+    {
+      "id": "G05",
+      "surface": "github",
+      "category": "history",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q13",
+        "sourceId": "gh-redis-bitfield-security"
+      },
+      "repos": [],
+      "question": "In `redis/redis`, identify the issue describing signed overflow in BITFIELD `#<offset>` parsing and the merged PR that fixes it. State the vulnerable operation and function, the approximate first overflowing `i64` offset, the files changed by the PR, and its additions/deletions."
+    },
+    {
+      "id": "G06",
+      "surface": "github",
+      "category": "semantic",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q17",
+        "sourceId": "gh-nextjs-fetch-memoization"
+      },
+      "repos": [],
+      "question": "In `vercel/next.js`, explain how the App Router implements per-render fetch **request memoization** — i.e. how identical `fetch()` calls made during a single render are deduplicated. Identify: the function that installs the wrapped fetch onto the global `fetch`; the two layers it composes and the file each is defined in; the API used to scope the memoization to one render; what the deduplication cache key is derived from; and **all** conditions in the deduplication layer that bypass memoization and call the original fetch."
+    },
+    {
+      "id": "G07",
+      "surface": "github",
+      "category": "trace",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q19",
+        "sourceId": "gh-node-child-process-dual-path"
+      },
+      "repos": [],
+      "question": "In `nodejs/node`, compare the implementation paths of `child_process.execFile()` and `child_process.execFileSync()`. Name the lower-level spawn function each uses, the implementation files and symbols that perform the process dispatch, and how a non-zero child exit is surfaced to the caller in each path."
+    },
+    {
+      "id": "G08",
+      "surface": "github",
+      "category": "history",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q22",
+        "sourceId": "gh-axios-tag-compare-range"
+      },
+      "repos": [],
+      "question": "In `axios/axios`, use commit comparison between the release tags `v1.18.0` and `v1.19.0` (base `v1.18.0`, head `v1.19.0`). Report the ahead/behind commit counts for that range, then identify one commit in the range that changed a file under `lib/` and cite its SHA together with the diff hunk that proves the change — not the commit title. Explain how the range-comparison result differs from reading that single commit's diff on its own."
+    },
+    {
+      "id": "G09",
+      "surface": "github",
+      "category": "multi-hop",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q24",
+        "sourceId": "gh-axios-buildfullpath-blast-radius"
+      },
+      "repos": [],
+      "question": "In `axios/axios`, locate the exported `buildFullPath` helper and name its file and current signature. Then enumerate every in-repo call site that consumes it (under `lib/`), citing `file:line` for each. For each call site, state which arguments it passes and whether a change to `buildFullPath`'s signature would be a breaking change or backward-compatible at that site. Distinguish call sites that would break from those that would not."
+    },
+    {
+      "id": "G10",
+      "surface": "github",
+      "category": "semantic",
+      "source": {
+        "pool": "compare/github-questions",
+        "id": "Q29",
+        "sourceId": "gh-mcp-http-auth-flow"
+      },
+      "repos": [],
+      "question": "In `modelcontextprotocol/modelcontextprotocol`, explain how the Model Context Protocol handles **authorization** for the streamable HTTP transport. Identify the authorization framework it builds on (e.g. OAuth 2.x), the specification file that defines the flow, and describe the steps: how the client discovers the authorization server, how it obtains a token, and how that token is presented on subsequent HTTP requests. Cite the spec file and quote the lines that define the token-presentation header and the discovery mechanism."
+    },
+    {
+      "id": "L01",
+      "surface": "local",
+      "category": "locate",
+      "source": {
+        "pool": "compare/terra-v3/suite/public-cases.json",
+        "id": "p01-langchain-runnable-config-declarations"
+      },
+      "repos": [
+        {
+          "repo": "langchain-ai/langchain",
+          "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain"
+        }
+      ],
+      "question": "At the locked LangChain commit, report every Python declaration of RunnableConfig under libs/core with exact file and line evidence."
+    },
+    {
+      "id": "L02",
+      "surface": "local",
+      "category": "locate",
+      "source": {
+        "pool": "compare/terra-v3/suite/public-cases.json",
+        "id": "p08-next-react-create-context"
+      },
+      "repos": [
+        {
+          "repo": "vercel/next.js",
+          "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs"
+        }
+      ],
+      "question": "List direct generic createContext assignments under packages/next/src/client, returning the assigned symbol, type argument, file, and start position."
+    },
+    {
+      "id": "L03",
+      "surface": "local",
+      "category": "trace",
+      "source": {
+        "pool": "compare/terra-v3/suite/public-cases.json",
+        "id": "p18-langchain-runnable-config-flow"
+      },
+      "repos": [
+        {
+          "repo": "langchain-ai/langchain",
+          "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain"
+        }
+      ],
+      "question": "Identify RunnableConfig's canonical declaration, Runnable.invoke and RunnableSequence.invoke consumers, and their immediate execution/config helpers, with exact evidence."
+    },
+    {
+      "id": "L04",
+      "surface": "local",
+      "category": "trace",
+      "source": {
+        "pool": "compare/terra-v3/suite/public-cases.json",
+        "id": "p19-next-config-loading-flow"
+      },
+      "repos": [
+        {
+          "repo": "vercel/next.js",
+          "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs"
+        }
+      ],
+      "question": "Trace the locked Next.js configuration loader from exported loadConfig through loadConfigImpl to normalizeConfig and the frozen normalized value, with exact evidence."
+    },
+    {
+      "id": "L05",
+      "surface": "local",
+      "category": "multi-hop",
+      "source": {
+        "pool": "compare/terra-v3/suite/public-cases.json",
+        "id": "p20-cross-repo-tracing-extension-points"
+      },
+      "repos": [
+        {
+          "repo": "langchain-ai/langchain",
+          "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain"
+        },
+        {
+          "repo": "vercel/next.js",
+          "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs"
+        }
+      ],
+      "question": "For LangChain and Next.js, identify one tracing extension point and its first internal dispatch step using exact source evidence."
+    },
+    {
+      "id": "L06",
+      "surface": "local",
+      "category": "multi-hop",
+      "source": {
+        "pool": "compare/advanced-research-v1/QUESTIONS.md",
+        "id": "A02 — Configuration cache collisions and observable work"
+      },
+      "repos": [
+        {
+          "repo": "vercel/next.js",
+          "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs"
+        }
+      ],
+      "question": "In `/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs`, analyze two sequential successful calls to the exported configuration loader in the same process, with identical project directory and phase. The first call uses a truthy customConfig object A and populates the cache. The second uses a different truthy customConfig object B, changes silent from true to false, supplies reportExperimentalFeatures, and otherwise uses identical options. Assume no cache mutation between calls. Does the second call evaluate B or reuse A's result? Enumerate the actual cache-key fields, explain how they form the key, and distinguish Boolean presence from object contents. Trace the hit through the implementation and exported wrapper: callback, rawConfig selection, error-state reset, default/adapter processing, React-version warning call, and timing log. Also explain whether freezing the normalized config proves deep immutability. Design a regression test with a fresh-load control that distinguishes the observed behavior from the claim that changing any loader option invalidates cache."
+    },
+    {
+      "id": "L07",
+      "surface": "local",
+      "category": "multi-hop",
+      "source": {
+        "pool": "compare/advanced-research-v1/QUESTIONS.md",
+        "id": "A10 — Route parameter encoding and optional catch-all semantics"
+      },
+      "repos": [
+        {
+          "repo": "vercel/next.js",
+          "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs"
+        }
+      ],
+      "question": "In `/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs`, trace route-regex generation, matching and interpolation for dynamic, catch-all and optional catch-all segments. Analyze absent segments and an encoded slash within one segment. Determine which layer decodes, which layer distinguishes arrays from scalars, and which error path handles malformed encoding. Cite existing tests and explain why finding a regex alone cannot establish the full behavior."
+    },
+    {
+      "id": "L08",
+      "surface": "local",
+      "category": "semantic",
+      "source": {
+        "pool": "compare/advanced-research-v1/QUESTIONS.md",
+        "id": "A03 — Retry only the failed batch members"
+      },
+      "repos": [
+        {
+          "repo": "langchain-ai/langchain",
+          "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain"
+        }
+      ],
+      "question": "In `/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain`, trace RunnableRetry batch and abatch for three inputs where the middle input raises a configured retryable exception once and then succeeds, while the other inputs succeed immediately. Determine which members execute on the next attempt, how original result ordering is restored, how child callback tags identify attempts, and what happens at exhaustion with return_exceptions true versus false. Contrast batch retry with wrapping an entire RunnableSequence in retry. Cite the specific branches establishing the difference and one relevant existing test."
+    },
+    {
+      "id": "L09",
+      "surface": "local",
+      "category": "semantic",
+      "source": {
+        "pool": "compare/advanced-research-v1/QUESTIONS.md",
+        "id": "A04 — Fallback boundaries and exception injection"
+      },
+      "repos": [
+        {
+          "repo": "langchain-ai/langchain",
+          "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain"
+        }
+      ],
+      "question": "In `/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain`, analyze RunnableWithFallbacks invoke, ainvoke, batch and abatch when the primary raises a handled exception and a fallback succeeds. Determine how exception_key changes the input contract, whether input dictionaries are mutated, which exception wins when all fallbacks fail, and whether an unhandled exception enters a fallback. Provide a behavior matrix supported by implementation and tests; do not assume the four entrypoints share identical control flow."
+    },
+    {
+      "id": "L10",
+      "surface": "local",
+      "category": "semantic",
+      "source": {
+        "pool": "compare/advanced-research-v1/QUESTIONS.md",
+        "id": "A06 — Streaming versus invoking a composed pipeline"
+      },
+      "repos": [
+        {
+          "repo": "langchain-ai/langchain",
+          "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+          "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain"
+        }
+      ],
+      "question": "In `/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain`, compare stream/astream on a RunnableSequence containing a streaming producer, a RunnableLambda that cannot transform incrementally, and a streaming consumer. Locate the buffering boundary, explain when the first output becomes available, how chunks combine, and how callback error/end events are triggered. State the minimum implementation change needed to preserve incremental flow and identify a test that distinguishes streaming from a single buffered result."
+    }
+  ]
+}

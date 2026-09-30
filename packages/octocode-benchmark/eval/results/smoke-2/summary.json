@@ -1,0 +1,1518 @@
+{
+  "runId": "smoke-2",
+  "generatedAt": "2026-09-30T02:00:31.572Z",
+  "setup": {
+    "model": "sonnet",
+    "maxTurns": 40,
+    "timeoutMs": 1200000,
+    "passes": 1,
+    "concurrency": 4,
+    "claudeVersion": "2.1.285 (Claude Code)",
+    "corpus": [
+      {
+        "repo": "langchain-ai/langchain",
+        "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain",
+        "head": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125"
+      },
+      {
+        "repo": "vercel/next.js",
+        "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs",
+        "head": "d155ba9ebfffe4742efefda8d68c2e0e8e490924"
+      }
+    ],
+    "hashes": {
+      "questionsJson": "c219bd5acc3d07c1b86107fbfaf8f8b739f57080e974c6f241081414315ea54b",
+      "runMjs": "645ffa171ed905264b804df11cb88b62b071dc1aa3d20abb0e1f84554fce9670",
+      "libMjs": "9a93e70d1325ccd210ff4767e0fe2369260ef99c00061f070b460ad4b904aa7c",
+      "mcpConfig": "d7de92e240b7f632c19bae8e63a4ccacc39b6a7a4a1c7a2290022cd20f4622fd",
+      "mcpServerDist": "9ab5b3c8e31adf95e67b978b0e559397f62edf06f81239d6738f6931d8a33447",
+      "userOctocoderc": "6a8d7781850c7c72a77ddc7e66a1ae9c8cf051e79cbd0192bb6883b7b55cc847",
+      "armFlags": {
+        "octocode": "6db92e5af4d2c58dd43876a9513c8c4cc2dee482789d1805fa01d8054f6642dc",
+        "rg-gh": "88a90c0cda44e53055cd5afd822259ae809b551a68d831a9412e1b1a1179c83d"
+      },
+      "prompts": {
+        "G09/octocode": "6effce59b6c916a5beec8c926d40e8840b510673269511213c0e45b02558ab75",
+        "G09/rg-gh": "36da19d7f32a13b46401e640b5dfaa2e3c2636cd5566e36e294aa75bb95c08ba",
+        "L03/octocode": "968b3665b57e3f20facfcaf08aeb5d979b2bacccddc529702bbaa450d4948d76",
+        "L03/rg-gh": "10a482993943baf0dd34c366e5358077ed7cb75605a9233c99fe637de7bd689d"
+      }
+    },
+    "createdAt": "2026-09-30T01:26:31.253Z"
+  },
+  "overhead": {
+    "method": "first API call input of each run × API calls in the run",
+    "byArm": {
+      "octocode": {
+        "firstCallInputMedian": 40672.5,
+        "apiCallsMean": 3.5
+      },
+      "rg-gh": {
+        "firstCallInputMedian": 4651.5,
+        "apiCallsMean": 6.5
+      }
+    }
+  },
+  "byArm": {
+    "octocode": {
+      "runs": 2,
+      "missing": 0,
+      "statuses": {
+        "ok": 2
+      },
+      "judged": 2,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 1,
+      "partial": 1,
+      "wrong": 0,
+      "meanScore": 2.5,
+      "passMeanScores": [
+        2.5
+      ],
+      "passScoreSpread": 0,
+      "passCorrect": [
+        1
+      ],
+      "passTotalTokens": [
+        303344
+      ],
+      "tokens": {
+        "input_fresh": {
+          "total": 14,
+          "mean": 7,
+          "median": 7
+        },
+        "cache_write": {
+          "total": 16278,
+          "mean": 8139,
+          "median": 8139
+        },
+        "cache_read": {
+          "total": 281772,
+          "mean": 140886,
+          "median": 140886
+        },
+        "input_total": {
+          "total": 298064,
+          "mean": 149032,
+          "median": 149032
+        },
+        "output": {
+          "total": 5280,
+          "mean": 2640,
+          "median": 2640
+        },
+        "total_tokens": {
+          "total": 303344,
+          "mean": 151672,
+          "median": 151672
+        },
+        "overhead_tokens": {
+          "total": 284721,
+          "mean": 142360.5,
+          "median": 142360.5
+        },
+        "research_tokens": {
+          "total": 18623,
+          "mean": 9311.5,
+          "median": 9311.5
+        }
+      },
+      "cost": {
+        "total": 0.17429440000000002,
+        "mean": 0.08714720000000001,
+        "median": 0.08714720000000001
+      },
+      "calls": {
+        "total": 6,
+        "mean": 3,
+        "median": 3
+      },
+      "turns": {
+        "total": 8,
+        "mean": 4,
+        "median": 4
+      },
+      "firstCallInput": {
+        "total": 81345,
+        "mean": 40672.5,
+        "median": 40672.5
+      },
+      "apiCalls": {
+        "total": 7,
+        "mean": 3.5,
+        "median": 3.5
+      },
+      "wall_s": {
+        "total": 41.203,
+        "mean": 20.6015,
+        "median": 20.6015
+      },
+      "toolErrors": 1,
+      "denials": 0,
+      "isolationFailures": 0
+    },
+    "rg-gh": {
+      "runs": 2,
+      "missing": 0,
+      "statuses": {
+        "ok": 2
+      },
+      "judged": 2,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 2,
+      "partial": 0,
+      "wrong": 0,
+      "meanScore": 3,
+      "passMeanScores": [
+        3
+      ],
+      "passScoreSpread": 0,
+      "passCorrect": [
+        2
+      ],
+      "passTotalTokens": [
+        91261
+      ],
+      "tokens": {
+        "input_fresh": {
+          "total": 26,
+          "mean": 13,
+          "median": 13
+        },
+        "cache_write": {
+          "total": 13878,
+          "mean": 6939,
+          "median": 6939
+        },
+        "cache_read": {
+          "total": 72797,
+          "mean": 36398.5,
+          "median": 36398.5
+        },
+        "input_total": {
+          "total": 86701,
+          "mean": 43350.5,
+          "median": 43350.5
+        },
+        "output": {
+          "total": 4560,
+          "mean": 2280,
+          "median": 2280
+        },
+        "total_tokens": {
+          "total": 91261,
+          "mean": 45630.5,
+          "median": 45630.5
+        },
+        "overhead_tokens": {
+          "total": 60456,
+          "mean": 30228,
+          "median": 30228
+        },
+        "research_tokens": {
+          "total": 30805,
+          "mean": 15402.5,
+          "median": 15402.5
+        }
+      },
+      "cost": {
+        "total": 0.1157234,
+        "mean": 0.0578617,
+        "median": 0.0578617
+      },
+      "calls": {
+        "total": 11,
+        "mean": 5.5,
+        "median": 5.5
+      },
+      "turns": {
+        "total": 13,
+        "mean": 6.5,
+        "median": 6.5
+      },
+      "firstCallInput": {
+        "total": 9303,
+        "mean": 4651.5,
+        "median": 4651.5
+      },
+      "apiCalls": {
+        "total": 13,
+        "mean": 6.5,
+        "median": 6.5
+      },
+      "wall_s": {
+        "total": 48.575,
+        "mean": 24.2875,
+        "median": 24.2875
+      },
+      "toolErrors": 6,
+      "denials": 5,
+      "isolationFailures": 0
+    }
+  },
+  "slices": {
+    "surface:github": {
+      "key": "surface",
+      "value": "github",
+      "n": 1,
+      "octocode": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 1,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          1
+        ],
+        "passTotalTokens": [
+          130831
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 6,
+            "mean": 6,
+            "median": 6
+          },
+          "cache_write": {
+            "total": 8222,
+            "mean": 8222,
+            "median": 8222
+          },
+          "cache_read": {
+            "total": 120057,
+            "mean": 120057,
+            "median": 120057
+          },
+          "input_total": {
+            "total": 128285,
+            "mean": 128285,
+            "median": 128285
+          },
+          "output": {
+            "total": 2546,
+            "mean": 2546,
+            "median": 2546
+          },
+          "total_tokens": {
+            "total": 130831,
+            "mean": 130831,
+            "median": 130831
+          },
+          "overhead_tokens": {
+            "total": 121977,
+            "mean": 121977,
+            "median": 121977
+          },
+          "research_tokens": {
+            "total": 8854,
+            "mean": 8854,
+            "median": 8854
+          }
+        },
+        "cost": {
+          "total": 0.08237140000000001,
+          "mean": 0.08237140000000001,
+          "median": 0.08237140000000001
+        },
+        "calls": {
+          "total": 3,
+          "mean": 3,
+          "median": 3
+        },
+        "turns": {
+          "total": 4,
+          "mean": 4,
+          "median": 4
+        },
+        "firstCallInput": {
+          "total": 40659,
+          "mean": 40659,
+          "median": 40659
+        },
+        "apiCalls": {
+          "total": 3,
+          "mean": 3,
+          "median": 3
+        },
+        "wall_s": {
+          "total": 22.218,
+          "mean": 22.218,
+          "median": 22.218
+        },
+        "toolErrors": 0,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 1,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          1
+        ],
+        "passTotalTokens": [
+          47558
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 14,
+            "mean": 14,
+            "median": 14
+          },
+          "cache_write": {
+            "total": 5755,
+            "mean": 5755,
+            "median": 5755
+          },
+          "cache_read": {
+            "total": 39723,
+            "mean": 39723,
+            "median": 39723
+          },
+          "input_total": {
+            "total": 45492,
+            "mean": 45492,
+            "median": 45492
+          },
+          "output": {
+            "total": 2066,
+            "mean": 2066,
+            "median": 2066
+          },
+          "total_tokens": {
+            "total": 47558,
+            "mean": 47558,
+            "median": 47558
+          },
+          "overhead_tokens": {
+            "total": 32466,
+            "mean": 32466,
+            "median": 32466
+          },
+          "research_tokens": {
+            "total": 15092,
+            "mean": 15092,
+            "median": 15092
+          }
+        },
+        "cost": {
+          "total": 0.0516526,
+          "mean": 0.0516526,
+          "median": 0.0516526
+        },
+        "calls": {
+          "total": 6,
+          "mean": 6,
+          "median": 6
+        },
+        "turns": {
+          "total": 7,
+          "mean": 7,
+          "median": 7
+        },
+        "firstCallInput": {
+          "total": 4638,
+          "mean": 4638,
+          "median": 4638
+        },
+        "apiCalls": {
+          "total": 7,
+          "mean": 7,
+          "median": 7
+        },
+        "wall_s": {
+          "total": 24.84,
+          "mean": 24.84,
+          "median": 24.84
+        },
+        "toolErrors": 3,
+        "denials": 2,
+        "isolationFailures": 0
+      }
+    },
+    "surface:local": {
+      "key": "surface",
+      "value": "local",
+      "n": 1,
+      "octocode": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 0,
+        "partial": 1,
+        "wrong": 0,
+        "meanScore": 2,
+        "passMeanScores": [
+          2
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          0
+        ],
+        "passTotalTokens": [
+          172513
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 8,
+            "mean": 8,
+            "median": 8
+          },
+          "cache_write": {
+            "total": 8056,
+            "mean": 8056,
+            "median": 8056
+          },
+          "cache_read": {
+            "total": 161715,
+            "mean": 161715,
+            "median": 161715
+          },
+          "input_total": {
+            "total": 169779,
+            "mean": 169779,
+            "median": 169779
+          },
+          "output": {
+            "total": 2734,
+            "mean": 2734,
+            "median": 2734
+          },
+          "total_tokens": {
+            "total": 172513,
+            "mean": 172513,
+            "median": 172513
+          },
+          "overhead_tokens": {
+            "total": 162744,
+            "mean": 162744,
+            "median": 162744
+          },
+          "research_tokens": {
+            "total": 9769,
+            "mean": 9769,
+            "median": 9769
+          }
+        },
+        "cost": {
+          "total": 0.091923,
+          "mean": 0.091923,
+          "median": 0.091923
+        },
+        "calls": {
+          "total": 3,
+          "mean": 3,
+          "median": 3
+        },
+        "turns": {
+          "total": 4,
+          "mean": 4,
+          "median": 4
+        },
+        "firstCallInput": {
+          "total": 40686,
+          "mean": 40686,
+          "median": 40686
+        },
+        "apiCalls": {
+          "total": 4,
+          "mean": 4,
+          "median": 4
+        },
+        "wall_s": {
+          "total": 18.985,
+          "mean": 18.985,
+          "median": 18.985
+        },
+        "toolErrors": 1,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 1,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          1
+        ],
+        "passTotalTokens": [
+          43703
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 12,
+            "mean": 12,
+            "median": 12
+          },
+          "cache_write": {
+            "total": 8123,
+            "mean": 8123,
+            "median": 8123
+          },
+          "cache_read": {
+            "total": 33074,
+            "mean": 33074,
+            "median": 33074
+          },
+          "input_total": {
+            "total": 41209,
+            "mean": 41209,
+            "median": 41209
+          },
+          "output": {
+            "total": 2494,
+            "mean": 2494,
+            "median": 2494
+          },
+          "total_tokens": {
+            "total": 43703,
+            "mean": 43703,
+            "median": 43703
+          },
+          "overhead_tokens": {
+            "total": 27990,
+            "mean": 27990,
+            "median": 27990
+          },
+          "research_tokens": {
+            "total": 15713,
+            "mean": 15713,
+            "median": 15713
+          }
+        },
+        "cost": {
+          "total": 0.06407080000000001,
+          "mean": 0.06407080000000001,
+          "median": 0.06407080000000001
+        },
+        "calls": {
+          "total": 5,
+          "mean": 5,
+          "median": 5
+        },
+        "turns": {
+          "total": 6,
+          "mean": 6,
+          "median": 6
+        },
+        "firstCallInput": {
+          "total": 4665,
+          "mean": 4665,
+          "median": 4665
+        },
+        "apiCalls": {
+          "total": 6,
+          "mean": 6,
+          "median": 6
+        },
+        "wall_s": {
+          "total": 23.735,
+          "mean": 23.735,
+          "median": 23.735
+        },
+        "toolErrors": 3,
+        "denials": 3,
+        "isolationFailures": 0
+      }
+    },
+    "category:multi-hop": {
+      "key": "category",
+      "value": "multi-hop",
+      "n": 1,
+      "octocode": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 1,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          1
+        ],
+        "passTotalTokens": [
+          130831
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 6,
+            "mean": 6,
+            "median": 6
+          },
+          "cache_write": {
+            "total": 8222,
+            "mean": 8222,
+            "median": 8222
+          },
+          "cache_read": {
+            "total": 120057,
+            "mean": 120057,
+            "median": 120057
+          },
+          "input_total": {
+            "total": 128285,
+            "mean": 128285,
+            "median": 128285
+          },
+          "output": {
+            "total": 2546,
+            "mean": 2546,
+            "median": 2546
+          },
+          "total_tokens": {
+            "total": 130831,
+            "mean": 130831,
+            "median": 130831
+          },
+          "overhead_tokens": {
+            "total": 121977,
+            "mean": 121977,
+            "median": 121977
+          },
+          "research_tokens": {
+            "total": 8854,
+            "mean": 8854,
+            "median": 8854
+          }
+        },
+        "cost": {
+          "total": 0.08237140000000001,
+          "mean": 0.08237140000000001,
+          "median": 0.08237140000000001
+        },
+        "calls": {
+          "total": 3,
+          "mean": 3,
+          "median": 3
+        },
+        "turns": {
+          "total": 4,
+          "mean": 4,
+          "median": 4
+        },
+        "firstCallInput": {
+          "total": 40659,
+          "mean": 40659,
+          "median": 40659
+        },
+        "apiCalls": {
+          "total": 3,
+          "mean": 3,
+          "median": 3
+        },
+        "wall_s": {
+          "total": 22.218,
+          "mean": 22.218,
+          "median": 22.218
+        },
+        "toolErrors": 0,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 1,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          1
+        ],
+        "passTotalTokens": [
+          47558
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 14,
+            "mean": 14,
+            "median": 14
+          },
+          "cache_write": {
+            "total": 5755,
+            "mean": 5755,
+            "median": 5755
+          },
+          "cache_read": {
+            "total": 39723,
+            "mean": 39723,
+            "median": 39723
+          },
+          "input_total": {
+            "total": 45492,
+            "mean": 45492,
+            "median": 45492
+          },
+          "output": {
+            "total": 2066,
+            "mean": 2066,
+            "median": 2066
+          },
+          "total_tokens": {
+            "total": 47558,
+            "mean": 47558,
+            "median": 47558
+          },
+          "overhead_tokens": {
+            "total": 32466,
+            "mean": 32466,
+            "median": 32466
+          },
+          "research_tokens": {
+            "total": 15092,
+            "mean": 15092,
+            "median": 15092
+          }
+        },
+        "cost": {
+          "total": 0.0516526,
+          "mean": 0.0516526,
+          "median": 0.0516526
+        },
+        "calls": {
+          "total": 6,
+          "mean": 6,
+          "median": 6
+        },
+        "turns": {
+          "total": 7,
+          "mean": 7,
+          "median": 7
+        },
+        "firstCallInput": {
+          "total": 4638,
+          "mean": 4638,
+          "median": 4638
+        },
+        "apiCalls": {
+          "total": 7,
+          "mean": 7,
+          "median": 7
+        },
+        "wall_s": {
+          "total": 24.84,
+          "mean": 24.84,
+          "median": 24.84
+        },
+        "toolErrors": 3,
+        "denials": 2,
+        "isolationFailures": 0
+      }
+    },
+    "category:trace": {
+      "key": "category",
+      "value": "trace",
+      "n": 1,
+      "octocode": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 0,
+        "partial": 1,
+        "wrong": 0,
+        "meanScore": 2,
+        "passMeanScores": [
+          2
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          0
+        ],
+        "passTotalTokens": [
+          172513
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 8,
+            "mean": 8,
+            "median": 8
+          },
+          "cache_write": {
+            "total": 8056,
+            "mean": 8056,
+            "median": 8056
+          },
+          "cache_read": {
+            "total": 161715,
+            "mean": 161715,
+            "median": 161715
+          },
+          "input_total": {
+            "total": 169779,
+            "mean": 169779,
+            "median": 169779
+          },
+          "output": {
+            "total": 2734,
+            "mean": 2734,
+            "median": 2734
+          },
+          "total_tokens": {
+            "total": 172513,
+            "mean": 172513,
+            "median": 172513
+          },
+          "overhead_tokens": {
+            "total": 162744,
+            "mean": 162744,
+            "median": 162744
+          },
+          "research_tokens": {
+            "total": 9769,
+            "mean": 9769,
+            "median": 9769
+          }
+        },
+        "cost": {
+          "total": 0.091923,
+          "mean": 0.091923,
+          "median": 0.091923
+        },
+        "calls": {
+          "total": 3,
+          "mean": 3,
+          "median": 3
+        },
+        "turns": {
+          "total": 4,
+          "mean": 4,
+          "median": 4
+        },
+        "firstCallInput": {
+          "total": 40686,
+          "mean": 40686,
+          "median": 40686
+        },
+        "apiCalls": {
+          "total": 4,
+          "mean": 4,
+          "median": 4
+        },
+        "wall_s": {
+          "total": 18.985,
+          "mean": 18.985,
+          "median": 18.985
+        },
+        "toolErrors": 1,
+        "denials": 0,
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 1,
+        "missing": 0,
+        "statuses": {
+          "ok": 1
+        },
+        "judged": 1,
+        "unresolved": 0,
+        "unjudged": 0,
+        "correct": 1,
+        "partial": 0,
+        "wrong": 0,
+        "meanScore": 3,
+        "passMeanScores": [
+          3
+        ],
+        "passScoreSpread": 0,
+        "passCorrect": [
+          1
+        ],
+        "passTotalTokens": [
+          43703
+        ],
+        "tokens": {
+          "input_fresh": {
+            "total": 12,
+            "mean": 12,
+            "median": 12
+          },
+          "cache_write": {
+            "total": 8123,
+            "mean": 8123,
+            "median": 8123
+          },
+          "cache_read": {
+            "total": 33074,
+            "mean": 33074,
+            "median": 33074
+          },
+          "input_total": {
+            "total": 41209,
+            "mean": 41209,
+            "median": 41209
+          },
+          "output": {
+            "total": 2494,
+            "mean": 2494,
+            "median": 2494
+          },
+          "total_tokens": {
+            "total": 43703,
+            "mean": 43703,
+            "median": 43703
+          },
+          "overhead_tokens": {
+            "total": 27990,
+            "mean": 27990,
+            "median": 27990
+          },
+          "research_tokens": {
+            "total": 15713,
+            "mean": 15713,
+            "median": 15713
+          }
+        },
+        "cost": {
+          "total": 0.06407080000000001,
+          "mean": 0.06407080000000001,
+          "median": 0.06407080000000001
+        },
+        "calls": {
+          "total": 5,
+          "mean": 5,
+          "median": 5
+        },
+        "turns": {
+          "total": 6,
+          "mean": 6,
+          "median": 6
+        },
+        "firstCallInput": {
+          "total": 4665,
+          "mean": 4665,
+          "median": 4665
+        },
+        "apiCalls": {
+          "total": 6,
+          "mean": 6,
+          "median": 6
+        },
+        "wall_s": {
+          "total": 23.735,
+          "mean": 23.735,
+          "median": 23.735
+        },
+        "toolErrors": 3,
+        "denials": 3,
+        "isolationFailures": 0
+      }
+    }
+  },
+  "tokenRatios": {
+    "questions": 2,
+    "mean": 3.349186334580404,
+    "median": 3.349186334580404,
+    "geomean": 3.2953293609649874,
+    "ofSums": 3.32391711684071,
+    "octocodeFewer": 0,
+    "researchMean": 0.6041914687605828,
+    "researchMedian": 0.6041914687605828
+  },
+  "perQuestion": [
+    {
+      "qid": "G09",
+      "surface": "github",
+      "category": "multi-hop",
+      "source": "Q24",
+      "octocode": {
+        "verdicts": [
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 130831,
+        "meanResearchTokens": 8854,
+        "meanCost": 0.08237140000000001,
+        "meanCalls": 3,
+        "meanWall": 22.218,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 47558,
+        "meanResearchTokens": 15092,
+        "meanCost": 0.0516526,
+        "meanCalls": 6,
+        "meanWall": 24.84,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 2.7509777534799613,
+      "researchTokenRatio": 0.5866684336072091
+    },
+    {
+      "qid": "L03",
+      "surface": "local",
+      "category": "trace",
+      "source": "p18-langchain-runnable-config-flow",
+      "octocode": {
+        "verdicts": [
+          "partial"
+        ],
+        "meanScore": 2,
+        "meanTotalTokens": 172513,
+        "meanResearchTokens": 9769,
+        "meanCost": 0.091923,
+        "meanCalls": 3,
+        "meanWall": 18.985,
+        "clasifyCalls": 0
+      },
+      "rg-gh": {
+        "verdicts": [
+          "correct"
+        ],
+        "meanScore": 3,
+        "meanTotalTokens": 43703,
+        "meanResearchTokens": 15713,
+        "meanCost": 0.06407080000000001,
+        "meanCalls": 5,
+        "meanWall": 23.735,
+        "clasifyCalls": 0
+      },
+      "tokenRatio": 3.947394915680846,
+      "researchTokenRatio": 0.6217145039139566
+    }
+  ],
+  "comparison": {
+    "questionsCompared": 2,
+    "octocodeBetter": [],
+    "rgBetter": [
+      "L03"
+    ],
+    "similar": [
+      "G09"
+    ],
+    "meanDelta": -0.5
+  },
+  "clasify": {
+    "runs": 2,
+    "runsWithClasify": 0,
+    "totalCalls": 0,
+    "questions": [],
+    "outcomeWith": {
+      "runs": 0,
+      "missing": 0,
+      "statuses": {},
+      "judged": 0,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 0,
+      "partial": 0,
+      "wrong": 0,
+      "meanScore": null,
+      "passMeanScores": [],
+      "passScoreSpread": null,
+      "passCorrect": [],
+      "passTotalTokens": [],
+      "tokens": {
+        "input_fresh": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "cache_write": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "cache_read": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "input_total": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "output": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "total_tokens": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "overhead_tokens": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        },
+        "research_tokens": {
+          "total": 0,
+          "mean": null,
+          "median": null
+        }
+      },
+      "cost": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "calls": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "turns": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "firstCallInput": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "apiCalls": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "wall_s": {
+        "total": 0,
+        "mean": null,
+        "median": null
+      },
+      "toolErrors": 0,
+      "denials": 0,
+      "isolationFailures": 0
+    },
+    "outcomeWithout": {
+      "runs": 2,
+      "missing": 0,
+      "statuses": {
+        "ok": 2
+      },
+      "judged": 2,
+      "unresolved": 0,
+      "unjudged": 0,
+      "correct": 1,
+      "partial": 1,
+      "wrong": 0,
+      "meanScore": 2.5,
+      "passMeanScores": [
+        2.5
+      ],
+      "passScoreSpread": 0,
+      "passCorrect": [
+        1
+      ],
+      "passTotalTokens": [
+        303344
+      ],
+      "tokens": {
+        "input_fresh": {
+          "total": 14,
+          "mean": 7,
+          "median": 7
+        },
+        "cache_write": {
+          "total": 16278,
+          "mean": 8139,
+          "median": 8139
+        },
+        "cache_read": {
+          "total": 281772,
+          "mean": 140886,
+          "median": 140886
+        },
+        "input_total": {
+          "total": 298064,
+          "mean": 149032,
+          "median": 149032
+        },
+        "output": {
+          "total": 5280,
+          "mean": 2640,
+          "median": 2640
+        },
+        "total_tokens": {
+          "total": 303344,
+          "mean": 151672,
+          "median": 151672
+        },
+        "overhead_tokens": {
+          "total": 284721,
+          "mean": 142360.5,
+          "median": 142360.5
+        },
+        "research_tokens": {
+          "total": 18623,
+          "mean": 9311.5,
+          "median": 9311.5
+        }
+      },
+      "cost": {
+        "total": 0.17429440000000002,
+        "mean": 0.08714720000000001,
+        "median": 0.08714720000000001
+      },
+      "calls": {
+        "total": 6,
+        "mean": 3,
+        "median": 3
+      },
+      "turns": {
+        "total": 8,
+        "mean": 4,
+        "median": 4
+      },
+      "firstCallInput": {
+        "total": 81345,
+        "mean": 40672.5,
+        "median": 40672.5
+      },
+      "apiCalls": {
+        "total": 7,
+        "mean": 3.5,
+        "median": 3.5
+      },
+      "wall_s": {
+        "total": 41.203,
+        "mean": 20.6015,
+        "median": 20.6015
+      },
+      "toolErrors": 1,
+      "denials": 0,
+      "isolationFailures": 0
+    }
+  },
+  "judge": {
+    "pairs": 2,
+    "orderAgree": 2,
+    "firstPairScoreAgree": 2,
+    "firstPairPreferredAgree": 1,
+    "tiebreaks": 0,
+    "unresolvedArmVerdicts": 0,
+    "calls": 4,
+    "parseFailures": 0,
+    "cost": 0.5280317999999999,
+    "preferred": {
+      "octocode": 1,
+      "rg-gh": 2,
+      "tie": 1
+    }
+  },
+  "isolation": {
+    "solverRuns": 4,
+    "failures": [],
+    "deniedCalls": {
+      "octocode": 0,
+      "rg-gh": 5
+    },
+    "offAllowlistAttempts": 5
+  },
+  "runs": [
+    {
+      "qid": "G09",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 6,
+      "cache_write": 8222,
+      "cache_read": 120057,
+      "output": 2546,
+      "input_total": 128285,
+      "total_tokens": 130831,
+      "overhead_tokens": 121977,
+      "research_tokens": 8854,
+      "first_call_input": 40659,
+      "api_calls": 3,
+      "cost": 0.08237140000000001,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 22.218,
+      "toolCounts": {
+        "mcp__octocode__ghSearchCode": 2,
+        "mcp__octocode__ghGetFileContent": 1
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 0,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "G09",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "github",
+      "category": "multi-hop",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 14,
+      "cache_write": 5755,
+      "cache_read": 39723,
+      "output": 2066,
+      "input_total": 45492,
+      "total_tokens": 47558,
+      "overhead_tokens": 32466,
+      "research_tokens": 15092,
+      "first_call_input": 4638,
+      "api_calls": 7,
+      "cost": 0.0516526,
+      "turns": 7,
+      "calls": 6,
+      "wall_s": 24.84,
+      "toolCounts": {
+        "Bash:gh": 4,
+        "Bash:other": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 2,
+      "offAllowlist": 2,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "octocode",
+      "pass": 1,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "partial",
+      "score": 2,
+      "input_fresh": 8,
+      "cache_write": 8056,
+      "cache_read": 161715,
+      "output": 2734,
+      "input_total": 169779,
+      "total_tokens": 172513,
+      "overhead_tokens": 162744,
+      "research_tokens": 9769,
+      "first_call_input": 40686,
+      "api_calls": 4,
+      "cost": 0.091923,
+      "turns": 4,
+      "calls": 3,
+      "wall_s": 18.985,
+      "toolCounts": {
+        "mcp__octocode__localSearch": 1,
+        "mcp__octocode__localFetch": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 0,
+      "offAllowlist": 0,
+      "toolErrors": 1,
+      "isolationOk": true,
+      "isolationProblems": []
+    },
+    {
+      "qid": "L03",
+      "arm": "rg-gh",
+      "pass": 1,
+      "surface": "local",
+      "category": "trace",
+      "status": "ok",
+      "verdict": "correct",
+      "score": 3,
+      "input_fresh": 12,
+      "cache_write": 8123,
+      "cache_read": 33074,
+      "output": 2494,
+      "input_total": 41209,
+      "total_tokens": 43703,
+      "overhead_tokens": 27990,
+      "research_tokens": 15713,
+      "first_call_input": 4665,
+      "api_calls": 6,
+      "cost": 0.06407080000000001,
+      "turns": 6,
+      "calls": 5,
+      "wall_s": 23.735,
+      "toolCounts": {
+        "Bash:other": 3,
+        "Bash:rg": 2
+      },
+      "clasifyCalls": 0,
+      "denials": 3,
+      "offAllowlist": 3,
+      "toolErrors": 3,
+      "isolationOk": true,
+      "isolationProblems": []
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "files", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "time": {"modifiedWithin": "1h"}, "detail": "modified"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"src","files":[{"path":"src","type":"directory","modifiedMs":1790717573623},{"path":"src/huge.txt","sizeFormatted":"89.8KB","modifiedMs":1790717573623},{"path":"src/big.txt","sizeFormatted":"20.5KB","modifiedMs":1790717412050},{"path":"src/manyhits.txt","sizeFormatted":"702B","modifiedMs":1790717412048},{"path":"src/index.ts","sizeFormatted":"75B","modifiedMs":1790717412006},{"path":"src/b.ts","sizeFormatted":"117B","modifiedMs":1790717412003},{"path":"src/a.ts","sizeFormatted":"210B","modifiedMs":1790717412001}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"}

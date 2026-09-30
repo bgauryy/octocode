@@ -1,0 +1,1 @@
+{"goal":"g","reasoning":"r","resources":[{"id":"a","context":{"value":"x"}},{"id":"a","context":{"value":"y"}}],"questions":[{"id":"q","type":"noul","instructions":"is it x"}]}

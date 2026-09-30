@@ -162,7 +162,7 @@ An intermediate V2 consumed one valid baseline answer before an overly strict ha
 
 The final benchmark package verification passed all 183 tests plus grader/scope/app-server selftests. Frozen source/catalog checks pass; no V2/V3 copied credentials or trial processes remain.
 
-[Fresh V3 report](.octocode/benchmarks/graph-research-v3/report.json) · [V2 incomplete report](.octocode/benchmarks/graph-research-v2/report.json) · [Current evaluation protocol](packages/octocode-benchmark/compare/graph-research-v1/README.md).
+[Fresh V3 report](.octocode/benchmarks/graph-research-v3/report.json) · [V2 incomplete report](.octocode/benchmarks/graph-research-v2/report.json). The graph-research-v1 evaluation protocol was removed with the old benchmark campaigns; it remains in git history.
 
 ## Method and friction
 
@@ -172,7 +172,7 @@ Manual counting of source windows produced off-by-one anchors. Exact lookup and 
 
 Initial friction, addressed in the follow-up table: AGENTS referenced missing AST/LSP best-practice skill files; `structureSearch` files mode rejects the tree-only `hidden` field; selecting the LSP `definition` schema branch by `operation` returned no branch despite a valid operation, so the full query schema was needed. User-local obsolete configuration keys emitted repeated warnings. These are recorded without changing the user's global configuration.
 
-The frozen [evaluation protocol](packages/octocode-benchmark/compare/graph-research-v1/README.md) isolates source-navigation routing from graph correctness. All examples are development-selected public source, not held-out tasks. Expected answers remain outside solver roots; tool access is restricted to the copied source. Provider token usage is unavailable, so this evaluation cannot establish total cost savings.
+The frozen evaluation protocol (graph-research-v1, since removed; see git history) isolates source-navigation routing from graph correctness. All examples are development-selected public source, not held-out tasks. Expected answers remain outside solver roots; tool access is restricted to the copied source. Provider token usage is unavailable, so this evaluation cannot establish total cost savings.
 
 ## Core instructions and GitHub research refactor (2026-09-28)
 

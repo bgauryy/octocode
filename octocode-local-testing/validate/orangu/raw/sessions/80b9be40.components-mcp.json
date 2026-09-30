@@ -1,0 +1,1305 @@
+{
+  "schemaVersion": "1",
+  "sessionId": "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5",
+  "source": "claude-code",
+  "revision": "0dfb9474030c468c82f8f7fe",
+  "view": "components",
+  "scope": {
+    "kind": "mcp",
+    "totals": "whole-session"
+  },
+  "coverage": {
+    "evidenceVersion": 22,
+    "observationCoverage": {
+      "skills": "partial",
+      "hooks": "partial",
+      "permissions": "partial"
+    },
+    "totalLines": 1801,
+    "badLines": 0,
+    "recordCounts": {
+      "mode": 74,
+      "permission-mode": 74,
+      "file-history-snapshot": 12,
+      "user": 300,
+      "atis-latch": 74,
+      "attachment": 466,
+      "last-prompt": 74,
+      "ai-title": 73,
+      "assistant": 569,
+      "system": 31,
+      "queue-operation": 45,
+      "file-history-delta": 8,
+      "cost-state": 1
+    },
+    "unknownRecordTypes": {},
+    "unknownBlockTypes": {},
+    "attachmentTypes": {
+      "environment": 62,
+      "model": 3,
+      "deferred_tools_delta": 5,
+      "agent_listing_delta": 3,
+      "mcp_instructions_delta": 3,
+      "skill_listing": 4,
+      "total_tokens_reminder": 263,
+      "instructions": 3,
+      "‹stripped›#431da900f7c1": 3,
+      "date": 4,
+      "‹stripped›#8c682b0ec397": 3,
+      "‹stripped›#e8d500851780": 3,
+      "prompt_snapshot": 6,
+      "‹stripped›#9cd9603810bc": 1,
+      "deferred_tools_record": 79,
+      "silent_turn_reminder": 4,
+      "queued_command": 11,
+      "edited_text_file": 5,
+      "diagnostics": 1
+    },
+    "attachmentBytes": {
+      "environment": 29193,
+      "model": 768,
+      "deferred_tools_delta": 4888,
+      "agent_listing_delta": 8268,
+      "mcp_instructions_delta": 6648,
+      "skill_listing": 60400,
+      "total_tokens_reminder": 23933,
+      "instructions": 61977,
+      "‹stripped›#431da900f7c1": 6985,
+      "date": 155,
+      "‹stripped›#8c682b0ec397": 249,
+      "‹stripped›#e8d500851780": 750,
+      "prompt_snapshot": 290789,
+      "‹stripped›#9cd9603810bc": 48,
+      "deferred_tools_record": 40524,
+      "silent_turn_reminder": 556,
+      "queued_command": 32184,
+      "edited_text_file": 10782,
+      "diagnostics": 431
+    },
+    "systemSubtypes": {
+      "turn_duration": 21,
+      "away_summary": 10
+    },
+    "warnings": [],
+    "parseMs": 83,
+    "bytes": 4303080,
+    "reconciliation": {
+      "usageEventsTotal": 47309990,
+      "turnsPlusAgentsTotal": 47309990,
+      "matchesWithinPct": 0,
+      "ok": true
+    }
+  },
+  "totals": {
+    "summary": 1,
+    "entities": 201,
+    "trace": 650,
+    "timeline": 607,
+    "metrics": 2468,
+    "issues": 13,
+    "questions": 13,
+    "detectors": 33,
+    "components": 116,
+    "files": 147,
+    "errors": 6,
+    "git": 0,
+    "tools": 17
+  },
+  "rows": [
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"artifactSearch\"]",
+      "kind": "mcp",
+      "name": "octocode-local/artifactSearch",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"artifactSearch\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]",
+        "kind": "mcp",
+        "name": "octocode-local/artifactSearch",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 0,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 0,
+          "durationMsTotal": 0,
+          "resultBytesMeasured": 0,
+          "resultBytesTotal": 0,
+          "inputBytesMeasured": 0,
+          "inputBytesTotal": 0,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 0,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"artifactSearch\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"astSearch\"]",
+      "kind": "mcp",
+      "name": "octocode-local/astSearch",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"astSearch\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"astSearch\"]",
+        "kind": "mcp",
+        "name": "octocode-local/astSearch",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 0,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 0,
+          "durationMsTotal": 0,
+          "resultBytesMeasured": 0,
+          "resultBytesTotal": 0,
+          "inputBytesMeasured": 0,
+          "inputBytesTotal": 0,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 0,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"astSearch\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"clasify\"]",
+      "kind": "mcp",
+      "name": "octocode-local/clasify",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"clasify\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"clasify\"]",
+        "kind": "mcp",
+        "name": "octocode-local/clasify",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 8,
+          "recordedErrors": 2,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 8,
+          "durationMsTotal": 29210,
+          "resultBytesMeasured": 8,
+          "resultBytesTotal": 23913,
+          "inputBytesMeasured": 8,
+          "inputBytesTotal": 9481,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 8,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 1,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 1,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"clasify\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]",
+      "kind": "mcp",
+      "name": "octocode-local/ghGetFileContent",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]",
+        "kind": "mcp",
+        "name": "octocode-local/ghGetFileContent",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 2,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 2,
+          "durationMsTotal": 3624,
+          "resultBytesMeasured": 2,
+          "resultBytesTotal": 7417,
+          "inputBytesMeasured": 2,
+          "inputBytesTotal": 1338,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 2,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetFileContent\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]",
+      "kind": "mcp",
+      "name": "octocode-local/ghGetHistoryItem",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]",
+        "kind": "mcp",
+        "name": "octocode-local/ghGetHistoryItem",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 0,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 0,
+          "durationMsTotal": 0,
+          "resultBytesMeasured": 0,
+          "resultBytesTotal": 0,
+          "inputBytesMeasured": 0,
+          "inputBytesTotal": 0,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 0,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghGetHistoryItem\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"ghSearchCode\"]",
+      "kind": "mcp",
+      "name": "octocode-local/ghSearchCode",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]",
+        "kind": "mcp",
+        "name": "octocode-local/ghSearchCode",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 2,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 2,
+          "durationMsTotal": 3969,
+          "resultBytesMeasured": 2,
+          "resultBytesTotal": 2942,
+          "inputBytesMeasured": 2,
+          "inputBytesTotal": 382,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 2,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchCode\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]",
+      "kind": "mcp",
+      "name": "octocode-local/ghSearchHistory",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]",
+        "kind": "mcp",
+        "name": "octocode-local/ghSearchHistory",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 0,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 0,
+          "durationMsTotal": 0,
+          "resultBytesMeasured": 0,
+          "resultBytesTotal": 0,
+          "inputBytesMeasured": 0,
+          "inputBytesTotal": 0,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 0,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchHistory\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]",
+      "kind": "mcp",
+      "name": "octocode-local/ghSearchRepo",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]",
+        "kind": "mcp",
+        "name": "octocode-local/ghSearchRepo",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 4,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 4,
+          "durationMsTotal": 19897,
+          "resultBytesMeasured": 4,
+          "resultBytesTotal": 18547,
+          "inputBytesMeasured": 4,
+          "inputBytesTotal": 1954,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 3,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghSearchRepo\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"ghStructure\"]",
+      "kind": "mcp",
+      "name": "octocode-local/ghStructure",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"ghStructure\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"ghStructure\"]",
+        "kind": "mcp",
+        "name": "octocode-local/ghStructure",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 0,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 0,
+          "durationMsTotal": 0,
+          "resultBytesMeasured": 0,
+          "resultBytesTotal": 0,
+          "inputBytesMeasured": 0,
+          "inputBytesTotal": 0,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 0,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"ghStructure\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "claude-code:80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5:component:[\"mcp\",\"octocode-local\",\"localFetch\"]",
+      "kind": "mcp",
+      "name": "octocode-local/localFetch",
+      "evidencePath": "components",
+      "components": [
+        "[\"mcp\",\"octocode-local\",\"localFetch\"]"
+      ],
+      "data": {
+        "key": "[\"mcp\",\"octocode-local\",\"localFetch\"]",
+        "kind": "mcp",
+        "name": "octocode-local/localFetch",
+        "measurements": {
+          "commandOccurrences": 0,
+          "executionParsedCalls": 0,
+          "executionPartialCalls": 0,
+          "executionOpaqueCalls": 0,
+          "calls": 0,
+          "recordedErrors": 0,
+          "unresolved": 0,
+          "unknownOutcomes": 0,
+          "timed": 0,
+          "durationMsTotal": 0,
+          "resultBytesMeasured": 0,
+          "resultBytesTotal": 0,
+          "inputBytesMeasured": 0,
+          "inputBytesTotal": 0,
+          "invocations": 0,
+          "reads": 0,
+          "listed": 1,
+          "hookRuns": 0,
+          "attributedRequests": 0,
+          "hookBlocks": 0,
+          "unattributedHookErrors": 0
+        },
+        "findings": {
+          "failureGroups": 0,
+          "reviewGroups": 0,
+          "coverageGroups": 0,
+          "detectorFindings": 0,
+          "checksAvailable": true
+        },
+        "limits": [
+          "Groups use recorded names within this provider/session. Shared names do not establish an installed version or code owner. Findings overlap and are not unique defects. Missing evidence does not establish non-use. Zero linked findings is not proof of health; inspect session check outcomes and coverage.",
+          "Measured byte and duration totals exclude missing values. Durations overlap; bytes are not tokens. Review limits do not establish a vendor failure or wasted work. Tool definitions and generic extension loading cannot be attributed from a matching name."
+        ],
+        "questions": [
+          {
+            "label": "What was recorded?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]"
+            }
+          },
+          {
+            "label": "What component summaries are available?",
+            "query": {
+              "view": "entities",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]"
+            }
+          },
+          {
+            "label": "Which issue groups are linked?",
+            "query": {
+              "view": "issues",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]"
+            }
+          },
+          {
+            "label": "Which detector findings are linked?",
+            "query": {
+              "view": "detectors",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]"
+            }
+          },
+          {
+            "label": "Did the session checks complete?",
+            "query": {
+              "view": "detectors",
+              "kind": "detector"
+            }
+          },
+          {
+            "label": "Which calls returned errors?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]",
+              "search": "where: status = \"failed\""
+            }
+          },
+          {
+            "label": "Which responses exceed the review size?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]",
+              "search": "where: data.resultBytes > 200000"
+            }
+          },
+          {
+            "label": "Which calls exceed the review duration?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]",
+              "search": "where: durationMs > 600000"
+            }
+          },
+          {
+            "label": "Which calls have no matched result?",
+            "query": {
+              "view": "trace",
+              "component": "[\"mcp\",\"octocode-local\",\"localFetch\"]",
+              "search": "where: status = \"unresolved\""
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "total": 13,
+  "shown": 10,
+  "nextCursor": "0dfb9474030c468c82f8f7fe:bccae1b9551a:10",
+  "next": {
+    "arguments": [
+      "inspect",
+      "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5",
+      "--provider",
+      "claude-code",
+      "--json",
+      "--view",
+      "components",
+      "--limit",
+      "10",
+      "--kind",
+      "mcp",
+      "--cursor",
+      "0dfb9474030c468c82f8f7fe:bccae1b9551a:10"
+    ]
+  },
+  "notes": [
+    "Current harness declarations are separate: orangu harness --json. Missing observations do not establish non-use.",
+    "Times are epoch milliseconds; durations may overlap. Contexts are independent per agent. Attributed request tokens can overlap across skills, plugins and MCPs.",
+    "Untimed events remain visible without time filters. Hook timestamps locate recorded outcomes; durations do not establish their start time. Issue groups can overlap and do not count unique failures."
+  ]
+}

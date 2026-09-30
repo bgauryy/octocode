@@ -1,0 +1,260 @@
+== octocode skill --help
+
+octocode skill — bundled Octocode skills
+
+Usage
+  octocode skill <command> [options]
+
+Commands
+  list                    List bundled skills with install/env status
+  install <name>...       Install one or more bundled skills
+  install --add <source> Add a local skill to the canonical home
+  remove  <name>...       Remove a skill — home copy + platform links
+  check  [<name>...]      Verify installs, platform links, and env readiness
+  info   <name>           Show full SKILL.md content
+
+Install options
+  --all                   Install all bundled skills
+  --platform <p>          Link into platform dir  (pi | cursor | claude | codex | opencode | copilot | gemini | all (aliases: claude-desktop -> claude; shared, common, agents, codex-native -> codex))
+  --global                Install links in the selected platform's global scope
+  --project-dir <dir>     Install links in the selected platform's project scope
+  --path <dir>            Install bundled skill directly to a custom destination
+  --mode copy|symlink|auto  [default: symlink · copy only when requested]
+  --force                 Replace an existing installation that differs
+  --upgrade               Refresh changed bundled content; preserve destination drift
+  --dry-run               Preview without writing
+
+Remove options
+  --all                   Remove all installed skills
+  --platform <p>          Remove only specified platform link(s)  (home kept)
+  --force                 Also delete real directories that are not Octocode links
+  --dry-run               Preview without deleting
+
+Check options
+  --platform <p>          Check specific platforms only
+  --workspace             Also check <cwd>/.agents/skills
+  --fix                   Refresh stale/broken installs in place (adds no new locations)
+  --dry-run               With --fix: preview fixes without writing
+  --no-env                Skip env param checks
+
+Global flags
+  --json                  Machine-readable JSON output
+  --json-errors           Emit structured JSON errors on stdout
+  --help                  Show this help
+
+Examples
+  octocode skill list --json
+exit=0
+== octocode skill list
+
+  Octocode skills · 14/16 installed · 15 stale
+  ⚠ octocode-agents-communication [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when other agents or sessions share project work, files, reviews, blockers, or handoffs. Discover collaborators, reserve edits, exchange results, and carry context across vendors. Skip independent solo tasks with no collaboration signal.
+  ⚠ octocode-architect [stale] · claude — Use when an architecture decision or refactor needs evidence about boundaries, contracts, data/control flow, coupling, blast radius, cycles, reachability, performance, or maintainability. Not for evidence collection without a decision → octocode-research; behavior-preserving cleanup → octocode-clean-agentic-code.
+  ⚠ octocode-brainstorming [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when an unresolved idea needs options, feasibility testing, adjacent opportunities, or scope exploration before building. Not for implementing a settled decision or evaluating a defined change.
+    env: recommended: web search (at least one of three)
+  ⚠ octocode-chrome-devtools [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when a real running browser is needed: JS-rendered pages, live DOM snapshots, CTA automation, HAR network capture, console/performance monitoring, or authenticated sessions. Not for static public pages or corpus building — use octocode-scraping instead.
+  ⚠ octocode-clasify [stale] · claude — Use when an explicit classification request needs a typed judgment, or when a semantic answer should be located inside an unread known file before the host reads it. Locate returns small source verification windows (two on a near-tie) plus P(answer), ranked across pages in best; use direct search for literals. Batch independent same-evidence questions in one matrix. Supports unread Scout resources, saved scrape/browser artifacts, and supplied-state judgments; not proof, missing facts, or summaries.
+  ⚠ octocode-clean-agentic-code [stale] · claude — Use when behavior-preserving cleanup must remove dead exports, shims, aliases, duplicate logic, patch kludges, stale prose/config/schemas/dependencies/tests, misplaced or oversized files/folders, or agent residue such as reinvention, scope creep, narration, error masking, and special-cased tests. Triggers include clean up, remove legacy, dead code audit, god file, spaghetti code, unused deps, test hygiene, remove AI slop/metadata, and stale numbers. Not for feature work, behavioral refactors, or critique-only requests → octocode-roast.
+  ⚠ octocode-documentation [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs, runbooks, or stale technical docs.
+  ⚠ octocode-eval-benchmark [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when designing evals, calibrating LLM judges, or measuring whether a change helped: baselines, held-out cases, overfitting controls, and keep/discard loops. Not for ordinary ship checks where tests passing is enough.
+  – octocode-exploratory-thinking — Use when the user wants exploratory thinking, an out-of-the-box awareness shift, or names a substance as a presence for the work.
+  ⚠ octocode-prompt-optimizer [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when a prompt, agent contract, MCP instruction, tool/schema description, policy, or handoff must change behavior: resolve context flow, make boundaries decidable, align runtimes, remove no-op text, place rules correctly, audit drift, and budget context. For SKILL.md structure or trigger review, use octocode-skills.
+  ⚠ octocode-research [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when a code claim needs evidence before assertion: trace callers, imports, runtime wiring, regressions, GitHub, or change impact; also when asked to 'research this' or 'use octocode'. Skip when the fix is already known and needs no investigation. Not for open-ended ideation → octocode-brainstorming.
+    env: recommended: GitHub token (GH_TOKEN or GITHUB_TOKEN)
+  ⚠ octocode-rfc-generator [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when consequential architecture, migration, public-contract, or multi-phase changes need a reviewed decision. Not for open-ended ideation or trivial edits.
+    env: recommended: GitHub token (GH_TOKEN or GITHUB_TOKEN)
+  ⚠ octocode-roast [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when a blunt evidence-backed code roast is wanted: rank smells, debt, hot paths, top sins, and cleanup priorities.
+    env: recommended: GitHub token (GH_TOKEN or GITHUB_TOKEN)
+  ⚠ octocode-scraping [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when fetching public URLs or crawling a site into a local corpus for repeated queries: docs, pricing tables, link maps, or content extraction. Verify facts in source text. Not for JS-rendered content or live interaction — use octocode-chrome-devtools.
+  ⚠ octocode-skills [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when Agent Skills/SKILL.md need finding, comparison, review, creation, repair, install, sync, or trigger tuning.
+  ⚠ octocode-subagent [stale] · pi, cursor, claude, codex, opencode, copilot, gemini — Use when substantial work has independent lanes that justify delegation cost: parallel specialist workers, local Ollama offload, or A2A handoffs. Not for: routine edits or dependent sequences where one batched call handles everything; explanations; known reads that fit a single call.
+
+  Details: octocode skill check · repair with octocode skill check --fix
+
+exit=0
+== octocode skill info octocode-clasify
+
+  octocode-clasify
+  Use when an explicit classification request needs a typed judgment, or when a semantic answer should be located inside an unread known file before the host reads it. Locate returns small source verification windows (two on a near-tie) plus P(answer), ranked across pages in best; use direct search for literals. Batch independent same-evidence questions in one matrix. Supports unread Scout resources, saved scrape/browser artifacts, and supplied-state judgments; not proof, missing facts, or summaries.
+  Path: /Users/bgaryy/code/octocode/packages/octocode/skills/octocode-clasify
+  Env: ok
+
+---
+name: octocode-clasify
+description: "Use when an explicit classification request needs a typed judgment, or when a semantic answer should be located inside an unread known file before the host reads it. Locate returns small source verification windows (two on a near-tie) plus P(answer), ranked across pages in best; use direct search for literals. Batch independent same-evidence questions in one matrix. Supports unread Scout resources, saved scrape/browser artifacts, and supplied-state judgments; not proof, missing facts, or summaries."
+---
+# Clasify
+
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-research`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: no supporting files; use the live `scheme clasify --view query --compact` contract for fields.
+
+Clasify is the only semantic tool (Jev is its provider). **Scout** screens unread read-tool resources and returns typed judgments plus source scopes, never bodies. **Judge** classifies state already held in `context.value`; nothing is retrieved.
+
+## Admission
+- Use it for an explicit classification request, or before reading a large known file when the target is semantic (no useful literal) and locating it avoids broad host reads. Literals and known anchors: search directly. If a search snippet already states the fact, stop.
+- Skip it when an exact check, held evidence, direct reasoning, or a cheap bounded read decides. File size, candidate count, or one search miss alone is not a reason.
+- Optimize host context at acceptable quality; measure provider usage and latency separately. Unreported usage is unknown, not zero.
+
+## Workflow
+1. State the unresolved decision and what each outcome changes.
+2. Repair scope, spelling, filters, and synonyms first; narrow roots/include/owner/repo on large repositories. A miss is not absence.
+3. Unread known file (`localFetch` path, or `ghGetFileContent` owner/repo/path/ref; scrape text and Chrome snapshots too): one resource per file, `questionType:"locate"`, one atomic `target` per question; put every target for the same files in one matrix (≤25 cells, expanded pages count).
+4. Huge files and a rare literal the answer contains: add `prefilter:["term", …]`. Clasify keeps the 3 densest 600-line windows. Terms that occur throughout the file cover it, so search that literal instead. Without a literal, whole-file locate pages through `next.clasify`.
+5. Unread list results (`localSearch`, `ghSearchCode`, `astSearch` match/symbols, `lspSearch` references, `ghSearchRepo`, `ghSearchHistory`, `artifactSearch` discovery): send the list request as one resource. Each candidate becomes its own page with `source.path` or `source.item` and `next.read`. Ask relevance plus `sufficient` in the same matrix (`contribution` for content-bearing items; a routing `noul` "likely implements X" for bare metadata such as repo names), then per page: sufficient → use the captured evidence, no read; relevant but insufficient → run `next.read` unchanged; low → skip. Bare path lists (`structureSearch`, `ghStructure`) stay one page: ask a `choice` over the paths. Before a large fetch (file, PR, commit), send that fetch as the resource with `sufficient` first and read only when it is low. `candidateEvidence:"fileChunks"` only when snippets cannot route the next read. `locate` needs contiguous original lines: unminified `localFetch`/`ghGetFileContent` or `fileChunks`; other resources take typed questions only.
+6. Judge only when held evidence stays ambiguous and its disposition changes the next read, test, or edit; send the smallest sufficient observations.
+7. Read the deciding source (below). Do not chain Scout → Judge automatically. Dependent questions go in a later call.
+
+## Questions
+One atomic fact per question. Required `goal` is sent with every question and in each page's evidence state; required `reasoning` is sent in that same state. Decision and constraints that belong to one question go in `instructions`. `noul` = P(yes), not intensity. `choice` = one label plus its distribution (add `insufficient` when no label may be safe). `score` = expected level. Confidence is concentration, not correctness; there is no discard threshold. `sufficient` = P(the captured evidence already states the target answer, so no read is needed). Research presets `locate`/`contribution`/`sufficient`/`addsEvidence`/`supportsClaim` take only `target` (+`knownEvidence`); do not mix them with `type`/`instructions`/`criteria`.
+
+## Input
+Unread: `context:{tool, query}` with an absolute local path or GitHub owner/repo/path/branch; never paste bodies into `context.value`, never nest `queries[]`. Held: `context:{value}`. Save the request under `.octocode/` and run `octocode clasify --input .octocode/clasify-request.json` (or MCP `clasify`):
+```json
+{"goal":"Searching for retry handling. Need files that decide whether a failed request is retried.","reasoning":"Locate facts before reading.","resources":[{"context":{"tool":"localFetch","query":{"goal":"Find the retry decision.","reasoning":"unread","path":"/abs/source","fullContent":true}}}],
+ "questions":[{"id":"retry","questionType":"locate","target":"The condition that permits retrying a failed request."},
+              {"id":"limit","questionType":"locate","target":"The maximum permitted retry count."}]}
+```
+
+## Results and verification
+exit=0
+== octocode skill check
+
+  Skill check
+  ✗ octocode-agents-communication: not-installed · env ok
+  ✗ octocode-architect: stale · env ok
+  ✗ octocode-brainstorming: stale · env partial
+  ✗ octocode-chrome-devtools: stale · env ok
+  ✗ octocode-clasify: stale · env ok
+  ✗ octocode-clean-agentic-code: stale · env ok
+  ✗ octocode-documentation: stale · env ok
+  ✗ octocode-eval-benchmark: stale · env ok
+  ✗ octocode-exploratory-thinking: not-installed · env ok
+  ✗ octocode-prompt-optimizer: stale · env ok
+  ✗ octocode-research: stale · env partial
+  ✗ octocode-rfc-generator: stale · env partial
+  ✗ octocode-roast: stale · env partial
+  ✗ octocode-scraping: stale · env ok
+  ✗ octocode-skills: stale · env ok
+  ✗ octocode-subagent: stale · env ok
+  0/16 ok; 14 stale; 0 broken; 2 not installed; env: 0 need config, 4 optional missing
+  Repair with octocode skill check --fix
+
+exit=1
+== octocode skill install --help
+
+octocode skill — bundled Octocode skills
+
+Usage
+  octocode skill <command> [options]
+
+Commands
+  list                    List bundled skills with install/env status
+  install <name>...       Install one or more bundled skills
+  install --add <source> Add a local skill to the canonical home
+  remove  <name>...       Remove a skill — home copy + platform links
+  check  [<name>...]      Verify installs, platform links, and env readiness
+  info   <name>           Show full SKILL.md content
+
+Install options
+  --all                   Install all bundled skills
+  --platform <p>          Link into platform dir  (pi | cursor | claude | codex | opencode | copilot | gemini | all (aliases: claude-desktop -> claude; shared, common, agents, codex-native -> codex))
+  --global                Install links in the selected platform's global scope
+  --project-dir <dir>     Install links in the selected platform's project scope
+  --path <dir>            Install bundled skill directly to a custom destination
+  --mode copy|symlink|auto  [default: symlink · copy only when requested]
+  --force                 Replace an existing installation that differs
+  --upgrade               Refresh changed bundled content; preserve destination drift
+  --dry-run               Preview without writing
+
+Remove options
+  --all                   Remove all installed skills
+  --platform <p>          Remove only specified platform link(s)  (home kept)
+  --force                 Also delete real directories that are not Octocode links
+  --dry-run               Preview without deleting
+
+Check options
+  --platform <p>          Check specific platforms only
+  --workspace             Also check <cwd>/.agents/skills
+  --fix                   Refresh stale/broken installs in place (adds no new locations)
+  --dry-run               With --fix: preview fixes without writing
+  --no-env                Skip env param checks
+
+Global flags
+  --json                  Machine-readable JSON output
+  --json-errors           Emit structured JSON errors on stdout
+  --help                  Show this help
+
+Examples
+  octocode skill list --json
+exit=0
+== octocode skill remove --help
+
+octocode skill — bundled Octocode skills
+
+Usage
+  octocode skill <command> [options]
+
+Commands
+  list                    List bundled skills with install/env status
+  install <name>...       Install one or more bundled skills
+  install --add <source> Add a local skill to the canonical home
+  remove  <name>...       Remove a skill — home copy + platform links
+  check  [<name>...]      Verify installs, platform links, and env readiness
+  info   <name>           Show full SKILL.md content
+
+Install options
+  --all                   Install all bundled skills
+  --platform <p>          Link into platform dir  (pi | cursor | claude | codex | opencode | copilot | gemini | all (aliases: claude-desktop -> claude; shared, common, agents, codex-native -> codex))
+  --global                Install links in the selected platform's global scope
+  --project-dir <dir>     Install links in the selected platform's project scope
+  --path <dir>            Install bundled skill directly to a custom destination
+  --mode copy|symlink|auto  [default: symlink · copy only when requested]
+  --force                 Replace an existing installation that differs
+  --upgrade               Refresh changed bundled content; preserve destination drift
+  --dry-run               Preview without writing
+
+Remove options
+  --all                   Remove all installed skills
+  --platform <p>          Remove only specified platform link(s)  (home kept)
+  --force                 Also delete real directories that are not Octocode links
+  --dry-run               Preview without deleting
+
+Check options
+  --platform <p>          Check specific platforms only
+  --workspace             Also check <cwd>/.agents/skills
+  --fix                   Refresh stale/broken installs in place (adds no new locations)
+  --dry-run               With --fix: preview fixes without writing
+  --no-env                Skip env param checks
+
+Global flags
+  --json                  Machine-readable JSON output
+  --json-errors           Emit structured JSON errors on stdout
+  --help                  Show this help
+
+Examples
+  octocode skill list --json
+exit=0
+== octocode install --help
+Install the Octocode MCP server into an IDE (Cursor, Windsurf, Claude Desktop, …)
+
+Usage: octocode install [OPTIONS]
+
+Options:
+      --ide <IDE>                    Target IDE: `cursor`, `windsurf`, `claude`, `vscode`, `zed`, or another supported editor
+      --json-errors                  Emit {"kind":"octocode.toolError","version":1,"error":"..."} to stdout on errors (including argument parse errors) instead of stderr text
+      --force                        Overwrite an existing MCP server entry
+      --redact-emails                Mask email addresses in GitHub tool outputs (same as OCTOCODE_REDACT_EMAILS=true)
+      --dry-run                      Preview the config that would be written without making any changes
+      --no-color                     Disable ANSI color (also available through NO_COLOR)
+      --check                        Verify that the MCP config already contains a valid Octocode entry
+      --list                         List all supported IDE targets
+      --json                         Emit JSON output
+      --enable-local <ENABLE_LOCAL>  Override whether local (filesystem) tools are enabled in the MCP server [possible values: true, false]
+      --pass-env                     Pass through additional environment variables to the MCP server process
+      --method <METHOD>              Installation runner: "npx" (default), "bunx", or "pnpm" [possible values: npx, bunx, pnpm]
+      --backup                       Write a .bak backup of the existing config before overwriting
+      --rollback <ROLLBACK>          Restore config from a .bak backup file written by a previous --backup install
+  -h, --help                         Print help
+exit=0

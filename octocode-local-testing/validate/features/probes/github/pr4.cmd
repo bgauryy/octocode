@@ -1,0 +1,1 @@
+ghGetHistoryItem {"goal":"validate feature","reasoning":"live probe of documented claim","operation":"pullRequest","owner":"facebook","repo":"react","number":37193,"content":{"changedFiles":true},"fileFilter":{"minChanges":10,"paths":["*.js"]}}

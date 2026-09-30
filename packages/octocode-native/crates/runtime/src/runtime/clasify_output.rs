@@ -151,11 +151,44 @@ const SLICE_FIELDS: [&str; 9] = [
     "chunkSize",
 ];
 
+/// The executable read a located window replays: the page's published `read`,
+/// else the private `fileRead` template of a direct file resource (a whole
+/// file read publishes no page read of its own).
+pub(super) fn read_template(receipt: &Value) -> Option<&Value> {
+    receipt
+        .get("read")
+        .or_else(|| receipt.get("fileRead"))
+        .filter(|read| read.is_object())
+}
+
+/// `template` narrowed to exactly `startLine..=endLine`. `None` unless it is a
+/// line-addressable file read (`localFetch` / `ghGetFileContent`).
+pub(super) fn window_read(template: &Value, start: u64, end: u64) -> Option<Value> {
+    if start < 1 || end < start {
+        return None;
+    }
+    let mut read = template.clone();
+    if !matches!(
+        read["tool"].as_str(),
+        Some("localFetch" | "ghGetFileContent")
+    ) {
+        return None;
+    }
+    let query = read.get_mut("query")?.as_object_mut()?;
+    for field in SLICE_FIELDS {
+        query.remove(field);
+    }
+    query.insert("startLine".into(), json!(start));
+    query.insert("endLine".into(), json!(end));
+    Some(read)
+}
+
 /// Point a located page's `next.read` at its most probable window. Without a
 /// line-addressable file read, or when the window names another file, the
 /// page read would only repeat the windows and is dropped.
 fn narrow_read_to_top_window(
     page: &mut Map<String, Value>,
+    template: Option<&Value>,
     answers: &[Result<Value, ClassificationError>],
 ) {
     let top = answers
@@ -175,25 +208,17 @@ fn narrow_read_to_top_window(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     let narrowed = top.and_then(|window| {
-        let mut read = page.get("next")?.get("read")?.clone();
-        if !matches!(
-            read["tool"].as_str(),
-            Some("localFetch" | "ghGetFileContent")
-        ) {
-            return None;
-        }
+        let template = template?;
         if let Some(path) = window.get("path")
-            && read["query"].get("path") != Some(path)
+            && template["query"].get("path") != Some(path)
         {
             return None;
         }
-        let query = read.get_mut("query")?.as_object_mut()?;
-        for field in SLICE_FIELDS {
-            query.remove(field);
-        }
-        query.insert("startLine".into(), window["startLine"].clone());
-        query.insert("endLine".into(), window["endLine"].clone());
-        Some(read)
+        window_read(
+            template,
+            window["startLine"].as_u64()?,
+            window["endLine"].as_u64()?,
+        )
     });
     match narrowed {
         Some(read) => {
@@ -230,7 +255,7 @@ pub(super) fn resource(
                 terminal_partial = receipt["coverage"] == "partial";
                 let mut page = page_base(&receipt);
                 if only_located(&answers) {
-                    narrow_read_to_top_window(&mut page, &answers);
+                    narrow_read_to_top_window(&mut page, read_template(&receipt), &answers);
                 }
                 let mut by_question = Map::new();
                 for (id, answer) in question_ids.iter().zip(answers) {
@@ -550,6 +575,49 @@ mod tests {
             assert!(page["source"].get("modified").is_none(), "{page}");
             assert!(page["source"]["path"].is_string(), "{page}");
         }
+    }
+
+    #[test]
+    fn a_located_direct_file_page_reads_its_top_window_from_the_private_template() {
+        let ids = [json!("q"), json!("n")];
+        let ids = ids.iter().collect::<Vec<_>>();
+        let page = |answers: Vec<Result<Value, ClassificationError>>| PageOutcome::Assessed {
+            receipt: json!({
+                "source":{"path":"o/r/src/a.rs","ref":"abc"},
+                "scope":{"startLine":1,"endLine":90,"totalLines":90},
+                "fileRead":{"tool":"ghGetFileContent","query":{
+                    "owner":"o","repo":"r","path":"src/a.rs","branch":"abc","fullContent":true}}
+            }),
+            answers,
+        };
+        let located = || {
+            Ok(json!({"answer":{"type":"locate","exists":0.9,
+                "matches":[{"startLine":40,"endLine":47,"probability":0.8},
+                           {"startLine":2,"endLine":5,"probability":0.1}]}}))
+        };
+        let rendered = resource(&json!("f"), &ids, vec![page(vec![located()])], false);
+        let page_out = &rendered["pages"][0];
+        assert_eq!(
+            page_out["next"]["read"],
+            json!({"tool":"ghGetFileContent","query":{
+                "owner":"o","repo":"r","path":"src/a.rs","branch":"abc",
+                "startLine":40,"endLine":47}}),
+            "{page_out}"
+        );
+        assert!(!rendered.to_string().contains("fileRead"), "{rendered}");
+        // A page that also answers a non-locate question publishes no
+        // whole-file read from the private template.
+        let mixed = resource(
+            &json!("f"),
+            &ids,
+            vec![page(vec![
+                located(),
+                Ok(json!({"answer":{"type":"noul","noul":0.7}})),
+            ])],
+            false,
+        );
+        assert!(mixed["pages"][0].get("next").is_none(), "{mixed}");
+        assert!(!mixed.to_string().contains("fileRead"), "{mixed}");
     }
 
     #[test]

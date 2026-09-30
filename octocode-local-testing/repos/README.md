@@ -1,6 +1,6 @@
 # Test repositories (not committed)
 
-The benchmark and harness suites run against shallow clones of real repositories. The clones are gitignored; only this file is tracked. Recreate them at the pinned commits so results stay comparable:
+The agent benchmark (`packages/octocode-benchmark/eval`) and the harness suites run against shallow clones of real repositories. The clones are gitignored; only this file is tracked. Recreate them at the pinned commits so results stay comparable:
 
 ```sh
 cd octocode-local-testing/repos
@@ -30,5 +30,7 @@ Then run the rows you need, for example `clone rust tokio-rs/tokio facc6fc`. If 
 | huge-rust | rust-lang/rust | b373574ee | huge-repo suites (optional) |
 | huge-cpp | pytorch/pytorch | 03943c7 | huge-repo suites (optional) |
 | huge-c | torvalds/linux | fd179f8a0 | huge-repo suites (optional) |
+| langchain | langchain-ai/langchain | 67ee6cb63dd9ae7f3a4dfedc3095652bce15a125 | agent eval (`packages/octocode-benchmark/eval`) |
+| nextjs | vercel/next.js | d155ba9ebfffe4742efefda8d68c2e0e8e490924 | agent eval (`packages/octocode-benchmark/eval`) |
 
-The first 12 cover every grammar and are what `bench/bench.mjs` and `harness/*.mjs` need (about 5 GB with the huge ones). Language servers are optional: suites record `lsp.serverUnavailable` rather than fail.
+The first 12 cover every grammar and are what the harness suites (`harness/*.mjs`) need (about 5 GB with the huge ones). Language servers are optional: suites record `lsp.serverUnavailable` rather than fail.

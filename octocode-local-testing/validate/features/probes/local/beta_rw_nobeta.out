@@ -1,0 +1,5 @@
+# cmd: octocode astRewrite {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "langType": "typescript", "ruleKind": "pattern", "pattern": "console.log($A)", "rewrite": "logger.info($A)"}
+# env: {'OCTOCODE_BETA': ''}
+# exit: 5
+# stderr: 
+{"error":"astRewrite is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying.","errorCode":"missingConfiguration"}

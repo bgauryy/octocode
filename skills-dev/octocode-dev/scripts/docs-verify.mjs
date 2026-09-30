@@ -328,21 +328,6 @@ function validatePrimaryToolGuidance() {
       ],
     },
     {
-      file: 'packages/octocode-benchmark/skills/octocode-benchmark/references/primer-octocode.md',
-      required: ['| `ghSearchRepo`', 'octocode ghSearchRepo'],
-      forbidden: ['"operation":"repositories"', 'ghSearchRepos', 'ghViewRepoStructure'],
-    },
-    {
-      file: 'packages/octocode-benchmark/skills/octocode-benchmark/references/run-preflight.md',
-      required: ['ghSearchRepo'],
-      forbidden: ['"operation":"repositories"', 'ghSearchRepos', 'ghViewRepoStructure'],
-    },
-    {
-      file: 'packages/octocode-benchmark/skills/octocode-benchmark/scripts/check-prereqs.sh',
-      required: ['ghSearchRepo'],
-      forbidden: ['"operation":"repositories"', 'ghSearchRepos', 'ghViewRepoStructure'],
-    },
-    {
       file: 'skills/octocode-research/references/octocode.md',
       required: [
         `## ${DISCOVERABLE_TOOL_COUNT} public tools`,

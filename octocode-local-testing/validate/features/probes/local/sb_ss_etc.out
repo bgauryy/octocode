@@ -1,0 +1,5 @@
+# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "tree", "path": "/etc", "maxDepth": 0}
+# env: None
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"error":"Path '/etc' is outside allowed directories (allowed: /Users/bgaryy/code/octocode, /Users/bgaryy/.octocode)","errorCode":"structure.policy.outsideAllowedRoots","hints":["The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."]},"status":"error"}]}

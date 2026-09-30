@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "searchText": "needle", "include": ["*.txt"], "exclude": ["f1*"], "resultView": "countMatches"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"files":[{"path":"src/manyhits.txt","totalOccurrences":30},{"path":"many/f01.txt","totalOccurrences":1},{"path":"many/f02.txt","totalOccurrences":1},{"path":"many/f03.txt","totalOccurrences":1},{"path":"many/f04.txt","totalOccurrences":1},{"path":"many/f05.txt","totalOccurrences":1},{"path":"many/f06.txt","totalOccurrences":1},{"path":"many/f07.txt","totalOccurrences":1},{"path":"many/f08.txt","totalOccurrences":1},{"path":"many/f09.txt","totalOccurrences":1},{"path":"many/f20.txt","totalOccurrences":1},{"path":"many/f21.txt","totalOccurrences":1},{"path":"many/f22.txt","totalOccurrences":1},{"path":"many/f23.txt","totalOccurrences":1},{"path":"many/f24.txt","totalOccurrences":1},{"path":"many/f25.txt","totalOccurrences":1}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"}

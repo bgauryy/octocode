@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/ssh_link/id_ed25519.pub"}
+# env: None
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"errorCode":"pathOutsideAllowedRoots","error":"Symlink target '~/.ssh/id_ed25519.pub' is outside allowed directories (allowed: /Users/bgaryy/code/octocode, /Users/bgaryy/.octocode)","resolvedPath":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/ssh_link/id_ed25519.pub","hints":["The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."]},"status":"error"}]}

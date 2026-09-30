@@ -1,0 +1,4 @@
+# env {'ALLOWED_PATHS': '/private/etc'} cwd /Users/bgaryy/code/octocode
+# q {'path': '/private/etc/hosts', 'startLine': 1, 'endLine': 2}
+# exit 5
+{"results":[{"index":0,"data":{"errorCode":"fileAccessFailed","error":"Path 'hosts' is in an ignored directory or matches an ignored pattern","resolvedPath":"/private/etc/hosts","hints":["Verify the path with structureSearch operation:\"files\", then retry the exact path."]},"status":"error"}]}

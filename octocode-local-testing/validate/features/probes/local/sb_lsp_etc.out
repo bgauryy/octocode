@@ -1,0 +1,5 @@
+# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "documentSymbols", "uri": "/etc/hosts"}
+# env: None
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"error":"Path '/etc/hosts' is outside allowed directories (allowed: /Users/bgaryy/code/octocode, /Users/bgaryy/.octocode)","errorCode":"pathOutsideAllowedRoots","hints":["The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."],"retryable":false},"status":"error"}]}

@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 mod support;
 
@@ -911,6 +911,94 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
     assert_eq!(judged_paths.len(), 2, "each file must be judged once");
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("single-page search output contract");
+    runtime.close().await;
+}
+
+/// clasify's own `next.clasify` is a generated `ClasifyInput` that passes the
+/// same preparation and validation as caller input, and replays as-is.
+#[tokio::test]
+async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.4}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    for index in 0..5 {
+        workspace.write(&format!("src/file{index}.txt"), "needle marker\n");
+    }
+    let root = workspace.write("src/file5.txt", "needle marker\n");
+    let root = root.parent().unwrap().to_string_lossy().into_owned();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "id":"walk",
+        "reasoning":"Judge the hits page by page.","goal":"Decide the next read.",
+        "resources":[{"id":"hits","context":{"tool":"localSearch","query":{
+            "path":root,"searchText":"needle","resultView":"paginated","pageSize":2
+        }}}],
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
+    });
+    let first = runtime
+        .execute("walk-1".into(), "clasify".into(), input)
+        .await
+        .unwrap();
+    octocode_native::contracts::validate_output("clasify", &first.structured_content)
+        .expect("first page output contract");
+    let next = first.structured_content["queries"][0]["next"]["clasify"].clone();
+    assert_eq!(next["goal"], "Decide the next read.", "{next}");
+    assert_eq!(next["questions"][0]["id"], "relevant", "{next}");
+    assert_eq!(
+        next["resources"][0]["context"]["query"]["page"], 2,
+        "{next}"
+    );
+    serde_json::from_value::<octocode_native::contracts::tool_types::ClasifyInput>(next.clone())
+        .unwrap_or_else(|error| panic!("generated ClasifyInput: {error}: {next}"));
+    let prepared = octocode_native::contracts::prepare_many_and_validate(
+        "clasify",
+        next.clone(),
+        octocode_native::contracts::PrepareOptions::default(),
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "clasify input contract: {:?}: {next}",
+            error
+                .issues
+                .first()
+                .map(|issue| (&issue.path, &issue.message))
+        )
+    });
+    assert_eq!(prepared.len(), 1);
+    let first_paths = first.structured_content["queries"][0]["resources"][0]["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|page| page["source"]["path"].clone())
+        .collect::<Vec<_>>();
+    let replay = runtime
+        .execute("walk-2".into(), "clasify".into(), next)
+        .await
+        .expect("replayed next.clasify");
+    octocode_native::contracts::validate_output("clasify", &replay.structured_content)
+        .expect("replayed page output contract");
+    let cell = &replay.structured_content["queries"][0]["resources"][0];
+    assert_ne!(cell["coverage"], "error", "{cell}");
+    let pages = cell["pages"].as_array().unwrap();
+    assert!(!pages.is_empty(), "{cell}");
+    assert!(
+        pages
+            .iter()
+            .all(|page| !first_paths.contains(&page["source"]["path"])),
+        "the replay reads the next page: {cell}"
+    );
     runtime.close().await;
 }
 
@@ -2034,6 +2122,9 @@ async fn gh_search_code_resource_is_judged_without_a_context_contract_violation(
     let runtime = workspace.runtime(&[
         ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        // Own GitHub limiter key: the process-wide budget is keyed by host and
+        // token, so concurrent GitHub fixtures must not share throttling state.
+        ("OCTOCODE_TOKEN", "clasify-gh-search-code-fixture".into()),
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
@@ -2054,5 +2145,199 @@ async fn gh_search_code_resource_is_judged_without_a_context_contract_violation(
     assert_ne!(cell["coverage"], "error", "{cell}");
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("clasify output contract");
+    runtime.close().await;
+}
+
+/// Locate provider stub: the choice question puts 0.9 on the first passage ID
+/// it was offered; the existence question answers 0.9.
+#[derive(Clone)]
+struct LocateFirstPassage;
+
+impl Respond for LocateFirstPassage {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        fn passage_ids(value: &serde_json::Value, ids: &mut Vec<String>) {
+            match value {
+                serde_json::Value::Object(map) => {
+                    for (key, value) in map {
+                        if key.len() == 4 && key.starts_with('P') && !ids.contains(key) {
+                            ids.push(key.clone());
+                        }
+                        passage_ids(value, ids);
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    items.iter().for_each(|item| passage_ids(item, ids));
+                }
+                _ => {}
+            }
+        }
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        let mut ids = Vec::new();
+        passage_ids(&body, &mut ids);
+        ids.sort();
+        let rest = if ids.len() > 1 {
+            0.1 / (ids.len() - 1) as f64
+        } else {
+            0.0
+        };
+        let probabilities = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.clone(), json!(if index == 0 { 0.9 } else { rest })))
+            .collect::<serde_json::Map<_, _>>();
+        ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{
+                "answer_0":{"type":"choice","choice":ids.first(),"confidence":0.9,
+                    "probabilities":probabilities},
+                "answer_1":{"type":"noul","noul":0.9}
+            },
+            "usage":{"input_tokens":5,"output_tokens":2}
+        }))
+    }
+}
+
+/// A lone strong locate window on a GitHub file is public in `best` with an
+/// exact, schema-valid read that names owner/repo/path/branch.
+#[tokio::test]
+async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
+    use base64::Engine as _;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(LocateFirstPassage)
+        .mount(&server)
+        .await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let source = (1..=40)
+        .map(|n| format!("fn step_{n}() -> u32 {{\n    {n}\n}}\n"))
+        .collect::<String>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/contents/src%2Fsteps.rs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"base64",
+            "content": base64::engine::general_purpose::STANDARD.encode(&source),
+            "size": source.len(), "sha": "f".repeat(40), "path":"src/steps.rs"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        // Own GitHub limiter key: the process-wide budget is keyed by host and
+        // token, so concurrent GitHub fixtures must not share throttling state.
+        ("OCTOCODE_TOKEN", "clasify-locate-read-fixture".into()),
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "reasoning":"Locate the first step.","goal":"Where step one is defined.",
+        "resources":[{"id":"gh","context":{"tool":"ghGetFileContent","query":{
+            "owner":"o","repo":"r","path":"src/steps.rs","branch":"main","fullContent":true
+        }}}],
+        "questions":[{"id":"t","questionType":"locate","target":"The function that returns one."}]
+    });
+    let outcome = runtime
+        .execute("locate-gh".into(), "clasify".into(), input)
+        .await
+        .expect("clasify");
+    let output = &outcome.structured_content;
+    octocode_native::contracts::validate_output("clasify", output)
+        .expect("best row read output contract");
+    let rows = output["queries"][0]["best"]["t"]
+        .as_array()
+        .unwrap_or_else(|| panic!("best rows: {output}"));
+    assert!(!rows.is_empty(), "{output}");
+    for row in rows {
+        let read = &row["next"]["read"];
+        assert_eq!(read["tool"], "ghGetFileContent", "{row}");
+        let query = &read["query"];
+        assert_eq!(query["owner"], "o", "{row}");
+        assert_eq!(query["repo"], "r", "{row}");
+        assert_eq!(query["path"], "src/steps.rs", "{row}");
+        assert_eq!(query["branch"], "main", "{row}");
+        assert_eq!(query["startLine"], row["startLine"], "{row}");
+        assert_eq!(query["endLine"], row["endLine"], "{row}");
+        assert!(query.get("fullContent").is_none(), "{row}");
+    }
+    assert_eq!(rows[0]["startLine"], 1, "{output}");
+    // A finished walk has no carry; nothing private leaks.
+    assert!(output["queries"][0].get("next").is_none(), "{output}");
+    assert!(!output.to_string().contains("fileRead"), "{output}");
+    runtime.close().await;
+}
+
+/// A locate target naming an identifier over a local file keeps its string
+/// hint and gains `next.localSearch`, a schema-valid literal search that runs.
+#[tokio::test]
+async fn identifier_locate_target_emits_an_executable_local_search() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(LocateFirstPassage)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let source = (1..=40)
+        .map(|n| format!("fn step_{n}() -> u32 {{\n    {n}\n}}\n"))
+        .collect::<String>();
+    let file = workspace.write("src/steps.rs", source);
+    let file = file.to_string_lossy().into_owned();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let input = json!({
+        "reasoning":"Locate a step.","goal":"Where step_17 is defined.",
+        "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
+            "path":file,"fullContent":true
+        }}}],
+        "questions":[{"id":"t","questionType":"locate","target":"Where is step_17 defined?"}]
+    });
+    let outcome = runtime
+        .execute("locate-literal".into(), "clasify".into(), input)
+        .await
+        .expect("clasify");
+    let output = &outcome.structured_content;
+    octocode_native::contracts::validate_output("clasify", output)
+        .expect("literal search continuation output contract");
+    let query = &output["queries"][0];
+    assert!(
+        query["hints"][0]
+            .as_str()
+            .unwrap_or_default()
+            .contains("step_17"),
+        "{query}"
+    );
+    let search = &query["next"]["localSearch"];
+    assert_eq!(search["tool"], "localSearch", "{query}");
+    assert_eq!(search["query"]["path"], file.as_str(), "{search}");
+    assert_eq!(search["query"]["searchText"], "step_17", "{search}");
+    let found = runtime
+        .execute(
+            "literal-search".into(),
+            "localSearch".into(),
+            search["query"].clone(),
+        )
+        .await
+        .expect("next.localSearch executes");
+    let rendered = found.structured_content.to_string();
+    assert!(rendered.contains("fn step_17()"), "{rendered}");
+    assert!(
+        !rendered.contains("fn step_1()"),
+        "literal match only: {rendered}"
+    );
     runtime.close().await;
 }

@@ -1,0 +1,1 @@
+ghGetHistoryItem {"goal":"validate feature","reasoning":"live probe of documented claim","operation":"pullRequest","owner":"facebook","repo":"react","number":37193,"content":{"patches":{"mode":"all"}},"fileFilter":{"paths":["packages/react-server/src/"]},"matchString":"onBrowserBailout","matchContext":0}

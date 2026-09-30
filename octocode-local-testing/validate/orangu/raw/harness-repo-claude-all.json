@@ -1,0 +1,5866 @@
+{
+  "pluginAttribution": [],
+  "schemaVersion": "1",
+  "generator": {
+    "name": "orangu",
+    "version": "0.7.2",
+    "generatedAt": 1790717575843
+  },
+  "scope": {
+    "provider": "claude-code",
+    "cwd": "~/code/octocode",
+    "roots": [
+      "~/.claude"
+    ],
+    "global": false,
+    "limit": 91,
+    "sessionsScanned": 91,
+    "sessionsUnreadable": 0
+  },
+  "inventory": {
+    "roots": [
+      "~/.claude"
+    ],
+    "limitations": [
+      "Memory evidence describes local stores, not context injection. Claude worktree-shared roots and directory environment overrides are not reconstructed. Declared custom locations are inspected without asserting effective settings. Codex database schemas are internal and may change; thread attribution and history counts are bounded. Generated memory files remain shared host data.",
+      "Current local declarations are a snapshot, not proof of configuration used by historical sessions.",
+      "Codex exec-policy rule files are counted, not interpreted. Vendor diagnostic logs, task queues and automation state are not interpreted. Persisted tool-output files and historical file snapshots are not independently imported.",
+      "Project trust, command-line overrides, remote managed policy, additional directories, memory imports, nested instruction files, and runtime plugin overrides are not reconstructed. Local managed policy files are read as declarations; precedence is not evaluated. Project declarations are not claimed effective.",
+      "Custom commands, prompts and output styles are local definitions; built-in and account-side commands are not enumerated. claude.ai connector names come from a local client record, not current account state.",
+      "Plugin cache presence is not enablement; cached versions may be inactive. Configured enablement is separate from selected version and runtime loading. Remote installs, CLI plugin directories, marketplace overlays, and unsupported manifest formats may be missing. Hook command basenames can be ambiguous."
+    ],
+    "memory": {
+      "stores": [
+        {
+          "host": "claude-code",
+          "kind": "agent-memory",
+          "path": "~/code/octocode/.claude/agent-memory",
+          "status": "absent",
+          "attribution": "workspace",
+          "note": "Directory presence does not establish runtime loading or effective settings."
+        },
+        {
+          "host": "claude-code",
+          "kind": "agent-memory",
+          "path": "~/code/octocode/.claude/agent-memory-local",
+          "status": "absent",
+          "attribution": "workspace",
+          "note": "Directory presence does not establish runtime loading or effective settings."
+        },
+        {
+          "host": "claude-code",
+          "kind": "agent-memory",
+          "path": "~/.claude/agent-memory",
+          "status": "absent",
+          "attribution": "shared",
+          "note": "Directory presence does not establish runtime loading or effective settings."
+        },
+        {
+          "host": "claude-code",
+          "kind": "auto-memory",
+          "path": "~/.claude/projects/‹home›-code-octocode/memory",
+          "status": "ready",
+          "attribution": "workspace",
+          "note": "Directory presence does not establish runtime loading or effective settings.",
+          "records": 77,
+          "bytes": 281417,
+          "truncated": false
+        }
+      ],
+      "records": [],
+      "threads": []
+    },
+    "claudeMd": [
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/MEMORY.md",
+        "bytes": 11635,
+        "approxTokens": 2909,
+        "lines": 75,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/agents-communication-roast-2026-09-26.md",
+        "bytes": 1974,
+        "approxTokens": 494,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/all-tools-dogfood-audit-2026-09-20.md",
+        "bytes": 5737,
+        "approxTokens": 1435,
+        "lines": 34,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/all-tools-mcp-cli-timing-audit-2026-09-21.md",
+        "bytes": 4687,
+        "approxTokens": 1172,
+        "lines": 18,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/all-tools-recheck-2026-09-26.md",
+        "bytes": 1269,
+        "approxTokens": 318,
+        "lines": 12,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/architecture-view-skill-2026-09-25.md",
+        "bytes": 1445,
+        "approxTokens": 362,
+        "lines": 14,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/ast-best-practices-skill-2026-09-24.md",
+        "bytes": 1964,
+        "approxTokens": 491,
+        "lines": 14,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/ast-engine-fixes-2026-09-24.md",
+        "bytes": 1840,
+        "approxTokens": 460,
+        "lines": 18,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/auth-cli-reconcile-2026-09.md",
+        "bytes": 3117,
+        "approxTokens": 780,
+        "lines": 45,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/benchmark-compare-run-2026-08.md",
+        "bytes": 5311,
+        "approxTokens": 1328,
+        "lines": 20,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/benchmark-reliability-audit-2026-08-08.md",
+        "bytes": 6670,
+        "approxTokens": 1668,
+        "lines": 26,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/build-speed-findings-2026-09-21.md",
+        "bytes": 5172,
+        "approxTokens": 1293,
+        "lines": 32,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/build-speed-round2-2026-09-22.md",
+        "bytes": 4122,
+        "approxTokens": 1031,
+        "lines": 30,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-cli-only-in-skills-2026-09-21.md",
+        "bytes": 1935,
+        "approxTokens": 484,
+        "lines": 16,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-compact-output-and-response-dedup-2026-09-23.md",
+        "bytes": 4018,
+        "approxTokens": 1005,
+        "lines": 24,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-full-audit-2026-09-23.md",
+        "bytes": 2112,
+        "approxTokens": 528,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-hints-shipped-2026-09-22.md",
+        "bytes": 7999,
+        "approxTokens": 2000,
+        "lines": 38,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-rename-shipped-2026-09-21.md",
+        "bytes": 2160,
+        "approxTokens": 540,
+        "lines": 18,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-rerank-overhaul-2026-09-22.md",
+        "bytes": 4454,
+        "approxTokens": 1114,
+        "lines": 27,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-search-handoff-2026-09-29.md",
+        "bytes": 2512,
+        "approxTokens": 628,
+        "lines": 20,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-wire-audit-2026-09-29.md",
+        "bytes": 2107,
+        "approxTokens": 527,
+        "lines": 15,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/cli-mcp-all-tools-audit-2026-09-20.md",
+        "bytes": 2726,
+        "approxTokens": 682,
+        "lines": 22,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/cli-mcp-interface-speed-2026-09-20.md",
+        "bytes": 2464,
+        "approxTokens": 616,
+        "lines": 36,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/cli-surface-minimalization-2026-09-20.md",
+        "bytes": 2143,
+        "approxTokens": 536,
+        "lines": 16,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/config-flow-token-jev-audit-2026-09.md",
+        "bytes": 3783,
+        "approxTokens": 946,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/context-audit-skill-2026-09-29.md",
+        "bytes": 1966,
+        "approxTokens": 492,
+        "lines": 25,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/contracts-content-hub-migration-2026-09-21.md",
+        "bytes": 4145,
+        "approxTokens": 1037,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/core-contract-layering-rfc-2026-09-21.md",
+        "bytes": 2937,
+        "approxTokens": 735,
+        "lines": 20,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/docs-dedup-shorten-2026-09-22.md",
+        "bytes": 3983,
+        "approxTokens": 996,
+        "lines": 24,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/ghsearch-split-2026-09-27.md",
+        "bytes": 1806,
+        "approxTokens": 452,
+        "lines": 27,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/git-history-binary-purge-2026-09-23.md",
+        "bytes": 3538,
+        "approxTokens": 885,
+        "lines": 54,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/graph-ingest-query-2026-09-28.md",
+        "bytes": 3053,
+        "approxTokens": 764,
+        "lines": 19,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/harness-check-skill-and-fixes-2026-09-25.md",
+        "bytes": 1195,
+        "approxTokens": 299,
+        "lines": 9,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-doc-triage-quality-2026-09-20.md",
+        "bytes": 1894,
+        "approxTokens": 474,
+        "lines": 16,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-max-queries-10-2026-09-20.md",
+        "bytes": 2298,
+        "approxTokens": 575,
+        "lines": 20,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-md-distilled-doc-2026-09-20.md",
+        "bytes": 1266,
+        "approxTokens": 317,
+        "lines": 14,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-native-js-policy-divergence-2026-09.md",
+        "bytes": 2650,
+        "approxTokens": 663,
+        "lines": 21,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-scout-profile-capability-map-2026-09.md",
+        "bytes": 10429,
+        "approxTokens": 2608,
+        "lines": 36,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-scrape-triage-2026-09-20.md",
+        "bytes": 3715,
+        "approxTokens": 929,
+        "lines": 20,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-v2-protocol-rfc-2026-09.md",
+        "bytes": 2037,
+        "approxTokens": 510,
+        "lines": 29,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/large-pr-and-scout-pass-2026-09-29.md",
+        "bytes": 1447,
+        "approxTokens": 362,
+        "lines": 13,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/leftovers-preprod-2026-09-23.md",
+        "bytes": 4038,
+        "approxTokens": 1010,
+        "lines": 29,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/leverage-sha2-and-rollout-2026-09-22.md",
+        "bytes": 11725,
+        "approxTokens": 2932,
+        "lines": 57,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/linux-cross-check-zig.md",
+        "bytes": 1334,
+        "approxTokens": 334,
+        "lines": 11,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/local-and-github-tools-audit-fix-2026-09-22.md",
+        "bytes": 3414,
+        "approxTokens": 854,
+        "lines": 29,
+        "headings": 1
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/local-tools-deep-bench-2026-09-27.md",
+        "bytes": 8645,
+        "approxTokens": 2162,
+        "lines": 26,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/lsp-best-practices-skill-2026-09-24.md",
+        "bytes": 1570,
+        "approxTokens": 393,
+        "lines": 14,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/mcp-native-contract-boundary-2026-09-20.md",
+        "bytes": 2399,
+        "approxTokens": 600,
+        "lines": 33,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/minifier-mangle-antipattern-2026-09-22.md",
+        "bytes": 4030,
+        "approxTokens": 1008,
+        "lines": 27,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/native-arch-cleanup-2026-09-20.md",
+        "bytes": 3016,
+        "approxTokens": 754,
+        "lines": 20,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/native-continuation-contract-defects-2026-09.md",
+        "bytes": 7609,
+        "approxTokens": 1903,
+        "lines": 35,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/native-flow-refactor-2026-09-29.md",
+        "bytes": 1926,
+        "approxTokens": 482,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/native-publish-readiness-2026-09-21.md",
+        "bytes": 2843,
+        "approxTokens": 711,
+        "lines": 24,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/native-reaudit-2026-09-19.md",
+        "bytes": 13730,
+        "approxTokens": 3433,
+        "lines": 44,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/native-tools-security-audit-2026-09.md",
+        "bytes": 4436,
+        "approxTokens": 1109,
+        "lines": 31,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/never-commit-any-repo.md",
+        "bytes": 758,
+        "approxTokens": 190,
+        "lines": 10,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/octocode-beta-gate-and-cli-scheme-2026-09-22.md",
+        "bytes": 5226,
+        "approxTokens": 1307,
+        "lines": 24,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/octocode-dev-skill-and-audit-2026-09-24.md",
+        "bytes": 2344,
+        "approxTokens": 586,
+        "lines": 25,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/open-work-hardening-pass-2026-09-21.md",
+        "bytes": 4427,
+        "approxTokens": 1107,
+        "lines": 22,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/parallel-native-build-2026-09-27.md",
+        "bytes": 1869,
+        "approxTokens": 468,
+        "lines": 18,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/perf-doc-implementation-2026-09.md",
+        "bytes": 1959,
+        "approxTokens": 490,
+        "lines": 19,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/post-audit-hardening-impl-2026-09-20.md",
+        "bytes": 4719,
+        "approxTokens": 1180,
+        "lines": 28,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/preprod-check-2026-09-28.md",
+        "bytes": 2410,
+        "approxTokens": 603,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/reasoning-optional-all-tools-audit-2026-09-21.md",
+        "bytes": 3056,
+        "approxTokens": 764,
+        "lines": 20,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/research-tool-roast-2026-09-23.md",
+        "bytes": 3648,
+        "approxTokens": 912,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/roast-fixes-2026-09-21.md",
+        "bytes": 2151,
+        "approxTokens": 538,
+        "lines": 14,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/rust-migration-cleanup-doc-retired-2026-09-21.md",
+        "bytes": 3346,
+        "approxTokens": 837,
+        "lines": 24,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/rust-migration-leftover-flow-2026-09.md",
+        "bytes": 3579,
+        "approxTokens": 895,
+        "lines": 30,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/search-fetch-tree-audit-2026-09-23.md",
+        "bytes": 6095,
+        "approxTokens": 1524,
+        "lines": 30,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/search-subsystem-tdd-hardening-2026-09-20.md",
+        "bytes": 3718,
+        "approxTokens": 930,
+        "lines": 22,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/single-contract-pipeline-config-2026-09-25.md",
+        "bytes": 3646,
+        "approxTokens": 912,
+        "lines": 24,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/structure-ast-lsp-layers-rfc-2026-09-26.md",
+        "bytes": 2566,
+        "approxTokens": 642,
+        "lines": 21,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/tdd-audit-findings-2026-09-20.md",
+        "bytes": 4361,
+        "approxTokens": 1091,
+        "lines": 27,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/tool-io-eval-orangu-2026-09-25.md",
+        "bytes": 1121,
+        "approxTokens": 281,
+        "lines": 8,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/v20-review-fixes-2026-09-22.md",
+        "bytes": 2674,
+        "approxTokens": 669,
+        "lines": 18,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/workspace-octocoderc-and-config-warnings-2026-09-26.md",
+        "bytes": 1916,
+        "approxTokens": 479,
+        "lines": 17,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "auto-memory",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/workspace-refactor-edition2024-2026-09-21.md",
+        "bytes": 3398,
+        "approxTokens": 850,
+        "lines": 23,
+        "headings": 0
+      },
+      {
+        "host": "claude-code",
+        "kind": "instructions",
+        "attribution": "workspace",
+        "observed": "local-file",
+        "scope": "repo",
+        "file": "~/code/octocode/CLAUDE.md",
+        "bytes": 152,
+        "approxTokens": 38,
+        "lines": 4,
+        "headings": 1
+      }
+    ],
+    "settings": [
+      {
+        "scope": "global",
+        "host": "claude-code",
+        "pluginStates": {
+          "rust-analyzer-lsp@claude-plugins-official": true
+        },
+        "file": "~/.claude/settings.json",
+        "keys": [
+          "autoMode",
+          "autoUpdatesChannel",
+          "effortLevel",
+          "enabledPlugins",
+          "extraKnownMarketplaces",
+          "model",
+          "modelSettings",
+          "skipWorkflowUsageWarning",
+          "theme"
+        ],
+        "model": "sonnet",
+        "effortLevel": "high",
+        "permissions": {
+          "allow": 0,
+          "deny": 0,
+          "ask": 0
+        },
+        "hooks": [],
+        "env": {
+          "count": 0,
+          "names": []
+        },
+        "statusLine": false,
+        "extraKnownMarketplaces": [
+          "i-have-adhd"
+        ],
+        "enabledPlugins": [
+          "rust-analyzer-lsp@claude-plugins-official"
+        ]
+      },
+      {
+        "scope": "repo-local",
+        "host": "claude-code",
+        "pluginStates": {},
+        "file": "~/code/octocode/.claude/settings.local.json",
+        "keys": [
+          "permissions",
+          "worktree"
+        ],
+        "permissions": {
+          "allow": 94,
+          "deny": 0,
+          "ask": 0
+        },
+        "permissionTools": {
+          "allow": [
+            "Bash",
+            "Read",
+            "WebSearch",
+            "mcp__octocode-local__astSearch",
+            "mcp__octocode-local__ghSearch",
+            "mcp__octocode-local__jev",
+            "mcp__octocode-local__localFetch",
+            "mcp__octocode-local__localSearch",
+            "mcp__octocode-local__lspSearch",
+            "mcp__octocode__ghSearchRepos"
+          ],
+          "deny": [],
+          "ask": []
+        },
+        "hooks": [],
+        "env": {
+          "count": 0,
+          "names": []
+        },
+        "statusLine": false,
+        "enabledPlugins": []
+      }
+    ],
+    "skills": [
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docs/SKILL.md",
+        "name": "docs",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docs/SKILL.md",
+        "bytes": 1227,
+        "approxTokens": 307,
+        "descriptionChars": 979,
+        "allowedTools": null,
+        "bodyLines": 2,
+        "hasReferences": false,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docx/SKILL.md",
+        "name": "docx",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docx/SKILL.md",
+        "bytes": 7010,
+        "approxTokens": 1753,
+        "descriptionChars": 934,
+        "allowedTools": null,
+        "bodyLines": 86,
+        "hasReferences": false,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/google-workspace/SKILL.md",
+        "name": "google-workspace",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/google-workspace/SKILL.md",
+        "bytes": 13869,
+        "approxTokens": 3468,
+        "descriptionChars": 945,
+        "allowedTools": null,
+        "bodyLines": 92,
+        "hasReferences": true,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/import-memory/SKILL.md",
+        "name": "import-memory",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/import-memory/SKILL.md",
+        "bytes": 10689,
+        "approxTokens": 2673,
+        "descriptionChars": 139,
+        "allowedTools": null,
+        "bodyLines": 85,
+        "hasReferences": false,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/morning/SKILL.md",
+        "name": "morning",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/morning/SKILL.md",
+        "bytes": 18163,
+        "approxTokens": 4541,
+        "descriptionChars": 339,
+        "allowedTools": null,
+        "bodyLines": 148,
+        "hasReferences": false,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-agents-communication/SKILL.md",
+        "name": "octocode-agents-communication",
+        "origin": "global",
+        "file": "~/.claude/skills/octocode-agents-communication/SKILL.md",
+        "bytes": 4567,
+        "approxTokens": 1142,
+        "descriptionChars": 241,
+        "allowedTools": null,
+        "bodyLines": 24,
+        "hasReferences": false,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-architect/SKILL.md",
+        "name": "octocode-architect",
+        "origin": "global",
+        "file": "~/.claude/skills/octocode-architect/SKILL.md",
+        "bytes": 4979,
+        "approxTokens": 1245,
+        "descriptionChars": 314,
+        "allowedTools": null,
+        "bodyLines": 42,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-brainstorming/SKILL.md",
+        "name": "octocode-brainstorming",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-brainstorming/SKILL.md",
+        "bytes": 5447,
+        "approxTokens": 1362,
+        "descriptionChars": 197,
+        "allowedTools": null,
+        "bodyLines": 51,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-chrome-devtools/SKILL.md",
+        "name": "octocode-chrome-devtools",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-chrome-devtools/SKILL.md",
+        "bytes": 7372,
+        "approxTokens": 1843,
+        "descriptionChars": 257,
+        "allowedTools": null,
+        "bodyLines": 52,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-clasify/SKILL.md",
+        "name": "octocode-clasify",
+        "origin": "global",
+        "file": "~/.claude/skills/octocode-clasify/SKILL.md",
+        "bytes": 7386,
+        "approxTokens": 1847,
+        "descriptionChars": 503,
+        "allowedTools": null,
+        "bodyLines": 44,
+        "hasReferences": false,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-clean-agentic-code/SKILL.md",
+        "name": "octocode-clean-agentic-code",
+        "origin": "global",
+        "file": "~/.claude/skills/octocode-clean-agentic-code/SKILL.md",
+        "bytes": 6742,
+        "approxTokens": 1686,
+        "descriptionChars": 541,
+        "allowedTools": null,
+        "bodyLines": 54,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-documentation/SKILL.md",
+        "name": "octocode-documentation",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-documentation/SKILL.md",
+        "bytes": 4808,
+        "approxTokens": 1202,
+        "descriptionChars": 120,
+        "allowedTools": null,
+        "bodyLines": 55,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-eval-benchmark/SKILL.md",
+        "name": "octocode-eval-benchmark",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-eval-benchmark/SKILL.md",
+        "bytes": 5389,
+        "approxTokens": 1348,
+        "descriptionChars": 220,
+        "allowedTools": null,
+        "bodyLines": 35,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/.claude/skills/octocode-orchestrator-local-worker/SKILL.md",
+        "name": "octocode-orchestrator-local-worker",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-orchestrator-local-worker/SKILL.md",
+        "bytes": 3280,
+        "approxTokens": 820,
+        "descriptionChars": 277,
+        "allowedTools": null,
+        "bodyLines": 57,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-prompt-optimizer/SKILL.md",
+        "name": "octocode-prompt-optimizer",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-prompt-optimizer/SKILL.md",
+        "bytes": 8171,
+        "approxTokens": 2043,
+        "descriptionChars": 320,
+        "allowedTools": null,
+        "bodyLines": 83,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-research/SKILL.md",
+        "name": "octocode-research",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-research/SKILL.md",
+        "bytes": 9667,
+        "approxTokens": 2417,
+        "descriptionChars": 304,
+        "allowedTools": null,
+        "bodyLines": 55,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-rfc-generator/SKILL.md",
+        "name": "octocode-rfc-generator",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-rfc-generator/SKILL.md",
+        "bytes": 8203,
+        "approxTokens": 2051,
+        "descriptionChars": 159,
+        "allowedTools": null,
+        "bodyLines": 53,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-roast/SKILL.md",
+        "name": "octocode-roast",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-roast/SKILL.md",
+        "bytes": 3664,
+        "approxTokens": 916,
+        "descriptionChars": 118,
+        "allowedTools": null,
+        "bodyLines": 43,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-scraping/SKILL.md",
+        "name": "octocode-scraping",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-scraping/SKILL.md",
+        "bytes": 6047,
+        "approxTokens": 1512,
+        "descriptionChars": 255,
+        "allowedTools": null,
+        "bodyLines": 43,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-skills/SKILL.md",
+        "name": "octocode-skills",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-skills/SKILL.md",
+        "bytes": 5627,
+        "approxTokens": 1407,
+        "descriptionChars": 116,
+        "allowedTools": null,
+        "bodyLines": 44,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/code/octocode/skills/octocode-subagent/SKILL.md",
+        "name": "octocode-subagent",
+        "origin": "repo",
+        "file": "~/code/octocode/.claude/skills/octocode-subagent/SKILL.md",
+        "bytes": 7200,
+        "approxTokens": 1800,
+        "descriptionChars": 284,
+        "allowedTools": null,
+        "bodyLines": 45,
+        "hasReferences": true,
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pdf/SKILL.md",
+        "name": "pdf",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pdf/SKILL.md",
+        "bytes": 8072,
+        "approxTokens": 2018,
+        "descriptionChars": 437,
+        "allowedTools": null,
+        "bodyLines": 309,
+        "hasReferences": false,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pptx/SKILL.md",
+        "name": "pptx",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pptx/SKILL.md",
+        "bytes": 21822,
+        "approxTokens": 5456,
+        "descriptionChars": 960,
+        "allowedTools": null,
+        "bodyLines": 236,
+        "hasReferences": false,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/skill-creator/SKILL.md",
+        "name": "skill-creator",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/skill-creator/SKILL.md",
+        "bytes": 33351,
+        "approxTokens": 8338,
+        "descriptionChars": 319,
+        "allowedTools": null,
+        "bodyLines": 481,
+        "hasReferences": true,
+        "bucket": "synced",
+        "host": "claude-code"
+      },
+      {
+        "enabled": true,
+        "canonicalFile": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/xlsx/SKILL.md",
+        "name": "xlsx",
+        "origin": "global",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/xlsx/SKILL.md",
+        "bytes": 8598,
+        "approxTokens": 2150,
+        "descriptionChars": 950,
+        "allowedTools": null,
+        "bodyLines": 94,
+        "hasReferences": false,
+        "bucket": "synced",
+        "host": "claude-code"
+      }
+    ],
+    "agents": [],
+    "plugins": [
+      {
+        "discovery": "installed",
+        "configuredEnabled": true,
+        "apps": 0,
+        "warnings": [],
+        "key": "rust-analyzer-lsp@claude-plugins-official",
+        "name": "rust-analyzer-lsp",
+        "marketplace": "claude-plugins-official",
+        "scope": "user",
+        "version": "1.0.0",
+        "enabled": true,
+        "skills": 0,
+        "agents": 0,
+        "commands": 0,
+        "hooks": 0,
+        "mcpServers": 0,
+        "lspServers": 0,
+        "outputStyles": 0,
+        "host": "claude-code"
+      }
+    ],
+    "mcpServers": [
+      {
+        "host": "claude-code",
+        "name": "claude_ai_Claude_Docs",
+        "scope": "remote-connector",
+        "transport": "remote",
+        "enabled": false
+      },
+      {
+        "name": "octocode-local",
+        "scope": "project",
+        "transport": "stdio",
+        "commandBasename": "node",
+        "enabled": true,
+        "host": "claude-code"
+      }
+    ],
+    "commands": [],
+    "outputStyles": [],
+    "pluginHooks": [],
+    "marketplaces": [
+      {
+        "host": "claude-code",
+        "name": "claude-plugins-official",
+        "sourceType": "github",
+        "declaredIn": "known-marketplaces",
+        "file": "~/.claude/plugins/known_marketplaces.json"
+      },
+      {
+        "host": "claude-code",
+        "name": "i-have-adhd",
+        "sourceType": "github",
+        "declaredIn": "known-marketplaces",
+        "file": "~/.claude/plugins/known_marketplaces.json"
+      },
+      {
+        "host": "claude-code",
+        "name": "i-have-adhd",
+        "sourceType": "unknown",
+        "declaredIn": "settings",
+        "file": "~/.claude/settings.json"
+      }
+    ],
+    "execPolicy": [],
+    "usageCounters": {
+      "skills": [
+        {
+          "name": "artifact-design",
+          "usageCount": 5,
+          "lastUsedAt": 1790635081401
+        },
+        {
+          "name": "code-review",
+          "usageCount": 2,
+          "lastUsedAt": 1787325810753
+        },
+        {
+          "name": "deep-research",
+          "usageCount": 1,
+          "lastUsedAt": 1787492441281
+        },
+        {
+          "name": "octocode-agents-communication",
+          "usageCount": 8,
+          "lastUsedAt": 1790631099674
+        },
+        {
+          "name": "octocode-architect",
+          "usageCount": 6,
+          "lastUsedAt": 1790530518477
+        },
+        {
+          "name": "octocode-brainstorming",
+          "usageCount": 7,
+          "lastUsedAt": 1790410482344
+        },
+        {
+          "name": "octocode-chrome-devtools",
+          "usageCount": 1,
+          "lastUsedAt": 1785582667621
+        },
+        {
+          "name": "octocode-clasify",
+          "usageCount": 3,
+          "lastUsedAt": 1790623625684
+        },
+        {
+          "name": "octocode-clean-agentic-code",
+          "usageCount": 9,
+          "lastUsedAt": 1790669634825
+        },
+        {
+          "name": "octocode-documentation",
+          "usageCount": 4,
+          "lastUsedAt": 1790691617378
+        },
+        {
+          "name": "octocode-eval-benchmark",
+          "usageCount": 1,
+          "lastUsedAt": 1790118386830
+        },
+        {
+          "name": "octocode-graph-eval",
+          "usageCount": 4,
+          "lastUsedAt": 1785616573936
+        },
+        {
+          "name": "octocode-prompt-optimizer",
+          "usageCount": 12,
+          "lastUsedAt": 1790639648033
+        },
+        {
+          "name": "octocode-research",
+          "usageCount": 4,
+          "lastUsedAt": 1790028164691
+        },
+        {
+          "name": "octocode-rfc-generator",
+          "usageCount": 7,
+          "lastUsedAt": 1789985654241
+        },
+        {
+          "name": "octocode-roast",
+          "usageCount": 4,
+          "lastUsedAt": 1790405566439
+        },
+        {
+          "name": "octocode-scraping",
+          "usageCount": 2,
+          "lastUsedAt": 1789986233863
+        },
+        {
+          "name": "octocode-skills",
+          "usageCount": 6,
+          "lastUsedAt": 1790528487667
+        },
+        {
+          "name": "review",
+          "usageCount": 1,
+          "lastUsedAt": 1789840923675
+        },
+        {
+          "name": "verify",
+          "usageCount": 1,
+          "lastUsedAt": 1785606131879
+        }
+      ],
+      "plugins": [
+        {
+          "key": "agents-md@builtin",
+          "usageCount": 0,
+          "lastUsedAt": 1790108420934
+        },
+        {
+          "key": "rust-analyzer-lsp@claude-plugins-official",
+          "usageCount": 1672,
+          "lastUsedAt": 1790710878464
+        },
+        {
+          "key": "telemetry@builtin",
+          "usageCount": 0,
+          "lastUsedAt": 1790108369168
+        }
+      ]
+    },
+    "totals": {
+      "filesRead": 119,
+      "bytesRead": 673289,
+      "claudeMdBytes": 281569,
+      "claudeMdApproxTokens": 70423,
+      "skills": 25,
+      "agents": 0,
+      "plugins": 1,
+      "mcpServers": 2,
+      "hookCommands": 0,
+      "commands": 0,
+      "outputStyles": 0,
+      "pluginHookCommands": 0
+    },
+    "unreadable": []
+  },
+  "crosswalk": {
+    "measurements": {
+      "hookRuns": 0,
+      "hookErrors": 0,
+      "hookMs": 0,
+      "memoryReadEstimate": 0,
+      "attachmentBytes": 53858863
+    },
+    "populations": {
+      "skills": {
+        "total": 26,
+        "shown": 26,
+        "used": 13,
+        "idle": 0,
+        "undeclared": 1,
+        "unknown": 12,
+        "disabled": 0
+      },
+      "mcpServers": {
+        "total": 2,
+        "shown": 2,
+        "used": 1,
+        "idle": 0,
+        "undeclared": 0,
+        "unknown": 0,
+        "disabled": 1
+      },
+      "agents": {
+        "total": 5,
+        "shown": 5,
+        "used": 2,
+        "idle": 0,
+        "undeclared": 3,
+        "unknown": 0,
+        "disabled": 0
+      },
+      "hooks": {
+        "total": 0,
+        "shown": 0,
+        "used": 0,
+        "idle": 0,
+        "undeclared": 0,
+        "unknown": 0,
+        "disabled": 0
+      },
+      "commands": {
+        "total": 7,
+        "shown": 7,
+        "used": 6,
+        "idle": 0,
+        "undeclared": 1,
+        "unknown": 0,
+        "disabled": 0
+      }
+    },
+    "window": {
+      "firstStartedAt": 1789733895038,
+      "lastStartedAt": 1790623564097
+    },
+    "skills": [
+      {
+        "name": "octocode-prompt-optimizer",
+        "file": "~/code/octocode/.claude/skills/octocode-prompt-optimizer/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 9,
+        "reads": 0,
+        "sessions": 9,
+        "viaTool": 7,
+        "viaCommand": 2,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-clean-agentic-code",
+        "file": "~/.claude/skills/octocode-clean-agentic-code/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 7,
+        "reads": 0,
+        "sessions": 7,
+        "viaTool": 6,
+        "viaCommand": 1,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-architect",
+        "file": "~/.claude/skills/octocode-architect/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 6,
+        "reads": 0,
+        "sessions": 6,
+        "viaTool": 6,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-skills",
+        "file": "~/code/octocode/.claude/skills/octocode-skills/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 6,
+        "reads": 0,
+        "sessions": 6,
+        "viaTool": 6,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-brainstorming",
+        "file": "~/code/octocode/.claude/skills/octocode-brainstorming/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 5,
+        "reads": 0,
+        "sessions": 4,
+        "viaTool": 4,
+        "viaCommand": 1,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-rfc-generator",
+        "file": "~/code/octocode/.claude/skills/octocode-rfc-generator/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 5,
+        "reads": 0,
+        "sessions": 5,
+        "viaTool": 4,
+        "viaCommand": 1,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-research",
+        "file": "~/code/octocode/.claude/skills/octocode-research/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 4,
+        "reads": 0,
+        "sessions": 4,
+        "viaTool": 4,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-roast",
+        "file": "~/code/octocode/.claude/skills/octocode-roast/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 4,
+        "reads": 0,
+        "sessions": 4,
+        "viaTool": 4,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-clasify",
+        "file": "~/.claude/skills/octocode-clasify/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 3,
+        "reads": 0,
+        "sessions": 3,
+        "viaTool": 3,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-documentation",
+        "file": "~/code/octocode/.claude/skills/octocode-documentation/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 2,
+        "reads": 0,
+        "sessions": 2,
+        "viaTool": 0,
+        "viaCommand": 2,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-agents-communication",
+        "file": "~/.claude/skills/octocode-agents-communication/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 1,
+        "reads": 0,
+        "sessions": 1,
+        "viaTool": 1,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-eval-benchmark",
+        "file": "~/code/octocode/.claude/skills/octocode-eval-benchmark/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 1,
+        "reads": 0,
+        "sessions": 1,
+        "viaTool": 1,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-scraping",
+        "file": "~/code/octocode/.claude/skills/octocode-scraping/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 1,
+        "reads": 0,
+        "sessions": 1,
+        "viaTool": 1,
+        "viaCommand": 0,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "artifact-design",
+        "installed": false,
+        "invocations": 1,
+        "reads": 0,
+        "sessions": 1,
+        "viaTool": 1,
+        "viaCommand": 0,
+        "status": "undeclared",
+        "host": "claude-code"
+      },
+      {
+        "name": "docs",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docs/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "docx",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docx/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "google-workspace",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/google-workspace/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "import-memory",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/import-memory/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "morning",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/morning/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-chrome-devtools",
+        "file": "~/code/octocode/.claude/skills/octocode-chrome-devtools/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-orchestrator-local-worker",
+        "file": "~/code/octocode/.claude/skills/octocode-orchestrator-local-worker/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "octocode-subagent",
+        "file": "~/code/octocode/.claude/skills/octocode-subagent/SKILL.md",
+        "origin": "repo",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "pdf",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pdf/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "pptx",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pptx/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "skill-creator",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/skill-creator/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      },
+      {
+        "name": "xlsx",
+        "file": "~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/xlsx/SKILL.md",
+        "origin": "global",
+        "installed": true,
+        "invocations": 0,
+        "reads": 0,
+        "sessions": 0,
+        "viaTool": 0,
+        "viaCommand": 0,
+        "status": "unknown",
+        "host": "claude-code"
+      }
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode-local",
+        "configured": true,
+        "toolCalls": 1692,
+        "distinctTools": 19,
+        "sessions": 33,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "claude_ai_Claude_Docs",
+        "configured": true,
+        "toolCalls": 10,
+        "distinctTools": 4,
+        "sessions": 1,
+        "remoteConnector": true,
+        "status": "disabled",
+        "host": "claude-code"
+      }
+    ],
+    "agents": [
+      {
+        "name": "general-purpose",
+        "origin": "built-in",
+        "defined": false,
+        "dispatches": 335,
+        "sessions": 37,
+        "models": [
+          "claude-fable-5",
+          "claude-opus-4-8",
+          "claude-opus-5-5",
+          "claude-sonnet-5",
+          "claude-sonnet-5-5",
+          "haiku",
+          "opus",
+          "sonnet"
+        ],
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "Explore",
+        "origin": "built-in",
+        "defined": false,
+        "dispatches": 56,
+        "sessions": 22,
+        "models": [
+          "claude-haiku-4-5-20251001",
+          "claude-opus-4-8",
+          "claude-opus-5-5",
+          "claude-sonnet-5",
+          "sonnet"
+        ],
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "workflow-subagent",
+        "defined": false,
+        "dispatches": 301,
+        "sessions": 4,
+        "models": [
+          "claude-fable-5",
+          "claude-opus-4-8",
+          "sonnet"
+        ],
+        "status": "undeclared",
+        "host": "claude-code"
+      },
+      {
+        "name": "fork",
+        "defined": false,
+        "dispatches": 8,
+        "sessions": 6,
+        "models": [
+          "claude-opus-4-8",
+          "claude-sonnet-5",
+          "inherit"
+        ],
+        "status": "undeclared",
+        "host": "claude-code"
+      },
+      {
+        "name": "claude",
+        "defined": false,
+        "dispatches": 5,
+        "sessions": 1,
+        "models": [
+          "claude-fable-5",
+          "sonnet"
+        ],
+        "status": "undeclared",
+        "host": "claude-code"
+      }
+    ],
+    "hooks": [],
+    "commands": [
+      {
+        "name": "model",
+        "origin": "built-in",
+        "declared": false,
+        "invocations": 35,
+        "sessions": 29,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "clear",
+        "origin": "built-in",
+        "declared": false,
+        "invocations": 12,
+        "sessions": 12,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "mcp",
+        "origin": "built-in",
+        "declared": false,
+        "invocations": 3,
+        "sessions": 3,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "effort",
+        "origin": "built-in",
+        "declared": false,
+        "invocations": 1,
+        "sessions": 1,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "login",
+        "origin": "built-in",
+        "declared": false,
+        "invocations": 1,
+        "sessions": 1,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "upgrade",
+        "origin": "built-in",
+        "declared": false,
+        "invocations": 1,
+        "sessions": 1,
+        "status": "used",
+        "host": "claude-code"
+      },
+      {
+        "name": "rate-limit-options",
+        "declared": false,
+        "invocations": 1,
+        "sessions": 1,
+        "status": "undeclared",
+        "host": "claude-code"
+      }
+    ],
+    "models": {
+      "configured": "sonnet",
+      "seen": [
+        {
+          "model": "claude-opus-5-5",
+          "requests": 17424,
+          "sessions": 35
+        },
+        {
+          "model": "claude-opus-4-8",
+          "requests": 6854,
+          "sessions": 40
+        },
+        {
+          "model": "claude-fable-5",
+          "requests": 3298,
+          "sessions": 10
+        },
+        {
+          "model": "claude-sonnet-5",
+          "requests": 3059,
+          "sessions": 10
+        },
+        {
+          "model": "claude-sonnet-5-5",
+          "requests": 275,
+          "sessions": 1
+        },
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "requests": 136,
+          "sessions": 4
+        },
+        {
+          "model": "claude-opus-5",
+          "requests": 13,
+          "sessions": 1
+        }
+      ],
+      "matchesConfigured": true
+    },
+    "effort": {
+      "configured": "high",
+      "seen": [
+        {
+          "effort": "high",
+          "sessions": 51
+        },
+        {
+          "effort": "medium",
+          "sessions": 31
+        },
+        {
+          "effort": "max",
+          "sessions": 4
+        }
+      ],
+      "slashEffortCommands": 1,
+      "matchesConfigured": true
+    },
+    "permissions": {
+      "allowRules": 94,
+      "denyRules": 0,
+      "askRules": 0,
+      "ruleTools": [
+        "Bash",
+        "Read",
+        "WebSearch",
+        "mcp__octocode-local__astSearch",
+        "mcp__octocode-local__ghSearch",
+        "mcp__octocode-local__jev",
+        "mcp__octocode-local__localFetch",
+        "mcp__octocode-local__localSearch",
+        "mcp__octocode-local__lspSearch",
+        "mcp__octocode__ghSearchRepos"
+      ],
+      "promptEvents": 36,
+      "promptSessions": 27,
+      "denials": {
+        "permissionDenied": 103,
+        "userRejected": 18,
+        "hookDecisions": 0,
+        "sessions": 22,
+        "byTool": [
+          {
+            "tool": "unattributed",
+            "count": 121
+          }
+        ]
+      }
+    },
+    "claudeMd": [
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/MEMORY.md",
+        "bytes": 11635,
+        "approxTokens": 2909,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/agents-communication-roast-2026-09-26.md",
+        "bytes": 1974,
+        "approxTokens": 494,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/all-tools-dogfood-audit-2026-09-20.md",
+        "bytes": 5737,
+        "approxTokens": 1435,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/all-tools-mcp-cli-timing-audit-2026-09-21.md",
+        "bytes": 4687,
+        "approxTokens": 1172,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/all-tools-recheck-2026-09-26.md",
+        "bytes": 1269,
+        "approxTokens": 318,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/architecture-view-skill-2026-09-25.md",
+        "bytes": 1445,
+        "approxTokens": 362,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/ast-best-practices-skill-2026-09-24.md",
+        "bytes": 1964,
+        "approxTokens": 491,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/ast-engine-fixes-2026-09-24.md",
+        "bytes": 1840,
+        "approxTokens": 460,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/auth-cli-reconcile-2026-09.md",
+        "bytes": 3117,
+        "approxTokens": 780,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/benchmark-compare-run-2026-08.md",
+        "bytes": 5311,
+        "approxTokens": 1328,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/benchmark-reliability-audit-2026-08-08.md",
+        "bytes": 6670,
+        "approxTokens": 1668,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/build-speed-findings-2026-09-21.md",
+        "bytes": 5172,
+        "approxTokens": 1293,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/build-speed-round2-2026-09-22.md",
+        "bytes": 4122,
+        "approxTokens": 1031,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-cli-only-in-skills-2026-09-21.md",
+        "bytes": 1935,
+        "approxTokens": 484,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-compact-output-and-response-dedup-2026-09-23.md",
+        "bytes": 4018,
+        "approxTokens": 1005,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-full-audit-2026-09-23.md",
+        "bytes": 2112,
+        "approxTokens": 528,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-hints-shipped-2026-09-22.md",
+        "bytes": 7999,
+        "approxTokens": 2000,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-rename-shipped-2026-09-21.md",
+        "bytes": 2160,
+        "approxTokens": 540,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-rerank-overhaul-2026-09-22.md",
+        "bytes": 4454,
+        "approxTokens": 1114,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-search-handoff-2026-09-29.md",
+        "bytes": 2512,
+        "approxTokens": 628,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/clasify-wire-audit-2026-09-29.md",
+        "bytes": 2107,
+        "approxTokens": 527,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/cli-mcp-all-tools-audit-2026-09-20.md",
+        "bytes": 2726,
+        "approxTokens": 682,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/cli-mcp-interface-speed-2026-09-20.md",
+        "bytes": 2464,
+        "approxTokens": 616,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/cli-surface-minimalization-2026-09-20.md",
+        "bytes": 2143,
+        "approxTokens": 536,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/config-flow-token-jev-audit-2026-09.md",
+        "bytes": 3783,
+        "approxTokens": 946,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/context-audit-skill-2026-09-29.md",
+        "bytes": 1966,
+        "approxTokens": 492,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/contracts-content-hub-migration-2026-09-21.md",
+        "bytes": 4145,
+        "approxTokens": 1037,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/core-contract-layering-rfc-2026-09-21.md",
+        "bytes": 2937,
+        "approxTokens": 735,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/docs-dedup-shorten-2026-09-22.md",
+        "bytes": 3983,
+        "approxTokens": 996,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/ghsearch-split-2026-09-27.md",
+        "bytes": 1806,
+        "approxTokens": 452,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/git-history-binary-purge-2026-09-23.md",
+        "bytes": 3538,
+        "approxTokens": 885,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/graph-ingest-query-2026-09-28.md",
+        "bytes": 3053,
+        "approxTokens": 764,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/harness-check-skill-and-fixes-2026-09-25.md",
+        "bytes": 1195,
+        "approxTokens": 299,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-doc-triage-quality-2026-09-20.md",
+        "bytes": 1894,
+        "approxTokens": 474,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-max-queries-10-2026-09-20.md",
+        "bytes": 2298,
+        "approxTokens": 575,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-md-distilled-doc-2026-09-20.md",
+        "bytes": 1266,
+        "approxTokens": 317,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-native-js-policy-divergence-2026-09.md",
+        "bytes": 2650,
+        "approxTokens": 663,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-scout-profile-capability-map-2026-09.md",
+        "bytes": 10429,
+        "approxTokens": 2608,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-scrape-triage-2026-09-20.md",
+        "bytes": 3715,
+        "approxTokens": 929,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/jev-v2-protocol-rfc-2026-09.md",
+        "bytes": 2037,
+        "approxTokens": 510,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/large-pr-and-scout-pass-2026-09-29.md",
+        "bytes": 1447,
+        "approxTokens": 362,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/leftovers-preprod-2026-09-23.md",
+        "bytes": 4038,
+        "approxTokens": 1010,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/leverage-sha2-and-rollout-2026-09-22.md",
+        "bytes": 11725,
+        "approxTokens": 2932,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/linux-cross-check-zig.md",
+        "bytes": 1334,
+        "approxTokens": 334,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/local-and-github-tools-audit-fix-2026-09-22.md",
+        "bytes": 3414,
+        "approxTokens": 854,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/local-tools-deep-bench-2026-09-27.md",
+        "bytes": 8645,
+        "approxTokens": 2162,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/lsp-best-practices-skill-2026-09-24.md",
+        "bytes": 1570,
+        "approxTokens": 393,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/mcp-native-contract-boundary-2026-09-20.md",
+        "bytes": 2399,
+        "approxTokens": 600,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/minifier-mangle-antipattern-2026-09-22.md",
+        "bytes": 4030,
+        "approxTokens": 1008,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      },
+      {
+        "file": "~/.claude/projects/‹home›-code-octocode/memory/native-arch-cleanup-2026-09-20.md",
+        "bytes": 3016,
+        "approxTokens": 754,
+        "reads": 0,
+        "sessions": 0,
+        "approxTokensCarried": 0
+      }
+    ],
+    "injectedListings": [
+      {
+        "type": "prompt_snapshot",
+        "occurrences": 573,
+        "scannedSessions": 91,
+        "sessions": 37,
+        "bytes": 23606500,
+        "approxTokens": 5901625,
+        "approxTokensPerSession": 159504
+      },
+      {
+        "type": "skill_listing",
+        "occurrences": 1001,
+        "scannedSessions": 91,
+        "sessions": 87,
+        "bytes": 12227277,
+        "approxTokens": 3056820,
+        "approxTokensPerSession": 35136
+      },
+      {
+        "type": "instructions",
+        "occurrences": 276,
+        "scannedSessions": 91,
+        "sessions": 37,
+        "bytes": 4379382,
+        "approxTokens": 1094846,
+        "approxTokensPerSession": 29591
+      },
+      {
+        "type": "queued_command",
+        "occurrences": 1003,
+        "scannedSessions": 91,
+        "sessions": 58,
+        "bytes": 2224053,
+        "approxTokens": 556014,
+        "approxTokensPerSession": 9587
+      },
+      {
+        "type": "total_tokens_reminder",
+        "occurrences": 24210,
+        "scannedSessions": 91,
+        "sessions": 87,
+        "bytes": 2203110,
+        "approxTokens": 550778,
+        "approxTokensPerSession": 6331
+      },
+      {
+        "type": "edited_text_file",
+        "occurrences": 510,
+        "scannedSessions": 91,
+        "sessions": 60,
+        "bytes": 1917497,
+        "approxTokens": 479375,
+        "approxTokensPerSession": 7990
+      },
+      {
+        "type": "deferred_tools_record",
+        "occurrences": 2070,
+        "scannedSessions": 91,
+        "sessions": 32,
+        "bytes": 1393157,
+        "approxTokens": 348290,
+        "approxTokensPerSession": 10885
+      },
+      {
+        "type": "deferred_tools_delta",
+        "occurrences": 900,
+        "scannedSessions": 91,
+        "sessions": 87,
+        "bytes": 1115280,
+        "approxTokens": 278820,
+        "approxTokensPerSession": 3205
+      },
+      {
+        "type": "environment",
+        "occurrences": 2226,
+        "scannedSessions": 91,
+        "sessions": 37,
+        "bytes": 1013034,
+        "approxTokens": 253259,
+        "approxTokensPerSession": 6845
+      },
+      {
+        "type": "agent_listing_delta",
+        "occurrences": 329,
+        "scannedSessions": 91,
+        "sessions": 87,
+        "bytes": 891630,
+        "approxTokens": 222908,
+        "approxTokensPerSession": 2563
+      },
+      {
+        "type": "task_reminder",
+        "occurrences": 1049,
+        "scannedSessions": 91,
+        "sessions": 47,
+        "bytes": 851993,
+        "approxTokens": 212999,
+        "approxTokensPerSession": 4532
+      },
+      {
+        "type": "mcp_instructions_delta",
+        "occurrences": 328,
+        "scannedSessions": 91,
+        "sessions": 76,
+        "bytes": 743301,
+        "approxTokens": 185826,
+        "approxTokensPerSession": 2446
+      },
+      {
+        "type": "session_context",
+        "occurrences": 287,
+        "scannedSessions": 91,
+        "sessions": 37,
+        "bytes": 673471,
+        "approxTokens": 168368,
+        "approxTokensPerSession": 4551
+      },
+      {
+        "type": "diagnostics",
+        "occurrences": 117,
+        "scannedSessions": 91,
+        "sessions": 20,
+        "bytes": 199046,
+        "approxTokens": 49762,
+        "approxTokensPerSession": 2489
+      },
+      {
+        "type": "model",
+        "occurrences": 287,
+        "scannedSessions": 91,
+        "sessions": 37,
+        "bytes": 75538,
+        "approxTokens": 18885,
+        "approxTokensPerSession": 511
+      },
+      {
+        "type": "remote_session_change",
+        "occurrences": 287,
+        "scannedSessions": 91,
+        "sessions": 37,
+        "bytes": 72791,
+        "approxTokens": 18198,
+        "approxTokensPerSession": 492
+      },
+      {
+        "type": "invoked_skills",
+        "occurrences": 3,
+        "scannedSessions": 91,
+        "sessions": 3,
+        "bytes": 59471,
+        "approxTokens": 14868,
+        "approxTokensPerSession": 4956
+      },
+      {
+        "type": "file",
+        "occurrences": 11,
+        "scannedSessions": 91,
+        "sessions": 4,
+        "bytes": 57912,
+        "approxTokens": 14478,
+        "approxTokensPerSession": 3620
+      },
+      {
+        "type": "silent_turn_reminder",
+        "occurrences": 355,
+        "scannedSessions": 91,
+        "sessions": 33,
+        "bytes": 49345,
+        "approxTokens": 12337,
+        "approxTokensPerSession": 374
+      },
+      {
+        "type": "auto_mode",
+        "occurrences": 268,
+        "scannedSessions": 91,
+        "sessions": 34,
+        "bytes": 32932,
+        "approxTokens": 8233,
+        "approxTokensPerSession": 243
+      },
+      {
+        "type": "opened_file_in_ide",
+        "occurrences": 115,
+        "scannedSessions": 91,
+        "sessions": 38,
+        "bytes": 13551,
+        "approxTokens": 3388,
+        "approxTokensPerSession": 90
+      },
+      {
+        "type": "credential_org",
+        "occurrences": 147,
+        "scannedSessions": 91,
+        "sessions": 28,
+        "bytes": 12201,
+        "approxTokens": 3051,
+        "approxTokensPerSession": 109
+      },
+      {
+        "type": "date",
+        "occurrences": 295,
+        "scannedSessions": 91,
+        "sessions": 37,
+        "bytes": 10445,
+        "approxTokens": 2612,
+        "approxTokensPerSession": 71
+      },
+      {
+        "type": "selected_lines_in_ide",
+        "occurrences": 4,
+        "scannedSessions": 91,
+        "sessions": 4,
+        "bytes": 9950,
+        "approxTokens": 2488,
+        "approxTokensPerSession": 622
+      },
+      {
+        "type": "thinking_drop",
+        "occurrences": 9,
+        "scannedSessions": 91,
+        "sessions": 5,
+        "bytes": 7100,
+        "approxTokens": 1775,
+        "approxTokensPerSession": 355
+      },
+      {
+        "type": "read_truncation_notice",
+        "occurrences": 12,
+        "scannedSessions": 91,
+        "sessions": 10,
+        "bytes": 5439,
+        "approxTokens": 1360,
+        "approxTokensPerSession": 136
+      },
+      {
+        "type": "plan_mode_exit",
+        "occurrences": 37,
+        "scannedSessions": 91,
+        "sessions": 34,
+        "bytes": 4314,
+        "approxTokens": 1079,
+        "approxTokensPerSession": 32
+      },
+      {
+        "type": "command_permissions",
+        "occurrences": 53,
+        "scannedSessions": 91,
+        "sessions": 33,
+        "bytes": 2544,
+        "approxTokens": 636,
+        "approxTokensPerSession": 20
+      },
+      {
+        "type": "task_status",
+        "occurrences": 4,
+        "scannedSessions": 91,
+        "sessions": 1,
+        "bytes": 2372,
+        "approxTokens": 593,
+        "approxTokensPerSession": 593
+      },
+      {
+        "type": "nested_memory",
+        "occurrences": 4,
+        "scannedSessions": 91,
+        "sessions": 1,
+        "bytes": 1828,
+        "approxTokens": 457,
+        "approxTokensPerSession": 457
+      },
+      {
+        "type": "plan_mode",
+        "occurrences": 8,
+        "scannedSessions": 91,
+        "sessions": 8,
+        "bytes": 1250,
+        "approxTokens": 313,
+        "approxTokensPerSession": 40
+      },
+      {
+        "type": "compact_file_reference",
+        "occurrences": 5,
+        "scannedSessions": 91,
+        "sessions": 3,
+        "bytes": 1014,
+        "approxTokens": 254,
+        "approxTokensPerSession": 85
+      },
+      {
+        "type": "date_change",
+        "occurrences": 3,
+        "scannedSessions": 91,
+        "sessions": 3,
+        "bytes": 135,
+        "approxTokens": 34,
+        "approxTokensPerSession": 12
+      }
+    ],
+    "monitoring": {
+      "tools": {
+        "names": 51,
+        "calls": 33507,
+        "errors": 939,
+        "unresolved": 5,
+        "errorRate": 0.028,
+        "otherCalls": 338,
+        "registered": 53,
+        "unusedRegistered": 21,
+        "unusedRegisteredNames": [
+          "ArtifactData",
+          "CronCreate",
+          "CronDelete",
+          "CronList",
+          "DesignSync",
+          "EndConversation",
+          "EnterWorktree",
+          "ExitWorktree"
+        ]
+      },
+      "shell": {
+        "calls": 23688,
+        "errors": 577,
+        "totalMs": 353366346,
+        "timed": 23683
+      },
+      "mcp": {
+        "calls": 1702,
+        "errors": 227,
+        "unresolved": 1,
+        "requests": 2802,
+        "totalTokens": 332892694,
+        "distinctTools": 27,
+        "inputBytesTotal": 643901,
+        "resultBytesTotal": 7333221,
+        "byTool": [
+          {
+            "server": "octocode-local",
+            "tool": "ghGetFileContent",
+            "sessions": 19,
+            "count": 700,
+            "errors": 67,
+            "unresolved": 0,
+            "totalMs": 2304116,
+            "meanMs": 3292,
+            "p95Ms": 8590,
+            "maxMs": 60131,
+            "timed": 700,
+            "inputBytesTotal": 267939,
+            "resultBytesTotal": 3368578,
+            "resultBytesMax": 46362,
+            "requests": 1068,
+            "totalTokens": 83135267
+          },
+          {
+            "server": "octocode-local",
+            "tool": "ghSearch",
+            "sessions": 18,
+            "count": 367,
+            "errors": 51,
+            "unresolved": 0,
+            "totalMs": 1538898,
+            "meanMs": 4193,
+            "p95Ms": 12779,
+            "maxMs": 39485,
+            "timed": 367,
+            "inputBytesTotal": 106945,
+            "resultBytesTotal": 653129,
+            "resultBytesMax": 24783,
+            "requests": 375,
+            "totalTokens": 27420002
+          },
+          {
+            "server": "octocode-local",
+            "tool": "ghGetHistoryItem",
+            "sessions": 10,
+            "count": 175,
+            "errors": 21,
+            "unresolved": 0,
+            "totalMs": 582397,
+            "meanMs": 3328,
+            "p95Ms": 9058,
+            "maxMs": 60041,
+            "timed": 175,
+            "inputBytesTotal": 52861,
+            "resultBytesTotal": 1687529,
+            "resultBytesMax": 45813,
+            "requests": 235,
+            "totalTokens": 26663475
+          },
+          {
+            "server": "octocode-local",
+            "tool": "localSearch",
+            "sessions": 20,
+            "count": 127,
+            "errors": 15,
+            "unresolved": 1,
+            "totalMs": 264292,
+            "meanMs": 2098,
+            "p95Ms": 4934,
+            "maxMs": 65860,
+            "timed": 126,
+            "inputBytesTotal": 50693,
+            "resultBytesTotal": 448494,
+            "resultBytesMax": 30865,
+            "requests": 376,
+            "totalTokens": 81536122
+          },
+          {
+            "server": "octocode-local",
+            "tool": "localFetch",
+            "sessions": 14,
+            "count": 82,
+            "errors": 8,
+            "unresolved": 0,
+            "totalMs": 17210,
+            "meanMs": 210,
+            "p95Ms": 1031,
+            "maxMs": 4260,
+            "timed": 82,
+            "inputBytesTotal": 30325,
+            "resultBytesTotal": 474811,
+            "resultBytesMax": 31033,
+            "requests": 286,
+            "totalTokens": 57916909
+          },
+          {
+            "server": "octocode-local",
+            "tool": "ghSearchHistory",
+            "sessions": 10,
+            "count": 64,
+            "errors": 25,
+            "unresolved": 0,
+            "totalMs": 231560,
+            "meanMs": 3618,
+            "p95Ms": 6553,
+            "maxMs": 43232,
+            "timed": 64,
+            "inputBytesTotal": 22252,
+            "resultBytesTotal": 103759,
+            "resultBytesMax": 14997,
+            "requests": 99,
+            "totalTokens": 10244817
+          },
+          {
+            "server": "octocode-local",
+            "tool": "astSearch",
+            "sessions": 14,
+            "count": 60,
+            "errors": 21,
+            "unresolved": 0,
+            "totalMs": 335714,
+            "meanMs": 5595,
+            "p95Ms": 32185,
+            "maxMs": 60006,
+            "timed": 60,
+            "inputBytesTotal": 21242,
+            "resultBytesTotal": 229830,
+            "resultBytesMax": 40709,
+            "requests": 112,
+            "totalTokens": 13787790
+          },
+          {
+            "server": "octocode-local",
+            "tool": "lspSearch",
+            "sessions": 11,
+            "count": 28,
+            "errors": 7,
+            "unresolved": 0,
+            "totalMs": 242632,
+            "meanMs": 8665,
+            "p95Ms": 60198,
+            "maxMs": 60297,
+            "timed": 28,
+            "inputBytesTotal": 9968,
+            "resultBytesTotal": 107898,
+            "resultBytesMax": 31931,
+            "requests": 23,
+            "totalTokens": 2508820
+          },
+          {
+            "server": "octocode-local",
+            "tool": "artifactSearch",
+            "sessions": 9,
+            "count": 25,
+            "errors": 3,
+            "unresolved": 0,
+            "totalMs": 75079,
+            "meanMs": 3003,
+            "p95Ms": 7650,
+            "maxMs": 7654,
+            "timed": 25,
+            "inputBytesTotal": 6978,
+            "resultBytesTotal": 49630,
+            "resultBytesMax": 14519,
+            "requests": 30,
+            "totalTokens": 2233651
+          },
+          {
+            "server": "octocode-local",
+            "tool": "clasify",
+            "sessions": 9,
+            "count": 18,
+            "errors": 3,
+            "unresolved": 0,
+            "totalMs": 58391,
+            "meanMs": 3244,
+            "p95Ms": 9494,
+            "maxMs": 9494,
+            "timed": 18,
+            "inputBytesTotal": 23607,
+            "resultBytesTotal": 71536,
+            "resultBytesMax": 37535,
+            "requests": 39,
+            "totalTokens": 5269149
+          },
+          {
+            "server": "octocode-local",
+            "tool": "astRewrite",
+            "sessions": 4,
+            "count": 13,
+            "errors": 2,
+            "unresolved": 0,
+            "totalMs": 39416,
+            "meanMs": 3032,
+            "p95Ms": 17613,
+            "maxMs": 17613,
+            "timed": 13,
+            "inputBytesTotal": 6063,
+            "resultBytesTotal": 40184,
+            "resultBytesMax": 20854,
+            "requests": 25,
+            "totalTokens": 2255944
+          },
+          {
+            "server": "octocode-local",
+            "tool": "jevReasoning",
+            "sessions": 2,
+            "count": 9,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 17385,
+            "meanMs": 1932,
+            "p95Ms": 2698,
+            "maxMs": 2698,
+            "timed": 9,
+            "inputBytesTotal": 12376,
+            "resultBytesTotal": 6288,
+            "resultBytesMax": 1167,
+            "requests": 32,
+            "totalTokens": 7564330
+          },
+          {
+            "server": "octocode-local",
+            "tool": "ghCloneRepo",
+            "sessions": 4,
+            "count": 8,
+            "errors": 3,
+            "unresolved": 0,
+            "totalMs": 26194,
+            "meanMs": 3274,
+            "p95Ms": 8557,
+            "maxMs": 8557,
+            "timed": 8,
+            "inputBytesTotal": 1714,
+            "resultBytesTotal": 3110,
+            "resultBytesMax": 911,
+            "requests": 66,
+            "totalTokens": 7765913
+          },
+          {
+            "server": "claude_ai_Claude_Docs",
+            "tool": "update",
+            "sessions": 1,
+            "count": 7,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 17664,
+            "meanMs": 2523,
+            "p95Ms": 4816,
+            "maxMs": 4816,
+            "timed": 7,
+            "inputBytesTotal": 11157,
+            "resultBytesTotal": 8215,
+            "resultBytesMax": 1332,
+            "requests": 0,
+            "totalTokens": 0
+          },
+          {
+            "server": "octocode-local",
+            "tool": "ghSearchRepo",
+            "sessions": 2,
+            "count": 5,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 24323,
+            "meanMs": 4865,
+            "p95Ms": 6541,
+            "maxMs": 6541,
+            "timed": 5,
+            "inputBytesTotal": 2075,
+            "resultBytesTotal": 19733,
+            "resultBytesMax": 16554,
+            "requests": 3,
+            "totalTokens": 470064
+          },
+          {
+            "server": "octocode-local",
+            "tool": "semanticAssess",
+            "sessions": 3,
+            "count": 3,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 12682,
+            "meanMs": 4227,
+            "p95Ms": 6777,
+            "maxMs": 6777,
+            "timed": 3,
+            "inputBytesTotal": 7356,
+            "resultBytesTotal": 9967,
+            "resultBytesMax": 8266,
+            "requests": 2,
+            "totalTokens": 475945
+          },
+          {
+            "server": "octocode-local",
+            "tool": "ghSearchCode",
+            "sessions": 2,
+            "count": 3,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 8295,
+            "meanMs": 2765,
+            "p95Ms": 4326,
+            "maxMs": 4326,
+            "timed": 3,
+            "inputBytesTotal": 536,
+            "resultBytesTotal": 3360,
+            "resultBytesMax": 2067,
+            "requests": 2,
+            "totalTokens": 212623
+          },
+          {
+            "server": "octocode-local",
+            "tool": "structureSearch",
+            "sessions": 2,
+            "count": 2,
+            "errors": 1,
+            "unresolved": 0,
+            "totalMs": 3361,
+            "meanMs": 1681,
+            "p95Ms": 2394,
+            "maxMs": 2394,
+            "timed": 2,
+            "inputBytesTotal": 782,
+            "resultBytesTotal": 1540,
+            "resultBytesMax": 1312,
+            "requests": 2,
+            "totalTokens": 184824
+          },
+          {
+            "server": "octocode-local",
+            "tool": "jev",
+            "sessions": 1,
+            "count": 2,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 79908,
+            "meanMs": 39954,
+            "p95Ms": 78783,
+            "maxMs": 78783,
+            "timed": 2,
+            "inputBytesTotal": 6897,
+            "resultBytesTotal": 5968,
+            "resultBytesMax": 3286,
+            "requests": 15,
+            "totalTokens": 1254550
+          },
+          {
+            "server": "claude_ai_Claude_Docs",
+            "tool": "guide",
+            "sessions": 1,
+            "count": 1,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 2059,
+            "meanMs": 2059,
+            "p95Ms": 2059,
+            "maxMs": 2059,
+            "timed": 1,
+            "inputBytesTotal": 41,
+            "resultBytesTotal": 35042,
+            "resultBytesMax": 35042,
+            "requests": 0,
+            "totalTokens": 0
+          },
+          {
+            "server": "claude_ai_Claude_Docs",
+            "tool": "batch",
+            "sessions": 1,
+            "count": 1,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 2820,
+            "meanMs": 2820,
+            "p95Ms": 2820,
+            "maxMs": 2820,
+            "timed": 1,
+            "inputBytesTotal": 1393,
+            "resultBytesTotal": 3725,
+            "resultBytesMax": 3725,
+            "requests": 0,
+            "totalTokens": 0
+          },
+          {
+            "server": "octocode-local",
+            "tool": "ghStructure",
+            "sessions": 1,
+            "count": 1,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 5003,
+            "meanMs": 5003,
+            "p95Ms": 5003,
+            "maxMs": 5003,
+            "timed": 1,
+            "inputBytesTotal": 129,
+            "resultBytesTotal": 493,
+            "resultBytesMax": 493,
+            "requests": 1,
+            "totalTokens": 161178
+          },
+          {
+            "server": "claude_ai_Claude_Docs",
+            "tool": "create",
+            "sessions": 1,
+            "count": 1,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 1814,
+            "meanMs": 1814,
+            "p95Ms": 1814,
+            "maxMs": 1814,
+            "timed": 1,
+            "inputBytesTotal": 572,
+            "resultBytesTotal": 402,
+            "resultBytesMax": 402,
+            "requests": 0,
+            "totalTokens": 0
+          },
+          {
+            "server": "claude.ai Claude Docs",
+            "tool": "batch",
+            "sessions": 1,
+            "count": 0,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 0,
+            "meanMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0,
+            "timed": 0,
+            "inputBytesTotal": 0,
+            "resultBytesTotal": 0,
+            "resultBytesMax": 0,
+            "requests": 1,
+            "totalTokens": 103328
+          },
+          {
+            "server": "claude.ai Claude Docs",
+            "tool": "create",
+            "sessions": 1,
+            "count": 0,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 0,
+            "meanMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0,
+            "timed": 0,
+            "inputBytesTotal": 0,
+            "resultBytesTotal": 0,
+            "resultBytesMax": 0,
+            "requests": 1,
+            "totalTokens": 195265
+          },
+          {
+            "server": "claude.ai Claude Docs",
+            "tool": "guide",
+            "sessions": 1,
+            "count": 0,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 0,
+            "meanMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0,
+            "timed": 0,
+            "inputBytesTotal": 0,
+            "resultBytesTotal": 0,
+            "resultBytesMax": 0,
+            "requests": 1,
+            "totalTokens": 117666
+          },
+          {
+            "server": "claude.ai Claude Docs",
+            "tool": "update",
+            "sessions": 1,
+            "count": 0,
+            "errors": 0,
+            "unresolved": 0,
+            "totalMs": 0,
+            "meanMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0,
+            "timed": 0,
+            "inputBytesTotal": 0,
+            "resultBytesTotal": 0,
+            "resultBytesMax": 0,
+            "requests": 8,
+            "totalTokens": 1415062
+          }
+        ]
+      },
+      "skills": {
+        "listedPeak": 43,
+        "invokedNames": 19,
+        "unused": 32,
+        "unusedNames": [
+          "anthropic-skills:docs",
+          "anthropic-skills:docx",
+          "anthropic-skills:google-workspace",
+          "anthropic-skills:import-memory",
+          "anthropic-skills:morning",
+          "anthropic-skills:pdf",
+          "anthropic-skills:pptx",
+          "anthropic-skills:skill-creator"
+        ],
+        "attributedTokens": 580543482
+      },
+      "context": {
+        "peak": 999616,
+        "peakP50": 246153,
+        "reReadP50": 66.1,
+        "redundantReads": 448,
+        "nearLimit": 7
+      },
+      "timing": {
+        "firstResponseP50": 4269,
+        "samples": 90,
+        "slow": [
+          {
+            "name": "Write",
+            "p95Ms": 410053,
+            "calls": 160,
+            "timed": 160
+          },
+          {
+            "name": "Bash",
+            "p95Ms": 399626,
+            "calls": 21532,
+            "timed": 21527
+          },
+          {
+            "name": "AskUserQuestion",
+            "p95Ms": 362692,
+            "calls": 35,
+            "timed": 35
+          },
+          {
+            "name": "Agent",
+            "p95Ms": 140937,
+            "calls": 260,
+            "timed": 260
+          },
+          {
+            "name": "ExitPlanMode",
+            "p95Ms": 91025,
+            "calls": 1,
+            "timed": 1
+          },
+          {
+            "name": "mcp__octocode-local__jev",
+            "p95Ms": 78783,
+            "calls": 2,
+            "timed": 2
+          },
+          {
+            "name": "Edit",
+            "p95Ms": 73463,
+            "calls": 89,
+            "timed": 89
+          },
+          {
+            "name": "mcp__octocode-local__lspSearch",
+            "p95Ms": 60297,
+            "calls": 21,
+            "timed": 21
+          }
+        ]
+      },
+      "findings": {
+        "high": 52,
+        "medium": 113
+      },
+      "trend": {
+        "sessions": 91,
+        "contextPeak": "down",
+        "toolErrorRate": "down"
+      },
+      "warnings": [
+        "7 sessions reached 70% of the context window",
+        "448 extra reads of a file already in that context",
+        "32 listed skills had no recorded invocation in this window",
+        "21 registered tools were never called",
+        "338 calls had no tool role",
+        "slow tools, highest session p95: Write 410053ms, Bash 399626ms, AskUserQuestion 362692ms, Agent 140937ms",
+        "52 high findings in the window",
+        "5 tool calls in finished sessions never received a result: Bash, mcp__octocode-local__localSearch"
+      ]
+    },
+    "configuration": [
+      {
+        "host": "claude-code",
+        "model": "sonnet",
+        "effort": "high",
+        "observedModels": [
+          "claude-opus-5-5",
+          "claude-opus-4-8",
+          "claude-fable-5",
+          "claude-sonnet-5",
+          "claude-sonnet-5-5",
+          "claude-haiku-4-5-20251001",
+          "claude-opus-5"
+        ],
+        "observedEfforts": [
+          "high",
+          "medium",
+          "max"
+        ],
+        "files": [
+          "~/.claude/settings.json",
+          "~/code/octocode/.claude/settings.local.json"
+        ]
+      }
+    ],
+    "coverage": [
+      {
+        "host": "claude-code",
+        "sessions": 91,
+        "versions": [
+          "2.1.212",
+          "2.1.267",
+          "2.1.280",
+          "2.1.281",
+          "2.1.282",
+          "2.1.283",
+          "2.1.284"
+        ],
+        "skills": "partial",
+        "hooks": "partial",
+        "permissions": "partial",
+        "unknownTypes": {},
+        "unknownRecords": 0
+      }
+    ]
+  },
+  "issues": {
+    "total": 120,
+    "failure": 31,
+    "review": 66,
+    "coverage": 23,
+    "rows": [
+      {
+        "domain": "agents",
+        "kind": "failure",
+        "code": "agent-errors",
+        "host": "claude-code",
+        "entity": "general-purpose",
+        "message": "Agent run explicitly reported an error status; inspect its own session for the cause.",
+        "unit": "runs",
+        "occurrences": 2,
+        "sessions": 1,
+        "sessionIds": [
+          "5ad54cb0-e125-465d-83ac-2f744be082f4"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/ghGetFileContent",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 67,
+        "sessions": 7,
+        "sessionIds": [
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "95ac4e50-7963-4881-a4b3-3fcabe2d2d04",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "bf90ecfc-7938-4c01-befa-aa8069403733",
+          "f19a7389-28ed-4362-bb38-c483ac732a5a",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/ghSearch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 51,
+        "sessions": 9,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "59c64d99-77a3-4544-8c5d-4ec634f16c3a",
+          "6c223e92-b364-4544-8581-ddff1018e7a8",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "a27dca32-2528-464b-bf94-4baffec8ddd8",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "bf90ecfc-7938-4c01-befa-aa8069403733",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/ghSearchHistory",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 25,
+        "sessions": 4,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/astSearch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 21,
+        "sessions": 6,
+        "sessionIds": [
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "8020caf8-999b-4426-84e1-41408c090361",
+          "86937e5f-51be-4ca4-a157-db17b409657c",
+          "9ca9a41d-b563-497e-8aac-8b301f5e7b19",
+          "bf90ecfc-7938-4c01-befa-aa8069403733",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/ghGetHistoryItem",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 21,
+        "sessions": 5,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "bf90ecfc-7938-4c01-befa-aa8069403733",
+          "f19a7389-28ed-4362-bb38-c483ac732a5a",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/localSearch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 15,
+        "sessions": 8,
+        "sessionIds": [
+          "3e7b86d0-957d-4017-9e9e-99d06a91dd08",
+          "62c88d2d-37cc-4c41-b96f-243cc3d78270",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "8020caf8-999b-4426-84e1-41408c090361",
+          "a27dca32-2528-464b-bf94-4baffec8ddd8",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/localFetch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 8,
+        "sessions": 3,
+        "sessionIds": [
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/lspSearch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 7,
+        "sessions": 4,
+        "sessionIds": [
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "9d3d580e-41d4-498f-9035-71232bc9edab"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/artifactSearch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 3,
+        "sessions": 1,
+        "sessionIds": [
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/clasify",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 3,
+        "sessions": 2,
+        "sessionIds": [
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/ghCloneRepo",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 3,
+        "sessions": 1,
+        "sessionIds": [
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/astRewrite",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 2,
+        "sessions": 1,
+        "sessionIds": [
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "octocode-local/structureSearch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "failure",
+        "code": "api-errors",
+        "host": "claude-code",
+        "entity": "provider API",
+        "message": "Recorded API error event; recovery and root cause require session evidence.",
+        "unit": "records",
+        "occurrences": 28,
+        "sessions": 9,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "805c525e-b173-4e79-bf96-80a28795d1b5",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "db290e32-3e33-4bc2-95cd-0d2a8bd2e460",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "skills",
+        "kind": "failure",
+        "code": "skill-errors",
+        "host": "claude-code",
+        "entity": "octocode-architect",
+        "message": "Skill invocations marked as errors. These can overlap the Skill tool error group.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "skills",
+        "kind": "failure",
+        "code": "skill-errors",
+        "host": "claude-code",
+        "entity": "octocode-clean-agentic-code",
+        "message": "Skill invocations marked as errors. These can overlap the Skill tool error group.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "Bash",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 567,
+        "sessions": 67,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "035e3738-c207-43e1-a0ee-f0e506018996",
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "2941d2b5-8a0b-45f0-9b0a-8e265afbe563",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "StructuredOutput",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 75,
+        "sessions": 3,
+        "sessionIds": [
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "Edit",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 19,
+        "sessions": 12,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "5fdd1337-75bf-48e3-9d33-c2f0d47fddad",
+          "62c88d2d-37cc-4c41-b96f-243cc3d78270",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44",
+          "8020caf8-999b-4426-84e1-41408c090361",
+          "848cf177-9632-4854-bbcd-f04dbb33811e",
+          "b938cbcf-b92f-4a62-8493-778ff9cfbbd0",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "bf90ecfc-7938-4c01-befa-aa8069403733"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "Read",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 11,
+        "sessions": 11,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "3884bb52-c7ea-460d-b10f-837f161c07d7",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "6c223e92-b364-4544-8581-ddff1018e7a8",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5",
+          "9ca9a41d-b563-497e-8aac-8b301f5e7b19"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "Write",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 10,
+        "sessions": 6,
+        "sessionIds": [
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "805c525e-b173-4e79-bf96-80a28795d1b5",
+          "9f98f51f-6baf-43bf-8a78-d17f5bcffbea",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "Agent",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 9,
+        "sessions": 2,
+        "sessionIds": [
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "805c525e-b173-4e79-bf96-80a28795d1b5"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "Monitor",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 9,
+        "sessions": 8,
+        "sessionIds": [
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "7aa39746-bfbc-45b0-940c-75fb51e931d1",
+          "7b09064c-a7e2-4800-94eb-51177c0ede4c",
+          "9992c143-ab20-4569-a607-ccf25c75f251",
+          "c916fbc8-8219-43c5-924a-c4ab2946633c",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "f70e9bd0-a5d5-477a-8f9f-a9df912daecf"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "AskUserQuestion",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 3,
+        "sessions": 3,
+        "sessionIds": [
+          "a27dca32-2528-464b-bf94-4baffec8ddd8",
+          "c958ecb2-0acd-45a8-84a5-f877e4a0cfd9",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "TaskCreate",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 3,
+        "sessions": 3,
+        "sessionIds": [
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "5fdd1337-75bf-48e3-9d33-c2f0d47fddad",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "Skill",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 2,
+        "sessions": 1,
+        "sessionIds": [
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "ScheduleWakeup",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "86937e5f-51be-4ca4-a157-db17b409657c"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "TaskGet",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "7aa39746-bfbc-45b0-940c-75fb51e931d1"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "artifactSearch",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "failure",
+        "code": "tool-errors",
+        "host": "claude-code",
+        "entity": "bash",
+        "message": "Recorded tool results marked as errors; this does not establish the cause or whether it was later resolved.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "agents",
+        "kind": "review",
+        "code": "agent-interrupted",
+        "host": "claude-code",
+        "entity": "claude",
+        "message": "Agent run was stopped; this may be intentional.",
+        "unit": "runs",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "agents",
+        "entity": "claude",
+        "unit": "entities",
+        "kind": "review",
+        "code": "outside-config",
+        "message": "Observed in the session window but absent from current collected declarations. Historical or out-of-scope configuration may explain it.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "agents",
+        "entity": "fork",
+        "unit": "entities",
+        "kind": "review",
+        "code": "outside-config",
+        "message": "Observed in the session window but absent from current collected declarations. Historical or out-of-scope configuration may explain it.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "agents",
+        "entity": "workflow-subagent",
+        "unit": "entities",
+        "kind": "review",
+        "code": "outside-config",
+        "message": "Observed in the session window but absent from current collected declarations. Historical or out-of-scope configuration may explain it.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "configuration",
+        "host": "claude-code",
+        "entity": "/rate-limit-options",
+        "unit": "entities",
+        "kind": "review",
+        "code": "command-outside-config",
+        "message": "Slash command recorded in sessions but absent from local command definitions and the known built-in list. It may be built in, account-side, historical, or out of scope.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "disabled-but-announced",
+        "host": "claude-code",
+        "entity": "claude_ai_Claude_Docs",
+        "message": "Disabled in current configuration, yet recorded sessions listed its tools as available. Current settings do not establish the earlier state; if the disable is current, it is not taking effect for these sessions.",
+        "unit": "sessions",
+        "occurrences": 8,
+        "sessions": 8,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "91384908-029a-4990-82a8-5dce1c6028e3",
+          "9992c143-ab20-4569-a607-ccf25c75f251",
+          "a27dca32-2528-464b-bf94-4baffec8ddd8",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/ghGetFileContent",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 5,
+        "sessions": 5,
+        "sessionIds": [
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "95ac4e50-7963-4881-a4b3-3fcabe2d2d04",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 43251
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/lspSearch",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 5,
+        "sessions": 5,
+        "sessionIds": [
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "9d3d580e-41d4-498f-9035-71232bc9edab",
+          "bf90ecfc-7938-4c01-befa-aa8069403733"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 60297
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/astSearch",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 4,
+        "sessions": 4,
+        "sessionIds": [
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "8020caf8-999b-4426-84e1-41408c090361"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 60006
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/ghSearch",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 4,
+        "sessions": 4,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 26259
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/localSearch",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 2,
+        "sessions": 2,
+        "sessionIds": [
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 59566
+      },
+      {
+        "host": "claude-code",
+        "domain": "mcp",
+        "entity": "claude_ai_Claude_Docs",
+        "unit": "entities",
+        "kind": "review",
+        "code": "disabled-with-history",
+        "message": "Disabled in current configuration but observed in session history. Current settings do not establish the earlier state.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/astRewrite",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 17613
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/ghGetHistoryItem",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 11383
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/ghSearchHistory",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 43232
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "octocode-local/jev",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "b06ddad0-76d4-4853-9a7f-f5d2b5b095bb"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 78783
+      },
+      {
+        "domain": "mcp",
+        "kind": "review",
+        "code": "tool-unresolved",
+        "host": "claude-code",
+        "entity": "octocode-local/localSearch",
+        "message": "No result recorded before the session ended; a missing result is not proof of a tool failure.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "b55dfaed-7e2f-4677-a6f6-696ab9b1d582"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "slow-tool",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 45,
+        "sessions": 45,
+        "sessionIds": [
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "22638adb-9eff-43f0-8567-132b92b4f527",
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "380410cf-f35e-4cd6-b596-fad99b58b163",
+          "462726bd-89be-4d29-a408-2873e44dd109",
+          "4c877452-65eb-4aef-9525-283d6ef36946"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "tool-errors",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 44,
+        "sessions": 44,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "2941d2b5-8a0b-45f0-9b0a-8e265afbe563",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "reread-files",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 37,
+        "sessions": 37,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "336a3c22-394d-48e4-aadb-0ae315c8ced0",
+          "3e7b86d0-957d-4017-9e9e-99d06a91dd08",
+          "462726bd-89be-4d29-a408-2873e44dd109",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "cache-ttl-churn",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 25,
+        "sessions": 25,
+        "sessionIds": [
+          "035e3738-c207-43e1-a0ee-f0e506018996",
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d",
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "3e7b86d0-957d-4017-9e9e-99d06a91dd08",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "62c88d2d-37cc-4c41-b96f-243cc3d78270"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "model-for-task",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 20,
+        "sessions": 20,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "22638adb-9eff-43f0-8567-132b92b4f527",
+          "2941d2b5-8a0b-45f0-9b0a-8e265afbe563",
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "59c64d99-77a3-4544-8c5d-4ec634f16c3a",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "72b538ed-c7dd-4257-943c-309378330ad5"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "edit-churn",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 19,
+        "sessions": 19,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "3e7b86d0-957d-4017-9e9e-99d06a91dd08",
+          "4175d6d1-aecb-4970-b3b3-367012486a43",
+          "462726bd-89be-4d29-a408-2873e44dd109",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "5fdd1337-75bf-48e3-9d33-c2f0d47fddad",
+          "62c88d2d-37cc-4c41-b96f-243cc3d78270",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "mcp-definition-weight",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 19,
+        "sessions": 19,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "59c64d99-77a3-4544-8c5d-4ec634f16c3a",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "667c2b4b-8bb6-4071-9c05-3abe41f30249",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "805c525e-b173-4e79-bf96-80a28795d1b5",
+          "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "cache-invalidation",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 18,
+        "sessions": 18,
+        "sessionIds": [
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "59c64d99-77a3-4544-8c5d-4ec634f16c3a",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44",
+          "6c223e92-b364-4544-8581-ddff1018e7a8",
+          "72b538ed-c7dd-4257-943c-309378330ad5"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "cache-dominates-tokens",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 15,
+        "sessions": 15,
+        "sessionIds": [
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "8020caf8-999b-4426-84e1-41408c090361",
+          "805c525e-b173-4e79-bf96-80a28795d1b5",
+          "825ea73c-b22c-4ee7-a861-8cd49693ad88"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "large-writes",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 14,
+        "sessions": 14,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d",
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "3884bb52-c7ea-460d-b10f-837f161c07d7",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "7aa39746-bfbc-45b0-940c-75fb51e931d1"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "unverified-edits",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 14,
+        "sessions": 14,
+        "sessionIds": [
+          "035e3738-c207-43e1-a0ee-f0e506018996",
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "336a3c22-394d-48e4-aadb-0ae315c8ced0",
+          "380410cf-f35e-4cd6-b596-fad99b58b163",
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "739a97b8-af70-446f-b828-8109f7b5cac6",
+          "91384908-029a-4990-82a8-5dce1c6028e3",
+          "999316ed-69c2-4f23-81df-babf35173231",
+          "9d3d580e-41d4-498f-9035-71232bc9edab"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "oversized-tool-results",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 13,
+        "sessions": 13,
+        "sessionIds": [
+          "336a3c22-394d-48e4-aadb-0ae315c8ced0",
+          "4175d6d1-aecb-4970-b3b3-367012486a43",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "5fdd1337-75bf-48e3-9d33-c2f0d47fddad",
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "8020caf8-999b-4426-84e1-41408c090361",
+          "91384908-029a-4990-82a8-5dce1c6028e3",
+          "9992c143-ab20-4569-a607-ccf25c75f251",
+          "bd75649c-a022-467e-93fb-7588f4727357"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "script-candidate",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 12,
+        "sessions": 12,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "5ec04af1-34ed-409f-ac7a-6dc46f7367a8",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44",
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "848cf177-9632-4854-bbcd-f04dbb33811e",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "bf90ecfc-7938-4c01-befa-aa8069403733"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "skill-token-weight",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 10,
+        "sessions": 10,
+        "sessionIds": [
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "825ea73c-b22c-4ee7-a861-8cd49693ad88",
+          "bf90ecfc-7938-4c01-befa-aa8069403733",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "d4186ff3-97ca-4914-b28d-ed7ddf79f35d",
+          "f19a7389-28ed-4362-bb38-c483ac732a5a",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "api-errors",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 9,
+        "sessions": 9,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "805c525e-b173-4e79-bf96-80a28795d1b5",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "db290e32-3e33-4bc2-95cd-0d2a8bd2e460",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "sensitive-access",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 9,
+        "sessions": 9,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "bf90ecfc-7938-4c01-befa-aa8069403733",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "d58dfe02-0226-4e25-a46c-3344ff8241f7",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "thinking-on-mechanical",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 9,
+        "sessions": 9,
+        "sessionIds": [
+          "035e3738-c207-43e1-a0ee-f0e506018996",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "667c2b4b-8bb6-4071-9c05-3abe41f30249",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5",
+          "d58dfe02-0226-4e25-a46c-3344ff8241f7"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "truncated-reads",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 8,
+        "sessions": 8,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "336a3c22-394d-48e4-aadb-0ae315c8ced0",
+          "3e7b86d0-957d-4017-9e9e-99d06a91dd08",
+          "4175d6d1-aecb-4970-b3b3-367012486a43",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44",
+          "6c223e92-b364-4544-8581-ddff1018e7a8",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "reverts",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 7,
+        "sessions": 7,
+        "sessionIds": [
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "5fdd1337-75bf-48e3-9d33-c2f0d47fddad",
+          "8020caf8-999b-4426-84e1-41408c090361",
+          "848cf177-9632-4854-bbcd-f04dbb33811e",
+          "95ac4e50-7963-4881-a4b3-3fcabe2d2d04",
+          "9f4e123e-6765-47b6-9ec4-58e6d53bc178",
+          "a7eaacfd-40d5-421b-bf0c-d8d6c82d0bdb"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "secret-exposure",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 7,
+        "sessions": 7,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "6c223e92-b364-4544-8581-ddff1018e7a8",
+          "9f98f51f-6baf-43bf-8a78-d17f5bcffbea",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "user-pushback",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 5,
+        "sessions": 5,
+        "sessionIds": [
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "9f4e123e-6765-47b6-9ec4-58e6d53bc178",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "c958ecb2-0acd-45a8-84a5-f877e4a0cfd9",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "context-near-limit",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 4,
+        "sessions": 4,
+        "sessionIds": [
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "805c525e-b173-4e79-bf96-80a28795d1b5",
+          "825ea73c-b22c-4ee7-a861-8cd49693ad88"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "compactions",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 3,
+        "sessions": 3,
+        "sessionIds": [
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "risky-commands",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 3,
+        "sessions": 3,
+        "sessionIds": [
+          "848cf177-9632-4854-bbcd-f04dbb33811e",
+          "9f98f51f-6baf-43bf-8a78-d17f5bcffbea",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "sequential-reads",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 3,
+        "sessions": 3,
+        "sessionIds": [
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "8020caf8-999b-4426-84e1-41408c090361",
+          "a27dca32-2528-464b-bf94-4baffec8ddd8"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "failed-agents",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 2,
+        "sessions": 2,
+        "sessionIds": [
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "idle-agents",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 2,
+        "sessions": 2,
+        "sessionIds": [
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "unresolved-tool-calls",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 2,
+        "sessions": 2,
+        "sessionIds": [
+          "b55dfaed-7e2f-4677-a6f6-696ab9b1d582",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "write-not-edit",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 2,
+        "sessions": 2,
+        "sessionIds": [
+          "9ca9a41d-b563-497e-8aac-8b301f5e7b19",
+          "bf90ecfc-7938-4c01-befa-aa8069403733"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "blocking-questions",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "fanout-opportunity",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "5fdd1337-75bf-48e3-9d33-c2f0d47fddad"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "hidden-iterations",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "model-fallback",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "sessions",
+        "kind": "review",
+        "code": "session-finding",
+        "host": "claude-code",
+        "entity": "output-burst",
+        "message": "An existing session analysis rule fired. Inspect that session for its measurements and context.",
+        "unit": "findings",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "artifact-design",
+        "unit": "entities",
+        "kind": "review",
+        "code": "outside-config",
+        "message": "Observed in the session window but absent from current collected declarations. Historical or out-of-scope configuration may explain it.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "Bash",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 64,
+        "sessions": 64,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "22638adb-9eff-43f0-8567-132b92b4f527",
+          "27f72a37-ab4e-486d-82bd-65902bfc2c0b",
+          "29826a2c-0e3d-49f3-b68a-bff08e5a326d",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "34961e11-5bb7-425f-b931-967ba8f56d99"
+        ],
+        "sessionIdsTruncated": true,
+        "maxP95Ms": 399626
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "AskUserQuestion",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 26,
+        "sessions": 26,
+        "sessionIds": [
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "2941d2b5-8a0b-45f0-9b0a-8e265afbe563",
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "3e7b86d0-957d-4017-9e9e-99d06a91dd08",
+          "4175d6d1-aecb-4970-b3b3-367012486a43",
+          "462726bd-89be-4d29-a408-2873e44dd109",
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "6c223e92-b364-4544-8581-ddff1018e7a8"
+        ],
+        "sessionIdsTruncated": true,
+        "maxP95Ms": 362692
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "Agent",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 18,
+        "sessions": 18,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "2941d2b5-8a0b-45f0-9b0a-8e265afbe563",
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "59c64d99-77a3-4544-8c5d-4ec634f16c3a",
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "62950236-13c9-4e11-a2e6-908b4f4c464f",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "805c525e-b173-4e79-bf96-80a28795d1b5",
+          "80b9be40-2bad-4c9a-9bfb-a5e4d0d0c6c5"
+        ],
+        "sessionIdsTruncated": true,
+        "maxP95Ms": 140937
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "Write",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 12,
+        "sessions": 12,
+        "sessionIds": [
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "203ab905-82de-48b6-9f16-efcc02154fa5",
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "59c64d99-77a3-4544-8c5d-4ec634f16c3a",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "8e1c42b3-2923-44fa-90cb-45283d12ed95",
+          "b453785a-b359-4d60-8757-91f4fd9999bb",
+          "b938cbcf-b92f-4a62-8493-778ff9cfbbd0",
+          "bd75649c-a022-467e-93fb-7588f4727357",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04"
+        ],
+        "sessionIdsTruncated": true,
+        "maxP95Ms": 410053
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "Edit",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 6,
+        "sessions": 6,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "3789c94e-cd4a-4db8-b2c3-b9523c00d974",
+          "739a97b8-af70-446f-b828-8109f7b5cac6",
+          "848cf177-9632-4854-bbcd-f04dbb33811e",
+          "86937e5f-51be-4ca4-a157-db17b409657c",
+          "f0e47ec6-f9ac-4c2e-ada1-267ccf61f2c6"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 73463
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "SendMessage",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 4,
+        "sessions": 4,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "9f98f51f-6baf-43bf-8a78-d17f5bcffbea",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44",
+          "d58dfe02-0226-4e25-a46c-3344ff8241f7"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 39967
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "WebFetch",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 4,
+        "sessions": 4,
+        "sessionIds": [
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "5ad54cb0-e125-465d-83ac-2f744be082f4",
+          "65ab1fe9-83fa-4389-b4ff-f43304331b44",
+          "72b538ed-c7dd-4257-943c-309378330ad5"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 26909
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-unresolved",
+        "host": "claude-code",
+        "entity": "Bash",
+        "message": "No result recorded before the session ended; a missing result is not proof of a tool failure.",
+        "unit": "calls",
+        "occurrences": 4,
+        "sessions": 1,
+        "sessionIds": [
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "WebSearch",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 2,
+        "sessions": 2,
+        "sessionIds": [
+          "4c877452-65eb-4aef-9525-283d6ef36946",
+          "91384908-029a-4990-82a8-5dce1c6028e3"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 29053
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "ArtifactComments",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 10573
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "ExitPlanMode",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "7a7b0944-b024-4dfd-9189-d4fbc73e05b8"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 91025
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "Read",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "dbae93dc-ff21-41df-b0bb-d2a12065a9d4"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 43067
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "SubagentHandback",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "2941d2b5-8a0b-45f0-9b0a-8e265afbe563"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 37153
+      },
+      {
+        "domain": "tools",
+        "kind": "review",
+        "code": "tool-slow",
+        "host": "claude-code",
+        "entity": "TaskCreate",
+        "message": "Session p95 reached 10,000 ms. Long-running work may be intentional; this is not a timeout diagnosis.",
+        "unit": "sessions",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "bf90ecfc-7938-4c01-befa-aa8069403733"
+        ],
+        "sessionIdsTruncated": false,
+        "maxP95Ms": 11840
+      },
+      {
+        "domain": "data",
+        "kind": "coverage",
+        "code": "parse-warning",
+        "host": "claude-code",
+        "entity": "duplicate_uuid",
+        "message": "Parser warning; inspect the session Coverage view for its source detail.",
+        "unit": "records",
+        "occurrences": 92,
+        "sessions": 4,
+        "sessionIds": [
+          "334cdf82-0cc3-4c32-b413-f48b348c0570",
+          "6c223e92-b364-4544-8581-ddff1018e7a8",
+          "72b538ed-c7dd-4257-943c-309378330ad5",
+          "e94e9e36-9f57-4d55-be90-40acdbb66d04"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "data",
+        "kind": "coverage",
+        "code": "partial-observation",
+        "host": "claude-code",
+        "entity": "hooks: partial",
+        "message": "Provider evidence cannot establish complete activity in this domain.",
+        "unit": "sessions",
+        "occurrences": 91,
+        "sessions": 91,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "02d69665-e872-41cf-a863-16ea7f9f1235",
+          "02f482a8-4cb1-489f-8110-fea3518f3858",
+          "035e3738-c207-43e1-a0ee-f0e506018996",
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "203ab905-82de-48b6-9f16-efcc02154fa5"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "data",
+        "kind": "coverage",
+        "code": "partial-observation",
+        "host": "claude-code",
+        "entity": "permissions: partial",
+        "message": "Provider evidence cannot establish complete activity in this domain.",
+        "unit": "sessions",
+        "occurrences": 91,
+        "sessions": 91,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "02d69665-e872-41cf-a863-16ea7f9f1235",
+          "02f482a8-4cb1-489f-8110-fea3518f3858",
+          "035e3738-c207-43e1-a0ee-f0e506018996",
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "203ab905-82de-48b6-9f16-efcc02154fa5"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "data",
+        "kind": "coverage",
+        "code": "partial-observation",
+        "host": "claude-code",
+        "entity": "skills: partial",
+        "message": "Provider evidence cannot establish complete activity in this domain.",
+        "unit": "sessions",
+        "occurrences": 91,
+        "sessions": 91,
+        "sessionIds": [
+          "0154eaf4-686e-4bba-9cc0-9f5c0bbe0825",
+          "02d69665-e872-41cf-a863-16ea7f9f1235",
+          "02f482a8-4cb1-489f-8110-fea3518f3858",
+          "035e3738-c207-43e1-a0ee-f0e506018996",
+          "06f63d4c-5dad-4076-aab2-84e5a2da75a3",
+          "0738c2bc-ba87-49a4-9689-bcb64d0587cc",
+          "153e9bfb-7c31-4dcf-a07a-1a0a7f878d5a",
+          "177746d6-c153-4779-a4a1-b0ee62dd3b9f",
+          "1957f980-f715-4f9f-b78d-4aff01c303fb",
+          "203ab905-82de-48b6-9f16-efcc02154fa5"
+        ],
+        "sessionIdsTruncated": true
+      },
+      {
+        "domain": "data",
+        "kind": "coverage",
+        "code": "lifecycle-unknown",
+        "host": "claude-code",
+        "entity": "session lifecycle",
+        "message": "No explicit evidence establishes whether the session ended.",
+        "unit": "sessions",
+        "occurrences": 6,
+        "sessions": 6,
+        "sessionIds": [
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "44dd8ee3-556b-4dcd-8837-cb73168538c9",
+          "9d6071d8-7919-4ea5-9238-081aeffafe32",
+          "a2d29c82-40c9-4571-8342-e395370821be",
+          "b8816272-0c49-4b08-b45f-ce3ce992c8fd",
+          "f4f31ab4-65dc-48f5-accd-456ea64603f8"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "data",
+        "kind": "coverage",
+        "code": "parse-warning",
+        "host": "claude-code",
+        "entity": "unresolved_tool_calls",
+        "message": "Parser warning; inspect the session Coverage view for its source detail.",
+        "unit": "records",
+        "occurrences": 6,
+        "sessions": 3,
+        "sessionIds": [
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "b55dfaed-7e2f-4677-a6f6-696ab9b1d582",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "mcp",
+        "kind": "coverage",
+        "code": "tool-duration-missing",
+        "host": "claude-code",
+        "entity": "octocode-local/localSearch",
+        "message": "Calls without recorded duration; latency statistics cover only timed calls.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "b55dfaed-7e2f-4677-a6f6-696ab9b1d582"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "docs · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docs/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "docx · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/docx/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "google-workspace · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/google-workspace/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "import-memory · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/import-memory/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "morning · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/morning/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "octocode-chrome-devtools · ~/code/octocode/.claude/skills/octocode-chrome-devtools/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "octocode-orchestrator-local-worker · ~/code/octocode/.claude/skills/octocode-orchestrator-local-worker/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "octocode-subagent · ~/code/octocode/.claude/skills/octocode-subagent/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "pdf · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pdf/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "pptx · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/pptx/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "skill-creator · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/skill-creator/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "host": "claude-code",
+        "domain": "skills",
+        "entity": "xlsx · ~/.claude/skills/synced/badbc7dc-d313-48ab-89c8-df5244b70312_48f4bb41-9d39-41af-b65e-096efe4f99ff/xlsx/SKILL.md",
+        "unit": "entities",
+        "kind": "coverage",
+        "code": "entity-unknown",
+        "message": "Observation, enablement, or identity evidence is insufficient. This is not a disabled or broken declaration.",
+        "occurrences": 1,
+        "sessions": 0,
+        "sessionIds": [],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "coverage",
+        "code": "tool-role-unknown",
+        "host": "claude-code",
+        "entity": "StructuredOutput",
+        "message": "The analyzer could not classify the tool role.",
+        "unit": "calls",
+        "occurrences": 330,
+        "sessions": 3,
+        "sessionIds": [
+          "694a438b-d01e-42e8-b116-fa0fcc1efb5e",
+          "bd81680e-7ebc-438d-895e-98ed8591ebf6",
+          "ffe7c050-0501-40b9-ae49-08882a6c0b19"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "coverage",
+        "code": "tool-role-unknown",
+        "host": "claude-code",
+        "entity": "ScheduleWakeup",
+        "message": "The analyzer could not classify the tool role.",
+        "unit": "calls",
+        "occurrences": 8,
+        "sessions": 2,
+        "sessionIds": [
+          "73bb21bd-0c93-4e1e-921a-3af2d0cc18fe",
+          "86937e5f-51be-4ca4-a157-db17b409657c"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "coverage",
+        "code": "tool-duration-missing",
+        "host": "claude-code",
+        "entity": "Bash",
+        "message": "Calls without recorded duration; latency statistics cover only timed calls.",
+        "unit": "calls",
+        "occurrences": 5,
+        "sessions": 2,
+        "sessionIds": [
+          "34961e11-5bb7-425f-b931-967ba8f56d99",
+          "d3a1906b-02e5-44f3-a382-8188b78c3b44"
+        ],
+        "sessionIdsTruncated": false
+      },
+      {
+        "domain": "tools",
+        "kind": "coverage",
+        "code": "tool-pending",
+        "host": "claude-code",
+        "entity": "Bash",
+        "message": "No result recorded in a running or unknown-lifecycle session; completion cannot be determined.",
+        "unit": "calls",
+        "occurrences": 1,
+        "sessions": 1,
+        "sessionIds": [
+          "34961e11-5bb7-425f-b931-967ba8f56d99"
+        ],
+        "sessionIdsTruncated": false
+      }
+    ]
+  },
+  "notes": [
+    "Memory evidence describes local stores, not context injection. Claude worktree-shared roots and directory environment overrides are not reconstructed. Declared custom locations are inspected without asserting effective settings. Codex database schemas are internal and may change; thread attribution and history counts are bounded. Generated memory files remain shared host data.",
+    "Current local declarations are a snapshot, not proof of configuration used by historical sessions.",
+    "Codex exec-policy rule files are counted, not interpreted. Vendor diagnostic logs, task queues and automation state are not interpreted. Persisted tool-output files and historical file snapshots are not independently imported.",
+    "Project trust, command-line overrides, remote managed policy, additional directories, memory imports, nested instruction files, and runtime plugin overrides are not reconstructed. Local managed policy files are read as declarations; precedence is not evaluated. Project declarations are not claimed effective.",
+    "Custom commands, prompts and output styles are local definitions; built-in and account-side commands are not enumerated. claude.ai connector names come from a local client record, not current account state.",
+    "Plugin cache presence is not enablement; cached versions may be inactive. Configured enablement is separate from selected version and runtime loading. Remote installs, CLI plugin directories, marketplace overlays, and unsupported manifest formats may be missing. Hook command basenames can be ambiguous.",
+    "claude-code: skills partial, hooks partial, permissions partial; 0 unhandled records. Missing observations are not proof of non-use.",
+    "5 rows marked undeclared: observed in sessions but not found in the config that was read (a source outside this scope, or drift)"
+  ]
+}

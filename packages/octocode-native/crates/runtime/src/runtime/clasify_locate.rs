@@ -404,9 +404,8 @@ pub(super) fn collapse_locate_answer(
 
 /// Locate candidates across every page and resource of one query, ordered by
 /// `exists` and then window probability (never their product: probability
-/// only ranks passages within a page that answers). A single window is kept:
-/// it travels in `carry` and may be the answer, though `best` shows it only
-/// once a second window joins (see `readable_best`).
+/// only ranks passages within a page that answers). Rows here carry no read:
+/// this is the copyable `carry` form (see `with_row_reads` for `best`).
 pub(super) fn rank_locate(
     resources: &[Value],
     locate_ids: &[&str],
@@ -471,12 +470,12 @@ pub(super) fn rank_locate(
 }
 
 /// Publish `best` when the walk is finished, or when its top window already
-/// answers. A low-exists ranking on an open walk stays in `carry` only, and
-/// so does a lone window: public `best` rows are a 2–3 window ranking.
+/// answers; a lone strong window is published too. A low-exists ranking on
+/// an open walk stays in `carry` only.
 pub(super) fn readable_best(best: &Value, walk_open: bool) -> Option<Value> {
     let mut kept = Map::new();
     for (id, rows) in best.as_object()? {
-        let Some(rows) = rows.as_array().filter(|rows| rows.len() >= 2) else {
+        let Some(rows) = rows.as_array().filter(|rows| !rows.is_empty()) else {
             continue;
         };
         let top = rows
@@ -489,6 +488,43 @@ pub(super) fn readable_best(best: &Value, walk_open: bool) -> Option<Value> {
         }
     }
     (!kept.is_empty()).then_some(Value::Object(kept))
+}
+
+/// One assessed page's executable read: the resource and source path it reads,
+/// and the call a `best` row narrows to its own window.
+pub(super) struct LocateRead {
+    pub(super) resource_id: String,
+    pub(super) path: Option<String>,
+    pub(super) read: Value,
+}
+
+/// Give each public `best` row `next.read` of exactly its window, from a page
+/// of the same resource and file. A row with no line-addressable file read
+/// (e.g. a carried row whose file this call did not read) stays without one.
+pub(super) fn with_row_reads(mut best: Value, reads: &[LocateRead]) -> Value {
+    let rows = best
+        .as_object_mut()
+        .into_iter()
+        .flat_map(|best| best.values_mut())
+        .filter_map(Value::as_array_mut)
+        .flatten();
+    for row in rows {
+        let (Some(start), Some(end)) = (row["startLine"].as_u64(), row["endLine"].as_u64()) else {
+            continue;
+        };
+        let resource = row["resourceId"].as_str();
+        let path = row.get("path").and_then(Value::as_str);
+        let read = reads
+            .iter()
+            .filter(|read| {
+                Some(read.resource_id.as_str()) == resource && read.path.as_deref() == path
+            })
+            .find_map(|read| super::clasify_output::window_read(&read.read, start, end));
+        if let Some(read) = read {
+            row["next"] = json!({"read":read});
+        }
+    }
+    best
 }
 
 fn is_candidate_row(row: &Value) -> bool {
@@ -515,13 +551,71 @@ fn is_candidate_row(row: &Value) -> bool {
 /// A target that names a code identifier is usually cheaper and exact with
 /// localSearch; locate earns its cost on described behavior.
 pub(super) fn literal_target_hint(target: &str) -> Option<String> {
-    let identifier = target
-        .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '"' | '\'' | '`' | '?' | '!'))
-        .map(|token| token.trim_end_matches(['.', ')']).trim_end_matches('('))
-        .find(|token| looks_like_identifier(token))?;
+    let identifier = literal_target(target)?;
     Some(format!(
         "Target names `{identifier}`; if that literal is what you need, localSearch finds it exactly and cheaper than locate."
     ))
+}
+
+fn literal_target(target: &str) -> Option<&str> {
+    target
+        .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '"' | '\'' | '`' | '?' | '!'))
+        .map(|token| token.trim_end_matches(['.', ')']).trim_end_matches('('))
+        .find(|token| looks_like_identifier(token))
+}
+
+/// `next.localSearch`: the first identifier a locate target names, searched
+/// literally over the local resources (their one path, or the deepest
+/// directory they share). Remote or path-less resources keep the hint alone.
+/// It is a follow-up of this query, so it inherits the brief.
+pub(super) fn literal_search<'a>(
+    targets: impl IntoIterator<Item = &'a str>,
+    resources: &[Value],
+) -> Option<Value> {
+    let literal = targets.into_iter().find_map(literal_target)?;
+    let path = local_scope(resources)?;
+    let query: crate::contracts::tool_types::LocalSearchQuery = serde_json::from_value(
+        json!({"path":path,"searchText":literal,"regex":"literal","followUp":true}),
+    )
+    .ok()?;
+    let mut query = serde_json::to_value(query).ok()?;
+    query.as_object_mut()?.retain(|_, value| !value.is_null());
+    super::continuations::compact_input("localSearch", &mut query);
+    Some(json!({"tool":"localSearch","query":query}))
+}
+
+/// The one path every local resource reads under: a single file or directory,
+/// else their deepest shared directory. A remote resource, or paths sharing
+/// no directory below the root, leaves no scope.
+fn local_scope(resources: &[Value]) -> Option<String> {
+    use std::path::{Path, PathBuf};
+    let mut paths = Vec::<&str>::new();
+    for resource in resources {
+        let context = &resource["context"];
+        match context["tool"].as_str() {
+            Some("localFetch" | "localSearch" | "structureSearch" | "astSearch") => {
+                let path = context["query"]["path"]
+                    .as_str()
+                    .filter(|path| !path.is_empty())?;
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+            _ => return None,
+        }
+    }
+    let (first, rest) = paths.split_first()?;
+    if rest.is_empty() {
+        return Some((*first).to_owned());
+    }
+    let mut common: PathBuf = Path::new(first).parent()?.to_path_buf();
+    for path in rest {
+        while !Path::new(path).starts_with(&common) {
+            common = common.parent()?.to_path_buf();
+        }
+    }
+    let scope = common.to_str()?;
+    (!scope.is_empty() && common.parent().is_some()).then(|| scope.to_owned())
 }
 
 fn looks_like_identifier(token: &str) -> bool {
@@ -711,12 +805,12 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(lines, vec![900, 700, 1]);
         assert_eq!(best["t"][0]["resourceId"], "r");
-        // A single strong window is kept for carry, though not yet public.
+        // A single strong window is public on its own, open walk or not.
         let single = vec![json!({"resourceId":"r","pages":[page("a.js", 0.9, 0.9, 1)]})];
         let lone = rank_locate(&single, &["t"], None).unwrap();
         assert_eq!(lone["t"].as_array().unwrap().len(), 1);
-        assert!(readable_best(&lone, false).is_none());
-        assert!(readable_best(&lone, true).is_none());
+        assert_eq!(readable_best(&lone, false).unwrap(), lone);
+        assert_eq!(readable_best(&lone, true).unwrap(), lone);
         // A lone carried row survives the next call with no new windows.
         let carried = rank_locate(&[], &["t"], Some(&lone)).unwrap();
         assert_eq!(carried["t"][0]["startLine"], 1);
@@ -776,6 +870,53 @@ mod tests {
     }
 
     #[test]
+    fn best_rows_read_exactly_their_window_and_carry_stays_copyable() {
+        let page = |path: &str, line: u64| {
+            json!({"source":{"path":path},"answers":{"t":{"exists":0.9,
+                "matches":[{"startLine":line,"endLine":line + 7,"probability":0.9}]}}})
+        };
+        let resources = vec![json!({"resourceId":"g","pages":[page("o/r/src/a.rs", 40)]})];
+        let best = rank_locate(&resources, &["t"], None).unwrap();
+        let reads = [
+            LocateRead {
+                resource_id: "g".into(),
+                path: Some("o/r/src/other.rs".into()),
+                read: json!({"tool":"ghGetFileContent","query":{"owner":"o","repo":"r","path":"src/other.rs"}}),
+            },
+            LocateRead {
+                resource_id: "g".into(),
+                path: Some("o/r/src/a.rs".into()),
+                read: json!({"tool":"ghGetFileContent","query":{"owner":"o","repo":"r",
+                    "path":"src/a.rs","branch":"abc","fullContent":true}}),
+            },
+        ];
+        let visible = with_row_reads(readable_best(&best, true).unwrap(), &reads);
+        assert_eq!(
+            visible["t"][0]["next"]["read"],
+            json!({"tool":"ghGetFileContent","query":{"owner":"o","repo":"r",
+                "path":"src/a.rs","branch":"abc","startLine":40,"endLine":47}})
+        );
+        // The ranking itself (the carry form) never gains a read.
+        assert!(best["t"][0].get("next").is_none());
+        // No read for another resource, or a non-file read.
+        let search = [LocateRead {
+            resource_id: "g".into(),
+            path: Some("o/r/src/a.rs".into()),
+            read: json!({"tool":"ghSearchCode","query":{"keywords":["x"]}}),
+        }];
+        assert!(
+            with_row_reads(best.clone(), &search)["t"][0]
+                .get("next")
+                .is_none()
+        );
+        assert!(
+            with_row_reads(best.clone(), &[])["t"][0]
+                .get("next")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn identifier_targets_get_a_literal_search_hint() {
         for target in [
             "Where is parse_cbor_internal defined?",
@@ -791,5 +932,46 @@ mod tests {
         ] {
             assert!(literal_target_hint(target).is_none(), "{target}");
         }
+    }
+
+    fn local(tool: &str, path: &str) -> Value {
+        json!({"id":path,"context":{"tool":tool,"query":{"path":path}}})
+    }
+
+    #[test]
+    fn identifier_targets_get_an_executable_literal_search_over_local_resources() {
+        let targets = ["The retry loop.", "Where is parse_cbor_internal defined?"];
+        let one = [local("localFetch", "/repo/src/cbor.rs")];
+        let next = literal_search(targets, &one).unwrap();
+        assert_eq!(next["tool"], "localSearch");
+        assert_eq!(next["query"]["path"], "/repo/src/cbor.rs");
+        assert_eq!(next["query"]["searchText"], "parse_cbor_internal");
+        assert_eq!(next["query"]["regex"], "literal");
+        assert_eq!(next["query"]["followUp"], true);
+        assert!(next["query"].get("page").is_none(), "compact: {next}");
+        crate::contracts::validate_query("localSearch", next["query"].clone()).unwrap();
+        // Several local resources search their deepest shared directory.
+        let many = [
+            local("localFetch", "/repo/src/a/cbor.rs"),
+            local("localSearch", "/repo/src/b"),
+            local("localFetch", "/repo/src/a/cbor.rs"),
+        ];
+        assert_eq!(
+            literal_search(targets, &many).unwrap()["query"]["path"],
+            "/repo/src"
+        );
+        // No shared directory below the root, a remote resource, or no
+        // identifier target: the string hint stands alone.
+        let apart = [
+            local("localFetch", "/a/x.rs"),
+            local("localFetch", "/b/y.rs"),
+        ];
+        assert!(literal_search(targets, &apart).is_none());
+        let remote = [
+            local("localFetch", "/repo/a.rs"),
+            json!({"id":"g","context":{"tool":"ghGetFileContent","query":{"owner":"o","repo":"r","path":"a.rs"}}}),
+        ];
+        assert!(literal_search(targets, &remote).is_none());
+        assert!(literal_search(["The retry loop."], &one).is_none());
     }
 }

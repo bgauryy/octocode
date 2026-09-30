@@ -1,0 +1,5 @@
+# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "hover", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "symbolName": "helper", "lineHint": 4, "position": {"line": 3, "character": 12}}
+# env: None
+# exit: 2
+# stderr: 
+{"kind":"octocode.toolError","version":1,"tool":"lspSearch","error":"Check the query fields.","details":["position: `position` cannot be combined with `lineHint`, `symbolName`: they are mutually exclusive, send one or the other"]}

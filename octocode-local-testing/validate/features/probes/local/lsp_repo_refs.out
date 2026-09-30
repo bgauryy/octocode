@@ -1,0 +1,5 @@
+# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "references", "uri": "/Users/bgaryy/code/octocode/packages/octocode-mcp/src/native/validationMessages.ts", "symbolName": "editDistance", "lineHint": 42}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"resolvedSymbol":{"name":"editDistance","foundAtLine":42,"foundAtCharacter":17},"payload":{"kind":"references","locations":[{"displayRange":{"startLine":42,"startCharacter":17,"endLine":42},"content":"export function editDistance(a: string, b: string): number {"},{"displayRange":{"startLine":71,"startCharacter":11,"endLine":71},"content":"        : editDistance(lowered, candidate.toLowerCase());"}],"totalReferences":2,"totalFiles":1,"coverage":{"scope":"languageServer","exhaustive":false,"importerScan":"complete","verifiedImporterFiles":0}},"path":"validationMessages.ts"}}],"base":"/Users/bgaryy/code/octocode/packages/octocode-mcp/src/native"}

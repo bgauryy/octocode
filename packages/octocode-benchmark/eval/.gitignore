@@ -1,0 +1,6 @@
+# Raw streams, answers and judge transcripts stay local; only run summaries are trackable.
+results/*/*
+!results/*/summary.json
+!results/*/report.md
+!results/*/manifest.json
+results/*.log

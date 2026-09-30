@@ -1,0 +1,28 @@
+== doc-filechunks-example
+{"kind":"octocode.toolError","version":1,"tool":"clasify","error":"Check the query fields.","details":["goal: Missing required field: goal","questions.0.question: Unknown field: question","questions.0.type: Missing required field: type","questions.0.instructions: Missing required field: instructions"]}
+
+exit=2
+== doc-judge-example
+{"kind":"octocode.toolError","version":1,"tool":"clasify","error":"Check the query fields.","details":["goal: Missing required field: goal","questions.0.question: Unknown field: question","questions.0.type: Missing required field: type","questions.0.instructions: Missing required field: instructions"]}
+
+exit=2
+== locate-incompatible
+{"queries":[{"queryId":"matrix-1","resources":[{"resourceId":"tree","coverage":"error","pages":[{"limitations":["Matrix rejected before context retrieval or classification."],"error":{"code":"classificationLocateUnsupported","message":"locate needs contiguous original source lines; resources tree cannot supply them.","hints":["For locate, use localFetch or ghGetFileContent without minify, or localSearch/ghSearchCode with candidateEvidence:\"fileChunks\".","To screen search, structure, AST, LSP, history, or package results, ask noul, choice, score, or contribution questions in a separate matrix."]}}]}]}]}
+
+exit=2
+== too-many-cells
+{"kind":"octocode.toolError","version":1,"tool":"clasify","error":"Check the query fields.","details":["questions: Value length 26 exceeds the maximum of 25"]}
+
+exit=2
+== cells-30
+{"kind":"octocode.toolError","version":1,"tool":"clasify","error":"Check the query fields.","details":["Expanded resources × questions produces 30 cells; maximum is 25."]}
+
+exit=2
+== dup-ids
+{"kind":"octocode.toolError","version":1,"tool":"clasify","error":"Check the query fields.","details":["resources.1.id: Duplicate resources id: a"]}
+
+exit=2
+== preset-mixed
+{"kind":"octocode.toolError","version":1,"tool":"clasify","error":"Unknown field(s): instructions","details":["Remove unknown field(s) from query 1: instructions","Run scheme clasify --view query --compact to see valid fields."]}
+
+exit=2

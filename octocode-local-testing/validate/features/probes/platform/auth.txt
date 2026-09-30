@@ -1,0 +1,24 @@
+== real auth --json
+{"success":true,"authenticated":true,"username":"bgauryy","hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"octocode-storage","publicGitHubAccess":"authenticated"}
+exit 0
+== scratch home, no env token (gh fallback / OS store?)
+{"success":true,"authenticated":true,"username":"bgauryy","hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"gh-cli","publicGitHubAccess":"authenticated"}
+exit 0
+== scratch home, GITHUB_TOKEN=fake
+{"success":true,"authenticated":true,"username":null,"hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"env","publicGitHubAccess":"authenticated"}
+exit 0
+== GITHUB_TOKEN + GH_TOKEN (GH_TOKEN should win)
+{"success":true,"authenticated":true,"username":null,"hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"env","publicGitHubAccess":"authenticated"}
+exit 0
+== all four incl OCTOCODE_TOKEN
+{"success":true,"authenticated":true,"username":null,"hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"env","publicGitHubAccess":"authenticated"}
+exit 0
+== token in scratch global .env only
+{"success":true,"authenticated":true,"username":null,"hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"env","publicGitHubAccess":"authenticated"}
+exit 0
+== env GITHUB_TOKEN vs .env GH_TOKEN (process source should win despite lower alias)
+{"success":true,"authenticated":true,"username":null,"hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"env","publicGitHubAccess":"authenticated"}
+exit 0
+== PATH without gh, scratch home
+(eval):9: command not found: octocode
+exit 127

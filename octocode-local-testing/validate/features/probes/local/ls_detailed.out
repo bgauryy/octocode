@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "searchText": "helper", "resultView": "detailed"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"files":[{"path":"a.ts","matches":[{"line":1,"value":"import { helper } from './b';\n\nexport function alphaNeedle(x: number): number {\n  const y = helper(x);\n  return y + 1;\n}\n","matchLines":[1,4]}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

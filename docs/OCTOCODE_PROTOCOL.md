@@ -198,7 +198,7 @@ Every list and every large body can be paged, and every page is honest about wha
 
 ## 4. Where Octocode excels (measured)
 
-All numbers come from real runs against independently verified ground truth, recorded in [BENCHMARKS.md](BENCHMARKS.md).
+The figures below come from earlier tool-level comparisons, which ran scripted tool calls rather than agents. Those campaigns have been retired, and their records remain only in git history. For current agent-vs-agent results, including where Octocode loses, see [BENCHMARKS.md](BENCHMARKS.md).
 
 | Claim | Evidence |
 |---|---|

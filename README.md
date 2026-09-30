@@ -24,7 +24,7 @@ Start with the **CLI** or **MCP server**. Both use the same tool contracts and R
 
 - [Quick start](#quick-start)
 - [Why Octocode](#why-octocode)
-- [Built for research (benchmarks)](#built-for-research-benchmarks)
+- [Benchmarks](#benchmarks)
 - [Tools](#tools)
 - [MCP](#mcp)
 - [CLI](#cli)
@@ -188,35 +188,20 @@ The concept, the research loop, and the measured advantages (and where plain too
 
 ---
 
-## Built for research (benchmarks)
+## Benchmarks
 
-**Latest head-to-head (2026-09-30, real repositories and PRs, answers verified independently):**
+An agent-vs-agent eval (2026-09-30): the same Claude model answers 20 GitHub and local code-research questions, once with the Octocode MCP server and once with only `rg` and `gh`. Each agent picks its own tool calls, and a blind judge grades every answer after verifying the facts itself. 3 passes, 60 runs per side:
 
-| | Octocode | Best alternative |
+| | With Octocode | Without (`rg` + `gh`) |
 |---|--:|--:|
-| Large-PR review, context per answer (4 PRs, 37–656 files) | **9.6k chars** | 45k (expert `gh --jq`) · 15.6M (typical `gh`) |
-| GitHub research, fully correct (31 tasks) | **30/31** | 28/31 (expert `gh`) |
-| Symbol reference precision | **1.00** | 0.26–0.62 (`rg -w`) |
-| Secrets leaked into agent context | **0 of 5** | 3 of 3 (`rg`) |
-| "How/where does X work?" with clasify | **10/10** | 9/10 (`rg` + `sed`) |
+| Correct answers | 48 / 60 | 56 / 60 |
+| Total tokens per run | 209.8k | 60.7k |
+| Cost per run | $0.115 | $0.078 |
+| Tool calls per run | 4.2 | 6.5 |
 
-Full results, method, and where plain tools still win: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+With Octocode, the agent made fewer tool calls and spent fewer research tokens. Each request, though, carries about 36k more tokens of tool definitions and instructions, so the total is higher. Its answers lost points mainly on approximate line numbers.
 
-Earlier blind benchmark:
-
-A blind, head-to-head test on **research-oriented flows rather than plain lookups** (multi-hop traces,
-dependency/call-graph chains, commit ranges, blast-radius, PR reviews across repositories).
-
-[![Octocode benchmark — same answers, a fraction of the context](https://raw.githubusercontent.com/bgauryy/octocode/main/assets/benchmark.png)](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)
-
-**How it works:** 30 GitHub questions × 3 passes; Octocode vs `gh`, `gh`+Headroom, and `gh`+RTK on
-identical questions (only the CLI differs). A blind judge (gpt-5.5) grades correctness; the metric is
-**characters through the model**, counted from instrumented logs (characters, not tokens). **Result:** at
-near-parity correctness, Octocode answers with **~2.0× fewer characters than plain `gh`, ~2.6× fewer
-than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline runs (Octocode v18.1.1;
-see the benchmark [summary](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/SUMMARY.md)).
-
-▶ **[Open the interactive report](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)** · **[run it / method](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/skills/octocode-benchmark)** · [questions](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/compare/github-questions) · [all reports](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results)
+Full tables, per-question results, method and limitations: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ---
 
@@ -523,7 +508,7 @@ Each workspace package owns one layer of the toolkit. The package map, contract 
 | Configuration and contracts | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Octocode home resolution, `.env` / `.octocoderc` loading, and the configuration contract; also the only tool-contract generator (embeds the `octocode-core` contract for native and TypeScript consumers). |
 | Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
 | Coordination | [`skills/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Private, unpublished Python CLI distributed inside its communication skill. Coordinates session identity, advisory path leases, and direct messages. |
-| Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private benchmark and eval workspace for head-to-head research studies, routing regressions, graders, reports, and reproducible run artifacts. |
+| Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private agent-vs-agent eval: a Claude agent with Octocode against the same agent with `rg` and `gh`, with a blind judge and generated reports. |
 
 The separately versioned [`@octocodeai/octocode-core`](https://github.com/bgauryy/octocode-mcp-host/tree/main/packages/octocode-core) package authors the public tool schemas, descriptions, and shared MCP/CLI instructions. This monorepo consumes those contracts through `@octocodeai/config`; `octocode-native` owns their execution.
 

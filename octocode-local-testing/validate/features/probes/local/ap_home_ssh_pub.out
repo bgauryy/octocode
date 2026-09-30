@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/.ssh/id_ed25519.pub"}
+# env: {'ALLOWED_PATHS': '/Users/bgaryy'}
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"errorCode":"fileAccessFailed","error":"Path '~/.ssh/id_ed25519.pub' is in an ignored directory or matches an ignored pattern","resolvedPath":"/Users/bgaryy/.ssh/id_ed25519.pub","hints":["Verify the path with structureSearch operation:\"files\", then retry the exact path."]},"status":"error"}]}

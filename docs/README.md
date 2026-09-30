@@ -7,7 +7,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | Doc | Owns |
 |---|---|
 | [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md) | The concept: evidence dimensions, the research loop, how each part of the protocol works, and measured strengths and limits |
-| [BENCHMARKS.md](BENCHMARKS.md) | Measured results vs gh, rg, sed and ast-grep on real repositories and PRs: context, accuracy, safety |
+| [BENCHMARKS.md](BENCHMARKS.md) | Agent-vs-agent results: a Claude agent with Octocode against the same agent with `rg` and `gh`, on 20 GitHub and local questions: correctness, tokens, cost, time |
 | [Root README quick start](../README.md#quick-start) | Installing and first run |
 | [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, startup and lifecycle |
 | [OCTOCODE_CLI.md](../packages/octocode/docs/OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
@@ -36,7 +36,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | [AGENTS.md](../AGENTS.md) | Repository rules for agents working in this repo |
 | [skills-dev/octocode-dev/scripts/README.md](../skills-dev/octocode-dev/scripts/README.md) | Root automation scripts |
 
-Each package also has a `README.md` (public purpose) and `ARCHITECTURE.md` (ownership and invariants); [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#packages) links the package map. Benchmark campaigns live in [packages/octocode-benchmark](../packages/octocode-benchmark/README.md), local end-to-end suites in [octocode-local-testing](../octocode-local-testing/README.md).
+Each package also has a `README.md` (public purpose) and `ARCHITECTURE.md` (ownership and invariants); [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#packages) links the package map. The agent-vs-agent eval lives in [packages/octocode-benchmark](../packages/octocode-benchmark/README.md), local end-to-end suites in [octocode-local-testing](../octocode-local-testing/README.md).
 
 ## Skills
 

@@ -1,0 +1,20 @@
+== no gh on PATH, scratch home, no env token
+{"success":true,"authenticated":true,"username":"bgauryy","hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"gh-cli","publicGitHubAccess":"authenticated"}
+exit 0
+== same, ghSearchRepo call
+{"results":[{"index":0,"data":{"repositories":[{"owner":"bgauryy","repo":"octocode","stars":946,"forks":78,"language":"TypeScript","license":"MIT","description":"Code research platform for AI agents; find, understand, and prove context across your code and all of GitHub, in a fraction of the tokens. One toolset, MCP or CLI  ","pushedAt":"2026-09-27","createdAt":"2025-06-05","updatedAt":"2026-09-29 exit 
+== OCTOCODE_TOKEN=bogus + GH_TOKEN=real
+{"results":[{"index":0,"data":{"error":"GitHub authentication required","errorCode":"authentication","hints":["Run octocode auth login, or set OCTOCODE_TOKEN / GH_TOKEN / GITHUB_TOKEN. Fix or unset an invalid higher-priority…"],"retryable":false,"httpStatus":401,"requestId":"B783:1BAF51:6B087:8E27A:6ABC2E3F","documentationUrl":"https://docs.github.com/rest"},"status":"error"}]}
+ exit 
+== GH_TOKEN=real + GITHUB_TOKEN=bogus
+{"results":[{"index":0,"data":{"repositories":[{"owner":"bgauryy","repo":"octocode","stars":946,"forks":78,"language":"TypeScript","license":"MIT","description":"Code research platform for AI agents;  exit 
+== GITHUB_TOKEN=bogus + GITHUB_PERSONAL_ACCESS_TOKEN=real
+{"results":[{"index":0,"data":{"error":"GitHub authentication required","errorCode":"authentication","hints":["Run octocode auth login, or set OCTOCODE_TOKEN / GH_TOKEN / GITHUB_TOKEN. Fix or unset an invalid higher-priority…"],"retryable":false,"httpStatus":401,"requestId":"B79E:2C31FB:68E2A:8C07 exit 
+== auth status with bogus env token
+{"success":true,"authenticated":true,"username":null,"hostname":"github.com","tokenPresent":true,"tokenConfigured":true,"tokenSource":"env","publicGitHubAccess":"authenticated"}
+exit 0
+== global .env GH_TOKEN=bogus, process GITHUB_TOKEN=real (process source wins)
+{"results":[{"index":0,"data":{"repositories":[{"owner":"bgauryy","repo":"octocode","stars":946,"forks":78,"language":"TypeScript","license":"MIT","description":"Code research platform for AI agents;  exit 
+bogus-token exit=4
+home .env bogus GH_TOKEN only -> exit=4
+workspace .env bogus GH_TOKEN only -> exit=4

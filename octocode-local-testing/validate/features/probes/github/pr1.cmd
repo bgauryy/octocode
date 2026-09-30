@@ -1,0 +1,1 @@
+ghGetHistoryItem {"operation":"pullRequest","owner":"expressjs","repo":"express","number":7493,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"followUp":true}

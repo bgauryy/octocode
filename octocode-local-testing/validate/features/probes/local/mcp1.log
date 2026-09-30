@@ -1,0 +1,76 @@
+tools: clasify,ghSearchRepo,ghSearchCode,ghStructure,ghGetFileContent,ghSearchHistory,ghGetHistoryItem,artifactSearch,localSearch,structureSearch,astSearch,localFetch,lspSearch
+[mcp_ls_page1] isError=false bytes=2589 base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many
+stats:
+  totalOccurrences: 25
+  filesMatched: 25
+files:
+- path: f01.txt
+  matches:
+  - line: 1
+    value: needle in file 1
+- path: f02.txt
+  matches:
+  - line: 1
+    value: needle in file 2
+- path: f03.txt
+  matches:
+  - line: 1
+    value: needle in file 3
+- path: f04.txt
+  matches:
+  - line: 1
+  
+[mcp_ls_page2_follow] isError=false bytes=1470 base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many
+stats:
+  totalOccurrences: 25
+  filesMatched: 25
+files:
+- path: f11.txt
+  matches:
+  - line: 1
+    value: needle in file 11
+- path: f12.txt
+  matches:
+  - line: 1
+    value: needle in file 12
+- path: f13.txt
+  matches:
+  - line: 1
+    value: needle in file 13
+- path: f14.txt
+  matches:
+  - line: 1
+[mcp_ls_min] isError=false bytes=1490 base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src
+next:
+  nextMatchPage:
+    tool: localSearch
+    confidence: exact
+    query:
+      searchText: needle
+      path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src
+      contextLines: 0
+      matchContentLength: 200
+      matchPage: 2
+      snapshot: le
+[mcp_ls_debug] isError=false bytes=1725 base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src
+meta:
+  evidence:
+    kind: lexical
+    confidence: medium
+  diagnostics:
+    partial: true
+stats:
+  totalOccurrences: 34
+  matchedLines: 34
+  filesMatched: 3
+  filesSearched: 5
+  bytesSearched: 22104
+  capped: false
+files:
+- path: a.ts
+  matches:
+  - line: 3
+    value: 'export function alphaNeedle
+[mcp_ls_6q] isError=true bytes=114 Input validation error: Invalid arguments for tool localSearch: queries: Too big: expected array to have <=5 items
+[mcp_ls_nogoal] isError=true bytes=215 Input validation error: Invalid arguments for tool localSearch: queries.0: goal: Invalid input: expected nonoptional, received undefined, queries.0: reasoning: Invalid input: expected nonoptional, received undefined
+[mcp_ss_raw] {"results":[{"index":0,"data":{"path":"many","files":[{"path":"many/f22.txt","size":18,"modifiedMs":1790717412050},{"path":"many/f23.txt","size":18,"modifiedMs":1790717412050},{"path":"many/f24.txt","size":18,"modifiedMs":1790717412050},{"path":"many/f25.txt","size":18,"modifiedMs":1790717412050},{"path":"many/f09.txt","size":17,"modifiedMs":1790717412049},{"path":"many/f10.txt","size":18,"modifiedMs":1790717412049},{"path":"many/f11.txt","size":18,"modifiedMs":1790717412049},{"path":"many/f12.txt","size":18,"modifiedMs":1790717412049},{"path":"many/f13.txt","size":18,"modifiedMs":1790717412049},{"path":"many/f14.txt","size":18,"modifiedMs":1790717412049},{"path":"many/f15.txt","size":18,"mo

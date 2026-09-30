@@ -1,0 +1,1 @@
+{"results":[{"index":0,"data":{"files":[{"path":"package.json","content":"{\n\t\"name\": \"@sindresorhus/is\",\n","totalLines":76,"sourceLineRanges":[{"start":1,"end":2}],"sourceBytes":1635,"returnedBytes":31,"commitSha":"e9c026c611c1160eaad50da00be4e676b626018f","fileType":"config","lastModified":"2026-05-11T11:22:19Z","lastModifiedBy":"Sindre Sorhus"}]}}]}

@@ -8,8 +8,8 @@
 use super::{
     ExecutionContext, ExecutionError,
     clasify_locate::{
-        LocatedPage, collapse_locate_answer, literal_target_hint, locate_provider_questions,
-        located_state, rank_locate, readable_best,
+        LocateRead, LocatedPage, collapse_locate_answer, literal_search, literal_target_hint,
+        locate_provider_questions, located_state, rank_locate, readable_best, with_row_reads,
     },
     clasify_output::{self, PageOutcome},
     dispatch::{self, DomainResult},
@@ -282,6 +282,24 @@ fn is_file_read(source: &Value) -> bool {
         source.get("tool").and_then(Value::as_str),
         Some("localFetch" | "ghGetFileContent")
     )
+}
+
+/// A direct file read's own call, pinned to the returned ref when the caller
+/// named no branch. Located pages and `best` rows narrow it to one exact
+/// window; the receipt keeps it private (`fileRead`), never published whole.
+fn file_read_template(source: &Value, receipt: &Value) -> Option<Value> {
+    let tool = source["tool"].as_str().filter(|_| is_file_read(source))?;
+    let mut query = source
+        .get("query")
+        .filter(|query| query.is_object())?
+        .clone();
+    if tool == "ghGetFileContent"
+        && query.get("branch").is_none()
+        && let Some(reference) = receipt.pointer("/source/ref").filter(|r| r.is_string())
+    {
+        query["branch"] = reference.clone();
+    }
+    Some(json!({"tool":tool,"query":query}))
 }
 
 /// Path-valued fields of local tool envelopes and queries.
@@ -1267,6 +1285,11 @@ fn capture_pages(
                     break;
                 }
                 let mut context = receipt.unwrap_or_else(|| fallback_context(&source));
+                if context.get("read").is_none()
+                    && let Some(template) = file_read_template(&source, &context)
+                {
+                    context["fileRead"] = template;
+                }
                 // Never classify an arbitrary prefix with the full page's
                 // source receipt. The caller can choose a smaller complete section.
                 if state_chars > remaining_chars {
@@ -1590,7 +1613,7 @@ fn prefilter_windows(
             let last = left
                 .iter()
                 .copied()
-                .take_while(|line| *line <= first + span - 1)
+                .take_while(|line| *line < first + span)
                 .last()
                 .unwrap_or(first);
             let (start, end) = centered(first, last);
@@ -2240,6 +2263,7 @@ fn execute_query(
     let mut rendered = Vec::with_capacity(resources.len());
     let mut continuation_resources = Vec::new();
     let mut usage_records = Vec::new();
+    let mut locate_reads = Vec::new();
 
     for (resource_index, captured_resource) in captured.into_iter().enumerate() {
         let CapturedResource {
@@ -2248,6 +2272,7 @@ fn execute_query(
             continuation,
         } = captured_resource;
         let mut outcomes = Vec::with_capacity(pages.len());
+        let resource_id = resource["id"].as_str().unwrap_or_default();
         for (page_index, page) in pages.into_iter().enumerate() {
             match page {
                 CapturedPage::Failed { error, context } => {
@@ -2271,6 +2296,16 @@ fn execute_query(
                         } else {
                             usage_records.push(usage);
                         }
+                    }
+                    if let Some(read) = clasify_output::read_template(&context) {
+                        locate_reads.push(LocateRead {
+                            resource_id: resource_id.to_owned(),
+                            path: context
+                                .pointer("/source/path")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned),
+                            read: read.clone(),
+                        });
                     }
                     outcomes.push(PageOutcome::Assessed {
                         receipt: context,
@@ -2323,7 +2358,8 @@ fn execute_query(
     if let Some(best) = &best
         && let Some(visible) = readable_best(best, walk_open)
     {
-        output["best"] = visible;
+        // Public rows gain an exact read; `carry` keeps the copyable rows.
+        output["best"] = with_row_reads(visible, &locate_reads);
     }
     let hints = locate_targets
         .iter()
@@ -2332,6 +2368,7 @@ fn execute_query(
     if !hints.is_empty() {
         output["hints"] = json!(hints);
     }
+    let literal = literal_search(locate_targets.iter().map(|(_, target)| *target), resources);
     output["resources"] = Value::Array(rendered);
     if !continuation_resources.is_empty() {
         let public_questions = query["questions"]
@@ -2354,6 +2391,9 @@ fn execute_query(
             output["next"]["clasify"]["carry"] = best;
         }
         copy_goal(&mut output["next"]["clasify"], query);
+    }
+    if let Some(literal) = literal {
+        output["next"]["localSearch"] = literal;
     }
     Ok((dispatch::value_result(output), usage_records))
 }

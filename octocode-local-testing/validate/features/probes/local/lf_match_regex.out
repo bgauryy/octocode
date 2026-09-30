@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "matchString": "alpha\\w+\\(", "matchStringIsRegex": true, "contextLines": 0}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"a.ts","content":"export function alphaNeedle(x: number): number {\n... [lines 4-10 omitted] ...\n    alphaNeedle(2);\n","totalLines":13,"startLine":3,"endLine":11,"sourceLineRanges":[{"start":3,"end":3},{"start":11,"end":11}],"matchedLines":[3,11],"returnedLines":3}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

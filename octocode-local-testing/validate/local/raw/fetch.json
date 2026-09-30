@@ -1,0 +1,1249 @@
+[
+  {
+    "id": "range-ts",
+    "lang": "ts",
+    "task": "Read lines 174-230 of newElement.ts",
+    "shell": {
+      "cmd": "sed -n '174,230p' tsx/packages/element/src/newElement.ts",
+      "calls": 1,
+      "chars": 1875,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 57,
+        "want": 57,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src/newElement.ts",
+        "startLine": 174,
+        "endLine": 230
+      },
+      "calls": 1,
+      "chars": 2201,
+      "ms": 202,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 57,
+        "want": 57,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 174,
+            "end": 230
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 2201,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"newElement.ts\",\"content\":\"export const newElement = (\\n  opts: {\\n    type: ExcalidrawGenericElement[\\\"type\\\"];\\n  } & ElementConstructorOpts,\\n): NonDeleted<ExcalidrawGenericElement> =>\\n  _newElementBase<ExcalidrawGenericElement>(opts.type, opts);\\n\\n/**\\n * Style invariants of a sticky note: never-transparent colors, solid fill.\\n * Applied by the constructor and by every normalization pass. Returns the\\n * same object when nothing needs fixing.\\n */\\nexport const normalizeStickyNoteStyle = <T extends ExcalidrawStickyNoteElement>(\\n  element: T,\\n): T => {\\n  return newElementWith(element as ExcalidrawStickyNoteElement, {\\n    backgroundColor: normalizeStickyNoteBackgroundColor(\\n      element.backgroundColor,\\n    ),\\n    strokeColor: normalizeStickyNoteStrokeColor(element.strokeColor),\\n    fillStyle: \\\"solid\\\",\\n  }) as T;\\n};\\n\\n/**\\n * Geometry invariants of a *finalized* sticky note: minimum size and\\n * `baseHeight ≤ height`. Deliberately not part of the constructor — a\\n * pointer-down draft starts at 0×0 like every other tool and is previewed at\\n * its true dragged size; pointer-up, restore, the skeleton path and the\\n * action post-passes enforce this.\\n */\\nexport const normalizeStickyNoteGeometry = <\\n  T extends ExcalidrawStickyNoteElement,\\n>(\\n  element: T,\\n): T => {\\n  const width = Math.max(element.width, STICKY_NOTE_MIN_SIZE);\\n  const baseHeight = Math.max(\\n    element.baseHeight || element.height || DEFAULT_STICKY_NOTE_SIZE,\\n    STICKY_NOTE_MIN_SIZE,\\n  );\\n\\n  return newElementWith(element as ExcalidrawStickyNoteElement, {\\n    width,\\n    height: Math.max(element.height, baseHeight),\\n    baseHeight,\\n  }) as T;\\n};\\n\\n/** all sticky note invariants (style + finalized geometry) */\\nexport const normalizeStickyNote = <T extends ExcalidrawStickyNoteElement>(\\n  element: T,\\n): T => {\\n  return normalizeStickyNoteGeometry(normalizeStickyNoteStyle(element));\\n};\\n\\nexport const newStickyNoteElement = (\\n\",\"totalLines\":692,\"sourceLineRanges\":[{\"start\":174,\"end\":230}],\"returnedChars\":1875,\"sourceChars\":18575}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "range-rust",
+    "lang": "rust",
+    "task": "Read lines 429-500 of pool.rs",
+    "shell": {
+      "cmd": "sed -n '429,500p' rust/tokio/src/runtime/blocking/pool.rs",
+      "calls": 1,
+      "chars": 2933,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 72,
+        "want": 72,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking/pool.rs",
+        "startLine": 429,
+        "endLine": 500
+      },
+      "calls": 1,
+      "chars": 3230,
+      "ms": 202,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 72,
+        "want": 72,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 429,
+            "end": 500
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 3230,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"pool.rs\",\"content\":\"    pub(crate) fn spawn_blocking_inner<F, R>(\\n        &self,\\n        func: F,\\n        is_mandatory: Mandatory,\\n        spawn_meta: SpawnMeta<'_>,\\n        rt: &Handle,\\n    ) -> (JoinHandle<R>, Result<(), SpawnError>)\\n    where\\n        F: FnOnce() -> R + Send + 'static,\\n        R: Send + 'static,\\n    {\\n        let id = task::Id::next();\\n        let fut =\\n            blocking_task::<F, BlockingTask<F>>(BlockingTask::new(func), spawn_meta, id.as_u64());\\n\\n        let (task, handle) = task::unowned(\\n            fut,\\n            BlockingSchedule::new(rt),\\n            id,\\n            task::SpawnLocation::capture(),\\n        );\\n\\n        let spawned = self.spawn_task(Task::new(task, is_mandatory), rt);\\n        (handle, spawned)\\n    }\\n\\n    pub(crate) fn num_blocking_threads(&self) -> usize {\\n        self.inner\\n            .metrics\\n            .num_threads()\\n            .saturating_sub(self.inner.scheduler_threads)\\n    }\\n\\n    fn spawn_task(&self, task: Task, rt: &Handle) -> Result<(), SpawnError> {\\n        // The `on_no_idle` closure runs under the same lock as the queue\\n        // push, exactly like the pre-refactor code that called\\n        // `self.spawn_thread` directly while holding `Mutex<ThreadManagementState>`.\\n        self.inner\\n            .inner_impl\\n            .spawn_task(task, &self.inner.metrics, |thread_mgmt_state| {\\n                // No threads are able to process the task.\\n\\n                if self.inner.metrics.num_threads() == self.inner.thread_cap {\\n                    // At max number of threads\\n                    return Ok(());\\n                }\\n\\n                assert!(thread_mgmt_state.shutdown_tx.is_some());\\n                let shutdown_tx = thread_mgmt_state.shutdown_tx.clone();\\n\\n                if let Some(shutdown_tx) = shutdown_tx {\\n                    let id = thread_mgmt_state.worker_thread_index;\\n\\n                    match self.spawn_thread(shutdown_tx, rt, id) {\\n                        Ok(handle) => {\\n                            self.inner.metrics.inc_num_threads();\\n                            thread_mgmt_state.worker_thread_index += 1;\\n                            thread_mgmt_state.worker_threads.insert(id, handle);\\n                        }\\n                        Err(ref e)\\n                            if is_temporary_os_thread_error(e)\\n                                && self.num_blocking_threads() > 0 =>\\n                        {\\n                            // OS temporarily failed to spawn a new thread.\\n                            // The task will be picked up eventually by a currently\\n                            // busy thread.\\n                        }\\n                        Err(e) => {\\n                            // The OS refused to spawn the thread and there is no thread\\n                            // to pick up the task that has just been pushed to the queue.\\n                            return Err(SpawnError::NoThreads(e));\\n                        }\\n\",\"totalLines\":778,\"sourceLineRanges\":[{\"start\":429,\"end\":500}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "range-go",
+    "lang": "go",
+    "task": "Read lines 1250-1300 of head.go",
+    "shell": {
+      "cmd": "sed -n '1250,1300p' go/tsdb/head.go",
+      "calls": 1,
+      "chars": 1269,
+      "ms": 4,
+      "correct": {
+        "ok": true,
+        "got": 51,
+        "want": 51,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/head.go",
+        "startLine": 1250,
+        "endLine": 1300
+      },
+      "calls": 1,
+      "chars": 1588,
+      "ms": 205,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 51,
+        "want": 51,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 1250,
+            "end": 1300
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 1588,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"head.go\",\"content\":\"func (h *Head) Truncate(mint int64) (err error) {\\n\\tinitialized := h.initialized()\\n\\tif err := h.truncateMemory(mint); err != nil {\\n\\t\\treturn err\\n\\t}\\n\\tif !initialized {\\n\\t\\treturn nil\\n\\t}\\n\\treturn h.truncateWAL(mint)\\n}\\n\\n// OverlapsClosedInterval returns true if the head overlaps [mint, maxt].\\nfunc (h *Head) OverlapsClosedInterval(mint, maxt int64) bool {\\n\\treturn h.MinTime() <= maxt && mint <= h.MaxTime()\\n}\\n\\n// truncateMemory removes old data before mint from the head.\\nfunc (h *Head) truncateMemory(mint int64) (err error) {\\n\\th.chunkSnapshotMtx.Lock()\\n\\tdefer h.chunkSnapshotMtx.Unlock()\\n\\n\\tdefer func() {\\n\\t\\tif err != nil {\\n\\t\\t\\th.metrics.headTruncateFail.Inc()\\n\\t\\t}\\n\\t}()\\n\\n\\tinitialized := h.initialized()\\n\\n\\tif h.MinTime() >= mint && initialized {\\n\\t\\treturn nil\\n\\t}\\n\\n\\t// The order of these two Store() should not be changed,\\n\\t// i.e. truncation time is set before in-process boolean.\\n\\th.lastMemoryTruncationTime.Store(mint)\\n\\th.memTruncationInProcess.Store(true)\\n\\tdefer h.memTruncationInProcess.Store(false)\\n\\n\\tif h.memTruncationCallBack != nil {\\n\\t\\th.memTruncationCallBack()\\n\\t}\\n\\n\\t// We wait for pending queries to end that overlap with this truncation.\\n\\tif initialized {\\n\\t\\th.WaitForPendingReadersInTimeRange(h.MinTime(), mint)\\n\\t}\\n\\n\\th.minTime.Store(mint)\\n\\th.minValidTime.Store(mint)\\n\\n\",\"totalLines\":3281,\"sourceLineRanges\":[{\"start\":1250,\"end\":1300}],\"sourceChars\":116477}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "range-python",
+    "lang": "python",
+    "task": "Read lines 861-960 of query.py",
+    "shell": {
+      "cmd": "sed -n '861,960p' python/django/db/models/query.py",
+      "calls": 1,
+      "chars": 4776,
+      "ms": 4,
+      "correct": {
+        "ok": true,
+        "got": 100,
+        "want": 100,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py",
+        "startLine": 861,
+        "endLine": 960
+      },
+      "calls": 1,
+      "chars": 5107,
+      "ms": 208,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 100,
+        "want": 100,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 861,
+            "end": 960
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 5107,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"query.py\",\"content\":\"    def bulk_create(\\n        self,\\n        objs,\\n        batch_size=None,\\n        ignore_conflicts=False,\\n        update_conflicts=False,\\n        update_fields=None,\\n        unique_fields=None,\\n    ):\\n        \\\"\\\"\\\"\\n        Insert each of the instances into the database. Do *not* call\\n        save() on each of the instances, do not send any pre/post_save\\n        signals, and do not set the primary key attribute if it is an\\n        autoincrement field (except if\\n        features.can_return_rows_from_bulk_insert=True).\\n        Multi-table models are not supported.\\n        \\\"\\\"\\\"\\n        # When you bulk insert you don't get the primary keys back (if it's an\\n        # autoincrement, except if can_return_rows_from_bulk_insert=True), so\\n        # you can't insert into the child tables which references this. There\\n        # are two workarounds:\\n        # 1) This could be implemented if you didn't have an autoincrement pk\\n        # 2) You could do it by doing O(n) normal inserts into the parent\\n        #    tables to get the primary keys back and then doing a single bulk\\n        #    insert into the childmost table.\\n        # We currently set the primary keys on the objects when using\\n        # PostgreSQL via the RETURNING ID clause. It should be possible for\\n        # Oracle as well, but the semantics for extracting the primary keys is\\n        # trickier so it's not done yet.\\n        if batch_size is not None and batch_size <= 0:\\n            raise ValueError(\\\"Batch size must be a positive integer.\\\")\\n        # Check that the parents share the same concrete model with the our\\n        # model to detect the inheritance pattern ConcreteGrandParent ->\\n        # MultiTableParent -> ProxyChild. Simply checking\\n        # self.model._meta.proxy would not identify that case as involving\\n        # multiple tables.\\n        for parent in self.model._meta.all_parents:\\n            if parent._meta.concrete_model is not self.model._meta.concrete_model:\\n                raise ValueError(\\\"Can't bulk create a multi-table inherited model\\\")\\n        if not objs:\\n            return objs\\n        opts = self.model._meta\\n        if unique_fields:\\n            # Primary key is allowed in unique_fields.\\n            unique_fields = [\\n                self.model._meta.get_field(opts.pk.name if name == \\\"pk\\\" else name)\\n                for name in unique_fields\\n            ]\\n        if update_fields:\\n            update_fields = [self.model._meta.get_field(name) for name in update_fields]\\n        on_conflict = self._check_bulk_create_options(\\n            ignore_conflicts,\\n            update_conflicts,\\n            update_fields,\\n            unique_fields,\\n        )\\n        self._for_write = True\\n        fields = [f for f in opts.concrete_fields if not f.generated]\\n        objs = list(objs)\\n        objs_with_pk, objs_without_pk = self._prepare_for_bulk_create(objs)\\n        if objs_with_pk and objs_without_pk:\\n            context = transaction.atomic(using=self.db, savepoint=False)\\n        else:\\n            context = nullcontext()\\n        with context:\\n            self._handle_order_with_respect_to(objs)\\n            if objs_with_pk:\\n                returned_columns = self._batched_insert(\\n                    objs_with_pk,\\n                    fields,\\n                    batch_size,\\n                    on_conflict=on_conflict,\\n                    update_fields=update_fields,\\n                    unique_fields=unique_fields,\\n                )\\n                for obj_with_pk, results in zip(objs_with_pk, returned_columns):\\n                    for result, field in zip(results, opts.db_returning_fields):\\n                        setattr(obj_with_pk, field.attname, result)\\n                for obj_with_pk in objs_with_pk:\\n                    obj_with_pk._state.adding = False\\n                    obj_with_pk._state.db = self.db\\n            if objs_without_pk:\\n                fields = [f for f in fields if not isinstance(f, AutoField)]\\n                returned_columns = self._batched_insert(\\n                    objs_without_pk,\\n                    fields,\\n                    batch_size,\\n                    on_conflict=on_conflict,\\n                    update_fields=update_fields,\\n                    unique_fields=unique_fields,\\n                )\\n                connection = connections[self.db]\\n                if (\\n                    connection.features.can_return_rows_from_bulk_insert\\n                    and on_conflict is None\\n                ):\\n                    assert len(returned_columns) == len(objs_without_pk)\\n                for obj_without_pk, results in zip(objs_without_pk, returned_columns):\\n                    for result, field in zip(results, opts.db_returning_fields):\\n                        setattr(obj_without_pk, field.attname, result)\\n\",\"totalLines\":3137,\"sourceLineRanges\":[{\"start\":861,\"end\":960}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "range-java",
+    "lang": "java",
+    "task": "Read lines 731-745 of Lists.java",
+    "shell": {
+      "cmd": "sed -n '731,745p' java/guava/src/com/google/common/collect/Lists.java",
+      "calls": 1,
+      "chars": 510,
+      "ms": 4,
+      "correct": {
+        "ok": true,
+        "got": 15,
+        "want": 15,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/Lists.java",
+        "startLine": 731,
+        "endLine": 745
+      },
+      "calls": 1,
+      "chars": 763,
+      "ms": 203,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 15,
+        "want": 15,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 731,
+            "end": 745
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 763,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"Lists.java\",\"content\":\"  public static <T extends @Nullable Object> List<List<T>> partition(List<T> list, int size) {\\n    checkNotNull(list);\\n    checkArgument(size > 0);\\n    return (list instanceof RandomAccess)\\n        ? new RandomAccessPartition<>(list, size)\\n        : new Partition<>(list, size);\\n  }\\n\\n  private static class Partition<T extends @Nullable Object> extends AbstractList<List<T>> {\\n    final List<T> list;\\n    final int size;\\n\\n    Partition(List<T> list, int size) {\\n      this.list = list;\\n      this.size = size;\\n\",\"totalLines\":1245,\"sourceLineRanges\":[{\"start\":731,\"end\":745}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "range-c",
+    "lang": "c",
+    "task": "Read lines 4151-4250 of server.c",
+    "shell": {
+      "cmd": "sed -n '4151,4250p' c/src/server.c",
+      "calls": 1,
+      "chars": 5046,
+      "ms": 4,
+      "correct": {
+        "ok": true,
+        "got": 100,
+        "want": 100,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src/server.c",
+        "startLine": 4151,
+        "endLine": 4250
+      },
+      "calls": 1,
+      "chars": 5370,
+      "ms": 220,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 100,
+        "want": 100,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 4151,
+            "end": 4250
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 5370,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"server.c\",\"content\":\"void call(client *c, int flags) {\\n    long long dirty;\\n    uint64_t client_old_flags = c->flags;\\n    struct redisCommand *real_cmd = c->realcmd;\\n    client *prev_client = server.executing_client;\\n    server.executing_client = c;\\n\\n    /* When call() is issued during loading the AOF we don't want commands called\\n     * from module, exec or LUA to go into the slowlog or to populate statistics. */\\n    int update_command_stats = !isAOFLoadingContext();\\n\\n    /* We want to be aware of a client which is making a first time attempt to execute this command\\n     * and a client which is reprocessing command again (after being unblocked).\\n     * Blocked clients can be blocked in different places and not always it means the call() function has been\\n     * called. For example this is required for avoiding double logging to monitors.*/\\n    int reprocessing_command = (c->flags & CLIENT_REEXECUTING_COMMAND) ? 1 : 0;\\n\\n    /* Initialization: clear the flags that must be set by the command on\\n     * demand, and initialize the array for additional commands propagation. */\\n    c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);\\n\\n    /* Redis core is in charge of propagation when the first entry point\\n     * of call() is processCommand().\\n     * The only other option to get to call() without having processCommand\\n     * as an entry point is if a module triggers RM_Call outside of call()\\n     * context (for example, in a timer).\\n     * In that case, the module is in charge of propagation. */\\n\\n    /* Call the command. */\\n    dirty = server.dirty;\\n    long long old_master_repl_offset = server.master_repl_offset;\\n    incrCommandStatsOnError(NULL, 0);\\n\\n    /* Use monotonic clock if available, and update cached time if needed */\\n    const int use_hw_clock = monotonicGetType() == MONOTONIC_CLOCK_HW;\\n    monotime monotonic_start = 0;\\n    if (use_hw_clock) {\\n        monotonic_start = getMonotonicUs();\\n        if (server.execution_nesting == 0) {\\n            server.accum_call_count_since_ustime++;\\n            /* Sync cached time when monotonic clock moves more than 10us\\n             * or after 25 commands */\\n            if (monotonic_start - server.monotonic_us_when_ustime > 10 ||\\n                server.accum_call_count_since_ustime > 25)\\n            {\\n                updateCachedTime(0);\\n                /* Recalculate monotonic_start after time update as ustime()\\n                 * in updateCachedTime() might have taken some time */\\n                monotonic_start = getMonotonicUs();\\n                server.monotonic_us_when_ustime = monotonic_start;\\n                server.accum_call_count_since_ustime = 0;\\n            }\\n        }\\n    }\\n\\n    /* Pass current server.ustime to avoid ustime() call if monotonic clock is used\\n     * and time will be updated before command execution based on monotonic clock. */\\n    const long long call_timer = use_hw_clock ? server.ustime : ustime();\\n    enterExecutionUnit(1, call_timer);\\n\\n    /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid\\n     * sending client side caching message in the middle of a command reply.\\n     * In case of blocking commands, the flag will be un-set only after successfully\\n     * re-processing and unblock the client.*/\\n    c->flags |= CLIENT_EXECUTING_COMMAND;\\n\\n    int ops_before = server.also_propagate.numops;\\n\\n    /* We need to use a global flag with the propagation targets allowed for the\\n     * command we are about to run, in order to prevent propagation of nested\\n     * calls to a target that an outer call excluded. Example:\\n     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')\\n     * 2. module2.bar internally calls RM_Call of INCR with '!'\\n     * 3. at the end of module1.foo we call RM_ReplicateVerbatim\\n     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar\\n     *\\n     * Restricting the targets while the command runs, and not just when call()\\n     * propagates it verbatim at the end, is what makes the effect commands\\n     * queued via alsoPropagate() (SPOP propagated as SREM, RM_Replicate(), and\\n     * so forth) honor Lua redis.set_repl() and selective RM_Call() too. */\\n    int call_targets = getPropagateTargetsForCall(c, flags);\\n    int prev_targets = server.allowed_propagate_targets;\\n    server.allowed_propagate_targets = prev_targets & call_targets;\\n\\n    c->cmd->proc(c);\\n\\n    server.allowed_propagate_targets = prev_targets;\\n\\n    exitExecutionUnit();\\n\\n    /* In case client is blocked after trying to execute the command,\\n     * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */\\n    if (!(c->flags & CLIENT_BLOCKED)) c->flags &= ~(CLIENT_EXECUTING_COMMAND);\\n\\n    /* In order to avoid performance implication due to querying the clock using a system call 3 times,\\n     * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */\\n    ustime_t duration;\\n    if (use_hw_clock)\\n        duration = getMonotonicUs() - monotonic_start;\\n    else\\n\",\"totalLines\":8615,\"sourceLineRanges\":[{\"start\":4151,\"end\":4250}],\"sourceChars\":360747}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "range-cpp",
+    "lang": "cpp",
+    "task": "Read lines 29863-29900 of json.hpp",
+    "shell": {
+      "cmd": "sed -n '29863,29900p' cpp/single_include/nlohmann/json.hpp",
+      "calls": 1,
+      "chars": 2181,
+      "ms": 7,
+      "correct": {
+        "ok": true,
+        "got": 38,
+        "want": 38,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp/single_include/nlohmann/json.hpp",
+        "startLine": 29863,
+        "endLine": 29900
+      },
+      "calls": 1,
+      "chars": 2469,
+      "ms": 263,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 38,
+        "want": 38,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 29863,
+            "end": 29900
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 2469,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"json.hpp\",\"content\":\"    static basic_json parse(InputType&& i,\\n                            parser_callback_t cb = nullptr,\\n                            const bool allow_exceptions = true,\\n                            const bool ignore_comments = false,\\n                            const bool ignore_trailing_commas = false)\\n    {\\n        basic_json result;\\n        parser(detail::input_adapter(std::forward<InputType>(i)), std::move(cb), allow_exceptions, ignore_comments, ignore_trailing_commas).parse(true, result); // cppcheck-suppress[accessMoved,accessForwarded]\\n        return result;\\n    }\\n\\n    /// @brief deserialize from a pair of character iterators (or an iterator+sentinel pair, C++20 ranges support)\\n    /// @sa https://json.nlohmann.me/api/basic_json/parse/\\n    template<typename IteratorType, typename SentinelType = IteratorType,\\n             detail::enable_if_t<detail::can_compare_ne<IteratorType, SentinelType>::value, int> = 0>\\n    JSON_HEDLEY_WARN_UNUSED_RESULT\\n    static basic_json parse(IteratorType first,\\n                            SentinelType last,\\n                            parser_callback_t cb = nullptr,\\n                            const bool allow_exceptions = true,\\n                            const bool ignore_comments = false,\\n                            const bool ignore_trailing_commas = false)\\n    {\\n        basic_json result;\\n        parser(detail::input_adapter(std::move(first), std::move(last)), std::move(cb), allow_exceptions, ignore_comments, ignore_trailing_commas).parse(true, result); // cppcheck-suppress[accessMoved]\\n        return result;\\n    }\\n\\n    JSON_HEDLEY_WARN_UNUSED_RESULT\\n    JSON_HEDLEY_DEPRECATED_FOR(3.8.0, parse(ptr, ptr + len))\\n    static basic_json parse(detail::span_input_adapter&& i,\\n                            parser_callback_t cb = nullptr,\\n                            const bool allow_exceptions = true,\\n                            const bool ignore_comments = false,\\n                            const bool ignore_trailing_commas = false)\\n    {\\n        basic_json result;\\n        parser(i.get(), std::move(cb), allow_exceptions, ignore_comments, ignore_trailing_commas).parse(true, result); // cppcheck-suppress[accessMoved]\\n\",\"totalLines\":31734,\"sourceLineRanges\":[{\"start\":29863,\"end\":29900}],\"sourceChars\":1238141}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp/single_include/nlohmann\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "range-huge-ts",
+    "lang": "huge-ts",
+    "task": "Read lines 49064-49120 of checker.ts",
+    "shell": {
+      "cmd": "sed -n '49064,49120p' typescript/tsc/testdata/fixtures/compiler/checker.ts",
+      "calls": 1,
+      "chars": 2610,
+      "ms": 10,
+      "correct": {
+        "ok": true,
+        "got": 57,
+        "want": 57,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript/tsc/testdata/fixtures/compiler/checker.ts",
+        "startLine": 49064,
+        "endLine": 49120
+      },
+      "calls": 1,
+      "chars": 2990,
+      "ms": 352,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 57,
+        "want": 57,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 49064,
+            "end": 49120
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 2990,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"checker.ts\",\"content\":\"    function checkSourceElementWorker(node: Node): void {\\r\\n        if (getNodeCheckFlags(node) & NodeCheckFlags.PartiallyTypeChecked) {\\r\\n            return;\\r\\n        }\\r\\n\\r\\n        if (canHaveJSDoc(node)) {\\r\\n            forEach(node.jsDoc, ({ comment, tags }) => {\\r\\n                checkJSDocCommentWorker(comment);\\r\\n                forEach(tags, tag => {\\r\\n                    checkJSDocCommentWorker(tag.comment);\\r\\n                    if (isInJSFile(node)) {\\r\\n                        checkSourceElement(tag);\\r\\n                    }\\r\\n                });\\r\\n            });\\r\\n        }\\r\\n\\r\\n        const kind = node.kind;\\r\\n        if (cancellationToken) {\\r\\n            // Only bother checking on a few construct kinds.  We don't want to be excessively\\r\\n            // hitting the cancellation token on every node we check.\\r\\n            switch (kind) {\\r\\n                case SyntaxKind.ModuleDeclaration:\\r\\n                case SyntaxKind.ClassDeclaration:\\r\\n                case SyntaxKind.InterfaceDeclaration:\\r\\n                case SyntaxKind.FunctionDeclaration:\\r\\n                    cancellationToken.throwIfCancellationRequested();\\r\\n            }\\r\\n        }\\r\\n\\r\\n        if (compilerOptions.allowUnreachableCode !== true && !withinUnreachableCode) {\\r\\n            if (checkSourceElementUnreachable(node)) {\\r\\n                withinUnreachableCode = true;\\r\\n            }\\r\\n        }\\r\\n\\r\\n        // If editing this, keep `isSourceElement` in utilities up to date.\\r\\n        switch (kind) {\\r\\n            case SyntaxKind.TypeParameter:\\r\\n                return checkTypeParameter(node as TypeParameterDeclaration);\\r\\n            case SyntaxKind.Parameter:\\r\\n                return checkParameter(node as ParameterDeclaration);\\r\\n            case SyntaxKind.PropertyDeclaration:\\r\\n                return checkPropertyDeclaration(node as PropertyDeclaration);\\r\\n            case SyntaxKind.PropertySignature:\\r\\n                return checkPropertySignature(node as PropertySignature);\\r\\n            case SyntaxKind.ConstructorType:\\r\\n            case SyntaxKind.FunctionType:\\r\\n            case SyntaxKind.CallSignature:\\r\\n            case SyntaxKind.ConstructSignature:\\r\\n            case SyntaxKind.IndexSignature:\\r\\n                return checkSignatureDeclaration(node as SignatureDeclaration);\\r\\n            case SyntaxKind.MethodDeclaration:\\r\\n            case SyntaxKind.MethodSignature:\\r\\n                return checkMethodDeclaration(node as MethodDeclaration | MethodSignature);\\r\\n            case SyntaxKind.ClassStaticBlockDeclaration:\\r\\n                return checkClassStaticBlockDeclaration(node as ClassStaticBlockDeclaration);\\r\\n\",\"totalLines\":54434,\"sourceLineRanges\":[{\"start\":49064,\"end\":49120}],\"sourceChars\":3151772}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript/tsc/testdata/fixtures/compiler\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-ts",
+    "lang": "ts",
+    "task": "Window ±5 around \"export const newTextElement\" in newElement.ts",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"export const newTextElement\" tsx/packages/element/src/newElement.ts",
+      "calls": 1,
+      "chars": 265,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src/newElement.ts",
+        "matchString": "export const newTextElement",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 497,
+      "ms": 207,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 330,
+            "end": 340
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 497,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"newElement.ts\",\"content\":\"    x: metrics.width * ratios.x,\\n    y: metrics.height * ratios.y,\\n  };\\n};\\n\\nexport const newTextElement = (\\n  opts: {\\n    text: string;\\n    originalText?: string;\\n    fontSize?: number;\\n    fontFamily?: FontFamilyValues;\\n\",\"totalLines\":692,\"sourceLineRanges\":[{\"start\":330,\"end\":340}],\"matchedLines\":[335],\"sourceChars\":18575}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-rust",
+    "lang": "rust",
+    "task": "Window ±5 around \"fn spawn_thread\" in pool.rs",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"fn spawn_thread\" rust/tokio/src/runtime/blocking/pool.rs",
+      "calls": 1,
+      "chars": 251,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking/pool.rs",
+        "matchString": "fn spawn_thread",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 464,
+      "ms": 317,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 503,
+            "end": 513
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 464,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"pool.rs\",\"content\":\"\\n                Ok(())\\n            })\\n    }\\n\\n    fn spawn_thread(\\n        &self,\\n        shutdown_tx: shutdown::Sender,\\n        rt: &Handle,\\n        id: usize,\\n    ) -> io::Result<thread::JoinHandle<()>> {\\n\",\"totalLines\":778,\"sourceLineRanges\":[{\"start\":503,\"end\":513}],\"matchedLines\":[508]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-go",
+    "lang": "go",
+    "task": "Window ±5 around \"func (h *Head) gc()\" in head.go",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"func (h *Head) gc()\" go/tsdb/head.go",
+      "calls": 1,
+      "chars": 653,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/head.go",
+        "matchString": "func (h *Head) gc()",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 861,
+      "ms": 230,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 1983,
+            "end": 1993
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 861,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"head.go\",\"content\":\"// gc removes data before the minimum timestamp from the head.\\n// It returns\\n// * The actual min times of the chunks present in the Head.\\n// * The min OOO time seen during the GC.\\n// * Min mmap file number seen in the series (in-order and out-of-order) after gc'ing the series.\\nfunc (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {\\n\\t// Only data strictly lower than this timestamp must be deleted.\\n\\tmint := h.MinTime()\\n\\t// Only ooo m-map chunks strictly lower than or equal to this ref\\n\\t// must be deleted.\\n\\tminOOOMmapRef := chunks.ChunkDiskMapperRef(h.minOOOMmapRef.Load())\\n\",\"totalLines\":3281,\"sourceLineRanges\":[{\"start\":1983,\"end\":1993}],\"matchedLines\":[1988],\"sourceChars\":116477}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-python",
+    "lang": "python",
+    "task": "Window ±5 around \"def get_or_create\" in query.py",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"def get_or_create\" python/django/db/models/query.py",
+      "calls": 1,
+      "chars": 414,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py",
+        "matchString": "def get_or_create",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 619,
+      "ms": 231,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 1083,
+            "end": 1093
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 619,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"query.py\",\"content\":\"            batch_size=batch_size,\\n        )\\n\\n    abulk_update.alters_data = True\\n\\n    def get_or_create(self, defaults=None, **kwargs):\\n        \\\"\\\"\\\"\\n        Look up an object with the given kwargs, creating one if necessary.\\n        Return a tuple of (object, created), where created is a boolean\\n        specifying whether an object was created.\\n        \\\"\\\"\\\"\\n\",\"totalLines\":3137,\"sourceLineRanges\":[{\"start\":1083,\"end\":1093}],\"matchedLines\":[1088]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-java",
+    "lang": "java",
+    "task": "Window ±5 around \"public static <E extends @Nullable Object> ArrayList<E> newArrayList()\" in Lists.java",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"public static <E extends @Nullable Object> ArrayList<E> newArrayList()\" java/guava/src/com/google/common/collect/Lists.java",
+      "calls": 1,
+      "chars": 496,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/Lists.java",
+        "matchString": "public static <E extends @Nullable Object> ArrayList<E> newArrayList()",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 736,
+      "ms": 213,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 85,
+            "end": 95
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 736,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"Lists.java\",\"content\":\"   * advantage of <a\\n   * href=\\\"https://docs.oracle.com/javase/tutorial/java/generics/genTypeInference.html#type-inference-instantiation\\\">\\\"diamond\\\"\\n   * syntax</a>.\\n   */\\n  @SuppressWarnings(\\\"NonApiType\\\") // acts as a direct substitute for a constructor call\\n  public static <E extends @Nullable Object> ArrayList<E> newArrayList() {\\n    return new ArrayList<>();\\n  }\\n\\n  /**\\n   * Creates a <i>mutable</i> {@code ArrayList} instance containing the given elements.\\n\",\"totalLines\":1245,\"sourceLineRanges\":[{\"start\":85,\"end\":95}],\"matchedLines\":[90]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-c",
+    "lang": "c",
+    "task": "Window ±5 around \"int processCommand(client *c)\" in server.c",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"int processCommand(client *c)\" c/src/server.c",
+      "calls": 1,
+      "chars": 584,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src/server.c",
+        "matchString": "int processCommand(client *c)",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 786,
+      "ms": 298,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 4655,
+            "end": 4665
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 786,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"server.c\",\"content\":\" * server for a bulk read from the client.\\n *\\n * If C_OK is returned the client is still alive and valid and\\n * other operations can be performed by the caller. Otherwise\\n * if C_ERR is returned the client was destroyed (i.e. after QUIT). */\\nint processCommand(client *c) {\\n    if (!scriptIsTimedout()) {\\n        /* Both EXEC and scripts call call() directly so there should be\\n         * no way in_exec or scriptIsRunning() is 1.\\n         * That is unless lua_timedout, in which case client may run\\n         * some commands. */\\n\",\"totalLines\":8615,\"sourceLineRanges\":[{\"start\":4655,\"end\":4665}],\"matchedLines\":[4660],\"sourceChars\":360747}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-cpp",
+    "lang": "cpp",
+    "task": "Window ±5 around \"class lexer : public lexer_base\" in json.hpp",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"class lexer : public lexer_base\" cpp/single_include/nlohmann/json.hpp",
+      "calls": 1,
+      "chars": 529,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp/single_include/nlohmann/json.hpp",
+        "matchString": "class lexer : public lexer_base",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 755,
+      "ms": 537,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 9229,
+            "end": 9239
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 755,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"json.hpp\",\"content\":\"@brief lexical analysis\\n\\nThis class organizes the lexical analysis during JSON deserialization.\\n*/\\ntemplate<typename BasicJsonType, typename InputAdapterType>\\nclass lexer : public lexer_base<BasicJsonType>\\n{\\n    using number_integer_t = typename BasicJsonType::number_integer_t;\\n    using number_unsigned_t = typename BasicJsonType::number_unsigned_t;\\n    using number_float_t = typename BasicJsonType::number_float_t;\\n    using string_t = typename BasicJsonType::string_t;\\n\",\"totalLines\":31734,\"sourceLineRanges\":[{\"start\":9229,\"end\":9239}],\"matchedLines\":[9234],\"sourceChars\":1238141}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp/single_include/nlohmann\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "match-huge-ts",
+    "lang": "huge-ts",
+    "task": "Window ±5 around \"function checkSourceElementWorker\" in checker.ts",
+    "shell": {
+      "cmd": "rg -n -C5 -F \"function checkSourceElementWorker\" typescript/tsc/testdata/fixtures/compiler/checker.ts",
+      "calls": 1,
+      "chars": 400,
+      "ms": 9,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "citations": "every line numbered"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript/tsc/testdata/fixtures/compiler/checker.ts",
+        "matchString": "function checkSourceElementWorker",
+        "matchStringCaseSensitive": true,
+        "contextLines": 5
+      },
+      "calls": 1,
+      "chars": 645,
+      "ms": 1112,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 11,
+        "want": 11,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 49059,
+            "end": 49069
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 645,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"checker.ts\",\"content\":\"            currentNode = saveCurrentNode;\\r\\n            withinUnreachableCode = saveWithinUnreachableCode;\\r\\n        }\\r\\n    }\\r\\n\\r\\n    function checkSourceElementWorker(node: Node): void {\\r\\n        if (getNodeCheckFlags(node) & NodeCheckFlags.PartiallyTypeChecked) {\\r\\n            return;\\r\\n        }\\r\\n\\r\\n        if (canHaveJSDoc(node)) {\\r\\n\",\"totalLines\":54434,\"sourceLineRanges\":[{\"start\":49059,\"end\":49069}],\"matchedLines\":[49064],\"sourceChars\":3151772}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript/tsc/testdata/fixtures/compiler\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "head-ts",
+    "lang": "ts",
+    "task": "First 40 lines of newElement.ts",
+    "shell": {
+      "cmd": "head -n 40 tsx/packages/element/src/newElement.ts",
+      "calls": 1,
+      "chars": 1010,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 40,
+        "want": 40,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src/newElement.ts",
+        "startLine": 1,
+        "endLine": 40
+      },
+      "calls": 1,
+      "chars": 1311,
+      "ms": 204,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 40,
+        "want": 40,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 1,
+            "end": 40
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 1311,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"newElement.ts\",\"content\":\"import {\\n  DEFAULT_ELEMENT_PROPS,\\n  DEFAULT_FONT_FAMILY,\\n  DEFAULT_FONT_SIZE,\\n  DEFAULT_TEXT_ALIGN,\\n  DEFAULT_STICKY_NOTE_SIZE,\\n  STICKY_NOTE_MIN_SIZE,\\n  DEFAULT_VERTICAL_ALIGN,\\n  DEFAULT_STROKE_STREAMLINE,\\n  VERTICAL_ALIGN,\\n  randomInteger,\\n  randomId,\\n  getFontString,\\n  getUpdatedTimestamp,\\n  getLineHeight,\\n} from \\\"@excalidraw/common\\\";\\n\\nimport type { Radians } from \\\"@excalidraw/math\\\";\\n\\nimport type { MarkOptional, Merge } from \\\"@excalidraw/common/utility-types\\\";\\n\\nimport {\\n  getElementAbsoluteCoords,\\n  getResizedElementAbsoluteCoords,\\n} from \\\"./bounds\\\";\\nimport { newElementWith } from \\\"./mutateElement\\\";\\nimport {\\n  normalizeStickyNoteBackgroundColor,\\n  normalizeStickyNoteStrokeColor,\\n} from \\\"./stickyNote\\\";\\nimport { getBoundTextMaxWidth } from \\\"./textElement\\\";\\nimport { normalizeText, measureText } from \\\"./textMeasurements\\\";\\nimport { wrapText } from \\\"./textWrapping\\\";\\n\\nimport { isLineElement } from \\\"./typeChecks\\\";\\n\\nimport type {\\n  ExcalidrawElement,\\n  ExcalidrawImageElement,\\n  ExcalidrawTextElement,\\n\",\"totalLines\":692,\"sourceLineRanges\":[{\"start\":1,\"end\":40}],\"sourceChars\":18575}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "head-go",
+    "lang": "go",
+    "task": "First 40 lines of head.go",
+    "shell": {
+      "cmd": "head -n 40 go/tsdb/head.go",
+      "calls": 1,
+      "chars": 1117,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 40,
+        "want": 40,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/head.go",
+        "startLine": 1,
+        "endLine": 40
+      },
+      "calls": 1,
+      "chars": 1447,
+      "ms": 206,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 40,
+        "want": 40,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 1,
+            "end": 40
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 1447,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"head.go\",\"content\":\"// Copyright The Prometheus Authors\\n// Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n// you may not use this file except in compliance with the License.\\n// You may obtain a copy of the License at\\n//\\n// http://www.apache.org/licenses/LICENSE-2.0\\n//\\n// Unless required by applicable law or agreed to in writing, software\\n// distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n// See the License for the specific language governing permissions and\\n// limitations under the License.\\n\\npackage tsdb\\n\\nimport (\\n\\t\\\"context\\\"\\n\\t\\\"errors\\\"\\n\\t\\\"fmt\\\"\\n\\t\\\"io\\\"\\n\\t\\\"log/slog\\\"\\n\\t\\\"math\\\"\\n\\t\\\"os\\\"\\n\\t\\\"path/filepath\\\"\\n\\t\\\"runtime\\\"\\n\\t\\\"slices\\\"\\n\\t\\\"strconv\\\"\\n\\t\\\"sync\\\"\\n\\tstdatomic \\\"sync/atomic\\\" //nolint:depguard\\n\\t\\\"time\\\"\\n\\n\\t\\\"github.com/oklog/ulid/v2\\\"\\n\\t\\\"github.com/prometheus/client_golang/prometheus\\\"\\n\\t\\\"github.com/prometheus/common/promslog\\\"\\n\\t\\\"go.uber.org/atomic\\\"\\n\\n\\t\\\"github.com/prometheus/prometheus/config\\\"\\n\\t\\\"github.com/prometheus/prometheus/model/exemplar\\\"\\n\\t\\\"github.com/prometheus/prometheus/model/histogram\\\"\\n\\t\\\"github.com/prometheus/prometheus/model/labels\\\"\\n\",\"totalLines\":3281,\"sourceLineRanges\":[{\"start\":1,\"end\":40}],\"sourceChars\":116477}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "head-c",
+    "lang": "c",
+    "task": "First 40 lines of server.c",
+    "shell": {
+      "cmd": "head -n 40 c/src/server.c",
+      "calls": 1,
+      "chars": 1016,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 40,
+        "want": 40,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src/server.c",
+        "startLine": 1,
+        "endLine": 40
+      },
+      "calls": 1,
+      "chars": 1317,
+      "ms": 218,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 40,
+        "want": 40,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 1,
+            "end": 40
+          }
+        ]
+      },
+      "steps": [
+        {
+          "chars": 1317,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"server.c\",\"content\":\"/*\\n * Copyright (c) 2009-Present, Redis Ltd.\\n * All rights reserved.\\n *\\n * Copyright (c) 2024-present, Valkey contributors.\\n * All rights reserved.\\n *\\n * Licensed under your choice of (a) the Redis Source Available License 2.0\\n * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the\\n * GNU Affero General Public License v3 (AGPLv3).\\n *\\n * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.\\n */\\n\\n#include \\\"server.h\\\"\\n#include \\\"monotonic.h\\\"\\n#include \\\"cluster.h\\\"\\n#include \\\"cluster_slot_stats.h\\\"\\n#include \\\"slowlog.h\\\"\\n#include \\\"bio.h\\\"\\n#include \\\"latency.h\\\"\\n#include \\\"atomicvar.h\\\"\\n#include \\\"mt19937-64.h\\\"\\n#include \\\"functions.h\\\"\\n#include \\\"hdr_histogram.h\\\"\\n#include \\\"syscheck.h\\\"\\n#include \\\"threads_mngr.h\\\"\\n#include \\\"fmtargs.h\\\"\\n#include \\\"mstr.h\\\"\\n#include \\\"ebuckets.h\\\"\\n#include \\\"cluster_asm.h\\\"\\n#include \\\"fwtree.h\\\"\\n#include \\\"estore.h\\\"\\n#include \\\"chk.h\\\"\\n#include \\\"fast_float_strtod.h\\\"\\n\\n#include <time.h>\\n#include <signal.h>\\n#include <sys/wait.h>\\n#include <errno.h>\\n\",\"totalLines\":8615,\"sourceLineRanges\":[{\"start\":1,\"end\":40}],\"sourceChars\":360747}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tail-rust",
+    "lang": "rust",
+    "task": "Last 30 lines of pool.rs",
+    "shell": {
+      "cmd": "tail -n 30 rust/tokio/src/runtime/blocking/pool.rs",
+      "calls": 1,
+      "chars": 728,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 30,
+        "want": 30,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking/pool.rs",
+        "startLine": 749,
+        "endLine": 778
+      },
+      "calls": 2,
+      "chars": 1247,
+      "ms": 505,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 30,
+        "want": 30,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 749,
+            "end": 778
+          }
+        ],
+        "totalLinesReported": 778,
+        "wcLines": 778
+      },
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking/pool.rs",
+                "startLine": 1,
+                "endLine": 1
+              }
+            ]
+          },
+          "chars": 262,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"pool.rs\",\"content\":\"//! Thread pool for blocking operations\\n\",\"totalLines\":778,\"sourceLineRanges\":[{\"start\":1,\"end\":1}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking\"}\n"
+        },
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking/pool.rs",
+                "startLine": 749,
+                "endLine": 778
+              }
+            ]
+          },
+          "chars": 985,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"pool.rs\",\"content\":\"#[inline]\\nfn is_temporary_os_thread_error(error: &io::Error) -> bool {\\n    matches!(error.kind(), io::ErrorKind::WouldBlock)\\n}\\n\\nimpl Inner {\\n    fn run(&self, worker_thread_id: usize) {\\n        if let Some(f) = &self.after_start {\\n            f();\\n        }\\n\\n        let join_on_thread =\\n            self.inner_impl\\n                .run_worker(&self.metrics, self.keep_alive, worker_thread_id);\\n\\n        if let Some(f) = &self.before_stop {\\n            f();\\n        }\\n\\n        if let Some(handle) = join_on_thread {\\n            let _ = handle.join();\\n        }\\n    }\\n}\\n\\nimpl fmt::Debug for Spawner {\\n    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {\\n        fmt.debug_struct(\\\"blocking::Spawner\\\").finish()\\n    }\\n}\\n\",\"totalLines\":778,\"sourceLineRanges\":[{\"start\":749,\"end\":778}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/rust/tokio/src/runtime/blocking\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tail-python",
+    "lang": "python",
+    "task": "Last 30 lines of query.py",
+    "shell": {
+      "cmd": "tail -n 30 python/django/db/models/query.py",
+      "calls": 1,
+      "chars": 1086,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 30,
+        "want": 30,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py",
+        "startLine": 3108,
+        "endLine": 3137
+      },
+      "calls": 2,
+      "chars": 1562,
+      "ms": 408,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 30,
+        "want": 30,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 3108,
+            "end": 3137
+          }
+        ],
+        "totalLinesReported": 3137,
+        "wcLines": 3137
+      },
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py",
+                "startLine": 1,
+                "endLine": 1
+              }
+            ]
+          },
+          "chars": 223,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"query.py\",\"content\":\"\\\"\\\"\\\"\\n\",\"totalLines\":3137,\"sourceLineRanges\":[{\"start\":1,\"end\":1}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\"}\n"
+        },
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py",
+                "startLine": 3108,
+                "endLine": 3137
+              }
+            ]
+          },
+          "chars": 1339,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"query.py\",\"content\":\"    def populate(self, row, from_obj):\\n        if self.reorder_for_init:\\n            obj_data = self.reorder_for_init(row)\\n        else:\\n            obj_data = row[self.cols_start : self.cols_end]\\n        if obj_data[self.pk_idx] is None:\\n            obj = None\\n        else:\\n            obj = self.from_db(\\n                self.db,\\n                self.init_list,\\n                obj_data,\\n            )\\n            if self.fetch_mode.track_peers:\\n                self.peers.append(weak_ref(obj))\\n                obj._state.peers = self.peers\\n            for rel_iter in self.related_populators:\\n                rel_iter.populate(row, obj)\\n        self.local_setter(from_obj, obj)\\n        if obj is not None:\\n            self.remote_setter(obj, from_obj)\\n\\n\\ndef get_related_populators(klass_info, select, db, fetch_mode):\\n    iterators = []\\n    related_klass_infos = klass_info.get(\\\"related_klass_infos\\\", [])\\n    for rel_klass_info in related_klass_infos:\\n        rel_cls = RelatedPopulator(rel_klass_info, select, db, fetch_mode)\\n        iterators.append(rel_cls)\\n    return iterators\\n\",\"totalLines\":3137,\"sourceLineRanges\":[{\"start\":3108,\"end\":3137}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "tail-java",
+    "lang": "java",
+    "task": "Last 30 lines of Lists.java",
+    "shell": {
+      "cmd": "tail -n 30 java/guava/src/com/google/common/collect/Lists.java",
+      "calls": 1,
+      "chars": 712,
+      "ms": 3,
+      "correct": {
+        "ok": true,
+        "got": 30,
+        "want": 30,
+        "citations": "none (sed prints no line numbers; agent knows a,b from the command)"
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/Lists.java",
+        "startLine": 1216,
+        "endLine": 1245
+      },
+      "calls": 2,
+      "chars": 1220,
+      "ms": 403,
+      "correct": {
+        "ok": true,
+        "mismatches": 0,
+        "covered": 30,
+        "want": 30,
+        "missing": 0,
+        "extra": 0,
+        "citations": [
+          {
+            "start": 1216,
+            "end": 1245
+          }
+        ],
+        "totalLinesReported": 1245,
+        "wcLines": 1245
+      },
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/Lists.java",
+                "startLine": 1,
+                "endLine": 1
+              }
+            ]
+          },
+          "chars": 238,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"Lists.java\",\"content\":\"/*\\n\",\"totalLines\":1245,\"sourceLineRanges\":[{\"start\":1,\"end\":1}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect\"}\n"
+        },
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/Lists.java",
+                "startLine": 1216,
+                "endLine": 1245
+              }
+            ]
+          },
+          "chars": 982,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"Lists.java\",\"content\":\"    @Override\\n    @ParametricNullness\\n    public final E remove(int index) {\\n      return backingList.remove(index);\\n    }\\n\\n    @Override\\n    @ParametricNullness\\n    public final E set(int index, @ParametricNullness E element) {\\n      return backingList.set(index, element);\\n    }\\n\\n    @Override\\n    public final boolean contains(@Nullable Object o) {\\n      return backingList.contains(o);\\n    }\\n\\n    @Override\\n    public final int size() {\\n      return backingList.size();\\n    }\\n  }\\n\\n  private static class RandomAccessListWrapper<E extends @Nullable Object>\\n      extends AbstractListWrapper<E> implements RandomAccess {\\n    RandomAccessListWrapper(List<E> backingList) {\\n      super(backingList);\\n    }\\n  }\\n}\\n\",\"totalLines\":1245,\"sourceLineRanges\":[{\"start\":1216,\"end\":1245}]}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "outline-ts",
+    "lang": "ts",
+    "task": "Skim declarations of newElement.ts",
+    "shell": {
+      "cmd": "rg -n '^export (const|function|type|interface) \\w+' tsx/packages/element/src/newElement.ts",
+      "calls": 1,
+      "chars": 799,
+      "ms": 10,
+      "correct": {
+        "ok": true,
+        "declLines": 17
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src/newElement.ts",
+        "minify": "symbols"
+      },
+      "calls": 1,
+      "chars": 8325,
+      "ms": 217,
+      "correct": {
+        "ok": true,
+        "note": "qualitative; see REPORT",
+        "contentChars": 7691
+      },
+      "steps": [
+        {
+          "chars": 8325,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"newElement.ts\",\"content\":\"1| import{\\n2| DEFAULT_ELEMENT_PROPS,\\n3| DEFAULT_FONT_FAMILY,\\n4| DEFAULT_FONT_SIZE,\\n5| DEFAULT_TEXT_ALIGN,\\n6| DEFAULT_STICKY_NOTE_SIZE,\\n7| STICKY_NOTE_MIN_SIZE,\\n8| DEFAULT_VERTICAL_ALIGN,\\n9| DEFAULT_STROKE_STREAMLINE,\\n10| VERTICAL_ALIGN,\\n11| randomInteger,\\n12| randomId,\\n13| getFontString,\\n14| getUpdatedTimestamp,\\n15| getLineHeight,\\n16|}from \\\"@excalidraw/common\\\";\\n18| import type{Radians}from \\\"@excalidraw/math\\\";\\n20| import type{MarkOptional,Merge}from \\\"@excalidraw/common/utility-types\\\";\\n22| import{\\n23| getElementAbsoluteCoords,\\n24| getResizedElementAbsoluteCoords,\\n25|}from \\\"./bounds\\\";\\n26| import{newElementWith}from \\\"./mutateElement\\\";\\n27| import{\\n28| normalizeStickyNoteBackgroundColor,\\n29| normalizeStickyNoteStrokeColor,\\n30|}from \\\"./stickyNote\\\";\\n31| import{getBoundTextMaxWidth}from \\\"./textElement\\\";\\n32| import{normalizeText,measureText}from \\\"./textMeasurements\\\";\\n33| import{wrapText}from \\\"./textWrapping\\\";\\n35| import{isLineElement}from \\\"./typeChecks\\\";\\n37| import type{\\n38| ExcalidrawElement,\\n39| ExcalidrawImageElement,\\n40| ExcalidrawTextElement,\\n41| ExcalidrawLinearElement,\\n42| ExcalidrawGenericElement,\\n43| NonDeleted,\\n44| TextAlign,\\n45| VerticalAlign,\\n46| Arrowhead,\\n47| ExcalidrawFreeDrawElement,\\n48| FontFamilyValues,\\n49| ExcalidrawTextContainer,\\n50| ExcalidrawFrameElement,\\n51| ExcalidrawEmbeddableElement,\\n52| ExcalidrawMagicFrameElement,\\n53| ExcalidrawIframeElement,\\n54| ElementsMap,\\n55| ExcalidrawArrowElement,\\n56| ExcalidrawElbowArrowElement,\\n57| ExcalidrawLineElement,\\n58| ExcalidrawStickyNoteElement,\\n59|}from \\\"./types\\\";\\n61| export type ElementConstructorOpts = MarkOptional<\\n62| Omit<ExcalidrawGenericElement,\\\"id\\\" | \\\"type\\\" | \\\"isDeleted\\\" | \\\"updated\\\">,\\n63| | \\\"width\\\"\\n64| | \\\"height\\\"\\n65| | \\\"angle\\\"\\n66| | \\\"groupIds\\\"\\n67| | \\\"frameId\\\"\\n68| | \\\"index\\\"\\n69| | \\\"boundElements\\\"\\n70| | \\\"seed\\\"\\n71| | \\\"version\\\"\\n72| | \\\"versionNonce\\\"\\n73| | \\\"link\\\"\\n74| | \\\"strokeStyle\\\"\\n75| | \\\"fillStyle\\\"\\n76| | \\\"strokeColor\\\"\\n77| | \\\"backgroundColor\\\"\\n78| | \\\"roughness\\\"\\n79| | \\\"strokeWidth\\\"\\n80| | \\\"roundness\\\"\\n81| | \\\"locked\\\"\\n82| | \\\"opacity\\\"\\n83| | \\\"customData\\\"\\n84| | \\\"created\\\"\\n85| >;\\n87| const _newElementBase = <T extends ExcalidrawElement>(\\n88| type: T[\\\"type\\\"],\\n89|{\\n90| x,\\n91| y,\\n92| strokeColor = DEFAULT_ELEMENT_PROPS.strokeColor,\\n93| backgroundColor = DEFAULT_ELEMENT_PROPS.backgroundColor,\\n94| fillStyle = DEFAULT_ELEMENT_PROPS.fillStyle,\\n95| strokeWidth = DEFAULT_ELEMENT_PROPS.strokeWidth,\\n96| strokeStyle = DEFAULT_ELEMENT_PROPS.strokeStyle,\\n97| roughness = DEFAULT_ELEMENT_PROPS.roughness,\\n98| opacity = DEFAULT_ELEMENT_PROPS.opacity,\\n99| width = 0,\\n100| height = 0,\\n101| angle = 0 as Radians,\\n102| groupIds = [],\\n103| frameId = null,\\n104| index = null,\\n105| roundness = null,\\n106| boundElements = null,\\n107| link = null,\\n108| locked = DEFAULT_ELEMENT_PROPS.locked,\\n109| ...rest\\n110|}: ElementConstructorOpts & Omit<Partial<ExcalidrawGenericElement>,\\\"type\\\">,\\n111|)=>{\\n174| export const newElement =(\\n175| opts:{\\n176| type: ExcalidrawGenericElement[\\\"type\\\"];\\n177|}& ElementConstructorOpts,\\n178|): NonDeleted<ExcalidrawGenericElement> =>\\n179| _newElementBase<ExcalidrawGenericElement>(opts.type,opts);\\n186| export const normalizeStickyNoteStyle = <T extends ExcalidrawStickyNoteElement>(\\n187| element: T,\\n188|): T =>{\\n205| export const normalizeStickyNoteGeometry = <\\n206| T extends ExcalidrawStickyNoteElement,\\n207| >(\\n208| element: T,\\n209|): T =>{\\n224| export const normalizeStickyNote = <T extends ExcalidrawStickyNoteElement>(\\n225| element: T,\\n226|): T =>{\\n230| export const newStickyNoteElement =(\\n231| opts:{\\n232| type: \\\"stickynote\\\";\\n233| baseHeight?: number;\\n234|}& ElementConstructorOpts,\\n235|): NonDeleted<ExcalidrawStickyNoteElement> =>{\\n245| export const newEmbeddableElement =(\\n246| opts:{\\n247| type: \\\"embeddable\\\";\\n248|}& ElementConstructorOpts,\\n249|): NonDeleted<ExcalidrawEmbeddableElement> =>{\\n253| export const newIframeElement =(\\n254| opts:{\\n255| type: \\\"iframe\\\";\\n256|}& ElementConstructorOpts,\\n257|): NonDeleted<ExcalidrawIframeElement> =>{\\n263| export const newFrameElement =(\\n264| opts:{\\n265| name?: string;\\n266|}& ElementConstructorOpts,\\n267|): NonDeleted<ExcalidrawFrameElement> =>{\\n280| export const newMagicFrameElement =(\\n281| opts:{\\n282| name?: string;\\n283|}& ElementConstructorOpts,\\n284|): NonDeleted<ExcalidrawMagicFrameElement> =>{\\n303| export const getTextAnchorRatios =(opts:{\\n304| textAlign: ExcalidrawTextElement[\\\"textAlign\\\"];\\n305| verticalAlign: ExcalidrawTextElement[\\\"verticalAlign\\\"];\\n306|})=>({\\n307| x: opts.textAlign === \\\"center\\\" ? 0.5: opts.textAlign === \\\"right\\\" ? 1: 0,\\n308| y:\\n309| opts.verticalAlign === VERTICAL_ALIGN.MIDDLE\\n310| ? 0.5\\n311|: opts.verticalAlign === VERTICAL_ALIGN.BOTTOM\\n312| ? 1\\n313|: 0,\\n314|});\\n317| const getTextElementPositionOffsets =(\\n318| opts:{\\n319| textAlign: ExcalidrawTextElement[\\\"textAlign\\\"];\\n320| verticalAlign: ExcalidrawTextElement[\\\"verticalAlign\\\"];\\n321|},\\n322| metrics:{\\n323| width: number;\\n324| height: number;\\n325|},\\n326|)=>{\\n335| export const newTextElement =(\\n336| opts:{\\n337| text: string;\\n338| originalText?: string;\\n339| fontSize?: number;\\n340| fontFamily?: FontFamilyValues;\\n341| textAlign?: TextAlign;\\n342| verticalAlign?: VerticalAlign;\\n343| containerId?: ExcalidrawTextContainer[\\\"id\\\"] | null;\\n344| lineHeight?: ExcalidrawTextElement[\\\"lineHeight\\\"];\\n345| autoResize?: ExcalidrawTextElement[\\\"autoResize\\\"];\\n346| labelPosition?: ExcalidrawTextElement[\\\"labelPosition\\\"];\\n347| baseFontSize?: ExcalidrawTextElement[\\\"baseFontSize\\\"];\\n348|}& ElementConstructorOpts,\\n349|): NonDeleted<ExcalidrawTextElement> =>{\\n393| const getAdjustedDimensions =(\\n394| element: ExcalidrawTextElement,\\n395| elementsMap: ElementsMap,\\n396| nextText: string,\\n398| nextFixedWidth?: number,\\n399|):{\\n400| x: number;\\n401| y: number;\\n402| width: number;\\n403| height: number;\\n404|}=>{\\n486| const adjustXYWithRotation =(\\n487| sides:{\\n488| n?: boolean;\\n489| e?: boolean;\\n490| s?: boolean;\\n491| w?: boolean;\\n492|},\\n493| x: number,\\n494| y: number,\\n495| angle: number,\\n496| deltaX1: number,\\n497| deltaY1: number,\\n498| deltaX2: number,\\n499| deltaY2: number,\\n500|): [number,number] =>{\\n533| export const refreshTextDimensions =(\\n534| textElement: ExcalidrawTextElement,\\n535| container: ExcalidrawTextContainer | null,\\n536| elementsMap: ElementsMap,\\n537| text = textElement.text,\\n544| maxWidth?: number,\\n545|)=>{\\n583| export const newFreeDrawElement =(\\n584| opts:{\\n585| type: \\\"freedraw\\\";\\n586| points?: ExcalidrawFreeDrawElement[\\\"points\\\"];\\n587| simulatePressure: boolean;\\n588| strokeOptions?: ExcalidrawFreeDrawElement[\\\"strokeOptions\\\"];\\n589| pressures?: ExcalidrawFreeDrawElement[\\\"pressures\\\"];\\n590|}& ElementConstructorOpts,\\n591|): NonDeleted<ExcalidrawFreeDrawElement> =>{\\n604| export const newLinearElement =(\\n605| opts:{\\n606| type: ExcalidrawLinearElement[\\\"type\\\"];\\n607| points?: ExcalidrawLinearElement[\\\"points\\\"];\\n608| polygon?: ExcalidrawLineElement[\\\"polygon\\\"];\\n609|}& ElementConstructorOpts,\\n610|): NonDeleted<ExcalidrawLinearElement> =>{\\n633| export const newArrowElement = <T extends boolean>(\\n634| opts:{\\n635| type: ExcalidrawArrowElement[\\\"type\\\"];\\n636| startArrowhead?: Arrowhead | null;\\n637| endArrowhead?: Arrowhead | null;\\n638| points?: ExcalidrawArrowElement[\\\"points\\\"];\\n639| elbowed?: T;\\n640| fixedSegments?: ExcalidrawElbowArrowElement[\\\"fixedSegments\\\"] | null;\\n641|}& ElementConstructorOpts,\\n642|): T extends true\\n643| ? NonDeleted<ExcalidrawElbowArrowElement>\\n644|: NonDeleted<ExcalidrawArrowElement> =>{\\n673| export const newImageElement =(\\n674| opts:{\\n675| type: ExcalidrawImageElement[\\\"type\\\"];\\n676| status?: ExcalidrawImageElement[\\\"status\\\"];\\n677| fileId?: ExcalidrawImageElement[\\\"fileId\\\"];\\n678| scale?: ExcalidrawImageElement[\\\"scale\\\"];\\n679| crop?: ExcalidrawImageElement[\\\"crop\\\"];\\n680|}& ElementConstructorOpts,\\n681|): NonDeleted<ExcalidrawImageElement> =>{\",\"contentView\":\"symbols\",\"totalLines\":692,\"sourceChars\":18575,\"returnedLines\":254}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "outline-go",
+    "lang": "go",
+    "task": "Skim declarations of head.go",
+    "shell": {
+      "cmd": "rg -n '^func ' go/tsdb/head.go",
+      "calls": 1,
+      "chars": 10365,
+      "ms": 8,
+      "correct": {
+        "ok": true,
+        "declLines": 139
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/head.go",
+        "minify": "symbols"
+      },
+      "calls": 1,
+      "chars": 17560,
+      "ms": 259,
+      "correct": {
+        "ok": true,
+        "note": "qualitative; see REPORT",
+        "contentChars": 16290
+      },
+      "steps": [
+        {
+          "chars": 17560,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"head.go\",\"content\":\"14| package tsdb\\n16| import (\\n17| \\t\\\"context\\\"\\n18| \\t\\\"errors\\\"\\n19| \\t\\\"fmt\\\"\\n20| \\t\\\"io\\\"\\n21| \\t\\\"log/slog\\\"\\n22| \\t\\\"math\\\"\\n23| \\t\\\"os\\\"\\n24| \\t\\\"path/filepath\\\"\\n25| \\t\\\"runtime\\\"\\n26| \\t\\\"slices\\\"\\n27| \\t\\\"strconv\\\"\\n28| \\t\\\"sync\\\"\\n29| \\tstdatomic \\\"sync/atomic\\\" \\n30| \\t\\\"time\\\"\\n32| \\t\\\"github.com/oklog/ulid/v2\\\"\\n33| \\t\\\"github.com/prometheus/client_golang/prometheus\\\"\\n34| \\t\\\"github.com/prometheus/common/promslog\\\"\\n35| \\t\\\"go.uber.org/atomic\\\"\\n37| \\t\\\"github.com/prometheus/prometheus/config\\\"\\n38| \\t\\\"github.com/prometheus/prometheus/model/exemplar\\\"\\n39| \\t\\\"github.com/prometheus/prometheus/model/histogram\\\"\\n40| \\t\\\"github.com/prometheus/prometheus/model/labels\\\"\\n41| \\t\\\"github.com/prometheus/prometheus/model/metadata\\\"\\n42| \\t\\\"github.com/prometheus/prometheus/model/value\\\"\\n43| \\t\\\"github.com/prometheus/prometheus/storage\\\"\\n44| \\t\\\"github.com/prometheus/prometheus/tsdb/chunkenc\\\"\\n45| \\t\\\"github.com/prometheus/prometheus/tsdb/chunks\\\"\\n46| \\t\\\"github.com/prometheus/prometheus/tsdb/index\\\"\\n47| \\t\\\"github.com/prometheus/prometheus/tsdb/record\\\"\\n48| \\t\\\"github.com/prometheus/prometheus/tsdb/tombstones\\\"\\n49| \\t\\\"github.com/prometheus/prometheus/tsdb/wlog\\\"\\n50| \\t\\\"github.com/prometheus/prometheus/util/zeropool\\\"\\n51| )\\n53| var (\\n56| \\tErrInvalidSample = errors.New(\\\"invalid sample\\\")\\n59| \\tErrInvalidExemplar = errors.New(\\\"invalid exemplar\\\")\\n62| \\tErrAppenderClosed = errors.New(\\\"appender closed\\\")\\n65| \\tdefaultIsolationDisabled = false\\n67| \\tdefaultWALReplayConcurrency = runtime.GOMAXPROCS(0)\\n68| )\\n71| type Head struct {\\n72| \\tchunkRange     atomic.Int64\\n73| \\tnumSeries      atomic.Uint64\\n74| \\tnumStaleSeries atomic.Uint64\\n78| \\tnumNativeHistogramSeries  atomic.Uint64\\n79| \\tnumNativeHistogramBuckets atomic.Uint64\\n81| \\tminOOOTime, maxOOOTime   atomic.Int64\\n82| \\tminTime, maxTime         atomic.Int64\\n83| \\tminValidTime             atomic.Int64\\n84| \\tlastWALTruncationTime    atomic.Int64\\n85| \\tlastMemoryTruncationTime atomic.Int64\\n86| \\tlastSeriesID             atomic.Uint64\\n89| \\tminOOOMmapRef atomic.Uint64\\n91| \\tmetrics         *headMetrics\\n92| \\topts            *HeadOptions\\n93| \\twal, wbl        *wlog.WL\\n94| \\texemplarMetrics *ExemplarMetrics\\n95| \\texemplars       ExemplarStorage\\n96| \\tlogger          *slog.Logger\\n98| \\trefSeriesPool       zeropool.Pool[[]record.RefSeries]\\n99| \\tfloatsPool          zeropool.Pool[[]record.RefSample]\\n100| \\texemplarsPool       zeropool.Pool[[]exemplarWithSeriesRef]\\n101| \\thistogramsPool      zeropool.Pool[[]record.RefHistogramSample]\\n102| \\tfloatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]\\n103| \\tmetadataPool        zeropool.Pool[[]record.RefMetadata]\\n104| \\tseriesPool          zeropool.Pool[[]*memSeries]\\n105| \\ttypeMapPool         zeropool.Pool[map[chunks.HeadSeriesRef]sampleType]\\n106| \\tbytesPool           zeropool.Pool[[]byte]\\n107| \\tmemChunkPool        sync.Pool\\n111| \\twlReplaySeriesPool          zeropool.Pool[[]record.RefSeries]\\n112| \\twlReplaySamplesPool         zeropool.Pool[[]record.RefSample]\\n113| \\twlReplaytStonesPool         zeropool.Pool[[]tombstones.Stone]\\n114| \\twlReplayExemplarsPool       zeropool.Pool[[]record.RefExemplar]\\n115| \\twlReplayHistogramsPool      zeropool.Pool[[]record.RefHistogramSample]\\n116| \\twlReplayFloatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]\\n117| \\twlReplayMetadataPool        zeropool.Pool[[]record.RefMetadata]\\n118| \\twlReplayMmapMarkersPool     zeropool.Pool[[]record.RefMmapMarker]\\n121| \\tseries *stripeSeries\\n123| \\twalExpiriesMtx sync.Mutex\\n124| \\twalExpiries    map[chunks.HeadSeriesRef]int64\\n127| \\tpostings *index.MemPostings\\n129| \\ttombstones *tombstones.MemTombstones\\n131| \\tiso *isolation\\n133| \\toooIso *oooIsolation\\n135| \\tcardinalityMutex      sync.Mutex\\n136| \\tcardinalityCache      *index.PostingsStats\\n137| \\tcardinalityCacheKey   string\\n138| \\tlastPostingsStatsCall time.Duration\\n141| \\tchunkDiskMapper *chunks.ChunkDiskMapper\\n143| \\tchunkSnapshotMtx sync.Mutex\\n145| \\tclosedMtx sync.Mutex\\n146| \\tclosed    bool\\n149| \\tseriesStateQuit chan struct{}\\n150| \\tseriesStateWg   sync.WaitGroup\\n152| \\tstats *HeadStats\\n153| \\treg   prometheus.Registerer\\n155| \\twriteNotified wlog.WriteNotified\\n157| \\tmemTruncationInProcess atomic.Bool\\n158| \\tmemTruncationCallBack  func()\\n161| \\ttestAfterSeriesLookup func(*memSeries)\\n162| }\\n164| type ExemplarStorage interface {\\n165| \\tstorage.ExemplarQueryable\\n166| \\tAddExemplar(labels.Labels, exemplar.Exemplar) error\\n167| \\tValidateExemplar(labels.Labels, exemplar.Exemplar) error\\n168| \\tIterateExemplars(f func(seriesLabels labels.Labels, e exemplar.Exemplar) error) error\\n169| }\\n172| type HeadOptions struct {\\n175| \\tMaxExemplars atomic.Int64\\n177| \\tOutOfOrderTimeWindow atomic.Int64\\n178| \\tOutOfOrderCapMax     atomic.Int64\\n183| \\tEnableSTStorage atomic.Bool\\n189| \\tFloatChunkEncoding atomic.Uint32\\n194| \\tEnableHistogramSTEncoding atomic.Bool\\n196| \\tChunkRange int64\\n198| \\tChunkDirRoot         string\\n199| \\tChunkPool            chunkenc.Pool\\n200| \\tChunkWriteBufferSize int\\n201| \\tChunkWriteQueueSize  int\\n203| \\tSamplesPerChunk int\\n208| \\tStripeSize                     int\\n209| \\tSeriesCallback                 SeriesLifecycleCallback\\n210| \\tEnableExemplarStorage          bool\\n211| \\tEnableMemorySnapshotOnShutdown bool\\n213| \\tIsolationDisabled bool\\n218| \\tWALReplayConcurrency int\\n221| \\tEnableSharding bool\\n230| \\tEnableSTAsZeroSample bool\\n235| \\tEnableMetadataWALRecords bool\\n238| \\tEnableFastStartup bool\\n239| }\\n241| const (\\n243| \\tDefaultOutOfOrderCapMax int64 = 32\\n245| \\tDefaultSamplesPerChunk = 120\\n246| )\\n248| func DefaultHeadOptions() *HeadOptions {\\n267| func (o *HeadOptions) UseXOR2FloatEncoding() bool {\\n276| type SeriesLifecycleCallback interface {\\n279| \\tPreCreation(labels.Labels) error\\n281| \\tPostCreation(labels.Labels)\\n283| \\tPostDeletion(map[chunks.HeadSeriesRef]labels.Labels)\\n284| }\\n287| func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *HeadOptions, stats *HeadStats) (*Head, error) {\\n360| func (h *Head) resetInMemoryState() error {\\n408| func (h *Head) resetWLReplayResources() {\\n419| type headMetrics struct {\\n420| \\tactiveAppenders           prometheus.Gauge\\n421| \\tappendersCreated          prometheus.Counter\\n422| \\tseries                    prometheus.GaugeFunc\\n423| \\tstaleSeries               prometheus.GaugeFunc\\n424| \\tnativeHistogramSeries     prometheus.GaugeFunc\\n425| \\tnativeHistogramBuckets    prometheus.GaugeFunc\\n426| \\tseriesCreated             prometheus.Counter\\n427| \\tseriesRemoved             prometheus.Counter\\n428| \\tseriesNotFound            prometheus.Counter\\n429| \\tpendingCommitUnderflow    prometheus.Counter\\n430| \\tchunks                    prometheus.Gauge\\n431| \\tchunksCreated             prometheus.Counter\\n432| \\tchunksRemoved             prometheus.Counter\\n433| \\tgcDuration                prometheus.Summary\\n434| \\tsamplesAppended           *prometheus.CounterVec\\n435| \\toutOfOrderSamplesAppended *prometheus.CounterVec\\n436| \\toutOfBoundSamples         *prometheus.CounterVec\\n437| \\toutOfOrderSamples         *prometheus.CounterVec\\n438| \\ttooOldSamples             *prometheus.CounterVec\\n439| \\twalTruncateDuration       prometheus.Summary\\n440| \\twalCorruptionsTotal       prometheus.Counter\\n441| \\tdataTotalReplayDuration   prometheus.Gauge\\n442| \\theadTruncateFail          prometheus.Counter\\n443| \\theadTruncateTotal         prometheus.Counter\\n444| \\tcheckpointDeleteFail      prometheus.Counter\\n445| \\tcheckpointDeleteTotal     prometheus.Counter\\n446| \\tcheckpointCreationFail    prometheus.Counter\\n447| \\tcheckpointCreationTotal   prometheus.Counter\\n448| \\tmmapChunkCorruptionTotal  prometheus.Counter\\n449| \\tsnapshotReplayErrorTotal  prometheus.Counter\\n450| \\toooHistogram              prometheus.Histogram\\n451| \\tmmapChunksTotal           prometheus.Counter\\n452| \\twalReplayUnknownRefsTotal *prometheus.CounterVec\\n453| \\twblReplayUnknownRefsTotal *prometheus.CounterVec\\n454| }\\n456| const (\\n457| \\tsampleMetricTypeFloat     = \\\"float\\\"\\n458| \\tsampleMetricTypeHistogram = \\\"histogram\\\"\\n459| )\\n461| func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {\\n699| func mmappedChunksDir(dir string) string { return filepath.Join(dir, \\\"chunks_head\\\") }\\n702| type HeadStats struct {\\n703| \\tWALReplayStatus *WALReplayStatus\\n704| }\\n707| func NewHeadStats() *HeadStats {\\n714| type WALReplayStatus struct {\\n715| \\tsync.RWMutex\\n716| \\tMin     int\\n717| \\tMax     int\\n718| \\tCurrent int\\n719| }\\n722| func (s *WALReplayStatus) GetWALReplayStatus() WALReplayStatus {\\n733| const cardinalityCacheExpirationTime = time.Duration(30) * time.Second\\n738| func (h *Head) Init(minValidTime int64) error {\\n998| func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk, chunks.ChunkDiskMapperRef, error) {\\n1103| func (h *Head) removeCorruptedMmappedChunks(err error) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk, chunks.ChunkDiskMapperRef, error) {\\n1133| func (h *Head) ApplyConfig(cfg *config.Config, wbl *wlog.WL) {\\n1167| func (h *Head) SetOutOfOrderTimeWindow(oooTimeWindow int64, wbl *wlog.WL) {\\n1176| func (h *Head) PostingsCardinalityStats(statsByLabelName string, limit int) *index.PostingsStats {\\n1202| func (h *Head) updateMinMaxTime(mint, maxt int64) {\\n1223| func (h *Head) updateMinOOOMaxOOOTime(mint, maxt int64) {\\n1245| func (h *Head) SetMinValidTime(minValidTime int64) {\\n1250| func (h *Head) Truncate(mint int64) (err error) {\\n1262| func (h *Head) OverlapsClosedInterval(mint, maxt int64) bool {\\n1267| func (h *Head) truncateMemory(mint int64) (err error) {\\n1317| func isSeriesWithoutOOO(s *memSeries) bool {\\n1322| func isStaleSeries(s *memSeries) bool {\\n1340| func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64, fingerprints map[storage.SeriesRef]seriesFingerprint) error {\\n1351| func (h *Head) truncateSelectedSeries(seriesRefs []storage.SeriesRef, maxt int64, fingerprints map[storage.SeriesRef]seriesFingerprint) error {\\n1362| func hasAppendIDAbove(s *memSeries, watermark uint64) bool {\\n1401| type seriesFingerprint struct {\\n1402| \\tcurrentChunkID              chunks.HeadChunkID\\n1403| \\tlastChunkSamples            int\\n1404| \\twatermarkViolatedAtSnapshot bool\\n1405| }\\n1410| func currentChunkID(s *memSeries) chunks.HeadChunkID {\\n1420| func snapshotFingerprint(s *memSeries, appendIDWatermark uint64) seriesFingerprint {\\n1433| func fingerprintChanged(s *memSeries, fp seriesFingerprint) bool {\\n1459| func hasMutatedSinceSnapshot(s *memSeries, fingerprints map[storage.SeriesRef]seriesFingerprint) bool {\\n1476| func (h *Head) snapshotFingerprints(seriesRefs []storage.SeriesRef, appendIDWatermark uint64) map[storage.SeriesRef]seriesFingerprint {\\n1498| func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (int, error) {\\n1530| func (h *Head) WaitForPendingReadersInTimeRange(mint, maxt int64) {\\n1551| func (h *Head) WaitForPendingReadersForOOOChunksAtOrBefore(chunk chunks.ChunkDiskMapperRef) {\\n1558| func (h *Head) WaitForAppendersOverlapping(maxt int64) {\\n1570| func (h *Head) IsQuerierCollidingWithTruncation(querierMint, querierMaxt int64) (shouldClose, getNew bool, newMint int64) {\\n1612| func (h *Head) getWALExpiry(id chunks.HeadSeriesRef) (int64, bool) {\\n1621| func (h *Head) updateWALExpiry(id chunks.HeadSeriesRef, keepUntil int64) {\\n1630| func (h *Head) keepSeriesInWALCheckpointFn(mint int64) func(id chunks.HeadSeriesRef) bool {\\n1644| func (h *Head) truncateWAL(mint int64) error {\\n1724| func (h *Head) truncateOOO(lastWBLFile int, newMinOOOMmapRef chunks.ChunkDiskMapperRef) error {\\n1744| func (h *Head) truncateSeriesAndChunkDiskMapper(caller string) error {\\n1780| type Stats struct {\\n1781| \\tNumSeries         uint64\\n1782| \\tMinTime, MaxTime  int64\\n1783| \\tIndexPostingStats *index.PostingsStats\\n1784| }\\n1788| func (h *Head) Stats(statsByLabelName string, limit int) *Stats {\\n1799| type RangeHead struct {\\n1800| \\thead       *Head\\n1801| \\tmint, maxt int64\\n1803| \\tisolationOff bool\\n1804| }\\n1808| func NewRangeHead(head *Head, mint, maxt int64) *RangeHead {\\n1817| func NewRangeHeadWithIsolationDisabled(head *Head, mint, maxt int64) *RangeHead {\\n1823| func (h *RangeHead) Index() (IndexReader, error) {\\n1827| func (h *RangeHead) Chunks() (ChunkReader, error) {\\n1835| func (h *RangeHead) Tombstones() (tombstones.Reader, error) {\\n1839| func (h *RangeHead) MinTime() int64 {\\n1845| func (h *RangeHead) MaxTime() int64 {\\n1852| func (h *RangeHead) BlockMaxTime() int64 {\\n1856| func (h *RangeHead) NumSeries() uint64 {\\n1860| var rangeHeadULID = ulid.MustParse(\\\"0000000000XXXXXXXRANGEHEAD\\\")\\n1862| func (h *RangeHead) Meta() BlockMeta {\\n1876| func (h *RangeHead) String() string {\\n1883| type SelectedSeriesHead struct {\\n1884| \\tRangeHead\\n1885| \\tselectedSeriesRefs seriesRefs\\n1886| }\\n1889| func NewSelectedSeriesHead(head *Head, mint, maxt int64, selectedSeriesRefs seriesRefs) *SelectedSeriesHead {\\n1900| func (h *SelectedSeriesHead) Index() (_ IndexReader, err error) {\\n1904| func (h *SelectedSeriesHead) NumSeries() uint64 {\\n1908| var selectedSeriesHeadULID = ulid.MustParse(\\\"0000000000XXSELECTEDSERIES\\\")\\n1910| func (h *SelectedSeriesHead) Meta() BlockMeta {\\n1924| func (h *SelectedSeriesHead) String() string {\\n1930| func (h *Head) Delete(ctx context.Context, mint, maxt int64, ms ...*labels.Matcher) error {\\n1988| func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {\\n2031| func (h *Head) Tombstones() (tombstones.Reader, error) {\\n2036| func (h *Head) NumSeries() uint64 {\\n2041| func (h *Head) NumStaleSeries() uint64 {\\n2048| func (h *Head) updateStaleSeriesMetricOnAppend(wasStale, isStale bool) {\\n2059| func (h *Head) NumNativeHistogramSeries() uint64 {\\n2066| func (h *Head) NumNativeHistogramBuckets() uint64 {\\n2072| func (h *Head) addNativeHistogramBuckets(delta int) {\\n2085| func (h *Head) updateNativeHistogramMetricsOnAppend(wasHistogram, isHistogram bool, oldBuckets, newBuckets int) {\\n2097| var headULID = ulid.MustParse(\\\"0000000000XXXXXXXXXXXXHEAD\\\")\\n2101| func (h *Head) Meta() BlockMeta {\\n2114| func (h *Head) MinTime() int64 {\\n2119| func (h *Head) MaxTime() int64 {\\n2125| func (h *Head) MinOOOTime() int64 {\\n2131| func (h *Head) MaxOOOTime() int64 {\\n2136| func (h *Head) initialized() bool {\\n2143| func (h *Head) compactable() bool {\\n2153| func (h *Head) Close() error {\\n2187| func (*Head) String() string {\\n2191| func (h *Head) getOrCreate(hash uint64, lset labels.Labels, pendingCommit bool) (*memSeries, bool, error) {\\n2201| func (h *Head) getOrCreateWithOptionalID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels, pendingCommit bool) (*memSeries, bool, error) {\\n2236| func (h *Head) onChunkCreated(series *memSeries, prevHeadChunkCount uint32) {\\n2254| func (h *Head) mmapHeadChunks() {\\n2268| func (h *Head) mmapHeadChunksInStripe(i int, candidates *[]*memSeries) (count int) {\\n2312| func (h *Head) mmapSeriesChunks(s *memSeries) int {\\n2327| type seriesHashmap struct {\\n2328| \\tunique    map[uint64]*memSeries\\n2329| \\tconflicts map[uint64][]*memSeries\\n2330| }\\n2332| func (m *seriesHashmap) get(hash uint64, lset labels.Labels) *memSeries {\\n2346| func (m *seriesHashmap) set(hash uint64, s *memSeries) {\\n2364| func (m *seriesHashmap) del(hash uint64, ref chunks.HeadSeriesRef) {\\n2392| const (\\n2394| \\tDefaultStripeSize = 1 << 14\\n2395| )\\n2403| type stripeSeries struct {\\n2404| \\tsize                    int\\n2405| \\tseries                  []map[chunks.HeadSeriesRef]*memSeries\\n2406| \\thashes                  []seriesHashmap\\n2407| \\tlocks                   []stripeLock\\n2408| \\tmmapReady               []paddedAtomicInt32\\n2409| \\tseriesLifecycleCallback SeriesLifecycleCallback\\n2410| }\\n2412| type stripeLock struct {\\n2413| \\tsync.RWMutex\\n2415| \\t_ [40]byte\\n2416| }\\n2419| type paddedAtomicInt32 struct {\\n2420| \\tstdatomic.Int32\\n2422| \\t_ [60]byte\\n2423| }\\n2425| func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *stripeSeries {\\n2453| func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _, _, _ int, _, _ int64, minMmapFile int) {\\n2551| func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) map[storage.SeriesRef]struct{} {\\n2590| func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {\\n2677| func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _, _, _ int) {\\n\",\"contentView\":\"symbols\",\"totalLines\":3281,\"sourceChars\":116477,\"next\":{\"continue\":{\"tool\":\"localFetch\",\"confidence\":\"exact\",\"query\":{\"chunkSize\":329,\"chunkType\":\"lines\",\"snapshot\":\"693060b6ef13387c5e8f4a9a812a9ae516a163fa2941b6b6fae1893c81e7e2f0\",\"minify\":\"symbols\",\"offset\":329,\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/head.go\",\"followUp\":true}}},\"isPartial\":true,\"returnedLines\":329,\"pagination\":{\"chunkType\":\"lines\",\"offset\":0,\"chunkSize\":329,\"totalLines\":429,\"hasMore\":true,\"nextOffset\":329}}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb\"}\n"
+        }
+      ]
+    }
+  },
+  {
+    "id": "outline-python",
+    "lang": "python",
+    "task": "Skim declarations of query.py",
+    "shell": {
+      "cmd": "rg -n '^\\s*(class|def) \\w+' python/django/db/models/query.py",
+      "calls": 1,
+      "chars": 6956,
+      "ms": 10,
+      "correct": {
+        "ok": true,
+        "declLines": 165
+      }
+    },
+    "octocode": {
+      "query": {
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py",
+        "minify": "symbols"
+      },
+      "calls": 1,
+      "chars": 15505,
+      "ms": 230,
+      "correct": {
+        "ok": true,
+        "note": "qualitative; see REPORT",
+        "contentChars": 14834
+      },
+      "steps": [
+        {
+          "chars": 15505,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"path\":\"query.py\",\"content\":\"   1| \\\"\\\"\\\"\\n   2| The main QuerySet implementation. This provides the public API for the ORM.\\n   3| \\\"\\\"\\\"\\n   5| import copy\\n   6| import operator\\n   7| import warnings\\n   8| from contextlib import nullcontext\\n   9| from functools import partial, reduce\\n  10| from itertools import chain, islice\\n  11| from weakref import ref as weak_ref\\n  13| from asgiref.sync import sync_to_async\\n  15| import django\\n  16| from django.conf import settings\\n  17| from django.core import exceptions\\n  18| from django.db import (\\n  19|     DJANGO_VERSION_PICKLE_KEY,\\n  20|     IntegrityError,\\n  21|     NotSupportedError,\\n  22|     connections,\\n  23|     router,\\n  24|     transaction,\\n  25| )\\n  26| from django.db.models import AutoField, DateField, DateTimeField, Field, Max, sql\\n  27| from django.db.models.constants import LOOKUP_SEP, OnConflict\\n  28| from django.db.models.deletion import Collector\\n  29| from django.db.models.expressions import (\\n  30|     Case,\\n  31|     Col,\\n  32|     ColPairs,\\n  33|     DatabaseDefault,\\n  34|     F,\\n  35|     OrderBy,\\n  36|     Value,\\n  37|     When,\\n  38| )\\n  39| from django.db.models.fetch_modes import FETCH_ONE\\n  40| from django.db.models.functions import Cast, Trunc\\n  41| from django.db.models.query_utils import PROHIBITED_FILTER_KWARGS, FilteredRelation, Q\\n  42| from django.db.models.sql.constants import GET_ITERATOR_CHUNK_SIZE, ROW_COUNT\\n  43| from django.db.models.utils import (\\n  44|     AltersData,\\n  45|     create_namedtuple_class,\\n  46|     resolve_callables,\\n  47| )\\n  48| from django.utils import timezone\\n  49| from django.utils.deprecation import (\\n  50|     RemovedInDjango2028Warning,\\n  51|     RemovedInDjango2029Warning,\\n  52|     warn_about_external_use,\\n  53| )\\n  54| from django.utils.functional import cached_property\\n  55| from django.utils.inspect import func_accepts_kwargs, func_supports_parameter\\n  56| from django.utils.warnings import django_file_prefixes\\n  59| MAX_GET_RESULTS = 21\\n  62| REPR_OUTPUT_SIZE = 20\\n  64| DEFAULT_FETCH_MODE = FETCH_ONE\\n  70| def _get_from_db(model_cls, fetch_mode):\\n  95| class BaseIterable:\\n  96|     def __init__(\\n  97|         self, queryset, chunked_fetch=False, chunk_size=GET_ITERATOR_CHUNK_SIZE\\n  98|     ):\\n 103|     async def _async_generator(self):\\n 127|     def __aiter__(self):\\n 131| class ModelIterable(BaseIterable):\\n 132|     \\\"\\\"\\\"Iterable that yields a model instance for each row.\\\"\\\"\\\"\\n 134|     def __iter__(self):\\n 212| class RawModelIterable(BaseIterable):\\n 213|     \\\"\\\"\\\"\\n 214|     Iterable that yields a model instance for each row from a raw queryset.\\n 215|     \\\"\\\"\\\"\\n 217|     def __iter__(self):\\n 271| class ValuesIterable(BaseIterable):\\n 272|     \\\"\\\"\\\"\\n 273|     Iterable returned by QuerySet.values() that yields a dict for each row.\\n 274|     \\\"\\\"\\\"\\n 276|     def __iter__(self):\\n 297| class ValuesListIterable(BaseIterable):\\n 298|     \\\"\\\"\\\"\\n 299|     Iterable returned by QuerySet.values_list(flat=False) that yields a tuple\\n 300|     for each row.\\n 301|     \\\"\\\"\\\"\\n 303|     def __iter__(self):\\n 314| class NamedValuesListIterable(ValuesListIterable):\\n 315|     \\\"\\\"\\\"\\n 316|     Iterable returned by QuerySet.values_list(named=True) that yields a\\n 317|     namedtuple for each row.\\n 318|     \\\"\\\"\\\"\\n 320|     def __iter__(self):\\n 337| class FlatValuesListIterable(BaseIterable):\\n 338|     \\\"\\\"\\\"\\n 339|     Iterable returned by QuerySet.values_list(flat=True) that yields single\\n 340|     values.\\n 341|     \\\"\\\"\\\"\\n 343|     def __iter__(self):\\n 352| class PreventQuerySetCloning:\\n 353|     \\\"\\\"\\\"\\n 354|     Temporarily prevent the given QuerySet from creating new QuerySet instances\\n 355|     on each mutating operation (e.g: filter(), exclude() etc), instead\\n 356|     modifying the QuerySet in-place.\\n 358|     @contextlib.contextmanager is intentionally not used for performance\\n 359|     reasons.\\n 360|     \\\"\\\"\\\"\\n 362|     __slots__ = (\\\"queryset\\\",)\\n 364|     def __init__(self, queryset):\\n 367|     def __enter__(self):\\n 370|     def __exit__(self, exc_type, exc_value, traceback):\\n 374| class QuerySet(AltersData):\\n 375|     \\\"\\\"\\\"Represent a lazy database lookup for a set of objects.\\\"\\\"\\\"\\n 377|     def __init__(self, model=None, query=None, using=None, hints=None):\\n 395|     @property\\n 396|     def query(self):\\n 403|     @query.setter\\n 404|     def query(self, value):\\n 409|     def as_manager(cls):\\n 417|     as_manager.queryset_only = True\\n 418|     as_manager = classmethod(as_manager)\\n 424|     def __deepcopy__(self, memo):\\n 434|     def __getstate__(self):\\n 439|     def __setstate__(self, state):\\n 458|     def __repr__(self):\\n 464|     def __len__(self):\\n 468|     def __iter__(self):\\n 486|     def __aiter__(self):\\n 496|     def __bool__(self):\\n 500|     def __getitem__(self, k):\\n 537|     def __class_getitem__(cls, *args, **kwargs):\\n 540|     def __and__(self, other):\\n 552|     def __or__(self, other):\\n 571|     def __xor__(self, other):\\n 594|     def _iterator(self, use_chunked_fetch, chunk_size):\\n 609|     def iterator(self, chunk_size=None):\\n 628|     async def aiterator(self, chunk_size=None):\\n 682|     def aggregate(self, *args, **kwargs):\\n 707|     async def aaggregate(self, *args, **kwargs):\\n 710|     def count(self):\\n 723|     async def acount(self):\\n 726|     def get(self, *args, **kwargs):\\n 761|     async def aget(self, *args, **kwargs):\\n 764|     def create(self, **kwargs):\\n 784|     create.alters_data = True\\n 786|     async def acreate(self, **kwargs):\\n 789|     acreate.alters_data = True\\n 791|     def _prepare_for_bulk_create(self, objs):\\n 807|     def _check_bulk_create_options(\\n 808|         self, ignore_conflicts, update_conflicts, update_fields, unique_fields\\n 809|     ):\\n 861|     def bulk_create(\\n 862|         self,\\n 863|         objs,\\n 864|         batch_size=None,\\n 865|         ignore_conflicts=False,\\n 866|         update_conflicts=False,\\n 867|         update_fields=None,\\n 868|         unique_fields=None,\\n 869|     ):\\n 966|     def _handle_order_with_respect_to(self, objs):\\n 997|     bulk_create.alters_data = True\\n 999|     async def abulk_create(\\n1000|         self,\\n1001|         objs,\\n1002|         batch_size=None,\\n1003|         ignore_conflicts=False,\\n1004|         update_conflicts=False,\\n1005|         update_fields=None,\\n1006|         unique_fields=None,\\n1007|     ):\\n1017|     abulk_create.alters_data = True\\n1019|     def bulk_update(self, objs, fields, batch_size=None):\\n1077|     bulk_update.alters_data = True\\n1079|     async def abulk_update(self, objs, fields, batch_size=None):\\n1086|     abulk_update.alters_data = True\\n1088|     def get_or_create(self, defaults=None, **kwargs):\\n1113|     get_or_create.alters_data = True\\n1115|     async def aget_or_create(self, defaults=None, **kwargs):\\n1121|     aget_or_create.alters_data = True\\n1123|     def update_or_create(self, defaults=None, create_defaults=None, **kwargs):\\n1169|     update_or_create.alters_data = True\\n1171|     async def aupdate_or_create(self, defaults=None, create_defaults=None, **kwargs):\\n1178|     aupdate_or_create.alters_data = True\\n1180|     def _extract_model_params(self, defaults, **kwargs):\\n1207|     def _earliest(self, *fields):\\n1229|     def earliest(self, *fields):\\n1234|     async def aearliest(self, *fields):\\n1237|     def latest(self, *fields):\\n1246|     async def alatest(self, *fields):\\n1249|     def first(self):\\n1259|     async def afirst(self):\\n1262|     def last(self):\\n1272|     async def alast(self):\\n1275|     def in_bulk(self, id_list=None, *, field_name=\\\"pk\\\"):\\n1380|     async def ain_bulk(self, id_list=None, *, field_name=\\\"pk\\\"):\\n1386|     def delete(self):\\n1416|     delete.alters_data = True\\n1417|     delete.queryset_only = True\\n1419|     async def adelete(self):\\n1422|     adelete.alters_data = True\\n1423|     adelete.queryset_only = True\\n1425|     def _raw_delete(self, using):\\n1434|     _raw_delete.alters_data = True\\n1436|     def update(self, **kwargs):\\n1478|     update.alters_data = True\\n1480|     async def aupdate(self, **kwargs):\\n1483|     aupdate.alters_data = True\\n1485|     def _update(self, values, returning_fields=None):\\n1503|     _update.alters_data = True\\n1504|     _update.queryset_only = False\\n1506|     def exists(self):\\n1514|     async def aexists(self):\\n1517|     def contains(self, obj):\\n1538|     async def acontains(self, obj):\\n1541|     def _prefetch_related_objects(self):\\n1546|     def explain(self, *, format=None, **options):\\n1553|     async def aexplain(self, *, format=None, **options):\\n1560|     def raw(self, raw_query, params=(), translations=None, using=None):\\n1574|     def _values(self, *fields, **expressions):\\n1587|     def values(self, *fields, **expressions):\\n1593|     def values_list(self, *fields, flat=False, named=False):\\n1653|     def dates(self, field_name, kind, order=\\\"ASC\\\"):\\n1673|     def datetimes(self, field_name, kind, order=\\\"ASC\\\", tzinfo=None):\\n1706|     def none(self):\\n1716|     def all(self):\\n1723|     def filter(self, *args, **kwargs):\\n1731|     def exclude(self, *args, **kwargs):\\n1739|     def _filter_or_exclude(self, negate, args, kwargs):\\n1750|     def _filter_or_exclude_inplace(self, negate, args, kwargs):\\n1759|     def complex_filter(self, filter_obj):\\n1776|     def _combinator_query(self, combinator, *other_qs, all=False):\\n1788|     def union(self, *other_qs, all=False):\\n1801|     def intersection(self, *other_qs):\\n1810|     def difference(self, *other_qs):\\n1816|     def select_for_update(self, nowait=False, skip_locked=False, of=(), no_key=False):\\n1832|     def select_related(self, *fields):\\n1864|     def prefetch_related(self, *lookups):\\n1889|     def annotate(self, *args, **kwargs):\\n1897|     def alias(self, *args, **kwargs):\\n1904|     def _annotate(self, args, kwargs, select=True):\\n1962|     def order_by(self, *field_names):\\n1971|     def distinct(self, *field_names):\\n1984|     def extra(\\n1985|         self,\\n1986|         select=None,\\n1987|         where=None,\\n1988|         params=None,\\n1989|         tables=None,\\n1990|         order_by=None,\\n1991|         select_params=None,\\n1992|     ):\\n2001|     def reverse(self):\\n2009|     def defer(self, *fields):\\n2026|     def only(self, *fields):\\n2047|     def using(self, alias):\\n2053|     def fetch_mode(self, fetch_mode):\\n2063|     @property\\n2064|     def ordered(self):\\n2084|     @property\\n2085|     def totally_ordered(self):\\n2171|     @property\\n2172|     def db(self):\\n2182|     def _insert(\\n2183|         self,\\n2184|         objs,\\n2185|         fields,\\n2186|         returning_fields=None,\\n2187|         raw=False,\\n2188|         using=None,\\n2189|         on_conflict=None,\\n2190|         update_fields=None,\\n2191|         unique_fields=None,\\n2192|     ):\\n2209|     _insert.alters_data = True\\n2210|     _insert.queryset_only = False\\n2212|     def _batched_insert(\\n2213|         self,\\n2214|         objs,\\n2215|         fields,\\n2216|         batch_size,\\n2217|         on_conflict=None,\\n2218|         update_fields=None,\\n2219|         unique_fields=None,\\n2220|     ):\\n2257|     def _disable_cloning(self):\\n2266|     def _enable_cloning(self):\\n2276|     def _avoid_cloning(self):\\n2288|     def _chain(self):\\n2306|     def _clone(self):\\n2326|     def _fetch_all(self):\\n2332|     def _next_is_sticky(self):\\n2346|     def _merge_sanity_check(self, other):\\n2358|     def _merge_known_related_objects(self, other):\\n2365|     def resolve_expression(self, *args, **kwargs):\\n2370|     resolve_expression.queryset_only = True\\n2372|     def _add_hints(self, **hints):\\n2379|     def _has_filters(self):\\n2387|     @staticmethod\\n2388|     def _validate_values_are_expressions(values, method_name):\\n2401|     def _not_support_combined_queries(self, operation_name):\\n2408|     def _check_operator_queryset(self, other, operator_):\\n2412|     def _check_ordering_first_last_queryset_aggregation(self, method):\\n2427|     def _clear_ordering_in_combined_queries(self, cloned_query, other_qs):\\n2436| class InstanceCheckMeta(type):\\n2437|     def __instancecheck__(self, instance):\\n2441| class EmptyQuerySet(metaclass=InstanceCheckMeta):\\n2442|     \\\"\\\"\\\"\\n2443|     Marker class to checking if a queryset is empty by .none():\\n2444|         isinstance(qs.none(), EmptyQuerySet) -> True\\n2445|     \\\"\\\"\\\"\\n2447|     def __init__(self, *args, **kwargs):\\n2451| class RawQuerySet:\\n2452|     \\\"\\\"\\\"\\n2453|     Provide an iterator which converts the results of raw SQL queries into\\n2454|     annotated model instances.\\n2455|     \\\"\\\"\\\"\\n2457|     def __init__(\\n2458|         self,\\n2459|         raw_query,\\n2460|         model=None,\\n2461|         query=None,\\n2462|         params=(),\\n2463|         translations=None,\\n2464|         using=None,\\n2465|         hints=None,\\n2466|         fetch_mode=DEFAULT_FETCH_MODE,\\n2467|     ):\\n2480|     def resolve_model_init_order(self):\\n2499|     def prefetch_related(self, *lookups):\\n2508|     def _prefetch_related_objects(self):\\n2512|     def _clone(self):\\n2526|     def _fetch_all(self):\\n2532|     def __len__(self):\\n2536|     def __bool__(self):\\n2540|     def __iter__(self):\\n2544|     def __aiter__(self):\\n2554|     def iterator(self):\\n2557|     def __repr__(self):\\n2560|     def __getitem__(self, k):\\n2563|     @property\\n2564|     def db(self):\\n2568|     def using(self, alias):\\n2580|     @cached_property\\n2581|     def columns(self):\\n2598|     @cached_property\\n2599|     def model_fields(self):\\n2611| class Prefetch:\\n2612|     def __init__(self, lookup, queryset=None, to_attr=None):\\n2635|     def __getstate__(self):\\n2645|     def add_prefix(self, prefix):\\n2649|     def get_current_prefetch_to(self, level):\\n2652|     def get_current_to_attr(self, level):\\n2658|     def get_current_querysets(self, level):\\n2666|     def __eq__(self, other):\\n2671|     def __hash__(self):\\n2675| def normalize_prefetch_lookups(lookups, prefix=None):\\n2687| def prefetch_related_objects(model_instances, *related_lookups):\\n2843| async def aprefetch_related_objects(model_instances, *related_lookups):\\n2850| def get_prefetcher(instance, through_attr, to_attr):\\n2915| def prefetch_one_level(instances, prefetcher, lookup, level):\\n3025| class RelatedPopulator:\\n3026|     \\\"\\\"\\\"\\n3027|     RelatedPopulator is used for select_related() object instantiation.\\n3029|     The idea is that each select_related() model will be populated by a\\n3030|     different RelatedPopulator instance. The RelatedPopulator instances get\\n3031|     klass_info and select (computed in SQLCompiler) plus the used db as\\n3032|     input for initialization. That data is used to compute which columns\\n3033|     to use, how to instantiate the model, and how to populate the links\\n3034|     between the objects.\\n3036|     The actual creation of the objects is done in populate() method. This\\n3037|     method gets row and from_obj as input and populates the select_related()\\n3038|     model instance.\\n3039|     \\\"\\\"\\\"\\n3041|     def __init__(self, klass_info, select, db, fetch_mode):\\n3108|     def populate(self, row, from_obj):\\n3131| def get_related_populators(klass_info, select, db, fetch_mode):\",\"contentView\":\"symbols\",\"totalLines\":3137,\"returnedLines\":372}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\"}\n"
+        }
+      ]
+    }
+  }
+]

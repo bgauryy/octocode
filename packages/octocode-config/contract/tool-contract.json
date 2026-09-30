@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "6eedcdc6a7ef051489e534b0bb521669c4d0003612f517059a1065f46932bff3",
+  "fingerprint": "ad865480ac1a06dc8c668b5447618b40aede8b2c428ee4c36d4aa9b562deea16",
   "tools": [
     {
       "defaults": [
@@ -1347,6 +1347,1214 @@
                           "minimum": 0,
                           "type": "number"
                         },
+                        "next": {
+                          "additionalProperties": false,
+                          "description": "Executable read of exactly this window; run unchanged.",
+                          "properties": {
+                            "read": {
+                              "description": "Read of this page's candidate or assessed source range. Run unchanged only for kept candidates; mutable sources still require identity verification.",
+                              "oneOf": [
+                                {
+                                  "additionalProperties": {},
+                                  "properties": {
+                                    "confidence": {
+                                      "enum": [
+                                        "exact",
+                                        "high",
+                                        "medium",
+                                        "low"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "cursor": {
+                                      "description": "Opaque runtime cursor; preserve it unchanged when supplied.",
+                                      "type": "string"
+                                    },
+                                    "query": {
+                                      "additionalProperties": false,
+                                      "description": "Validated follow-up input; run unchanged instead of reconstructing pagination fields.",
+                                      "properties": {
+                                        "chunkSize": {
+                                          "maximum": 50000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "chunkType": {
+                                          "enum": [
+                                            "lines",
+                                            "bytes"
+                                          ],
+                                          "title": "ChunkType",
+                                          "type": "string"
+                                        },
+                                        "contextBytes": {
+                                          "maximum": 16384,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "contextLines": {
+                                          "maximum": 100,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "debug": {
+                                          "type": "boolean"
+                                        },
+                                        "endLine": {
+                                          "maximum": 1000000000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "followUp": {
+                                          "const": true,
+                                          "type": "boolean"
+                                        },
+                                        "fullContent": {
+                                          "type": "boolean"
+                                        },
+                                        "goal": {
+                                          "description": "What this query must find or decide. Required unless followUp.",
+                                          "maxLength": 500,
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "matchString": {
+                                          "minLength": 1,
+                                          "type": "string"
+                                        },
+                                        "matchStringCaseSensitive": {
+                                          "type": "boolean"
+                                        },
+                                        "matchStringIsRegex": {
+                                          "type": "boolean"
+                                        },
+                                        "minify": {
+                                          "enum": [
+                                            "none",
+                                            "standard",
+                                            "symbols"
+                                          ],
+                                          "title": "MinifyMode",
+                                          "type": "string"
+                                        },
+                                        "offset": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "path": {
+                                          "description": "Local file path; relative paths resolve against WORKSPACE_ROOT (else the cwd).",
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "reasoning": {
+                                          "description": "Why this query advances its goal. Required unless followUp.",
+                                          "maxLength": 500,
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "snapshot": {
+                                          "pattern": "^[a-f0-9]{64}$",
+                                          "type": "string"
+                                        },
+                                        "startLine": {
+                                          "maximum": 1000000000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        }
+                                      },
+                                      "required": [
+                                        "path"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "tool": {
+                                      "const": "localFetch",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "tool",
+                                    "query"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": {},
+                                  "properties": {
+                                    "confidence": {
+                                      "enum": [
+                                        "exact",
+                                        "high",
+                                        "medium",
+                                        "low"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "cursor": {
+                                      "description": "Opaque runtime cursor; preserve it unchanged when supplied.",
+                                      "type": "string"
+                                    },
+                                    "query": {
+                                      "additionalProperties": false,
+                                      "description": "Validated follow-up input; run unchanged instead of reconstructing pagination fields.",
+                                      "properties": {
+                                        "branch": {
+                                          "type": "string"
+                                        },
+                                        "chunkSize": {
+                                          "maximum": 50000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "chunkType": {
+                                          "enum": [
+                                            "lines",
+                                            "bytes"
+                                          ],
+                                          "title": "ChunkType",
+                                          "type": "string"
+                                        },
+                                        "contextBytes": {
+                                          "maximum": 16384,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "contextLines": {
+                                          "maximum": 100,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "debug": {
+                                          "type": "boolean"
+                                        },
+                                        "endLine": {
+                                          "maximum": 1000000000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "followUp": {
+                                          "const": true,
+                                          "type": "boolean"
+                                        },
+                                        "forceRefresh": {
+                                          "type": "boolean"
+                                        },
+                                        "fullContent": {
+                                          "type": "boolean"
+                                        },
+                                        "goal": {
+                                          "description": "What this query must find or decide. Required unless followUp.",
+                                          "maxLength": 500,
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "matchString": {
+                                          "minLength": 1,
+                                          "type": "string"
+                                        },
+                                        "matchStringCaseSensitive": {
+                                          "type": "boolean"
+                                        },
+                                        "matchStringIsRegex": {
+                                          "type": "boolean"
+                                        },
+                                        "minify": {
+                                          "enum": [
+                                            "none",
+                                            "standard",
+                                            "symbols"
+                                          ],
+                                          "title": "MinifyMode",
+                                          "type": "string"
+                                        },
+                                        "offset": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "owner": {
+                                          "description": "Pair the account or organization login with repo.",
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "path": {
+                                          "description": "Repository-relative file path; exact case, no leading slash.",
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "reasoning": {
+                                          "description": "Why this query advances its goal. Required unless followUp.",
+                                          "maxLength": 500,
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "repo": {
+                                          "description": "Use the repository slug without an owner prefix.",
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "startLine": {
+                                          "maximum": 1000000000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        }
+                                      },
+                                      "required": [
+                                        "owner",
+                                        "repo",
+                                        "path"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "tool": {
+                                      "const": "ghGetFileContent",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "tool",
+                                    "query"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": {},
+                                  "properties": {
+                                    "confidence": {
+                                      "enum": [
+                                        "exact",
+                                        "high",
+                                        "medium",
+                                        "low"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "cursor": {
+                                      "description": "Opaque runtime cursor; preserve it unchanged when supplied.",
+                                      "type": "string"
+                                    },
+                                    "query": {
+                                      "additionalProperties": false,
+                                      "description": "Validated follow-up input; run unchanged instead of reconstructing pagination fields.",
+                                      "properties": {
+                                        "branch": {
+                                          "type": "string"
+                                        },
+                                        "debug": {
+                                          "type": "boolean"
+                                        },
+                                        "followUp": {
+                                          "const": true,
+                                          "type": "boolean"
+                                        },
+                                        "goal": {
+                                          "description": "What this query must find or decide. Required unless followUp.",
+                                          "maxLength": 500,
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "include": {
+                                          "items": {
+                                            "enum": [
+                                              "sizes",
+                                              "languages",
+                                              "contributors",
+                                              "branches",
+                                              "tags"
+                                            ],
+                                            "type": "string"
+                                          },
+                                          "maxItems": 100,
+                                          "type": "array"
+                                        },
+                                        "materialize": {
+                                          "type": "boolean"
+                                        },
+                                        "materializeOffset": {
+                                          "maximum": 500,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "maxDepth": {
+                                          "maximum": 20,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "metadataPage": {
+                                          "maximum": 1000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "owner": {
+                                          "description": "Pair the account or organization login with repo.",
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "page": {
+                                          "maximum": 1000,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "pageSize": {
+                                          "maximum": 500,
+                                          "minimum": 1,
+                                          "type": "integer"
+                                        },
+                                        "path": {
+                                          "type": "string"
+                                        },
+                                        "reasoning": {
+                                          "description": "Why this query advances its goal. Required unless followUp.",
+                                          "maxLength": 500,
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        },
+                                        "repo": {
+                                          "description": "Use the repository slug without an owner prefix.",
+                                          "pattern": "\\S",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "owner",
+                                        "repo"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "tool": {
+                                      "const": "ghStructure",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "tool",
+                                    "query"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": {},
+                                  "properties": {
+                                    "confidence": {
+                                      "enum": [
+                                        "exact",
+                                        "high",
+                                        "medium",
+                                        "low"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "cursor": {
+                                      "description": "Opaque runtime cursor; preserve it unchanged when supplied.",
+                                      "type": "string"
+                                    },
+                                    "query": {
+                                      "description": "Validated follow-up input; run unchanged instead of reconstructing pagination fields.",
+                                      "oneOf": [
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "charLength": {
+                                              "maximum": 100000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "charOffset": {
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "commentBodyOffset": {
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "commentPage": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "commitPage": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "content": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "body": {
+                                                  "type": "boolean"
+                                                },
+                                                "changedFiles": {
+                                                  "type": "boolean"
+                                                },
+                                                "comments": {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "discussion": {
+                                                      "type": "boolean"
+                                                    },
+                                                    "includeBots": {
+                                                      "type": "boolean"
+                                                    },
+                                                    "reviewInline": {
+                                                      "type": "boolean"
+                                                    }
+                                                  },
+                                                  "type": "object"
+                                                },
+                                                "commits": {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "includeFiles": {
+                                                      "type": "boolean"
+                                                    }
+                                                  },
+                                                  "type": "object"
+                                                },
+                                                "patches": {
+                                                  "anyOf": [
+                                                    {
+                                                      "additionalProperties": false,
+                                                      "properties": {
+                                                        "files": {
+                                                          "items": {
+                                                            "type": "string"
+                                                          },
+                                                          "maxItems": 100,
+                                                          "minItems": 1,
+                                                          "type": "array"
+                                                        },
+                                                        "mode": {
+                                                          "const": "selected",
+                                                          "description": "Return selected patches; may still scan all file pages.",
+                                                          "type": "string"
+                                                        },
+                                                        "ranges": {
+                                                          "items": {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                              "additions": {
+                                                                "items": {
+                                                                  "maximum": 1000000000,
+                                                                  "minimum": 1,
+                                                                  "type": "integer"
+                                                                },
+                                                                "maxItems": 100,
+                                                                "type": "array"
+                                                              },
+                                                              "deletions": {
+                                                                "items": {
+                                                                  "maximum": 1000000000,
+                                                                  "minimum": 1,
+                                                                  "type": "integer"
+                                                                },
+                                                                "maxItems": 100,
+                                                                "type": "array"
+                                                              },
+                                                              "file": {
+                                                                "description": "Changed file path from changedFiles.",
+                                                                "type": "string"
+                                                              }
+                                                            },
+                                                            "required": [
+                                                              "file"
+                                                            ],
+                                                            "type": "object"
+                                                          },
+                                                          "maxItems": 100,
+                                                          "type": "array"
+                                                        }
+                                                      },
+                                                      "required": [
+                                                        "mode",
+                                                        "files"
+                                                      ],
+                                                      "type": "object"
+                                                    },
+                                                    {
+                                                      "additionalProperties": false,
+                                                      "properties": {
+                                                        "files": {
+                                                          "items": {
+                                                            "type": "string"
+                                                          },
+                                                          "maxItems": 100,
+                                                          "type": "array"
+                                                        },
+                                                        "mode": {
+                                                          "const": "selected",
+                                                          "description": "Return selected patches; may still scan all file pages.",
+                                                          "type": "string"
+                                                        },
+                                                        "ranges": {
+                                                          "items": {
+                                                            "additionalProperties": false,
+                                                            "properties": {
+                                                              "additions": {
+                                                                "items": {
+                                                                  "maximum": 1000000000,
+                                                                  "minimum": 1,
+                                                                  "type": "integer"
+                                                                },
+                                                                "maxItems": 100,
+                                                                "type": "array"
+                                                              },
+                                                              "deletions": {
+                                                                "items": {
+                                                                  "maximum": 1000000000,
+                                                                  "minimum": 1,
+                                                                  "type": "integer"
+                                                                },
+                                                                "maxItems": 100,
+                                                                "type": "array"
+                                                              },
+                                                              "file": {
+                                                                "description": "Changed file path from changedFiles.",
+                                                                "type": "string"
+                                                              }
+                                                            },
+                                                            "required": [
+                                                              "file"
+                                                            ],
+                                                            "type": "object"
+                                                          },
+                                                          "maxItems": 100,
+                                                          "minItems": 1,
+                                                          "type": "array"
+                                                        }
+                                                      },
+                                                      "required": [
+                                                        "mode",
+                                                        "ranges"
+                                                      ],
+                                                      "type": "object"
+                                                    },
+                                                    {
+                                                      "additionalProperties": false,
+                                                      "properties": {
+                                                        "mode": {
+                                                          "const": "all",
+                                                          "description": "Fetch this file page's patches.",
+                                                          "type": "string"
+                                                        }
+                                                      },
+                                                      "required": [
+                                                        "mode"
+                                                      ],
+                                                      "type": "object"
+                                                    }
+                                                  ]
+                                                },
+                                                "reviews": {
+                                                  "type": "boolean"
+                                                }
+                                              },
+                                              "type": "object"
+                                            },
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "fileFilter": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "minChanges": {
+                                                  "maximum": 1000000000,
+                                                  "minimum": 1,
+                                                  "type": "integer"
+                                                },
+                                                "paths": {
+                                                  "items": {
+                                                    "minLength": 1,
+                                                    "type": "string"
+                                                  },
+                                                  "maxItems": 100,
+                                                  "minItems": 1,
+                                                  "type": "array"
+                                                },
+                                                "status": {
+                                                  "items": {
+                                                    "enum": [
+                                                      "added",
+                                                      "removed",
+                                                      "modified",
+                                                      "renamed",
+                                                      "copied",
+                                                      "changed",
+                                                      "unchanged"
+                                                    ],
+                                                    "title": "ChangedFileStatus",
+                                                    "type": "string"
+                                                  },
+                                                  "maxItems": 7,
+                                                  "minItems": 1,
+                                                  "type": "array"
+                                                }
+                                              },
+                                              "type": "object"
+                                            },
+                                            "filePage": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "matchContext": {
+                                              "maximum": 10,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "matchString": {
+                                              "type": "string"
+                                            },
+                                            "minify": {
+                                              "enum": [
+                                                "none",
+                                                "standard"
+                                              ],
+                                              "type": "string"
+                                            },
+                                            "number": {
+                                              "$ref": "#/$defs/HI_Number"
+                                            },
+                                            "operation": {
+                                              "const": "pullRequest",
+                                              "type": "string"
+                                            },
+                                            "owner": {
+                                              "$ref": "#/$defs/HI_Owner"
+                                            },
+                                            "pageSize": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "repo": {
+                                              "$ref": "#/$defs/HI_Repo"
+                                            },
+                                            "reviewPage": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            }
+                                          },
+                                          "required": [
+                                            "owner",
+                                            "repo",
+                                            "operation",
+                                            "number"
+                                          ],
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "charLength": {
+                                              "maximum": 100000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "charOffset": {
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "commentPage": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "content": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "body": {
+                                                  "type": "boolean"
+                                                },
+                                                "comments": {
+                                                  "additionalProperties": false,
+                                                  "properties": {
+                                                    "discussion": {
+                                                      "type": "boolean"
+                                                    },
+                                                    "includeBots": {
+                                                      "type": "boolean"
+                                                    }
+                                                  },
+                                                  "type": "object"
+                                                }
+                                              },
+                                              "type": "object"
+                                            },
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "number": {
+                                              "$ref": "#/$defs/HI_Number"
+                                            },
+                                            "operation": {
+                                              "const": "issue",
+                                              "type": "string"
+                                            },
+                                            "owner": {
+                                              "$ref": "#/$defs/HI_Owner"
+                                            },
+                                            "pageSize": {
+                                              "maximum": 100,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "repo": {
+                                              "$ref": "#/$defs/HI_Repo"
+                                            }
+                                          },
+                                          "required": [
+                                            "owner",
+                                            "repo",
+                                            "operation",
+                                            "number"
+                                          ],
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "charLength": {
+                                              "maximum": 100000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "charOffset": {
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "filePage": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "includeDiff": {
+                                              "type": "boolean"
+                                            },
+                                            "operation": {
+                                              "const": "commit",
+                                              "type": "string"
+                                            },
+                                            "owner": {
+                                              "$ref": "#/$defs/HI_Owner"
+                                            },
+                                            "pageSize": {
+                                              "maximum": 100,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "path": {
+                                              "type": "string"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "ref": {
+                                              "description": "Commit SHA or git ref.",
+                                              "minLength": 1,
+                                              "type": "string"
+                                            },
+                                            "repo": {
+                                              "$ref": "#/$defs/HI_Repo"
+                                            }
+                                          },
+                                          "required": [
+                                            "owner",
+                                            "repo",
+                                            "operation",
+                                            "ref"
+                                          ],
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "base": {
+                                              "description": "Comparison base ref; use a SHA for a stable comparison.",
+                                              "type": "string"
+                                            },
+                                            "charLength": {
+                                              "maximum": 100000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "charOffset": {
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "filePage": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "head": {
+                                              "description": "Comparison head ref; use a SHA for a stable comparison.",
+                                              "type": "string"
+                                            },
+                                            "includeDiff": {
+                                              "type": "boolean"
+                                            },
+                                            "operation": {
+                                              "const": "compare",
+                                              "type": "string"
+                                            },
+                                            "owner": {
+                                              "$ref": "#/$defs/HI_Owner"
+                                            },
+                                            "page": {
+                                              "maximum": 1000,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "pageSize": {
+                                              "maximum": 100,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "path": {
+                                              "type": "string"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "repo": {
+                                              "$ref": "#/$defs/HI_Repo"
+                                            }
+                                          },
+                                          "required": [
+                                            "owner",
+                                            "repo",
+                                            "base",
+                                            "head",
+                                            "operation"
+                                          ],
+                                          "type": "object"
+                                        }
+                                      ]
+                                    },
+                                    "tool": {
+                                      "const": "ghGetHistoryItem",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "tool",
+                                    "query"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": {},
+                                  "properties": {
+                                    "confidence": {
+                                      "enum": [
+                                        "exact",
+                                        "high",
+                                        "medium",
+                                        "low"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "cursor": {
+                                      "description": "Opaque runtime cursor; preserve it unchanged when supplied.",
+                                      "type": "string"
+                                    },
+                                    "query": {
+                                      "anyOf": [
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "packageName": {
+                                              "description": "Exact coordinate: scope/name, group:artifact, or module path.",
+                                              "minLength": 1,
+                                              "type": "string"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "registry": {
+                                              "format": "uri",
+                                              "type": "string"
+                                            },
+                                            "type": {
+                                              "const": "npm",
+                                              "description": "Package ecosystem; one per query.",
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "packageName"
+                                          ],
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "cursor": {
+                                              "maxLength": 16384,
+                                              "minLength": 1,
+                                              "type": "string"
+                                            },
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "keywords": {
+                                              "items": {
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "maxItems": 100,
+                                              "minItems": 1,
+                                              "type": "array"
+                                            },
+                                            "pageSize": {
+                                              "maximum": 100,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "registry": {
+                                              "format": "uri",
+                                              "type": "string"
+                                            },
+                                            "type": {
+                                              "const": "npm",
+                                              "description": "Package ecosystem; one per query.",
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "keywords"
+                                          ],
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "packageName": {
+                                              "description": "Exact coordinate: scope/name, group:artifact, or module path.",
+                                              "minLength": 1,
+                                              "type": "string"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "type": {
+                                              "description": "Package ecosystem; one per query.",
+                                              "enum": [
+                                                "pypi",
+                                                "crates",
+                                                "maven",
+                                                "nuget",
+                                                "go",
+                                                "packagist",
+                                                "rubygems"
+                                              ],
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "packageName"
+                                          ],
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "cursor": {
+                                              "maxLength": 16384,
+                                              "minLength": 1,
+                                              "type": "string"
+                                            },
+                                            "debug": {
+                                              "type": "boolean"
+                                            },
+                                            "followUp": {
+                                              "const": true,
+                                              "type": "boolean"
+                                            },
+                                            "goal": {
+                                              "description": "What this query must find or decide. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "keywords": {
+                                              "items": {
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "maxItems": 100,
+                                              "minItems": 1,
+                                              "type": "array"
+                                            },
+                                            "pageSize": {
+                                              "maximum": 100,
+                                              "minimum": 1,
+                                              "type": "integer"
+                                            },
+                                            "reasoning": {
+                                              "description": "Why this query advances its goal. Required unless followUp.",
+                                              "maxLength": 500,
+                                              "pattern": "\\S",
+                                              "type": "string"
+                                            },
+                                            "type": {
+                                              "description": "Package ecosystem; one per query.",
+                                              "enum": [
+                                                "crates",
+                                                "maven",
+                                                "nuget",
+                                                "go",
+                                                "packagist",
+                                                "rubygems"
+                                              ],
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "keywords"
+                                          ],
+                                          "type": "object"
+                                        }
+                                      ],
+                                      "description": "Validated follow-up input; run unchanged instead of reconstructing pagination fields."
+                                    },
+                                    "tool": {
+                                      "const": "artifactSearch",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "tool",
+                                    "query"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "read"
+                          ],
+                          "type": "object"
+                        },
                         "path": {
                           "description": "File holding this window; a search resource spans several.",
                           "minLength": 1,
@@ -1380,10 +2588,10 @@
                       "type": "object"
                     },
                     "maxItems": 3,
-                    "minItems": 2,
+                    "minItems": 1,
                     "type": "array"
                   },
-                  "description": "Locate windows ranked by exists, then probability. Shown when the top exists is at least 0.5 or the walk is finished. A low-exists partial stays in next.clasify.carry.",
+                  "description": "Locate windows ranked by exists, then probability; 1–3 per question, each with next.read for that exact window. Shown when the top exists is at least 0.5 or the walk is finished. A low-exists partial stays in next.clasify.carry (rows without next).",
                   "propertyNames": {
                     "description": "Optional correlation key.",
                     "maxLength": 64,
@@ -1402,7 +2610,7 @@
                 },
                 "next": {
                   "additionalProperties": false,
-                  "description": "Executable semantic continuation; run clasify unchanged. A capped partial resource may have no continuation and needs a smaller targeted query.",
+                  "description": "Executable continuations; run them unchanged. next.clasify resumes the walk (run clasify unchanged); a capped partial resource may have no continuation and needs a smaller targeted query.",
                   "properties": {
                     "clasify": {
                       "anyOf": [
@@ -2695,11 +3903,221 @@
                       ],
                       "description": "One matrix or independent matrices; omitted IDs are derived by position.",
                       "type": "object"
+                    },
+                    "localSearch": {
+                      "additionalProperties": {},
+                      "description": "Literal search for an identifier a locate target names, scoped to the local resources; run it when that exact text is what you need.",
+                      "properties": {
+                        "confidence": {
+                          "enum": [
+                            "exact",
+                            "high",
+                            "medium",
+                            "low"
+                          ],
+                          "type": "string"
+                        },
+                        "cursor": {
+                          "description": "Opaque runtime cursor; preserve it unchanged when supplied.",
+                          "type": "string"
+                        },
+                        "query": {
+                          "additionalProperties": false,
+                          "description": "Validated follow-up input; run unchanged instead of reconstructing pagination fields.",
+                          "properties": {
+                            "caseMode": {
+                              "enum": [
+                                "smart",
+                                "sensitive",
+                                "insensitive"
+                              ],
+                              "type": "string"
+                            },
+                            "contextLines": {
+                              "maximum": 100,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "debug": {
+                              "type": "boolean"
+                            },
+                            "defaultExcludes": {
+                              "type": "boolean"
+                            },
+                            "exclude": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "type": "array"
+                            },
+                            "excludeDir": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "type": "array"
+                            },
+                            "followUp": {
+                              "const": true,
+                              "type": "boolean"
+                            },
+                            "goal": {
+                              "description": "What this query must find or decide. Required unless followUp.",
+                              "maxLength": 500,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "hidden": {
+                              "type": "boolean"
+                            },
+                            "include": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "type": "array"
+                            },
+                            "invertMatch": {
+                              "type": "boolean"
+                            },
+                            "langType": {
+                              "type": "string"
+                            },
+                            "matchContentLength": {
+                              "maximum": 100000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "matchPage": {
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "matchWindow": {
+                              "maximum": 200,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "maxDepth": {
+                              "maximum": 20,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "maxMatchesPerFile": {
+                              "maximum": 100000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "multiline": {
+                              "enum": [
+                                "off",
+                                "on",
+                                "dotall"
+                              ],
+                              "type": "string"
+                            },
+                            "noIgnore": {
+                              "type": "boolean"
+                            },
+                            "page": {
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "pageSize": {
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "path": {
+                              "description": "Relative paths resolve against WORKSPACE_ROOT (else the cwd).",
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "reasoning": {
+                              "description": "Why this query advances its goal. Required unless followUp.",
+                              "maxLength": 500,
+                              "pattern": "\\S",
+                              "type": "string"
+                            },
+                            "regex": {
+                              "enum": [
+                                "literal",
+                                "rust",
+                                "pcre2"
+                              ],
+                              "type": "string"
+                            },
+                            "resultView": {
+                              "description": "Result shape; only matchOnly enables unique and matchWindow.",
+                              "enum": [
+                                "paginated",
+                                "detailed",
+                                "content",
+                                "files",
+                                "filesWithout",
+                                "countLines",
+                                "countMatches",
+                                "matchOnly"
+                              ],
+                              "type": "string"
+                            },
+                            "reverse": {
+                              "type": "boolean"
+                            },
+                            "searchText": {
+                              "description": "Use one lexical anchor; run separate queries for alternatives.",
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "snapshot": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "sort": {
+                              "enum": [
+                                "relevance",
+                                "traversal",
+                                "matchCount",
+                                "path",
+                                "modified",
+                                "accessed",
+                                "created"
+                              ],
+                              "type": "string"
+                            },
+                            "unique": {
+                              "enum": [
+                                "off",
+                                "list",
+                                "count"
+                              ],
+                              "type": "string"
+                            },
+                            "wholeWord": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "searchText",
+                            "path"
+                          ],
+                          "type": "object"
+                        },
+                        "tool": {
+                          "const": "localSearch",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "query"
+                      ],
+                      "type": "object"
                     }
                   },
-                  "required": [
-                    "clasify"
-                  ],
                   "type": "object"
                 },
                 "queryId": {

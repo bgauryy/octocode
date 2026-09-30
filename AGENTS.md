@@ -85,7 +85,7 @@ Full overview: [`skills-dev/octocode-dev/docs/DEVELOPMENT.md`](skills-dev/octoco
 |---|---|
 | Core | `octocode-config` (`@octocodeai/config`: env/config loader + the single contract generator) · `octocode-native` (Rust brain: runtime, GitHub, CLI hosts, N-API, engine) · external `@octocodeai/octocode-core` (authors all tool contracts) |
 | Interfaces | `octocode-mcp` (thin MCP stdio server) · `octocode` (CLI: `<toolName> '<json>'`, `scheme`, `skill`, `config`, `login`/`logout`/`auth`, `install`) · `octocode-vscode` |
-| Support (private) | `octocode-skill-installer` · `octocode-agents-communication` (in `skills/`) · `octocode-benchmark` |
+| Support (private) | `octocode-skill-installer` · `octocode-agents-communication` (in `skills/`) · `octocode-benchmark` (agent-vs-agent eval) |
 
 Local core changes → build core → `yarn contracts:regen` → rebuild consumers.
 
@@ -126,7 +126,7 @@ Three skill trees. Entries in [`.agents/skills/`](.agents/skills/) (gitignored) 
 
 ### Public — [`skills/`](skills/)
 
-Published with the CLI; the catalog with "use when" lines is [`skills/README.md`](skills/README.md). Package-owned: `octocode-benchmark` ([`packages/octocode-benchmark/skills/`](packages/octocode-benchmark/skills/)); communication runtime lives in [`skills/octocode-agents-communication/`](skills/octocode-agents-communication/).
+Published with the CLI; the catalog with "use when" lines is [`skills/README.md`](skills/README.md). Communication runtime lives in [`skills/octocode-agents-communication/`](skills/octocode-agents-communication/).
 
 ### Tested — [`skills-beta/`](skills-beta/) (not published)
 
@@ -205,4 +205,9 @@ yarn install && $DEV prepublish     # lockfile + final guard
 
 ## Docs
 
-Index: [`docs/README.md`](docs/README.md); `out/docs` copies are build output, so edit `docs/`. Most used: [tools](docs/OCTOCODE_TOOLS.md) · [response fields and handoffs](docs/TOOL_DATA_CONTRACT.md) · [tool quality bar](skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [clasify](docs/OCTOCODE_CLASIFY.md) · [configuration](docs/CONFIGURATION.md) (generated settings: `docs/generated/CONFIG_SETTINGS.md`, never hand-edit) · [security](docs/SECURITY.md) · [release](skills-dev/octocode-dev/docs/RELEASE.md). Findings logs: [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md) (raw) · [`.octocode/JEV.md`](.octocode/JEV.md) (frozen).
+Two homes, one owner per topic:
+- **User docs** — [`docs/`](docs/README.md) (edit here; `out/docs` copies are build output). Start with [protocol](docs/OCTOCODE_PROTOCOL.md) (concepts, research loop, why it works) and [benchmarks](docs/BENCHMARKS.md) (agent-vs-agent results). Reference: [tools](docs/OCTOCODE_TOOLS.md) · [response fields and handoffs](docs/TOOL_DATA_CONTRACT.md) · [clasify](docs/OCTOCODE_CLASIFY.md) · [configuration](docs/CONFIGURATION.md) (generated settings: `docs/generated/CONFIG_SETTINGS.md`, never hand-edit) · [authentication](docs/AUTHENTICATION.md) · [security](docs/SECURITY.md).
+- **Developer docs** — owned by the [`octocode-dev`](skills-dev/octocode-dev/SKILL.md) skill in [`skills-dev/octocode-dev/docs/`](skills-dev/octocode-dev/docs/DEVELOPMENT.md): [development](skills-dev/octocode-dev/docs/DEVELOPMENT.md) (packages, contract pipeline, build/test) · [adding config](skills-dev/octocode-dev/docs/ADDING_CONFIG.md) · [tool quality bar](skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [release](skills-dev/octocode-dev/docs/RELEASE.md). Scripts and the task runner: [`skills-dev/octocode-dev/scripts/`](skills-dev/octocode-dev/scripts/README.md).
+- **Benchmark and harness** — agent-vs-agent eval (Octocode MCP + clasify vs `rg` + `gh`): [`packages/octocode-benchmark/eval/`](packages/octocode-benchmark/README.md), results in [benchmarks](docs/BENCHMARKS.md). Regression suites and validation reports: [`octocode-local-testing/`](octocode-local-testing/README.md) (`harness/`, `validate/*/REPORT.md`); cloned repos are not committed ([repos/README.md](octocode-local-testing/repos/README.md)).
+
+Findings logs: [`.octocode/GOTCHAS.md`](.octocode/GOTCHAS.md) (raw) · [`.octocode/JEV.md`](.octocode/JEV.md) (frozen).
