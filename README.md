@@ -190,6 +190,20 @@ The concept, the research loop, and the measured advantages (and where plain too
 
 ## Built for research (benchmarks)
 
+**Latest head-to-head (2026-09-30, real repositories and PRs, answers verified independently):**
+
+| | Octocode | Best alternative |
+|---|--:|--:|
+| Large-PR review, context per answer (4 PRs, 37–656 files) | **9.6k chars** | 45k (expert `gh --jq`) · 15.6M (typical `gh`) |
+| GitHub research, fully correct (31 tasks) | **30/31** | 28/31 (expert `gh`) |
+| Symbol reference precision | **1.00** | 0.26–0.62 (`rg -w`) |
+| Secrets leaked into agent context | **0 of 5** | 3 of 3 (`rg`) |
+| "How/where does X work?" with clasify | **10/10** | 9/10 (`rg` + `sed`) |
+
+Full results, method, and where plain tools still win: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+Earlier blind benchmark:
+
 A blind, head-to-head test on **research-oriented flows rather than plain lookups** (multi-hop traces,
 dependency/call-graph chains, commit ranges, blast-radius, PR reviews across repositories).
 
@@ -523,7 +537,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/R
 |---|---|
 | Start here | [The Octocode protocol](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_PROTOCOL.md) · [MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) |
 | Using Octocode | [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
-| Developing Octocode | [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Adding config](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/ADDING_CONFIG.md) · [Tool quality](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) · [Benchmark research](https://github.com/bgauryy/octocode/blob/main/docs/research/OCTOCODE_BENCHMARK_RESEARCH.md) |
+| Developing Octocode | [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Adding config](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/ADDING_CONFIG.md) · [Tool quality](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) · [Benchmark research](https://github.com/bgauryy/octocode/blob/main/docs/BENCHMARKS.md) |
 | Skills and method | [Public skills](skills/) · [Tested skills](skills-beta/) · [Repository skills](skills-dev/) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) |
 | Language support | [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) |
 

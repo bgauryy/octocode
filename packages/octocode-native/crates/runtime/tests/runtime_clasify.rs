@@ -1244,7 +1244,9 @@ async fn expanded_cells_fail_before_any_provider_request() {
     );
     // No page was judged, so a continuation past them would skip them for good.
     assert!(
-        outcome.structured_content["queries"][0].get("next").is_none(),
+        outcome.structured_content["queries"][0]
+            .get("next")
+            .is_none(),
         "{}",
         outcome.structured_content
     );
@@ -1880,7 +1882,10 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
         "dropped hits must be reported: {query}"
     );
     let resume = query["next"]["clasify"].clone();
-    assert!(resume.is_object(), "dropped hits need a continuation: {query}");
+    assert!(
+        resume.is_object(),
+        "dropped hits need a continuation: {query}"
+    );
     let resumed = runtime
         .execute("walk-2".into(), "clasify".into(), resume)
         .await
@@ -1888,7 +1893,11 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
     let pages = judged(&resumed.structured_content);
     assert!(covers(&pages, 3100), "{}", resumed.structured_content);
     assert!(pages.iter().all(|(start, _)| *start > 2100), "{pages:?}");
-    assert!(resumed.structured_content["queries"][0].get("next").is_none());
+    assert!(
+        resumed.structured_content["queries"][0]
+            .get("next")
+            .is_none()
+    );
 
     // One maxChars budget spans every window: the second window waits for
     // the next call instead of each window getting its own full budget.
@@ -1912,7 +1921,10 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
             std::fs::canonicalize(&workspace.workspace).unwrap(),
         ] {
             let root = root.to_string_lossy().replace('\\', "/");
-            assert!(!body.contains(&root), "absolute path sent to provider: {body}");
+            assert!(
+                !body.contains(&root),
+                "absolute path sent to provider: {body}"
+            );
         }
     }
     runtime.close().await;

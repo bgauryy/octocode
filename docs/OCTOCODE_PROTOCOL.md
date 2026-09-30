@@ -198,7 +198,7 @@ Every list and every large body can be paged, and every page is honest about wha
 
 ## 4. Where Octocode excels (measured)
 
-All numbers come from real runs against independently verified ground truth, recorded in the [benchmark research report](research/OCTOCODE_BENCHMARK_RESEARCH.md).
+All numbers come from real runs against independently verified ground truth, recorded in [BENCHMARKS.md](BENCHMARKS.md).
 
 | Claim | Evidence |
 |---|---|

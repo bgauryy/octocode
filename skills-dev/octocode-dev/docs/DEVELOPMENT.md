@@ -57,7 +57,7 @@ The `./engine` subpath exposes primitives, never tool policy. Publishing is in `
 
 **`skills/`.** Public Agent Skills installed by `octocode skill install`; each folder owns its `SKILL.md`. `skills-beta/` holds tested but unpublished skills, `skills-dev/` skills for working on this repo. `skills/octocode-agents-communication` is also a workspace package (session identity, path leases, messages).
 
-**`octocode-local-testing/`.** Not a package. `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `bench/` holds the local and GitHub accuracy benchmark with ground truth and results. See its README (`<repo>/octocode-local-testing/README.md`) and the benchmark research report (`<repo>/docs/research/OCTOCODE_BENCHMARK_RESEARCH.md`).
+**`octocode-local-testing/`.** Not a package. `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `bench/` holds the local and GitHub accuracy benchmark with ground truth and results. See its README (`<repo>/octocode-local-testing/README.md`) and the benchmark research report (`<repo>/docs/BENCHMARKS.md`).
 
 ## Contract pipeline
 

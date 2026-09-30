@@ -176,7 +176,10 @@ fn narrow_read_to_top_window(
         });
     let narrowed = top.and_then(|window| {
         let mut read = page.get("next")?.get("read")?.clone();
-        if !matches!(read["tool"].as_str(), Some("localFetch" | "ghGetFileContent")) {
+        if !matches!(
+            read["tool"].as_str(),
+            Some("localFetch" | "ghGetFileContent")
+        ) {
             return None;
         }
         if let Some(path) = window.get("path")

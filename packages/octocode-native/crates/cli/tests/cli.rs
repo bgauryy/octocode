@@ -1091,6 +1091,6 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).expect("tool JSON");
     assert_eq!(result["results"][0]["data"]["errorCode"], "authentication");
     assert!(stdout(&output).contains("octocode auth login"));
-    assert!(stdout(&output).contains("Fix or unset"));
+    assert!(stdout(&output).contains("invalid env token"));
     assert!(!stdout(&output).contains("invalid-fixture-token"));
 }

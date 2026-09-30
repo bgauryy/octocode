@@ -7,6 +7,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | Doc | Owns |
 |---|---|
 | [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md) | The concept: evidence dimensions, the research loop, how each part of the protocol works, and measured strengths and limits |
+| [BENCHMARKS.md](BENCHMARKS.md) | Measured results vs gh, rg, sed and ast-grep on real repositories and PRs: context, accuracy, safety |
 | [Root README quick start](../README.md#quick-start) | Installing and first run |
 | [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, startup and lifecycle |
 | [OCTOCODE_CLI.md](../packages/octocode/docs/OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
@@ -32,7 +33,6 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | [ADDING_CONFIG.md](../skills-dev/octocode-dev/docs/ADDING_CONFIG.md) | Adding a configuration setting, section or credential |
 | [TOOL_QUALITY.md](../skills-dev/octocode-dev/docs/TOOL_QUALITY.md) | Acceptance criteria for public tool quality |
 | [RELEASE.md](../skills-dev/octocode-dev/docs/RELEASE.md) | Release checklist and gates |
-| [research/OCTOCODE_BENCHMARK_RESEARCH.md](research/OCTOCODE_BENCHMARK_RESEARCH.md) | Measured benchmark results behind the protocol's claims |
 | [AGENTS.md](../AGENTS.md) | Repository rules for agents working in this repo |
 | [skills-dev/octocode-dev/scripts/README.md](../skills-dev/octocode-dev/scripts/README.md) | Root automation scripts |
 

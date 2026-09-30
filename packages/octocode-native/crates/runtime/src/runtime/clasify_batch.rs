@@ -296,10 +296,10 @@ fn provider_path(paths: &PathPolicy, value: &str) -> Option<String> {
     }
     let shown = paths.redact(path);
     if shown.is_empty() || shown == "~" || shown.starts_with("~/") {
-        return Some(
-            path.file_name()
-                .map_or_else(|| ".".to_owned(), |name| name.to_string_lossy().into_owned()),
-        );
+        return Some(path.file_name().map_or_else(
+            || ".".to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        ));
     }
     Some(shown)
 }
@@ -1533,9 +1533,7 @@ fn prefilter_windows(
         hits.extend(
             ranges
                 .iter()
-                .filter_map(|range| {
-                    Some(range["startLine"].as_u64()?..=range["endLine"].as_u64()?)
-                })
+                .filter_map(|range| Some(range["startLine"].as_u64()?..=range["endLine"].as_u64()?))
                 .flatten(),
         );
         // Follow only match pages of the same probe; any other continuation

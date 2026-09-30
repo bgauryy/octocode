@@ -1200,7 +1200,7 @@ async fn github_recovery_hints_are_never_cut_mid_sentence() {
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path(format!("/api/v3/repos/a/b/contents/img.png")))
+        .and(path("/api/v3/repos/a/b/contents/img.png"))
         .and(query_param("ref", sha))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "type": "file", "encoding": "base64",
