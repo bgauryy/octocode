@@ -61,5 +61,20 @@ pub(super) fn to_structural_match_with_index(
         text: node_text(node, content).to_owned(),
         metavars,
         metavar_ranges,
+        header: block_header(node, content),
     }
+}
+
+/// Source before a multi-line node's `body` child (the field name tree-sitter
+/// grammars share for function, class, impl, and loop bodies).
+fn block_header(node: Node<'_>, content: &str) -> Option<String> {
+    if node.end_position().row == node.start_position().row {
+        return None;
+    }
+    let body = node.child_by_field_name("body")?;
+    content
+        .get(node.start_byte()..body.start_byte())
+        .map(str::trim_end)
+        .filter(|header| !header.is_empty())
+        .map(str::to_owned)
 }

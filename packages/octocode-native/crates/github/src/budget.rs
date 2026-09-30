@@ -91,6 +91,7 @@ impl GitHubResource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Group {
     Search,
+    CodeSearch,
     Graphql,
     Write,
     Auth,
@@ -100,6 +101,7 @@ impl Group {
     fn name(self) -> &'static str {
         match self {
             Self::Search => "search",
+            Self::CodeSearch => "code_search",
             Self::Graphql => "graphql",
             Self::Write => "write",
             Self::Auth => "auth",
@@ -161,7 +163,7 @@ impl ExecutorConfig {
 
     fn spacing(&self, group: Group) -> Duration {
         match group {
-            Group::Search => self.search_spacing,
+            Group::Search | Group::CodeSearch => self.search_spacing,
             Group::Graphql => self.graphql_spacing,
             Group::Write => self.write_spacing,
             Group::Auth => Duration::ZERO,
@@ -277,6 +279,25 @@ impl KeyFacts {
         window.sort_unstable();
         window.dedup();
         self.code_search_ms = window.into();
+    }
+
+    /// Undo one reservation made by `admit` (its start and window slot) when
+    /// the request was never sent.
+    fn release(&mut self, group: &str, start: u64, previous: Option<u64>, window: bool) {
+        if self.last_start_ms.get(group) == Some(&start) {
+            match previous {
+                Some(previous) => self.last_start_ms.insert(group.to_owned(), previous),
+                None => self.last_start_ms.remove(group),
+            };
+        }
+        if window
+            && let Some(index) = self
+                .code_search_ms
+                .iter()
+                .rposition(|stamp| *stamp == start)
+        {
+            self.code_search_ms.remove(index);
+        }
     }
 
     /// Only facts that can block a future request are persisted.
@@ -464,10 +485,19 @@ fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
 
 impl KeyState {
     fn new(key: LimiterKey, config: &ExecutorConfig) -> Self {
-        let groups = [Group::Search, Group::Graphql, Group::Write, Group::Auth]
-            .into_iter()
-            .map(|group| (group.name(), Arc::new(Semaphore::new(1))))
-            .collect();
+        // Code search gets its own lane: GitHub meters it in a separate
+        // bucket, and a code-search window wait must not stall repo/issue
+        // search behind it.
+        let groups = [
+            Group::Search,
+            Group::CodeSearch,
+            Group::Graphql,
+            Group::Write,
+            Group::Auth,
+        ]
+        .into_iter()
+        .map(|group| (group.name(), Arc::new(Semaphore::new(1))))
+        .collect();
         Self {
             key,
             global: Arc::new(Semaphore::new(config.global_concurrency.max(1))),
@@ -525,6 +555,12 @@ impl KeyState {
 
     /// Load-merge-write via a unique temp file + atomic rename.
     fn persist(&self) {
+        self.persist_with(|_| {});
+    }
+
+    /// [`Self::persist`] with `adjust` applied to the merged view before the
+    /// write.
+    fn persist_with(&self, adjust: impl FnOnce(&mut KeyFacts)) {
         let path = {
             let persist = self
                 .persist
@@ -543,6 +579,7 @@ impl KeyState {
         {
             view.merge(disk, now);
         }
+        adjust(&mut view);
         let Ok(bytes) = serde_json::to_vec(&view) else {
             return;
         };
@@ -707,25 +744,49 @@ impl KeyState {
                             },
                         ));
                     }
-                    facts.last_start_ms.insert(group.name().to_owned(), start);
+                    let previous = facts.last_start_ms.insert(group.name().to_owned(), start);
                     if window {
                         facts.code_search_ms.push_back(start);
                     }
-                    start
+                    (start, previous)
                 };
-                if matches!(group, Group::Search | Group::Graphql) {
+                let (start, previous) = start;
+                let persisted = matches!(group, Group::Search | Group::CodeSearch | Group::Graphql);
+                if persisted {
                     self.persist();
                 }
-                pause(
+                if let Err(error) = pause(
                     Duration::from_millis(start.saturating_sub(now_ms())),
                     deadline,
                     cancellation,
                 )
-                .await?;
+                .await
+                {
+                    // Nothing was sent: hand back the reserved start and window
+                    // slot so they do not throttle later requests.
+                    self.release_reservation(group, start, previous, window, persisted);
+                    return Err(error);
+                }
             }
         }
         permits.push(acquire(&self.global, deadline, cancellation).await?);
         Ok(Admission { _permits: permits })
+    }
+
+    /// Hand back a reservation in memory and, when mirrored, on disk: the
+    /// disk copy was written before the wait and a plain merge would restore it.
+    fn release_reservation(
+        &self,
+        group: Group,
+        start: u64,
+        previous: Option<u64>,
+        window: bool,
+        persisted: bool,
+    ) {
+        self.facts().release(group.name(), start, previous, window);
+        if persisted {
+            self.persist_with(|view| view.release(group.name(), start, previous, window));
+        }
     }
 
     /// Record the primary bucket carried by any response.
@@ -1182,7 +1243,7 @@ mod tests {
         let started = Instant::now();
         let admitted = state
             .admit(
-                Some(Group::Search),
+                Some(Group::CodeSearch),
                 budget.config(),
                 true,
                 Duration::from_secs(1),
@@ -1192,6 +1253,148 @@ mod tests {
             .await;
         assert!(admitted.is_ok(), "{:?}", admitted.err());
         assert!(started.elapsed() >= Duration::from_millis(1_000));
+    }
+
+    /// Seed a full 2/min window whose oldest slot frees in ~1.5 s.
+    fn full_code_search_window() -> (Arc<GitHubBudget>, Arc<KeyState>) {
+        let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig {
+            code_search_per_minute: 2,
+            ..ExecutorConfig::relaxed()
+        }));
+        let state = budget.key_state(&LimiterKey::new("h", None), None);
+        {
+            let now = now_ms();
+            let mut facts = state.facts();
+            facts.code_search_ms.push_back(now - 58_500);
+            facts.code_search_ms.push_back(now - 10_000);
+        }
+        (budget, state)
+    }
+
+    #[tokio::test]
+    async fn a_code_search_window_wait_does_not_block_other_searches() {
+        let (budget, state) = full_code_search_window();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let token = CancellationToken::new();
+        let waiting = {
+            let (budget, state, token) = (budget.clone(), state.clone(), token.clone());
+            tokio::spawn(async move {
+                state
+                    .admit(
+                        Some(Group::CodeSearch),
+                        budget.config(),
+                        true,
+                        Duration::from_secs(1),
+                        deadline,
+                        &token,
+                    )
+                    .await
+                    .map(drop)
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let started = Instant::now();
+        let other = state
+            .admit(
+                Some(Group::Search),
+                budget.config(),
+                false,
+                Duration::from_secs(1),
+                deadline,
+                &token,
+            )
+            .await;
+        assert!(other.is_ok(), "{:?}", other.err());
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "repo/issue search waited {:?} behind the code-search window",
+            started.elapsed()
+        );
+        drop(other);
+        waiting.await.expect("join").expect("code search admitted");
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_window_wait_releases_its_reserved_slot() {
+        let (budget, state) = full_code_search_window();
+        let token = CancellationToken::new();
+        let canceller = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            canceller.cancel();
+        });
+        let error = state
+            .admit(
+                Some(Group::CodeSearch),
+                budget.config(),
+                true,
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(10),
+                &token,
+            )
+            .await
+            .err()
+            .expect("cancelled");
+        assert_eq!(error.kind, ProviderErrorKind::Cancelled);
+        let facts = state.facts();
+        assert_eq!(facts.code_search_ms.len(), 2, "no phantom window slot");
+        assert!(
+            facts
+                .last_start_ms
+                .get(Group::CodeSearch.name())
+                .is_none_or(|start| *start <= now_ms()),
+            "no phantom spacing reservation"
+        );
+    }
+
+    /// The reservation is mirrored to disk before the wait, so the release
+    /// must reach disk too, or other processes (and this one, on its next
+    /// refresh) still count the phantom slot.
+    #[tokio::test]
+    async fn a_cancelled_window_wait_releases_its_persisted_slot() {
+        let dir = tempfile::tempdir().expect("state directory");
+        let config = || ExecutorConfig {
+            code_search_per_minute: 2,
+            ..ExecutorConfig::relaxed()
+        };
+        let key = LimiterKey::new("h", None);
+        let budget = Arc::new(GitHubBudget::with_config(config()));
+        let state = budget.key_state(&key, Some(dir.path()));
+        {
+            let now = now_ms();
+            let mut facts = state.facts();
+            facts.code_search_ms.push_back(now - 58_500);
+            facts.code_search_ms.push_back(now - 10_000);
+        }
+        let token = CancellationToken::new();
+        let canceller = token.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            canceller.cancel();
+        });
+        state
+            .admit(
+                Some(Group::CodeSearch),
+                budget.config(),
+                true,
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(10),
+                &token,
+            )
+            .await
+            .err()
+            .expect("cancelled");
+        let other_process = GitHubBudget::with_config(config());
+        let seen = other_process.key_state(&key, Some(dir.path()));
+        let facts = seen.facts();
+        assert_eq!(facts.code_search_ms.len(), 2, "no phantom slot on disk");
+        assert!(
+            facts
+                .last_start_ms
+                .get(Group::CodeSearch.name())
+                .is_none_or(|start| *start <= now_ms()),
+            "no phantom spacing reservation on disk"
+        );
     }
 
     #[tokio::test]
@@ -1208,7 +1411,7 @@ mod tests {
             drop(
                 state
                     .admit(
-                        Some(Group::Search),
+                        Some(Group::CodeSearch),
                         budget.config(),
                         true,
                         Duration::from_secs(1),
@@ -1221,7 +1424,7 @@ mod tests {
         }
         let error = state
             .admit(
-                Some(Group::Search),
+                Some(Group::CodeSearch),
                 budget.config(),
                 true,
                 Duration::from_secs(1),

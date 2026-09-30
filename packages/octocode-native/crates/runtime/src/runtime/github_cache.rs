@@ -1,5 +1,8 @@
 //! Provider cache partitions are minted by the transport after credential pinning.
-use crate::cache::{BoundedCache, CacheConfig, CacheKey, CacheLookup, CachePartition};
+use crate::cache::{
+    BoundedCache, CacheConfig, CacheKey, CacheLookup, CachePartition, create_private_dir_all,
+    write_private,
+};
 use crate::providers::github::{
     CachePartition as ProviderPartition, CachedContent, ConditionalCache,
 };
@@ -25,6 +28,8 @@ pub(super) struct GitHubContentCache {
     ttl: Duration,
     /// Upper bound on persisted disk entries (LRU-by-mtime pruned on write).
     max_disk_entries: usize,
+    /// The memory tier's byte budget: an entry it refuses is not persisted.
+    max_entry_bytes: usize,
     /// Disk writes by this process; pruning runs on the first and then every
     /// [`PRUNE_EVERY_WRITES`] writes instead of scanning the directory per write.
     disk_writes: Arc<AtomicUsize>,
@@ -74,21 +79,23 @@ impl GitHubContentCache {
         self.clear_memory();
         if let Some(disk) = &self.disk {
             let _ = fs::remove_dir_all(disk);
-            let _ = fs::create_dir_all(disk);
+            let _ = create_private_dir_all(disk);
         }
     }
     pub fn new(config: CacheConfig, revision: u64, disk: Option<PathBuf>) -> Self {
         if let Some(disk) = &disk {
-            let _ = fs::create_dir_all(disk);
+            let _ = create_private_dir_all(disk);
         }
         let ttl = config.ttl;
         let max_disk_entries = config.max_entries;
+        let max_entry_bytes = config.max_bytes;
         Self {
             cache: Arc::new(Mutex::new(BoundedCache::new(config))),
             revision,
             disk,
             ttl,
             max_disk_entries,
+            max_entry_bytes,
             disk_writes: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -130,7 +137,10 @@ impl GitHubContentCache {
         Some((entry.value, Duration::from_secs(age)))
     }
 
-    fn write_disk(&self, key: &CacheKey, value: &CachedContent) {
+    fn write_disk(&self, key: &CacheKey, value: &CachedContent, bytes: usize) {
+        if self.max_disk_entries == 0 || bytes > self.max_entry_bytes {
+            return;
+        }
         let Some(path) = self.disk_file(key) else {
             return;
         };
@@ -140,7 +150,17 @@ impl GitHubContentCache {
             value,
         };
         if let Ok(bytes) = serde_json::to_vec(&entry) {
-            let _ = fs::write(path, bytes);
+            // Owner-only temp file + rename: bodies may be private source, and
+            // an in-place rewrite would keep a pre-existing file's loose mode.
+            static TMP_SEQ: AtomicUsize = AtomicUsize::new(0);
+            let tmp = path.with_extension(format!(
+                "{}.{}.tmp",
+                std::process::id(),
+                TMP_SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            if write_private(&tmp, &bytes).is_err() || fs::rename(&tmp, &path).is_err() {
+                let _ = fs::remove_file(&tmp);
+            }
         }
         if self
             .disk_writes
@@ -288,7 +308,7 @@ impl ConditionalCache for GitHubContentCache {
         Box::pin(async move {
             let key = Self::key(partition, &key);
             let bytes = entry_bytes(&key, &value);
-            self.write_disk(&key, &value);
+            self.write_disk(&key, &value, bytes);
             self.cache.lock().unwrap_or_else(|p| p.into_inner()).insert(
                 key,
                 value,
@@ -433,6 +453,59 @@ mod tests {
         .unwrap();
         assert_eq!(cache.get(&partition("partition").await, "file").await, None);
     }
+    /// Private-repo bodies on disk are owner-only, and a body the memory tier
+    /// refuses as oversized is never persisted either.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn disk_entries_are_owner_only_and_oversized_bodies_skip_disk() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("tmp").join("response");
+        let cache = GitHubContentCache::new(
+            CacheConfig {
+                max_bytes: 1024,
+                ..Default::default()
+            },
+            7,
+            Some(dir.clone()),
+        );
+        let part = partition("endpoint/credential").await;
+        let content = CachedContent {
+            bytes: b"private source".to_vec(),
+            etag: None,
+            resolved_ref: "sha".into(),
+        };
+        cache.put(&part, "file".into(), content).await;
+        let mode =
+            |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700, "cache dir");
+        let files: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .collect();
+        assert_eq!(files.len(), 1);
+        assert_eq!(mode(&files[0]), 0o600, "cache entry");
+        cache
+            .put(
+                &part,
+                "large".into(),
+                CachedContent {
+                    bytes: vec![b'x'; 4096],
+                    etag: None,
+                    resolved_ref: "sha".into(),
+                },
+            )
+            .await;
+        let persisted = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+            .count();
+        assert_eq!(persisted, 1, "oversized body must not be written to disk");
+    }
+
     #[tokio::test]
     async fn refuses_oversized_bodies_and_never_crosses_provider_partitions() {
         let cache = GitHubContentCache::new(

@@ -4,7 +4,7 @@ use crate::contracts::{self, PrepareOptions};
 use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::regex::{IsolatedRegexEngine, IsolatedRegexLimits};
 use crate::response::{PreparedResponse, ResponsePageOptions, TextContent};
-use crate::security::ContentSecurity;
+use crate::security::{ContentSecurity, ValidationResult};
 use crate::tools::ast_graph::store as graph_store;
 use crate::tools::cancel::CancellationCheck;
 use crate::tools::id::{ToolFamily, ToolId};
@@ -103,8 +103,9 @@ fn rejected_row(
     index: usize,
     raw: Value,
     error: &contracts::ContractValidationError,
+    mcp: bool,
 ) -> (usize, Value) {
-    let formatted = contracts::format_input_error(tool.as_str(), error);
+    let formatted = contracts::format_input_error(tool.as_str(), error, mcp);
     let data = json!({
         "error": formatted["error"],
         "errorCode": "invalidInput",
@@ -114,6 +115,68 @@ fn rejected_row(
         index,
         super::response::result_row(tool, index, &raw, data, Some("error")),
     )
+}
+
+fn invalid_input_error(
+    tool: &str,
+    error: contracts::ContractValidationError,
+    mcp: bool,
+) -> RuntimeError {
+    RuntimeError {
+        code: "invalidInput".into(),
+        message: error.to_string(),
+        payload: Some(Box::new(contracts::format_input_error(tool, &error, mcp))),
+        validation_issues: Some(error.issues),
+    }
+}
+
+/// Security-gate failures of one row as field issues, so they isolate and
+/// render like any other invalid field. Only clasify evidence may be
+/// redacted in place: any other rewritten value would silently change what
+/// the tool runs and leak the placeholder into continuations.
+fn security_issues(
+    checked: &ValidationResult,
+    prefix: &[String],
+    redaction_allowed: bool,
+) -> Vec<contracts::ValidationIssue> {
+    let issue = |rule_id: &str, field: Option<&str>, message: String| {
+        let mut path = prefix.to_vec();
+        path.extend(field.map(str::to_owned));
+        contracts::ValidationIssue {
+            rule_id: rule_id.into(),
+            path,
+            message,
+            schema: None,
+            received: None,
+        }
+    };
+    let mut issues = Vec::new();
+    if !checked.is_valid {
+        issues.extend(
+            checked
+                .warnings
+                .iter()
+                .filter(|warning| !warning.starts_with("Secrets detected"))
+                .map(|warning| {
+                    let hint = if warning.contains("exceeds maximum length") {
+                        "; send a shorter, distinctive fragment"
+                    } else {
+                        ""
+                    };
+                    issue("security.input", None, format!("{warning}{hint}"))
+                }),
+        );
+    }
+    if !redaction_allowed {
+        issues.extend(checked.secret_fields.iter().map(|field| {
+            issue(
+                "security.credential",
+                Some(field),
+                "Value looks like a credential and was not run (its redacted form would match unrelated text); search a non-secret fragment instead, such as its prefix or the identifier that holds it".into(),
+            )
+        }));
+    }
+    issues
 }
 
 /// Put rejected rows back at their input positions and renumber `index`, so
@@ -749,51 +812,30 @@ impl ToolRuntime {
         // Parse response-paging options before contract validation.
         let options: ResponsePageOptions =
             serde_json::from_value(input.clone()).unwrap_or_default();
-        let mut rejected_rows: Vec<(usize, Value)> = Vec::new();
-        let prepared_queries = if from_cursor {
-            vec![
-                input
-                    .as_object()
-                    .cloned()
-                    .map(Value::Object)
-                    .unwrap_or(input),
-            ]
+        let bulk = !from_cursor && (input.is_array() || input.get("queries").is_some());
+        let mut invalid: Vec<(usize, contracts::ContractValidationError)> = Vec::new();
+        let prepared_queries: Vec<(usize, Value)> = if from_cursor {
+            vec![(0, input.clone())]
         } else {
             match contracts::prepare_many_and_validate(
                 &tool,
                 input.clone(),
                 PrepareOptions::default(),
             ) {
-                Ok(prepared) => prepared,
+                Ok(prepared) => prepared.into_iter().enumerate().collect(),
                 // Row isolation: when only some rows are invalid, execute the
                 // valid rows and return the rest as indexed error rows.
                 Err(error) => {
                     let Some(rows) =
                         contracts::prepare_rows(&tool, &input, PrepareOptions::default())
                     else {
-                        return Err(RuntimeError {
-                            code: "invalidInput".into(),
-                            message: error.to_string(),
-                            payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
-                            validation_issues: Some(error.issues),
-                        });
+                        return Err(invalid_input_error(&tool, error, mcp));
                     };
-                    let raw_rows = input
-                        .get("queries")
-                        .or(Some(&input))
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default();
                     let mut prepared = Vec::with_capacity(rows.len());
                     for (index, row) in rows.into_iter().enumerate() {
                         match row {
-                            Ok(query) => prepared.push(query),
-                            Err(error) => rejected_rows.push(rejected_row(
-                                id,
-                                index,
-                                raw_rows.get(index).cloned().unwrap_or(Value::Null),
-                                &error,
-                            )),
+                            Ok(query) => prepared.push((index, query)),
+                            Err(error) => invalid.push((index, error)),
                         }
                     }
                     prepared
@@ -801,19 +843,49 @@ impl ToolRuntime {
             }
         };
         let mut queries = Vec::with_capacity(prepared_queries.len());
-        for query in prepared_queries {
+        for (index, query) in prepared_queries {
             let checked = self.security.validate_input_parameters(&query);
-            if !checked.is_valid {
-                return Err(RuntimeError::new(
-                    "securityValidationFailed",
-                    format!(
-                        "Security validation failed: {}",
-                        checked.warnings.join("; ")
-                    ),
-                ));
+            let prefix = if bulk {
+                vec!["queries".to_owned(), index.to_string()]
+            } else {
+                Vec::new()
+            };
+            let issues = security_issues(&checked, &prefix, id.is_clasify());
+            if issues.is_empty() {
+                queries.push(Value::Object(checked.sanitized_params));
+            } else {
+                invalid.push((index, contracts::ContractValidationError { issues }));
             }
-            queries.push(Value::Object(checked.sanitized_params));
         }
+        // Clasify matrices share batch-level rules, and a call with no valid
+        // row has nothing to run: both fail as a whole.
+        if !invalid.is_empty() && (queries.is_empty() || id.is_clasify()) {
+            invalid.sort_by_key(|(index, _)| *index);
+            let issues = invalid
+                .into_iter()
+                .flat_map(|(_, error)| error.issues)
+                .collect();
+            return Err(invalid_input_error(
+                &tool,
+                contracts::ContractValidationError { issues },
+                mcp,
+            ));
+        }
+        invalid.sort_by_key(|(index, _)| *index);
+        let raw_rows = input
+            .get("queries")
+            .or(Some(&input))
+            .and_then(Value::as_array);
+        let rejected_rows: Vec<(usize, Value)> = invalid
+            .iter()
+            .map(|(index, error)| {
+                let raw = raw_rows
+                    .and_then(|rows| rows.get(*index))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                rejected_row(id, *index, raw, error, mcp)
+            })
+            .collect();
         let response_query = if queries.len() == 1 {
             queries[0].clone()
         } else {
@@ -904,19 +976,8 @@ impl ToolRuntime {
                 let rejected_at: Vec<usize> =
                     rejected_rows.iter().map(|(index, _)| *index).collect();
                 merge_rejected_rows(&mut rows, rejected_rows);
-                let shared_path = queries
-                    .first()
-                    .and_then(|query| query.get("path"))
-                    .filter(|path| queries.iter().all(|query| query.get("path") == Some(*path)));
-                if queries.len() > 1 && shared_path.is_none() {
-                    response::absolutize_row_paths(&mut rows, id, &queries);
-                }
-                let mut structured = response::envelope(rows);
-                if (queries.len() == 1 || shared_path.is_some())
-                    && let Some(query) = queries.first()
-                {
-                    response::attach_query_base(&mut structured, id, query);
-                }
+                let by_row = super::clasify_handoff::row_queries(&queries, &rejected_at);
+                let mut structured = response::envelope_in(rows, id, &by_row, &dispatcher.paths);
                 response::finalize_output_fields(
                     &mut structured,
                     id,
@@ -924,8 +985,8 @@ impl ToolRuntime {
                     &context,
                     redact_emails,
                 )?;
-                let by_row = super::clasify_handoff::row_queries(&queries, &rejected_at);
                 super::clasify_handoff::attach(&mut structured, &tool, &by_row);
+                super::continuations::inherit_briefs(&mut structured, &by_row);
                 super::continuations::filter_unavailable_cross_tool_next(
                     &mut structured,
                     &tool,

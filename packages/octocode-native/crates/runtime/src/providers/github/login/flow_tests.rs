@@ -449,3 +449,13 @@ async fn failed_reauthentication_preserves_existing_home_login() {
         before
     );
 }
+
+/// GitHub's `slow_down` carries the new total interval, not an increment;
+/// RFC 8628 §3.5 requires at least +5 s either way.
+#[test]
+fn slow_down_adopts_the_returned_interval_with_an_rfc_floor() {
+    let secs = Duration::from_secs;
+    assert_eq!(slow_down_interval(secs(5), Some(10)), secs(10));
+    assert_eq!(slow_down_interval(secs(5), None), secs(10));
+    assert_eq!(slow_down_interval(secs(10), Some(3)), secs(15));
+}

@@ -267,13 +267,48 @@ pub(super) fn patch_selection(selector: Option<&Map<String, Value>>) -> (Vec<Str
 pub(super) struct ShapedFiles {
     /// A selected path matched no changed file and the provider has no more.
     pub(super) no_selected_match: bool,
-    /// The page's first file path (the `getSelectedPatches` template).
-    pub(super) first_path: Option<String>,
+    /// The page's most reviewable file (the `getSelectedPatches` pick).
+    pub(super) patch_target: Option<String>,
     /// In-scope text files a `matchString` could not search because GitHub
     /// sent no patch for them, as compact `!reason path` rows.
     pub(super) unsearched: Vec<String>,
     /// The first of those paths (the source-read template).
     pub(super) first_unsearched: Option<String>,
+}
+
+/// Review priority of a changed path: source first, then tests, then other
+/// files; docs, changesets, lockfiles, and generated output last.
+fn review_tier(path: &str) -> u8 {
+    use crate::content::{FileType, classify_file_type, is_test_path};
+    let lower = path.to_ascii_lowercase();
+    let generated = lower.starts_with(".changeset/")
+        || lower.contains("/.changeset/")
+        || lower.contains("generated")
+        || lower.contains(".min.")
+        || lower.ends_with(".snap")
+        || lower.contains("__snapshots__/");
+    match classify_file_type(path) {
+        _ if generated => 3,
+        Some(FileType::Doc | FileType::Lock) => 3,
+        Some(FileType::Code) if is_test_path(path) => 1,
+        Some(FileType::Code) => 0,
+        _ => 2,
+    }
+}
+
+/// The page's file whose patch best answers "what changed": the most
+/// reviewable tier, then the most changed lines, then page order.
+fn patch_target(files: &[Value]) -> Option<String> {
+    files
+        .iter()
+        .enumerate()
+        .filter_map(|(index, file)| {
+            let path = str_at(file, "/filename")?;
+            let changed = usize_at(file, "/additions") + usize_at(file, "/deletions");
+            Some(((review_tier(path), std::cmp::Reverse(changed), index), path))
+        })
+        .min_by_key(|(rank, _)| *rank)
+        .map(|(_, path)| path.to_owned())
 }
 
 /// Shape a pull request's changed-file page into `row`: compact inventory
@@ -317,10 +352,7 @@ pub(super) fn shape_pr_files(
         .collect::<Vec<_>>();
     let per_page = file_page_size(query, patch_mode != "none");
     let (slice, page) = state.paginate(filtered, query.file_page(), Some(per_page));
-    let first_path = slice
-        .first()
-        .and_then(|file| str_at(file, "/filename"))
-        .map(str::to_owned);
+    let patch_target = patch_target(&slice);
     let slice = slice
         .into_iter()
         .map(|mut file| {
@@ -356,7 +388,7 @@ pub(super) fn shape_pr_files(
         pagination.insert("changedFiles".into(), page);
         return ShapedFiles {
             no_selected_match: false,
-            first_path,
+            patch_target,
             unsearched,
             first_unsearched,
         };
@@ -392,7 +424,7 @@ pub(super) fn shape_pr_files(
     pagination.insert("changedFiles".into(), page);
     ShapedFiles {
         no_selected_match: selection_requested && !selected_path_matched && state.exhausted,
-        first_path,
+        patch_target,
         unsearched,
         first_unsearched,
     }

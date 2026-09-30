@@ -666,7 +666,12 @@ pub fn execute_local_search(
         root.is_file(),
         stats.files_searched,
         stats.cap_reason.as_deref(),
-    );
+    )
+    .or_else(|| {
+        (root.is_file() && parsed.stats.skipped_binary_count.unwrap_or(0) > 0).then(|| {
+            "The target file is binary (NUL byte before any text); it was not searched, and no text tool reads it.".into()
+        })
+    });
     Ok(LocalSearchResult {
         status,
         stats,

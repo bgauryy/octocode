@@ -154,7 +154,8 @@ pub(super) fn resolve(
             "Only read tools can provide classification context.",
         ))
     })?;
-    let prepared = prepare(tool, &source["query"]).map_err(ContextFailure::from)?;
+    let prepared =
+        prepare(tool, &with_context_brief(&source["query"])).map_err(ContextFailure::from)?;
     let checked_input = dispatcher.security.validate_input_parameters(&prepared);
     if !checked_input.is_valid {
         return Err(ContextFailure::from(error(
@@ -170,7 +171,8 @@ pub(super) fn resolve(
         ))
     })?;
     checked(context).map_err(ContextFailure::from)?;
-    let failed = result.failure.is_some() || result.status == Some("error");
+    let read_failure = result.failure;
+    let failed = read_failure.is_some() || result.status == Some("error");
     let empty = result.status == Some("empty");
     let mut row = response::result_row(id, 0, &prepared, result.data, result.status);
     response::attach_diagnostics(&mut row, result.diagnostics);
@@ -178,8 +180,7 @@ pub(super) fn resolve(
         row["cache"] = json!(1);
     }
     response::apply_hint_policy(&mut row, id, &prepared);
-    let mut state = response::envelope(vec![row]);
-    response::attach_query_base(&mut state, id, &prepared);
+    let mut state = response::envelope_in(vec![row], id, &[Some(&prepared)], &dispatcher.paths);
     response::finalize_output_fields(
         &mut state,
         id,
@@ -193,9 +194,9 @@ pub(super) fn resolve(
             "Context output sanitization failed.",
         ))
     })?;
-    // Same central rule as the public path: a continuation inherits its row's
-    // goal, so search-type context tools (readTopMatch) validate like direct calls.
-    super::continuations::mark_follow_ups(&mut state);
+    // Same central rule as the public path: continuations inherit their row's
+    // brief, so search-type context tools (readTopMatch) validate like direct calls.
+    super::continuations::inherit_briefs(&mut state, &[Some(&prepared)]);
     contracts::validate_output(tool, &state).map_err(|violation| {
         // Name the violated field (never the received value) so the defect is
         // reportable instead of an opaque failure.
@@ -232,6 +233,7 @@ pub(super) fn resolve(
             code,
             format!("Context tool {tool} failed{reason}; classification was not called."),
         );
+        failure.failure = read_failure;
         if let Some(hints) = state
             .pointer("/results/0/data/hints")
             .and_then(Value::as_array)
@@ -756,20 +758,49 @@ fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
         })
 }
 
+/// A clasify resource read is a sub-read of its matrix: the matrix states the
+/// brief (sent to the provider once), and the resource query need not repeat
+/// it. The read tool's contract requires a brief, so a neutral one is supplied
+/// when the resource omits it; it never reaches the provider.
+fn with_context_brief(query: &Value) -> Value {
+    let mut query = query.clone();
+    if let Some(object) = query.as_object_mut() {
+        object
+            .entry("goal")
+            .or_insert_with(|| json!("Evidence for a classification question."));
+        object
+            .entry("reasoning")
+            .or_insert_with(|| json!("Read the resource the matrix judges."));
+    }
+    query
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn search_context_continuations_are_follow_ups() {
+    fn search_context_continuations_inherit_the_resource_brief() {
+        let prepared = with_context_brief(&json!({"path":"src"}));
         let mut state = json!({"results":[{"index":0,"data":{"next":{
-            "readTopMatch":{"tool":"ghGetFileContent","query":{"reasoning":"r","path":"a.rs"}}
+            "readTopMatch":{"tool":"ghGetFileContent","query":{"path":"a.rs"}}
         }}}]});
-        super::super::continuations::mark_follow_ups(&mut state);
+        super::super::continuations::inherit_briefs(&mut state, &[Some(&prepared)]);
+        let query = &state["results"][0]["data"]["next"]["readTopMatch"]["query"];
+        assert_eq!(query["path"], "a.rs");
+        assert_eq!(query["goal"], prepared["goal"]);
+        assert_eq!(query["reasoning"], prepared["reasoning"]);
+    }
+
+    #[test]
+    fn a_resource_brief_is_kept_and_a_missing_one_is_supplied() {
+        let own = with_context_brief(&json!({"path":"a","goal":"Mine.","reasoning":"Why."}));
         assert_eq!(
-            state["results"][0]["data"]["next"]["readTopMatch"]["query"],
-            json!({"path":"a.rs","followUp":true})
+            (own["goal"].as_str(), own["reasoning"].as_str()),
+            (Some("Mine."), Some("Why."))
         );
+        let bare = with_context_brief(&json!({"path":"a"}));
+        assert!(bare["goal"].is_string() && bare["reasoning"].is_string());
     }
 
     #[test]

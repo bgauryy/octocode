@@ -48,13 +48,14 @@ Prerequisites:
   - **Total** = every request's input (fresh + cache write + cache read) + output.
   - **Overhead** = the first request's input × the number of requests: system prompt, tool definitions, worker doc and question, re-read every turn.
   - **Research** = total − overhead.
+  - **Weighted** = input-token equivalents at Claude price multiples: fresh input 1×, cache write 1.25×, cache read 0.1×, output 5×. Raw totals count a cache read like a fresh token, so a large cached prefix such as tool definitions inflates them. Weighted tokens track cost.
 - **Other metrics:** cost, tool calls by name, turns and time.
 - **Reflection:** the worker's own session is resumed with `REFLECT.md` (one turn, no tools). Its tokens are recorded separately and never counted in the benchmark numbers.
 - **Judge:**
   - It sees the question, the answer key, and both answers as X/Y in random order, with tool names scrubbed.
   - It verifies claims against the source with read-only `rg`/`gh`/`git`, and scores quality 0–10: correctness 0–5, completeness 0–3, evidence 0–2.
   - It judges every pair in both orders, with a tie-break call when the scores disagree by more than 2.
-- **Efficiency** = quality per 10k tokens.
+- **Efficiency** = quality per 10k raw total tokens; **weighted efficiency** = quality per 10k weighted tokens. Compare workers on weighted efficiency or cost.
 
 ## Isolation
 

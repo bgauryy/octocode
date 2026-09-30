@@ -1,7 +1,8 @@
 //! Transport-neutral structured result metadata and lossless path compaction.
+use crate::policy::path::PathPolicy;
 use crate::tools::id::ToolId;
 use serde_json::{Map, Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(super) fn attach_diagnostics(
     row: &mut Value,
@@ -901,9 +902,29 @@ fn bounded(record: &Map<String, Value>) -> bool {
 pub fn is_invalid_input_code(code: &str) -> bool {
     matches!(
         code,
-        "invalidInput" | "invalidQuery" | "invalidRegex" | "invalid_query" | "validation"
-    ) || code.ends_with(".input.invalid")
-        || code.ends_with(".query.invalidPattern")
+        "invalidInput"
+            | "invalidQuery"
+            | "invalidRegex"
+            | "invalid_query"
+            | "validation"
+            | "lsp.invalidQuery"
+    ) || [
+        ".input.invalid",
+        ".query.invalid",
+        ".query.invalidPattern",
+        ".query.compileFailed",
+        ".policy.invalidInput",
+        ".options.invalidLimit",
+        ".rewrite.invalid",
+        ".language.required",
+        ".language.unsupported",
+        ".language.mismatch",
+        ".language.fileRequired",
+        ".language.directoryRequired",
+        ".language.invalidGlob",
+    ]
+    .iter()
+    .any(|suffix| code.ends_with(suffix))
 }
 
 /// Row `errorCode`s that mean the requested local path does not exist
@@ -965,134 +986,107 @@ fn pagination_codes(data: &Value) -> Vec<String> {
     }
 }
 
-/// Anchor the envelope `base` on the query's scan root so `join(base, path)`
-/// is the real file for every row and `base` is identical across pages:
-/// - structureSearch and astSearch rows lead with the root's own name, so
-///   `base` is its parent.
-/// - astTopology row fields (`file`, entrypoints, diagnostics) are relative to
-///   the scanned directory, so `base` is that directory and the row `path` is
-///   `.` (a file root keeps its parent and file name).
-/// - localSearch rows were compacted against the common directory of the rows
-///   on this page; re-anchor them on the queried directory.
-pub fn attach_query_base(value: &mut Value, tool: ToolId, query: &Value) {
-    let has_error = value["results"]
-        .as_array()
-        .is_some_and(|rows| rows.iter().any(|row| row["status"] == "error"));
-    if !matches!(
+/// Tools whose rows name local files: a relative row path must resolve as-is
+/// wherever a local tool takes a `path` (against the workspace root).
+fn names_local_files(tool: ToolId) -> bool {
+    matches!(
         tool,
-        ToolId::StructureSearch | ToolId::AstSearch | ToolId::AstTopology | ToolId::LocalSearch
-    ) || has_error
-    {
-        return;
-    }
-    let Some(path) = query.get("path").and_then(Value::as_str) else {
-        return;
-    };
-    let Ok(canonical) = std::fs::canonicalize(path) else {
-        return;
-    };
-    let is_dir = canonical.is_dir();
-    let Some(parent) = canonical.parent() else {
-        return;
-    };
-    let root = if is_dir { canonical.as_path() } else { parent };
-    match tool {
-        ToolId::AstTopology => {
-            let display = if is_dir {
-                Some(".".to_owned())
-            } else {
-                canonical
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-            };
-            if let (Some(display), Some(rows)) = (display, value["results"].as_array_mut()) {
-                for row in rows {
-                    if row["data"].get("path").is_some_and(Value::is_string) {
-                        row["data"]["path"] = json!(display);
-                    }
-                }
+        ToolId::LocalSearch
+            | ToolId::LocalFetch
+            | ToolId::StructureSearch
+            | ToolId::AstSearch
+            | ToolId::LspSearch
+    )
+}
+
+/// Build the public envelope for executed rows; `queries` maps each row
+/// position to its validated query (`None` for a rejected row).
+///
+/// Local file paths are anchored on the workspace root: a path inside it is
+/// emitted relative to it, so localFetch and localSearch resolve a copied row
+/// path as-is, and `base` is that root; a path outside it stays absolute.
+/// structureSearch and astSearch name files relative to the parent of their
+/// own query root, so those rows are made absolute first. astTopology fields
+/// stay relative to the scanned directory, which becomes `base`.
+pub fn envelope_in(
+    mut rows: Vec<Value>,
+    tool: ToolId,
+    queries: &[Option<&Value>],
+    paths: &PathPolicy,
+) -> Value {
+    let roots: Vec<Option<PathBuf>> = rows
+        .iter()
+        .enumerate()
+        .map(|(position, row)| {
+            if row["status"] == "error" {
+                return None;
             }
-            value["base"] = json!(root.to_string_lossy());
-        }
-        ToolId::LocalSearch => {
-            let absolute = Path::new(path).is_absolute().then_some(path);
-            for candidate in [
-                Some(root.to_string_lossy().into_owned()),
-                absolute.map(str::to_owned),
-            ]
-            .into_iter()
+            let index = row["index"]
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok())
+                .unwrap_or(position);
+            let path = queries
+                .get(index)
+                .copied()
+                .flatten()?
+                .get("path")?
+                .as_str()?;
+            paths.validate(path).ok().map(|valid| valid.canonical)
+        })
+        .collect();
+    if tool == ToolId::AstTopology {
+        let single = roots
+            .first()
+            .cloned()
             .flatten()
-            {
-                if rebase_row_paths(value, &candidate) {
-                    break;
-                }
-            }
+            .filter(|root| roots.iter().all(|other| other.as_ref() == Some(root)));
+        let mut value = envelope(rows);
+        if let Some(root) = single {
+            anchor_topology(&mut value, &root);
         }
-        _ => {
-            if value.get("base").is_none() {
-                value["base"] = json!(parent.to_string_lossy());
+        return value;
+    }
+    if !names_local_files(tool) {
+        return envelope(rows);
+    }
+    if matches!(tool, ToolId::StructureSearch | ToolId::AstSearch) {
+        for (row, root) in rows.iter_mut().zip(&roots) {
+            if let Some(parent) = root.as_deref().and_then(Path::parent) {
+                prefix_relative_paths(&mut row["data"], 0, &parent.to_string_lossy());
             }
         }
     }
+    let workspace = paths
+        .validate(".")
+        .ok()
+        .map(|valid| valid.canonical.to_string_lossy().into_owned())
+        .filter(|root| Path::new(root).parent().is_some());
+    compact(rows, workspace)
 }
 
-/// Batch rows from queries with different roots carry paths relative to their
-/// own root, so no shared `base` can resolve them. Make each row's relative
-/// paths absolute from its own query first; the envelope then derives one
-/// common base for every row.
-pub fn absolutize_row_paths(rows: &mut [Value], tool: ToolId, queries: &[Value]) {
-    if !matches!(tool, ToolId::StructureSearch | ToolId::AstSearch) {
+/// astTopology fields (`file`, entrypoints, diagnostics) are relative to the
+/// scanned directory, so `base` is that directory and the row `path` is `.`
+/// (a file root keeps its parent as `base` and its file name as `path`).
+fn anchor_topology(value: &mut Value, root: &Path) {
+    let is_dir = root.is_dir();
+    let Some(parent) = root.parent() else {
         return;
-    }
-    for (position, row) in rows.iter_mut().enumerate() {
-        if row["status"] == "error" {
-            continue;
-        }
-        let index = row["index"]
-            .as_u64()
-            .and_then(|index| usize::try_from(index).ok())
-            .unwrap_or(position);
-        let Some(path) = queries
-            .get(index)
-            .and_then(|query| query.get("path"))
-            .and_then(Value::as_str)
-        else {
-            continue;
-        };
-        let Ok(canonical) = std::fs::canonicalize(path) else {
-            continue;
-        };
-        if let Some(root) = canonical.parent() {
-            prefix_relative_paths(&mut row["data"], 0, &root.to_string_lossy());
-        }
-    }
-}
-
-/// Re-express the envelope's compacted row paths relative to `root` when the
-/// envelope chose a deeper common directory. Returns whether `base` is now
-/// `root` (or there was no base to move).
-fn rebase_row_paths(value: &mut Value, root: &str) -> bool {
-    let Some(base) = value["base"].as_str().map(str::to_owned) else {
-        return true;
     };
-    if base == root {
-        return true;
-    }
-    let root_prefix = if root.ends_with('/') {
-        root.to_owned()
+    let display = if is_dir {
+        Some(".".to_owned())
     } else {
-        format!("{root}/")
+        root.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
     };
-    let Some(prefix) = base.strip_prefix(&root_prefix).map(str::to_owned) else {
-        return false;
-    };
-    if let Some(rows) = value["results"].as_array_mut() {
+    if let (Some(display), Some(rows)) = (display, value["results"].as_array_mut()) {
         for row in rows {
-            prefix_relative_paths(&mut row["data"], 0, &prefix);
+            if row["data"].get("path").is_some_and(Value::is_string) {
+                row["data"]["path"] = json!(display);
+            }
         }
     }
-    value["base"] = json!(root);
-    true
+    let base = if is_dir { root } else { parent };
+    value["base"] = json!(base.to_string_lossy());
 }
 
 /// Inverse of [`rewrite_paths`] for one directory prefix: same traversal and
@@ -1123,12 +1117,29 @@ fn prefix_relative_paths(value: &mut Value, depth: usize, prefix: &str) {
     }
 }
 
-pub fn envelope(mut rows: Vec<Value>) -> Value {
+pub fn envelope(rows: Vec<Value>) -> Value {
     let mut paths = Vec::new();
     for row in &rows {
         visit_paths(&row["data"], 0, &mut paths);
     }
     let base = common_directory(&paths);
+    compact(rows, base)
+}
+
+/// Rewrite every absolute row path under `base` relative to it (the base
+/// itself becomes `.`), hoist shared leaf fields, and wrap the rows. Paths
+/// outside `base` stay absolute; without such a path there is no `base`.
+fn compact(mut rows: Vec<Value>, base: Option<String>) -> Value {
+    let base = base.filter(|base| {
+        let inside = format!("{base}/");
+        let mut paths = Vec::new();
+        for row in &rows {
+            visit_paths(&row["data"], 0, &mut paths);
+        }
+        paths
+            .iter()
+            .any(|path| path == base || path.starts_with(&inside))
+    });
     if let Some(base) = &base {
         for row in &mut rows {
             rewrite_paths(&mut row["data"], 0, base);
@@ -1323,9 +1334,13 @@ fn rewrite_paths(value: &mut Value, depth: usize, base: &str) {
     }
     match value {
         Value::Object(map) => {
-            if let Some(path) = absolute_path(map)
-                .and_then(|p| p.strip_prefix(&format!("{base}/")).map(str::to_owned))
-            {
+            if let Some(path) = absolute_path(map).and_then(|p| {
+                if p == base {
+                    Some(".".to_owned())
+                } else {
+                    p.strip_prefix(&format!("{base}/")).map(str::to_owned)
+                }
+            }) {
                 map.shift_remove("absolutePath");
                 map.shift_remove("uri");
                 map.insert("path".into(), json!(path));
@@ -1519,44 +1534,6 @@ mod tests {
         assert_eq!(error["data"]["snapshot"], "s", "error rows stay whole");
     }
 
-    #[test]
-    fn mixed_root_batch_rows_share_one_resolvable_base() {
-        let dir = tempfile::tempdir().expect("fixture");
-        let canonical = std::fs::canonicalize(dir.path()).expect("canonical root");
-        let src = canonical.join("src");
-        let nested = src.join("runtime");
-        std::fs::create_dir_all(&nested).expect("dirs");
-        let queries = vec![
-            json!({"path": src.to_string_lossy()}),
-            json!({"path": nested.to_string_lossy()}),
-        ];
-        let mut rows = vec![
-            json!({"index":0,"data":{"files":[{"path":"src/a.rs"}]}}),
-            json!({"index":1,"data":{"declarations":[{"path":"runtime/b.rs"}]}}),
-        ];
-        absolutize_row_paths(
-            &mut rows,
-            ToolId::from_name("astSearch").expect("known tool"),
-            &queries,
-        );
-        let value = envelope(rows);
-        let base = value["base"].as_str().expect("common base");
-        let first = value["results"][0]["data"]["files"][0]["path"]
-            .as_str()
-            .unwrap();
-        let second = value["results"][1]["data"]["declarations"][0]["path"]
-            .as_str()
-            .unwrap();
-        assert_eq!(
-            std::path::Path::new(base).join(first),
-            canonical.join("src/a.rs")
-        );
-        assert_eq!(
-            std::path::Path::new(base).join(second),
-            src.join("runtime/b.rs")
-        );
-    }
-
     use super::*;
 
     #[test]
@@ -1653,68 +1630,201 @@ mod tests {
         );
     }
 
-    #[test]
-    fn local_search_and_topology_bases_are_the_query_scan_root() {
-        let dir = tempfile::tempdir().expect("fixture");
-        let root = std::fs::canonicalize(dir.path()).expect("root");
-        std::fs::create_dir_all(root.join("sub/a")).expect("dirs");
-        std::fs::write(root.join("sub/a/x.rs"), "x").expect("file");
-        let root_str = root.to_string_lossy().into_owned();
-        // The envelope compacted this page against its deepest common dir.
-        let mut output = json!({
-            "results": [{"data": {"files": [{"path": "x.rs"}],
-                "next": {"nextPage": {"tool": "localSearch", "query": {"path": root_str}}}}}],
-            "base": root.join("sub/a").to_string_lossy(),
-        });
-        attach_query_base(
-            &mut output,
-            ToolId::from_name("localSearch").expect("known tool"),
-            &json!({"path": root_str}),
-        );
-        assert_eq!(output["base"], root_str.as_str());
-        let row_path = output["results"][0]["data"]["files"][0]["path"]
-            .as_str()
-            .expect("row path");
-        assert_eq!(row_path, "sub/a/x.rs");
-        assert!(root.join(row_path).is_file());
-        assert_eq!(
-            output["results"][0]["data"]["next"]["nextPage"]["query"]["path"],
-            root_str.as_str()
-        );
+    /// A workspace with `packages/app/{src,tests}` and an allowed root
+    /// outside it.
+    struct Workspace {
+        _dirs: (tempfile::TempDir, tempfile::TempDir),
+        root: std::path::PathBuf,
+        outside: std::path::PathBuf,
+        paths: PathPolicy,
+    }
 
-        let mut topology = json!({
-            "results": [{"data": {"path": "workspace/relative", "results": [{"file": "sub/a/x.rs"}]}}],
-            "base": "/elsewhere",
-        });
-        attach_query_base(
-            &mut topology,
-            ToolId::from_name("astTopology").expect("known tool"),
-            &json!({"path": root_str}),
-        );
-        assert_eq!(topology["base"], root_str.as_str());
-        assert_eq!(topology["results"][0]["data"]["path"], ".");
-        let file = topology["results"][0]["data"]["results"][0]["file"]
-            .as_str()
-            .expect("file");
-        assert!(root.join(file).is_file());
+    fn workspace() -> Workspace {
+        let dir = tempfile::tempdir().expect("fixture");
+        let other = tempfile::tempdir().expect("fixture");
+        let root = std::fs::canonicalize(dir.path()).expect("root");
+        let outside = std::fs::canonicalize(other.path()).expect("outside");
+        for file in ["src/a.rs", "src/runtime/b.rs", "tests/x.ts"] {
+            let path = root.join("packages/app").join(file);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            std::fs::write(&path, "x").expect("file");
+        }
+        std::fs::write(outside.join("o.rs"), "x").expect("file");
+        let paths = PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(root.join("packages/app")),
+            additional_roots: vec![outside.clone()],
+            include_home: false,
+            home_dir: None,
+        })
+        .expect("policy");
+        Workspace {
+            _dirs: (dir, other),
+            root: root.join("packages/app"),
+            outside,
+            paths,
+        }
+    }
+
+    /// Every relative row path must be what localFetch resolves: the
+    /// workspace root joined with the path.
+    fn assert_resolvable(ws: &Workspace, value: &Value, path: &str) {
+        assert_eq!(value["base"], ws.root.to_string_lossy().as_ref(), "{value}");
+        assert!(ws.paths.validate(path).is_ok(), "{path} in {value}");
     }
 
     #[test]
-    fn ast_search_query_base_uses_the_canonical_parent() {
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        let mut output = json!({"results":[]});
-        attach_query_base(
-            &mut output,
-            ToolId::from_name("astSearch").expect("known tool"),
-            &json!({"path":manifest.to_string_lossy()}),
-        );
-        let expected = std::fs::canonicalize(manifest)
-            .expect("manifest path")
-            .parent()
-            .expect("manifest parent")
+    fn structure_and_ast_rows_are_workspace_relative_for_any_query_root() {
+        let ws = workspace();
+        let root = ws.root.to_string_lossy().into_owned();
+        // `.` is the workspace root itself: rows lead with its own name.
+        let name = ws
+            .root
+            .file_name()
+            .expect("name")
             .to_string_lossy()
             .into_owned();
-        assert_eq!(output["base"], expected);
+        for (tool, query, row, expected) in [
+            (
+                "structureSearch",
+                json!({"path":"."}),
+                json!({"path": name, "files":[{"path": format!("{name}/tests/x.ts")}]}),
+                (".", "tests/x.ts"),
+            ),
+            (
+                "structureSearch",
+                json!({"path": format!("{root}/src")}),
+                json!({"path":"src","files":[{"path":"src/runtime/b.rs"}]}),
+                ("src", "src/runtime/b.rs"),
+            ),
+            (
+                "astSearch",
+                json!({"path":"src/runtime"}),
+                json!({"path":"runtime","files":[{"path":"runtime/b.rs"}]}),
+                ("src/runtime", "src/runtime/b.rs"),
+            ),
+            // A file root names the file relative to its parent.
+            (
+                "astSearch",
+                json!({"path":"src/a.rs"}),
+                json!({"path":"a.rs","files":[{"path":"a.rs"}]}),
+                ("src/a.rs", "src/a.rs"),
+            ),
+        ] {
+            let value = envelope_in(
+                vec![json!({"index":0,"data":row})],
+                ToolId::from_name(tool).expect("known tool"),
+                &[Some(&query)],
+                &ws.paths,
+            );
+            let data = &value["results"][0]["data"];
+            assert_eq!(
+                (
+                    data["path"].as_str().unwrap(),
+                    data["files"][0]["path"].as_str().unwrap()
+                ),
+                expected,
+                "{tool} {query}"
+            );
+            assert_resolvable(&ws, &value, expected.1);
+        }
+    }
+
+    #[test]
+    fn mixed_root_batches_resolve_every_row_even_after_a_rejected_row() {
+        let ws = workspace();
+        let outside = ws.outside.to_string_lossy().into_owned();
+        let src = json!({"path":"src"});
+        let nested = json!({"path": ws.root.join("src/runtime").to_string_lossy()});
+        let far = json!({"path": outside});
+        let rows = vec![
+            json!({"index":0,"data":{"files":[{"path":"src/a.rs"}]}}),
+            json!({"index":1,"status":"error","data":{"error":"x","errorCode":"invalidInput"}}),
+            json!({"index":2,"data":{"declarations":[{"path":"runtime/b.rs"}]}}),
+            json!({"index":3,"data":{"files":[{"path": format!("{}/o.rs", ws.outside.file_name().unwrap().to_string_lossy())}]}}),
+        ];
+        let value = envelope_in(
+            rows,
+            ToolId::AstSearch,
+            &[Some(&src), None, Some(&nested), Some(&far)],
+            &ws.paths,
+        );
+        assert_resolvable(&ws, &value, "src/a.rs");
+        assert_eq!(value["results"][0]["data"]["files"][0]["path"], "src/a.rs");
+        assert_eq!(
+            value["results"][2]["data"]["declarations"][0]["path"],
+            "src/runtime/b.rs"
+        );
+        // Outside the workspace a path stays absolute.
+        let far_path = value["results"][3]["data"]["files"][0]["path"]
+            .as_str()
+            .unwrap();
+        assert_eq!(far_path, format!("{outside}/o.rs"));
+        assert!(ws.paths.validate(far_path).is_ok());
+    }
+
+    #[test]
+    fn local_search_and_lsp_rows_are_workspace_relative_and_outside_rows_absolute() {
+        let ws = workspace();
+        let root = ws.root.to_string_lossy().into_owned();
+        let row = json!({"index":0,"data":{"files":[{"path": format!("{root}/src/runtime/b.rs")}],
+            "next":{"nextPage":{"tool":"localSearch","query":{"path":"src/runtime"}}}}});
+        let value = envelope_in(
+            vec![row],
+            ToolId::LocalSearch,
+            &[Some(&json!({"path":"src/runtime"}))],
+            &ws.paths,
+        );
+        assert_eq!(
+            value["results"][0]["data"]["files"][0]["path"],
+            "src/runtime/b.rs"
+        );
+        assert_eq!(
+            value["results"][0]["data"]["next"]["nextPage"]["query"]["path"],
+            "src/runtime"
+        );
+        assert_resolvable(&ws, &value, "src/runtime/b.rs");
+
+        let lsp = json!({"index":0,"data":{"type":"documentSymbols","uri":format!("file://{root}/src/a.rs")}});
+        let value = envelope_in(vec![lsp], ToolId::LspSearch, &[Some(&json!({}))], &ws.paths);
+        assert_eq!(value["results"][0]["data"]["path"], "src/a.rs");
+        assert_resolvable(&ws, &value, "src/a.rs");
+
+        let outside = format!("{}/o.rs", ws.outside.to_string_lossy());
+        let row = json!({"index":0,"data":{"files":[{"path": outside}]}});
+        let value = envelope_in(
+            vec![row],
+            ToolId::LocalSearch,
+            &[Some(&json!({"path": ws.outside.to_string_lossy()}))],
+            &ws.paths,
+        );
+        assert!(value.get("base").is_none(), "{value}");
+        assert_eq!(
+            value["results"][0]["data"]["files"][0]["path"],
+            outside.as_str()
+        );
+    }
+
+    #[test]
+    fn topology_base_is_the_scanned_directory() {
+        let ws = workspace();
+        let mut topology = vec![
+            json!({"index":0,"data": {"path": "workspace/relative", "results": [{"file": "runtime/b.rs"}]}}),
+        ];
+        let value = envelope_in(
+            std::mem::take(&mut topology),
+            ToolId::AstTopology,
+            &[Some(&json!({"path":"src"}))],
+            &ws.paths,
+        );
+        assert_eq!(
+            value["base"],
+            ws.root.join("src").to_string_lossy().as_ref()
+        );
+        assert_eq!(value["results"][0]["data"]["path"], ".");
+        let file = value["results"][0]["data"]["results"][0]["file"]
+            .as_str()
+            .expect("file");
+        assert!(ws.root.join("src").join(file).is_file());
     }
 
     #[test]
@@ -1910,7 +2020,7 @@ mod tests {
             }),
             None,
         );
-        // The brief is inherited (followUp), not copied onto every page.
+        // Emitters leave the brief to the engine, which copies it from the input row.
         assert_eq!(row.pointer("/data/next/continue/query/reasoning"), None);
         assert_eq!(
             row.pointer("/data/next/continue/query/debug"),
@@ -2064,6 +2174,32 @@ mod tests {
         }
         assert!(is_invalid_input_code("invalidRegex"));
         assert!(!is_invalid_input_code("fileAccessFailed"));
+        // astSearch rejects a missing, unknown, or mismatched grammar and an
+        // unparseable pattern: the caller must fix the request (exit 2).
+        for code in [
+            "ast.language.required",
+            "ast.language.unsupported",
+            "ast.language.mismatch",
+            "ast.language.fileRequired",
+            "ast.language.directoryRequired",
+            "structural.query.compileFailed",
+            "structural.query.invalid",
+            "structural.language.unsupported",
+            "syntaxTree.language.unsupported",
+            "syntaxTree.options.invalidLimit",
+            "lsp.invalidQuery",
+        ] {
+            assert!(is_invalid_input_code(code), "{code}");
+        }
+        for code in [
+            "structural.parse.interrupted",
+            "structural.match.depthLimit",
+            "ast.source.limit",
+            "ast.policy.notFound",
+            "ast.execution.io",
+        ] {
+            assert!(!is_invalid_input_code(code), "{code}");
+        }
         assert!(is_not_found_code("structure.policy.notFound"));
         assert!(!is_not_found_code("fileAccessFailed"));
     }

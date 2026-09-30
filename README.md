@@ -165,7 +165,7 @@ The toolkit has five layers:
 The research layer connects **local code** and **external code** on GitHub and package registries. Instead of returning a fixed blob, it lets the agent decide what evidence it needs next:
 
 - **Agent-driven, efficient flows.** Instead of one-shot dumps, Octocode chains cheap steps into an optimized research flow: broad code search, then fetch only the **exact matched lines/region**, with **smart pagination** and **out-of-the-box minification** so the model never over-fetches. Every result carries **next-step hints** to the cheapest follow-up.
-- **Judge before you read (`clasify`).** The credential-gated `clasify` tool rates *unread* candidates or locates the answering lines in an unread file, and returns **verdicts and line windows, never file bodies**. On whole-file "how/where" questions it scored 10/10 vs 9/10 for `rg` while opening 43% fewer files. It routes reading; it is never proof. See [Semantic assessment](#semantic-assessment--clasify).
+- **Judge before you read (`clasify`).** The credential-gated `clasify` tool rates *unread* candidates or locates the answering lines in an unread file, and returns **verdicts and line windows, never file bodies**. It pays off when it classifies an explicit list without reading every item, locates an answer inside a large known file, or screens for absence. When a literal can be guessed, searching for it is cheaper. It routes reading; it is never proof. See [Semantic assessment](#semantic-assessment--clasify).
 - **Scales to monorepos.** Spot a pattern in one repository, follow the PR that introduced it, then trace it across other repositories and your own files, without leaving the chat.
 - **Smart GitHub flow.** Parallel bulk queries across code, PRs, commits, issues, and repositories, all with the same search-broad, read-narrow, trace-semantically discipline.
 - **Works without GitHub.** Clone any repository and point the local tools (search, AST, LSP, content) at it, same evidence-first flow.
@@ -192,7 +192,7 @@ The concept, the research loop, and the measured advantages (and where plain too
 
 A unified, doc-driven agent benchmark lives in [`packages/octocode-benchmark/compare/unified/`](packages/octocode-benchmark/compare/unified/README.md): the same Claude model answers 30 pinned questions (10 GitHub: PR review, code research, bug root-cause; 20 local, on cloned repos in 8 languages), once per worker. Each worker is defined only by its instruction doc and tool profile (Octocode MCP vs `rg` + `gh`). A blind Opus judge scores quality against evaluator-only references, and tokens are split into fixed overhead and research tokens.
 
-Results pending; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+First full run (`full-1`, 2026-09-30, on a build that predates the schema slimming): Octocode scored 8.42 vs 9.12 for `rg` + `gh` (3 wins, 11 ties, 16 losses) at 1.67× the cost, and it never called `clasify`. A re-run on the current build is pending. Details, including where Octocode loses: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ---
 
@@ -257,7 +257,7 @@ Each GitHub search tool accepts 1 to 5 parallel queries and has no `operation` f
 
 `clasify` is the only semantic tool. **Scout** screens unread local or GitHub read requests, **Locate** finds the line window that answers a question in an unread file, and **Judge** classifies state the caller already holds. Batch independent candidates in one `resources[] × questions[]` matrix (≤25 cells). Results carry typed judgments and source ranges, never source bodies.
 
-Use it for explicit classification, or to locate a behavioral target (no exact literal) across two or more candidate files. Skip it for identifiers, literals, and PR filters, where direct search settles the question. A verdict routes reading and does not prove a claim; verify the deciding source.
+Use it to classify an explicit list instead of reading every item, to locate an answer inside a large known file (add `prefilter` literals when the answer contains one), or to screen for absence. To locate behavior, guess one literal and search for it first. In 2026-09-30 A/B runs, clasify cost 2.6× the bytes when a literal was guessable and 22× for a literal target. Skip it for identifiers, literals, PR filters and search snippets. Scores from 0.36 to 0.69 mean read to verify. A verdict routes reading and does not prove a claim; verify the deciding source.
 
 **Enable classification** (restart CLI and MCP processes afterwards):
 

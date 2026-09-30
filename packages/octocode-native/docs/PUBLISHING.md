@@ -50,16 +50,16 @@ in one Cargo invocation and, concurrently, the engine addon in its own target di
 (`target/napi-engine/`; the engine needs different features, and Cargo holds one
 lock per target dir). It then stages atomically: CLI binaries into
 `npm/<platform>/`, both addons into the package root. `build` is the same in
-release mode; `build:hosts[:dev]` / `build:engine[:dev]` build one half and
+release mode; `build:hosts:dev` / `build:engine:dev` build one half and
 `--serial` restores the one-dir sequential flow for comparison.
 
 For one release target:
 
 ```sh
-yarn workspace @octocodeai/octocode-native build:darwin-arm64
+yarn workspace @octocodeai/octocode-native build:target darwin-arm64
 ```
 
-The Windows release command is `build:win32-x64-msvc`, matching its CI matrix suffix.
+The platform argument is one of `darwin-arm64`, `darwin-x64`, `linux-arm64-gnu`, `linux-x64-gnu`, `linux-x64-musl`, `win32-x64-msvc`.
 
 For a complete release matrix (platforms build concurrently, each in
 `target/platforms/<platform>/`; Linux targets cross-link with cargo-zigbuild and
@@ -70,9 +70,9 @@ yarn workspace @octocodeai/octocode-native build:all
 yarn workspace @octocodeai/octocode-native platforms:check
 ```
 
-`build:<platform>` produces and stages all four artifacts using the committed lockfile. The internal runtime adapter library is named `octocode_runtime_napi`; staging preserves the published `octocode-native.<platform>.node` filename. Engine filenames and capability features remain unchanged. Darwin staging replaces linker-generated ad-hoc addon signatures with fresh ad-hoc signatures. When the target matches the host, staging loads both addons in subprocesses immediately. `platforms:check` verifies all 24 files and also loads both host-platform addons.
+`build:target <platform>` produces and stages all four artifacts using the committed lockfile. The internal runtime adapter library is named `octocode_runtime_napi`; staging preserves the published `octocode-native.<platform>.node` filename. Engine filenames and capability features remain unchanged. Darwin staging replaces linker-generated ad-hoc addon signatures with fresh ad-hoc signatures. When the target matches the host, staging loads both addons in subprocesses immediately. `platforms:check` verifies all 24 files and also loads both host-platform addons.
 
-Cross-target presence is not runtime proof. CI runs each `build:<platform>` command on the matching runner, as configured by `.github/workflows/rust-tools-core.yml`, so `npm/verify-binary.cjs` can execute the package’s addons and binaries. Its downstream `packages` job then assembles the six uploaded platform directories, restores executable modes lost by artifact transport, runs the 24-file `platforms:check` gate, and uploads the verified release-package set.
+Cross-target presence is not runtime proof. CI builds no native artifacts; runtime proof comes from running `node ../verify-binary.cjs` inside `npm/<platform>/` on a machine of that platform, and the 24-file `platforms:check` gate runs after `build:all` (part of `dev.mjs build:publish`).
 
 ## Version contract
 

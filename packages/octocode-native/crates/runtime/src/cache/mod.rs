@@ -25,6 +25,23 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::write(path, bytes)
 }
 
+/// Create `path` (and missing parents) owner-only (0700) on Unix, and tighten
+/// an existing directory, for caches that hold private repository content.
+#[cfg(unix)]
+pub(crate) fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(path)
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CachePartition {
     pub endpoint: String,

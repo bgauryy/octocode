@@ -254,9 +254,10 @@ mod tests {
         assert_eq!(next["tool"], "localSearch");
         assert_eq!(next["query"]["path"], root.as_str());
         assert_eq!(next["query"]["searchText"], "\\bgreet\\b");
-        // The runtime marks emitted continuations as follow-ups before output.
+        // The engine copies the input row's brief onto emitted continuations.
         let mut replay = next["query"].clone();
-        replay["followUp"] = serde_json::json!(true);
+        replay["goal"] = serde_json::json!("Find greet's references.");
+        replay["reasoning"] = serde_json::json!("Fall back to text search.");
         crate::contracts::validate_query("localSearch", replay)
             .expect("fallback query is contract-valid");
 

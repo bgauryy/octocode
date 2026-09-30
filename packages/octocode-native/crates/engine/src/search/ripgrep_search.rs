@@ -353,6 +353,7 @@ struct CollectResult {
     /// Paths of binary-quit files (bounded) and their total count.
     binary_files: Vec<String>,
     binary_file_count: u32,
+    skipped_binary_count: u32,
     /// The caller cancelled the search before the walk finished (`cancelled`).
     cancelled: bool,
     error_count: u32,
@@ -380,6 +381,7 @@ struct CollectState {
     binary_quit: AtomicBool,
     binary_files: Mutex<Vec<String>>,
     binary_file_count: AtomicU32,
+    skipped_binary_count: AtomicU32,
     cancelled: AtomicBool,
     /// Set when the walk must end now (deadline, cancellation, driver timeout).
     stop: AtomicBool,
@@ -403,6 +405,7 @@ impl CollectState {
             binary_quit: AtomicBool::new(false),
             binary_files: Mutex::new(Vec::new()),
             binary_file_count: AtomicU32::new(0),
+            skipped_binary_count: AtomicU32::new(0),
             cancelled: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             error_count: AtomicU32::new(0),
@@ -486,6 +489,7 @@ impl CollectState {
                 .map(|files| files.clone())
                 .unwrap_or_default(),
             binary_file_count: self.binary_file_count.load(Ordering::Relaxed),
+            skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),
             cancelled: self.cancelled.load(Ordering::Relaxed),
             error_count: self.error_count.load(Ordering::Relaxed),
             first_error,
@@ -814,6 +818,18 @@ fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, u64)> {
 }
 
 /// Read the first `len` bytes of an already-open file.
+/// Bytes before a first NUL that read as text: valid UTF-8 without control
+/// bytes other than whitespace and ESC. Binary headers (PNG, ELF, Mach-O,
+/// archives) fail this within their first bytes.
+fn is_text_prefix(prefix: &[u8]) -> bool {
+    std::str::from_utf8(prefix).is_ok_and(|text| {
+        !text.bytes().any(|byte| {
+            byte == 0x7f
+                || (byte < 0x20 && !matches!(byte, b'\t' | b'\n' | b'\r' | 0x0c | 0x1b))
+        })
+    })
+}
+
 fn read_prefix(file: &std::fs::File, len: u64) -> std::io::Result<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut handle = file;
@@ -917,6 +933,8 @@ struct FileOutcome {
     span_cap_reached: bool,
     deadline_hit: bool,
     binary: bool,
+    /// The first NUL came before any text: nothing text-searchable was lost.
+    opaque: bool,
     line_weight: u32,
     declares: bool,
 }
@@ -931,6 +949,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             span_cap_reached: sink.span_cap_reached,
             deadline_hit: sink.deadline_hit,
             binary: sink.binary_offset.is_some(),
+            opaque: sink.binary_offset == Some(0),
             line_weight: sink.line_weight,
             declares: sink.declares,
         }
@@ -985,6 +1004,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         prefix_searcher.search_slice(self.matcher, &prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
+        outcome.opaque = !is_text_prefix(&prefix);
         Ok(outcome)
     }
 }
@@ -1158,8 +1178,10 @@ fn collect<M: Matcher + Sync>(
             }
             state.files_searched.fetch_add(1, Ordering::Relaxed);
             state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
-            if outcome.binary {
-                // Bytes after the NUL were not searched: coverage is partial.
+            if outcome.opaque {
+                state.skipped_binary_count.fetch_add(1, Ordering::Relaxed);
+            } else if outcome.binary {
+                // Text after the NUL was not searched: coverage is partial.
                 state.record_binary(path);
             }
 
@@ -1323,6 +1345,7 @@ fn build_result(
         binary_quit,
         binary_files,
         binary_file_count,
+        skipped_binary_count,
         cancelled,
         error_count,
         first_error,
@@ -1431,6 +1454,7 @@ fn build_result(
         first_error,
         binary_files: (!binary_files.is_empty()).then_some(binary_files),
         binary_file_count: binary_quit.then_some(binary_file_count),
+        skipped_binary_count: (skipped_binary_count > 0).then_some(skipped_binary_count),
     };
 
     RipgrepParseResult { files, stats }

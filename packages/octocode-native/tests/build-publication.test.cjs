@@ -76,12 +76,11 @@ test('every native build script routes through build-native.cjs', () => {
   const driver = 'node scripts/build-native.cjs';
   assert.equal(scripts.build, `${driver} --release`);
   assert.equal(scripts['build:dev'], driver);
-  assert.equal(scripts['build:hosts'], `${driver} --release --only hosts`);
+  assert.equal(scripts['build:hosts:dev'], `${driver} --only hosts`);
   assert.equal(scripts['build:engine:dev'], `${driver} --only engine`);
   assert.equal(scripts['build:all'], `yarn clean:binaries && ${driver} --release --all`);
-  for (const platform of Object.keys(PLATFORMS)) {
-    assert.equal(scripts[`build:${platform}`], `${driver} --release --target ${platform}`);
-  }
+  assert.equal(scripts['build:target'], `${driver} --release --target`);
+  for (const platform of Object.keys(PLATFORMS)) assert.equal(scripts[`build:${platform}`], undefined, platform);
   for (const [name, command] of Object.entries(scripts)) {
     if (name.startsWith('build')) assert.doesNotMatch(command, /cargo build|napi build/, name);
   }

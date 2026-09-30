@@ -1,3 +1,4 @@
+mod coerce;
 mod content;
 mod schema;
 mod union;
@@ -16,6 +17,24 @@ pub struct ValidationIssue {
     pub schema: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub received: Option<Value>,
+}
+
+/// Where an unknown field sits: `queries[N]` (the row's 0-based output
+/// `index`) for a bulk row, else the object path (`questions.0`), so a
+/// root-level clasify matrix is not called a query row.
+fn query_label(path: &[String]) -> String {
+    match path.first().map(String::as_str) {
+        Some("queries") => {
+            let index = path.get(1).map_or("0", String::as_str);
+            if path.len() > 3 {
+                format!("queries[{index}].{}", path[2..path.len() - 1].join("."))
+            } else {
+                format!("queries[{index}]")
+            }
+        }
+        _ if path.len() > 1 => path[..path.len() - 1].join("."),
+        _ => "the request".into(),
+    }
 }
 
 /// `siblingRequires` is set by union validation when another branch declares
@@ -37,10 +56,11 @@ pub struct ContractValidationError {
     pub issues: Vec<ValidationIssue>,
 }
 
-/// Projects transport-neutral validation issues into the stable CLI tool-error
-/// envelope used by the native CLI and thin adapters.
+/// Projects transport-neutral validation issues into the stable tool-error
+/// envelope. `mcp` selects the schema pointer: MCP clients read the tool's
+/// `inputSchema`; only the CLI has the `scheme` command.
 #[must_use]
-pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> Value {
+pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp: bool) -> Value {
     let unknown = error
         .issues
         .iter()
@@ -56,11 +76,7 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
         fields.dedup();
         let mut details = Vec::new();
         for issue in &unknown {
-            let query = issue
-                .path
-                .get(1)
-                .and_then(|v| v.parse::<usize>().ok())
-                .map_or(1, |v| v + 1);
+            let query = query_label(&issue.path);
             let field = issue.path.last().map(String::as_str).unwrap_or("unknown");
             // Extract known fields from the embedded schema so we can suggest the
             // closest match (edit distance <= 3) as a "did you mean ...?" hint.
@@ -74,18 +90,20 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
                 .collect();
             let msg = match (sibling_requirement(issue), suggest_field(field, &known)) {
                 (Some(requires), _) => {
-                    format!("Remove '{field}' from query {query}: it applies only with {requires}.")
+                    format!("Remove '{field}' from {query}: it applies only with {requires}.")
                 }
                 (None, Some(s)) => format!(
-                    "Remove unknown field '{field}' from query {query} (did you mean '{s}'?)"
+                    "Remove unknown field '{field}' from {query} (did you mean '{s}'?)"
                 ),
-                (None, None) => format!("Remove unknown field(s) from query {query}: {field}"),
+                (None, None) => format!("Remove unknown field(s) from {query}: {field}"),
             };
             details.push(msg);
         }
-        details.push(format!(
-            "Run scheme {tool_name} --view query --compact to see valid fields."
-        ));
+        details.push(if mcp {
+            format!("See the {tool_name} inputSchema for valid fields.")
+        } else {
+            format!("Run scheme {tool_name} --view query --compact to see valid fields.")
+        });
         return serde_json::json!({"kind":"octocode.toolError","version":1,"tool":tool_name,"error":format!("Unknown field(s): {}", fields.join(", ")),"details":details});
     }
     let details = error
@@ -156,7 +174,12 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
         .pointer("/properties/queries/items")
         .unwrap_or(&tool["querySchema"]);
     if let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut) {
+        let typed = [
+            (&tool["querySchema"], &tool["querySchema"]),
+            (&tool["inputSchema"], item_schema),
+        ];
         for (index, query) in queries.iter_mut().enumerate() {
+            coerce::coerce_scalar_strings(&typed, query);
             apply_observed_defaults(&tool["defaults"], query);
             let mut path = vec!["queries".to_owned(), index.to_string()];
             let parsed =
@@ -166,23 +189,6 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
                     });
             if let Err(error) = parsed {
                 issues.extend(error.issues);
-                continue;
-            }
-            let missing = missing_brief(tool_name, query);
-            if !missing.is_empty() {
-                for field in missing {
-                    let mut at = path.clone();
-                    at.push(field.to_owned());
-                    issues.push(ValidationIssue {
-                        rule_id: "schema.required".to_owned(),
-                        path: at,
-                        message: format!(
-                            "Missing required field: {field} (a new query states it; only a next.* continuation with followUp: true inherits it)"
-                        ),
-                        schema: None,
-                        received: None,
-                    });
-                }
                 continue;
             }
             let scoped = serde_json::json!({"queries":[query]});
@@ -230,36 +236,6 @@ pub fn validate_query(tool_name: &str, query: Value) -> Result<Value, ContractVa
                 received: None,
             }],
         })
-}
-
-/// A new query states its own `goal` and `reasoning`. A runtime-emitted
-/// continuation (`followUp: true`) serves the decision of the query that
-/// produced it and omits them. Clasify forwards its briefs to the provider,
-/// so its own schema keeps them required.
-///
-/// `followUp` is deliberately trust-based, not authenticated. The brief is
-/// caller context that keeps an agent's research legible; it grants nothing,
-/// so a hand-written `followUp: true` only lets a caller skip its own notes.
-/// Signing continuations (like the artifact state tokens in `cursor.rs`)
-/// would add a tag to every emitted `next.*`, break replay whenever the host
-/// resolves a different octocode home or memory-only storage, and reject the
-/// common edit of a continuation's page or pageSize. None of that buys a
-/// security property: what a continuation must not forge is already checked
-/// on its own (signed artifact state, content snapshots that reject drift,
-/// the path policy on every row).
-fn missing_brief(tool_name: &str, query: &Value) -> Vec<&'static str> {
-    if tool_name == "clasify" || query.get("followUp") == Some(&Value::Bool(true)) {
-        return Vec::new();
-    }
-    ["goal", "reasoning"]
-        .into_iter()
-        .filter(|field| {
-            query
-                .get(*field)
-                .and_then(Value::as_str)
-                .is_none_or(|text| text.trim().is_empty())
-        })
-        .collect()
 }
 
 fn strip_queries_prefix(mut error: ContractValidationError) -> ContractValidationError {
@@ -529,7 +505,9 @@ fn validate_history_keyword_scope(input: &Value) -> Result<(), ContractValidatio
                 return Err(issue(
                     "history.keyword-scope",
                     vec!["queries".into(), index.to_string(), field.into()],
-                    format!("Commit-message keywords cannot be combined with {field}"),
+                    format!(
+                        "Commit-message keywords cannot be combined with {field}; search covers the default branch. Use history without keywords for path/ref filters and ghGetHistoryItem for diffs."
+                    ),
                 ));
             }
         }
@@ -1170,7 +1148,7 @@ mod tests {
         // fullContent, so the relation is rejected as a field conflict rather
         // than an unknown field.
         assert_eq!(
-            format_input_error("localFetch", &relation),
+            format_input_error("localFetch", &relation, false),
             json!({
                 "kind":"octocode.toolError", "version":1, "tool":"localFetch",
                 "error":"Check the query fields.",
@@ -1307,7 +1285,7 @@ mod tests {
         )
         .expect_err("range");
         assert_eq!(
-            format_input_error("localFetch", &range),
+            format_input_error("localFetch", &range, false),
             json!({
                 "kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Check the query fields.",
                 "details":["queries.0.endLine: Set endLine greater than or equal to startLine."]
@@ -1319,12 +1297,82 @@ mod tests {
         )
         .expect_err("unknown");
         assert_eq!(
-            format_input_error("localFetch", &unknown),
+            format_input_error("localFetch", &unknown, false),
             json!({
                 "kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Unknown field(s): madeUp",
-                "details":["Remove unknown field(s) from query 1: madeUp", "Run scheme localFetch --view query --compact to see valid fields."]
+                "details":["Remove unknown field(s) from queries[0]: madeUp", "Run scheme localFetch --view query --compact to see valid fields."]
             })
         );
+    }
+
+    #[test]
+    fn mcp_input_errors_point_at_the_tool_schema_not_the_cli() {
+        let unknown = validate(
+            "localFetch",
+            json!({"queries":[
+                {"path":"/tmp/a","goal":"test","reasoning":"Valid row."},
+                {"path":"/tmp/a","madeUp":true,"goal":"test","reasoning":"Unknown field."}
+            ]}),
+        )
+        .expect_err("unknown");
+        let formatted = format_input_error("localFetch", &unknown, true);
+        let details = formatted["details"].to_string();
+        assert!(!details.contains("scheme"), "{details}");
+        assert!(details.contains("localFetch inputSchema"), "{details}");
+        assert!(details.contains("queries[1]"), "{details}");
+    }
+
+    #[test]
+    fn lossless_numeric_and_boolean_strings_coerce_only_for_typed_fields() {
+        let accepted = validate(
+            "localFetch",
+            json!({"queries":[
+                {"path":"/tmp/a","startLine":"2","endLine":"10","goal":"test","reasoning":"Coerce."},
+                {"path":"/tmp/a","fullContent":"false","goal":"test","reasoning":"Coerce."}
+            ]}),
+        )
+        .expect("lossless strings coerce");
+        assert_eq!(accepted["queries"][0]["startLine"], 2);
+        assert_eq!(accepted["queries"][0]["endLine"], 10);
+        assert_eq!(accepted["queries"][1]["fullContent"], false);
+        let search = validate(
+            "localSearch",
+            json!({"queries":[{"path":"/tmp","searchText":"10","pageSize":"5","goal":"test","reasoning":"Coerce."}]}),
+        )
+        .expect("string fields keep their string");
+        assert_eq!(search["queries"][0]["searchText"], "10");
+        assert_eq!(search["queries"][0]["pageSize"], 5);
+        let union = validate(
+            "lspSearch",
+            json!({"queries":[
+                {"uri":"/tmp/a.rs","position":{"line":"3","character":"0"},"goal":"test","reasoning":"Coerce."},
+                {"uri":"/tmp/a.rs","symbolName":"main","lineHint":"4","goal":"test","reasoning":"Coerce."}
+            ]}),
+        )
+        .expect("union branches coerce their own typed fields");
+        assert_eq!(union["queries"][0]["position"]["line"], 3);
+        assert_eq!(union["queries"][0]["position"]["character"], 0);
+        assert_eq!(union["queries"][1]["lineHint"], 4);
+        for bad in ["02", "2.0", "1e3", " 2", "+2", "-0", "", "9007199254740993", "two"] {
+            assert!(
+                validate(
+                    "localFetch",
+                    json!({"queries":[{"path":"/tmp/a","startLine":bad,"endLine":10,"goal":"test","reasoning":"No coercion."}]}),
+                )
+                .is_err(),
+                "{bad:?} must not coerce"
+            );
+        }
+        for bad in ["TRUE", "True", "1", "yes", " true"] {
+            assert!(
+                validate(
+                    "localFetch",
+                    json!({"queries":[{"path":"/tmp/a","fullContent":bad,"goal":"test","reasoning":"No coercion."}]}),
+                )
+                .is_err(),
+                "{bad:?} must not coerce"
+            );
+        }
     }
 
     #[test]
@@ -1334,7 +1382,7 @@ mod tests {
             json!({"queries":[{"path":"/tmp","searchText":"foo","unique":"list","goal": "test", "reasoning":"List values."}]}),
         )
         .expect_err("unique:list needs matchOnly");
-        let formatted = format_input_error("localSearch", &error);
+        let formatted = format_input_error("localSearch", &error, false);
         assert!(
             formatted["details"][0].as_str().is_some_and(
                 |detail| detail.contains("unique:\"list\" requires resultView:\"matchOnly\"")
@@ -1350,14 +1398,14 @@ mod tests {
             json!({"queries":[{"type":"npm","packageName":"zod","pageSize":3,"goal": "test", "reasoning":"Exact lookup."}]}),
         )
         .expect_err("pageSize is discovery-only");
-        let formatted = format_input_error("artifactSearch", &error);
+        let formatted = format_input_error("artifactSearch", &error, false);
         assert_eq!(
             formatted["error"], "Unknown field(s): pageSize",
             "{formatted}"
         );
         assert_eq!(
             formatted["details"][0],
-            "Remove 'pageSize' from query 1: it applies only with keywords."
+            "Remove 'pageSize' from queries[0]: it applies only with keywords."
         );
     }
 
@@ -1385,7 +1433,7 @@ mod tests {
             object.insert("reasonng".into(), json!("Exercise typo recovery."));
             let error =
                 validate(name, json!({"queries":[query]})).expect_err("typo must be rejected");
-            let formatted = format_input_error(name, &error).to_string();
+            let formatted = format_input_error(name, &error, false).to_string();
             assert!(
                 formatted.contains("did you mean 'reasoning'?"),
                 "{name}: {formatted}"

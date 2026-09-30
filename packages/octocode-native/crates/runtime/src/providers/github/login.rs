@@ -1,6 +1,7 @@
 //! GitHub device-flow login (no TUI).
 #[cfg(test)]
 mod flow_tests;
+
 use super::{
     CredentialSource, CredentialStore, OAuthToken, ProviderError, ProviderErrorKind,
     ResolvedCredential, StoredCredentials,
@@ -92,6 +93,13 @@ struct TokenResponse {
     scope: Option<String>,
     error: Option<String>,
     interval: Option<u64>,
+}
+
+/// RFC 8628 §3.5 `slow_down`: GitHub returns the new total `interval`; never
+/// poll sooner than the current interval plus 5 s.
+fn slow_down_interval(current: Duration, returned: Option<u64>) -> Duration {
+    let floor = current + Duration::from_secs(5);
+    returned.map_or(floor, |secs| Duration::from_secs(secs).max(floor))
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -310,7 +318,7 @@ async fn login_device_flow_with_store(
             continue;
         }
         if token.error.as_deref() == Some("slow_down") {
-            interval += Duration::from_secs(token.interval.unwrap_or(5));
+            interval = slow_down_interval(interval, token.interval);
             continue;
         }
         if let Some(access) = token.access_token.clone().filter(|value| !value.is_empty()) {

@@ -102,6 +102,10 @@ pub struct ResponsePagination {
     pub restart: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_char_offset: Option<usize>,
+    /// Set when this page exceeds the requested length because a fragment
+    /// could not be divided further (one string or scalar, or a row skeleton).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oversized: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<ResponseContinuation>,
 }
@@ -154,17 +158,22 @@ impl ResponsePager {
             .as_object()
             .cloned()
             .ok_or(ResponseError::StructuredContentMustBeObject)?;
-        if input.options.rows_scope() || input.options.structured_scope() {
+        if input.options.structured_scope() {
             strip_transient_telemetry(&mut structured);
         }
         if input.options.rows_scope() {
+            strip_row_telemetry(&mut structured);
+            // Row pages re-attach per-call provider facts to the row they came
+            // from; the snapshot and page plan never see them.
+            let volatile = take_volatile_fields(&mut structured);
             // Same bytes as the Value form, without cloning the envelope first.
             let full = serde_json::to_string(&structured)
                 .map_err(|_| ResponseError::StructuredContentMustBeObject)?;
             if full.len() > self.config.max_rendered_bytes {
                 return Err(ResponseError::RenderedTextTooLarge);
             }
-            let (mut envelope, mut pagination) = paginate_rows(structured, &full, &input.options);
+            let (mut envelope, mut pagination) =
+                paginate_rows(structured, &full, &input.options, volatile);
             if cancelled.load(Ordering::Acquire) {
                 return Err(ResponseError::Cancelled);
             }
@@ -285,15 +294,66 @@ impl ResponsePager {
 /// served from a warmer cache keeps the same snapshot, page plan, and bytes.
 const TRANSIENT_ROW_FIELDS: &[&str] = &["cache"];
 
-/// Remove transient per-row telemetry from an envelope before it is paged.
-pub(crate) fn strip_transient_telemetry(structured: &mut Map<String, Value>) {
-    if let Some(Value::Array(rows)) = structured.get_mut("results") {
-        for row in rows.iter_mut().filter_map(Value::as_object_mut) {
-            for field in TRANSIENT_ROW_FIELDS {
-                row.remove(*field);
-            }
+/// Row `data` fields that differ on every execution of the same request:
+/// provider request ids and rate-limit state (remaining, reset, retry-after).
+const VOLATILE_DATA_FIELDS: &[&str] = &["requestId", "rateLimit", "retryAfterSeconds"];
+
+fn rows_mut(structured: &mut Map<String, Value>) -> impl Iterator<Item = &mut Map<String, Value>> {
+    structured
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object_mut)
+}
+
+fn strip_row_telemetry(structured: &mut Map<String, Value>) {
+    for row in rows_mut(structured) {
+        for field in TRANSIENT_ROW_FIELDS {
+            row.remove(*field);
         }
     }
+}
+
+/// Remove transient telemetry and per-call provider facts from an envelope
+/// whose bytes are windowed: every page must hash and slice identical bytes.
+pub(crate) fn strip_transient_telemetry(structured: &mut Map<String, Value>) {
+    strip_row_telemetry(structured);
+    take_volatile_fields(structured);
+}
+
+/// Move each row's per-call provider facts out of the envelope, by row.
+fn take_volatile_fields(structured: &mut Map<String, Value>) -> Vec<Option<Map<String, Value>>> {
+    rows_mut(structured)
+        .map(|row| {
+            let data = row.get_mut("data").and_then(Value::as_object_mut)?;
+            let taken: Map<String, Value> = VOLATILE_DATA_FIELDS
+                .iter()
+                .filter_map(|field| {
+                    data.remove(*field)
+                        .map(|value| ((*field).to_owned(), value))
+                })
+                .collect();
+            (!taken.is_empty()).then_some(taken)
+        })
+        .collect()
+}
+
+/// Page-plan size reserved for a row's per-call facts. It depends only on
+/// their shape, so executions that differ in the values plan identical pages.
+fn volatile_reserve(fields: &Map<String, Value>) -> usize {
+    fn shape(value: &Value) -> Value {
+        match value {
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, child)| (key.clone(), shape(child)))
+                    .collect(),
+            ),
+            Value::Array(items) => Value::Array(items.iter().map(shape).collect()),
+            _ => json!("x".repeat(40)),
+        }
+    }
+    json_chars(&shape(&Value::Object(fields.clone()))) - 1
 }
 
 struct Page {
@@ -347,6 +407,7 @@ fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) 
                 changed: Some(expected.is_some() && changed),
                 restart: Some(true),
                 next_char_offset: Some(0),
+                oversized: None,
                 next: None,
             }),
         };
@@ -380,6 +441,7 @@ fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) 
             changed: None,
             restart: None,
             next_char_offset: has_more.then_some(end),
+            oversized: None,
             next: None,
         }),
     }
@@ -489,10 +551,17 @@ struct FragmentArena {
 
 impl FragmentArena {
     /// Plan `row` into `(fragment, serialized chars)`; `row` is consumed and
-    /// its largest array moved, never cloned.
-    fn plan(&mut self, mut row: Value, budget: usize, out: &mut Vec<(Fragment, usize)>) {
+    /// its largest array moved, never cloned. The row's first fragment is
+    /// bounded by `head`, every later one by `budget`.
+    fn plan(
+        &mut self,
+        mut row: Value,
+        head: usize,
+        budget: usize,
+        out: &mut Vec<(Fragment, usize)>,
+    ) {
         let row_chars = json_chars(&row);
-        let split = (row_chars > budget)
+        let split = (row_chars > head)
             .then(|| row.get("data").and_then(|data| largest_array(data, "")))
             .flatten()
             .map(|(relative, _)| format!("/data{relative}"))
@@ -519,6 +588,8 @@ impl FragmentArena {
         // evidence as skeleton, trading a looser page bound for far fewer
         // near-duplicate pages.
         let budget = budget.max(base.saturating_mul(2));
+        let head = head.max(base.saturating_mul(2)).min(budget);
+        let first = out.len();
         let item_chars: Vec<usize> = items.iter().map(json_chars).collect();
         let split = self.splits.len();
         self.splits.push(RowSplit {
@@ -536,7 +607,8 @@ impl FragmentArena {
         };
         for (index, chars) in item_chars.iter().enumerate() {
             let item = chars + 1;
-            if base + item > budget {
+            let limit = if out.len() == first { head } else { budget };
+            if base + item > limit {
                 flush(start, index, out);
                 chunk_chars = base;
                 let row_split = &self.splits[split];
@@ -544,11 +616,12 @@ impl FragmentArena {
                 if let Some(slot) = single.pointer_mut(&row_split.pointer) {
                     *slot = Value::Array(vec![row_split.items[index].clone()]);
                 }
-                self.plan(single, budget, out);
+                let limit = if out.len() == first { head } else { budget };
+                self.plan(single, limit, budget, out);
                 start = index + 1;
                 continue;
             }
-            if index > start && chunk_chars + item > budget {
+            if index > start && chunk_chars + item > limit {
                 flush(start, index, out);
                 start = index;
                 chunk_chars = base;
@@ -557,7 +630,8 @@ impl FragmentArena {
         }
         flush(start, item_chars.len(), out);
         if let Some(rest) = rest {
-            self.plan(rest, budget, out);
+            let limit = if out.len() == first { head } else { budget };
+            self.plan(rest, limit, budget, out);
         }
     }
 
@@ -588,8 +662,8 @@ fn row_part_chars(part: usize, of: usize) -> usize {
 }
 
 /// Serialized `"next":…,` a row carries under `data` (or at its top level).
-/// A split row keeps its `next.*` only on its last part: a continuation that
-/// resumes past this row must not be followed before every part is delivered.
+/// A split row keeps its `next.*` only on its first part, next to the head
+/// of its evidence; later parts omit it so each part set rebuilds the row.
 fn row_next_chars(row: &Value) -> usize {
     [
         row.get("data").and_then(|data| data.get("next")),
@@ -601,7 +675,7 @@ fn row_next_chars(row: &Value) -> usize {
     .sum()
 }
 
-/// Drop the row-level continuations from a non-final `rowPart`.
+/// Drop the row-level continuations from a later `rowPart`.
 fn strip_row_next(value: &mut Value) {
     if let Some(data) = value.get_mut("data").and_then(Value::as_object_mut) {
         data.remove("next");
@@ -611,53 +685,119 @@ fn strip_row_next(value: &mut Value) {
     }
 }
 
-/// (fragment, row part, page) in output order.
-type PlacedFragment = (Fragment, Option<(usize, usize)>, usize);
+/// Page-one share of `capacity` for rows of `sizes`: an equal split, where a
+/// row smaller than its share keeps only its size and leaves the rest to the
+/// larger rows.
+fn fair_shares(sizes: &[usize], capacity: usize) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..sizes.len()).collect();
+    order.sort_by_key(|&row| (sizes[row], row));
+    let mut shares = vec![0; sizes.len()];
+    let mut left = capacity;
+    for (taken, &row) in order.iter().enumerate() {
+        shares[row] = sizes[row].min(left / (sizes.len() - taken));
+        left -= shares[row];
+    }
+    shares
+}
 
-/// Row-aware pages: pack whole rows (or fragments of one oversized row) into
+/// A planned fragment in output order: its row position, its `rowPart`
+/// (when the row is split), and the page it lands on.
+struct Placed {
+    fragment: Fragment,
+    row: usize,
+    part: usize,
+    of: usize,
+    page: usize,
+}
+
+/// Row-aware pages: pack whole rows (or fragments of oversized rows) into
 /// complete envelopes. `responseCharOffset` addresses the zero-based page.
-/// Pages are assigned from fragment sizes; only the requested page is built.
+/// The first page gives every row a fair share of the budget, so each row
+/// shows its head (and its `next.*`) before any row continues; the rest of
+/// each row follows in row order. Pages are assigned from fragment sizes;
+/// only the requested page is built.
 fn paginate_rows(
     mut structured: Map<String, Value>,
     full: &str,
     options: &ResponsePageOptions,
+    mut volatile: Vec<Option<Map<String, Value>>>,
 ) -> (Map<String, Value>, ResponsePagination) {
     let budget = options.response_char_length.unwrap_or(1).max(1);
     let rows = match structured.remove("results") {
         Some(Value::Array(rows)) => rows,
         _ => Vec::new(),
     };
+    volatile.resize(rows.len(), None);
+    let reserves: Vec<usize> = volatile
+        .iter()
+        .map(|fields| fields.as_ref().map_or(0, volatile_reserve))
+        .collect();
     let overhead = json_chars(&Value::Object(structured.clone())) + "\"results\":[],".len();
     let row_budget = budget.saturating_sub(overhead).max(1);
+    let sizes: Vec<usize> = rows
+        .iter()
+        .zip(&reserves)
+        .map(|(row, reserve)| json_chars(row) + 1 + reserve)
+        .collect();
+    let shares = fair_shares(&sizes, row_budget);
+    let part_overhead = row_part_chars(1, 1000);
     let mut arena = FragmentArena::default();
-    let mut placed: Vec<PlacedFragment> = Vec::new();
+    let mut heads = Vec::with_capacity(rows.len());
+    let mut tails = Vec::new();
+    for (position, row) in rows.into_iter().enumerate() {
+        let head = if sizes[position] <= shares[position] {
+            usize::MAX
+        } else {
+            shares[position]
+                .saturating_sub(1 + reserves[position] + part_overhead)
+                .max(1)
+        };
+        let next_chars = row_next_chars(&row);
+        let mut fragments = Vec::new();
+        arena.plan(row, head, row_budget, &mut fragments);
+        let of = fragments.len();
+        for (index, (fragment, chars)) in fragments.into_iter().enumerate() {
+            let part = index + 1;
+            let (added, stripped) = if part == 1 {
+                (reserves[position], 0)
+            } else {
+                (0, next_chars)
+            };
+            let part_chars = if of > 1 { row_part_chars(part, of) } else { 0 };
+            let chars = (chars + 1 + part_chars + added).saturating_sub(stripped);
+            let placed = Placed {
+                fragment,
+                row: position,
+                part,
+                of,
+                page: 0,
+            };
+            if part == 1 {
+                heads.push((placed, chars));
+            } else {
+                tails.push((placed, chars));
+            }
+        }
+    }
+    let mut placed = Vec::with_capacity(heads.len() + tails.len());
     let mut page_index = 0usize;
     let mut page_len = 0usize;
     let mut page_chars = 0usize;
-    for row in rows {
-        let next_chars = row_next_chars(&row);
-        let mut fragments = Vec::new();
-        arena.plan(row, row_budget, &mut fragments);
-        let parts = fragments.len();
-        for (index, (fragment, chars)) in fragments.into_iter().enumerate() {
-            let row_part = (parts > 1).then_some((index + 1, parts));
-            let stripped = if index + 1 < parts { next_chars } else { 0 };
-            let chars =
-                chars + row_part.map_or(0, |(part, of)| row_part_chars(part, of)) + 1 - stripped;
-            if page_len > 0 && page_chars + chars > row_budget {
-                page_index += 1;
-                page_len = 0;
-                page_chars = 0;
-            }
-            page_chars += chars;
-            page_len += 1;
-            placed.push((fragment, row_part, page_index));
+    for (mut fragment, chars) in heads.into_iter().chain(tails) {
+        if page_len > 0 && page_chars + chars > row_budget {
+            page_index += 1;
+            page_len = 0;
+            page_chars = 0;
         }
+        page_chars += chars;
+        page_len += 1;
+        fragment.page = page_index;
+        placed.push(fragment);
     }
     let total_pages = page_index + 1;
     let total = full.encode_utf16().count();
     let snapshot = format!(
-        "response-rows-v1:{}",
+        "response-rows-v2:{}",
         hex::encode(Sha256::digest(full.as_bytes()))
     );
     let requested = options.response_char_offset.unwrap_or(0);
@@ -680,20 +820,29 @@ fn paginate_rows(
                 changed: Some(expected.is_some() && changed),
                 restart: Some(true),
                 next_char_offset: Some(0),
+                oversized: None,
                 next: None,
             },
         );
     }
-    let selected = placed
-        .iter()
-        .filter(|(_, _, page)| *page == requested)
-        .map(|(fragment, row_part, _)| {
-            let mut value = arena.materialize(fragment);
-            if let Some((part, of)) = row_part {
-                if part < of {
-                    strip_row_next(&mut value);
+    let mut page: Vec<&Placed> = placed.iter().filter(|p| p.page == requested).collect();
+    page.sort_by_key(|p| (p.row, p.part));
+    let selected = page
+        .into_iter()
+        .map(|p| {
+            let mut value = arena.materialize(&p.fragment);
+            if p.part == 1 {
+                if let (Some(fields), Some(data)) = (
+                    volatile[p.row].take(),
+                    value.get_mut("data").and_then(Value::as_object_mut),
+                ) {
+                    data.extend(fields);
                 }
-                value["rowPart"] = json!({"part": part, "of": of});
+            } else {
+                strip_row_next(&mut value);
+            }
+            if p.of > 1 {
+                value["rowPart"] = json!({"part": p.part, "of": p.of});
             }
             value
         })
@@ -716,6 +865,7 @@ fn paginate_rows(
             changed: None,
             restart: None,
             next_char_offset: has_more.then_some(requested + 1),
+            oversized: (char_length > budget).then_some(true),
             next: None,
         },
     )
@@ -1246,8 +1396,12 @@ mod tests {
             ..Default::default()
         };
         let full = structured.to_string();
-        let (first, pagination) =
-            paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+        let (first, pagination) = paginate_rows(
+            structured.as_object().unwrap().clone(),
+            &full,
+            &options,
+            Vec::new(),
+        );
         assert!(pagination.total_pages > 2 && pagination.has_more);
         let row = &first["results"][0];
         assert_eq!(
@@ -1263,8 +1417,12 @@ mod tests {
                 response_snapshot: Some(pagination.snapshot.clone()),
                 ..options.clone()
             };
-            let (envelope, _) =
-                paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+            let (envelope, _) = paginate_rows(
+                structured.as_object().unwrap().clone(),
+                &full,
+                &options,
+                Vec::new(),
+            );
             for row in envelope["results"].as_array().unwrap() {
                 for file in row["data"]["files"].as_array().unwrap() {
                     seen += file["matches"].as_array().unwrap().len();
@@ -1277,7 +1435,12 @@ mod tests {
             response_snapshot: Some("response-rows-v1:stale".into()),
             ..options
         };
-        let (_, restart) = paginate_rows(structured.as_object().unwrap().clone(), &full, &stale);
+        let (_, restart) = paginate_rows(
+            structured.as_object().unwrap().clone(),
+            &full,
+            &stale,
+            Vec::new(),
+        );
         assert_eq!(restart.restart, Some(true));
         assert_eq!(restart.next_char_offset, Some(0));
     }
@@ -1301,7 +1464,12 @@ mod tests {
             ..Default::default()
         };
         let full = structured.to_string();
-        let (_, first) = paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+        let (_, first) = paginate_rows(
+            structured.as_object().unwrap().clone(),
+            &full,
+            &options,
+            Vec::new(),
+        );
         let (mut commits_seen, mut files_seen, mut chars) = (0, 0, 0);
         for page in 0..first.total_pages {
             let options = ResponsePageOptions {
@@ -1309,8 +1477,12 @@ mod tests {
                 response_snapshot: Some(first.snapshot.clone()),
                 ..options.clone()
             };
-            let (envelope, _) =
-                paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+            let (envelope, _) = paginate_rows(
+                structured.as_object().unwrap().clone(),
+                &full,
+                &options,
+                Vec::new(),
+            );
             chars += json_chars(&Value::Object(envelope.clone()));
             for row in envelope["results"].as_array().unwrap() {
                 commits_seen += row["data"]["commits"].as_array().map_or(0, Vec::len);
@@ -1342,8 +1514,12 @@ mod tests {
             ..Default::default()
         };
         let full = structured.to_string();
-        let (first, pagination) =
-            paginate_rows(structured.as_object().unwrap().clone(), &full, &options);
+        let (first, pagination) = paginate_rows(
+            structured.as_object().unwrap().clone(),
+            &full,
+            &options,
+            Vec::new(),
+        );
         let items = first["results"][0]["data"]["files"][0]["matches"]
             .as_array()
             .map_or(0, Vec::len);
@@ -1407,169 +1583,85 @@ mod tests {
             assert!(!warm.to_string().contains("\"cache\""), "{scope}: {warm}");
         }
     }
+
+    /// B1: two executions of a batch with a GitHub error row differ only in
+    /// the provider's per-call facts; the copied continuation must page on.
+    #[test]
+    fn provider_request_ids_do_not_restart_a_copied_continuation() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let envelope = |call: usize| {
+            let mut rows = (0..3)
+                .map(|index| json!({"index":index,"data":{"content":"x".repeat(300)}}))
+                .collect::<Vec<_>>();
+            rows.push(json!({"index":3,"status":"error","data":{
+                "error":"Repository, resource, or path not found","errorCode":"notFound",
+                "retryable":false,"httpStatus":404,
+                "requestId":format!("{call:X}F4:376635:800A3C:A22BF9:6ABD2D60"),
+                "rateLimit":{"remaining":100_000 + call,"resetEpochSeconds":1_700_000_000 + call,"retryAfterSeconds":call},
+                "retryAfterSeconds":call}}));
+            json!({"results":rows})
+        };
+        for scope in ["rows", "structured"] {
+            let prepare = |call: usize, offset: Option<usize>, snapshot: Option<String>| {
+                pager
+                    .prepare(
+                        ResponseInput {
+                            tool: "ghGetFileContent".into(),
+                            query: json!({"queries":[{"path":"a"}]}),
+                            structured: envelope(call),
+                            rendered_text: None,
+                            is_error: false,
+                            options: ResponsePageOptions {
+                                response_char_length: Some(400),
+                                response_char_offset: offset,
+                                response_snapshot: snapshot,
+                                response_scope: Some(scope.into()),
+                                render_text: None,
+                            },
+                        },
+                        &AtomicBool::new(false),
+                    )
+                    .expect("page")
+                    .structured_content
+            };
+            let mut offset = None;
+            let mut snapshot = None;
+            let mut error_rows = Vec::new();
+            for call in 1..20 {
+                let page = prepare(call * 4096, offset, snapshot.clone());
+                let pagination = &page["responsePagination"];
+                assert!(
+                    pagination.get("restart").is_none(),
+                    "{scope} call {call}: {page}"
+                );
+                error_rows.extend(
+                    page["results"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|row| row["status"] == "error")
+                        .cloned(),
+                );
+                if pagination["hasMore"] != true {
+                    break;
+                }
+                let next = &pagination["next"]["query"];
+                offset = next["responseCharOffset"].as_u64().map(|x| x as usize);
+                snapshot = next["responseSnapshot"].as_str().map(str::to_owned);
+            }
+            if scope == "rows" {
+                // Row pages keep the facts of the execution that served them.
+                assert_eq!(error_rows.len(), 1, "{error_rows:?}");
+                assert!(error_rows[0]["data"]["requestId"].is_string());
+                assert!(error_rows[0]["data"]["rateLimit"]["remaining"].is_number());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod lazy_page_tests {
     use super::*;
-
-    /// Split one oversized row into row fragments that each keep every field
-    /// except a slice of the row's largest array. Fragments recurse into an
-    /// element that alone exceeds the budget; an indivisible element becomes one
-    /// oversized fragment rather than being cut mid-value.
-    fn reference_split_row(row: &Value, budget: usize) -> Vec<Value> {
-        if json_chars(row) <= budget {
-            return vec![row.clone()];
-        }
-        let Some(data) = row.get("data") else {
-            return vec![row.clone()];
-        };
-        let Some((relative, _)) = largest_array(data, "") else {
-            return vec![row.clone()];
-        };
-        let pointer = format!("/data{relative}");
-        // Clone the row once without its largest array; each fragment clones only
-        // this skeleton, never the whole array again.
-        let mut skeleton = row.clone();
-        let Some(items) = skeleton
-            .pointer_mut(&pointer)
-            .and_then(Value::as_array_mut)
-            .map(std::mem::take)
-        else {
-            return vec![row.clone()];
-        };
-        let rest = lean_skeleton(&mut skeleton, budget);
-        let with_items = |chunk: Vec<Value>| {
-            let mut fragment = skeleton.clone();
-            if let Some(slot) = fragment.pointer_mut(&pointer) {
-                *slot = Value::Array(chunk);
-            }
-            fragment
-        };
-        let base = json_chars(&with_items(Vec::new()));
-        let mut fragments = Vec::new();
-        let mut chunk = Vec::new();
-        let mut chunk_chars = base;
-        for item in items {
-            let item_chars = json_chars(&item) + 1;
-            if base + item_chars > budget {
-                if !chunk.is_empty() {
-                    fragments.push(with_items(std::mem::take(&mut chunk)));
-                    chunk_chars = base;
-                }
-                fragments.extend(reference_split_row(&with_items(vec![item]), budget));
-                continue;
-            }
-            if !chunk.is_empty() && chunk_chars + item_chars > budget {
-                fragments.push(with_items(std::mem::take(&mut chunk)));
-                chunk_chars = base;
-            }
-            chunk_chars += item_chars;
-            chunk.push(item);
-        }
-        if !chunk.is_empty() {
-            fragments.push(with_items(chunk));
-        }
-        if let Some(rest) = rest {
-            fragments.extend(reference_split_row(&rest, budget));
-        }
-        fragments
-    }
-
-    /// Row-aware pages: pack whole rows (or fragments of one oversized row) into
-    /// complete envelopes. `responseCharOffset` addresses the zero-based page.
-    fn reference_paginate_rows(
-        mut structured: Map<String, Value>,
-        full: &str,
-        options: &ResponsePageOptions,
-    ) -> (Map<String, Value>, ResponsePagination) {
-        let budget = options.response_char_length.unwrap_or(1).max(1);
-        let rows = match structured.remove("results") {
-            Some(Value::Array(rows)) => rows,
-            _ => Vec::new(),
-        };
-        let overhead = json_chars(&Value::Object(structured.clone())) + "\"results\":[],".len();
-        let row_budget = budget.saturating_sub(overhead).max(1);
-        let mut pages: Vec<Vec<Value>> = Vec::new();
-        let mut page: Vec<Value> = Vec::new();
-        let mut page_chars = 0usize;
-        for row in &rows {
-            let mut fragments = reference_split_row(row, row_budget);
-            let parts = fragments.len();
-            if parts > 1 {
-                for (index, fragment) in fragments.iter_mut().enumerate() {
-                    if index + 1 < parts {
-                        strip_row_next(fragment);
-                    }
-                    fragment["rowPart"] = json!({"part": index + 1, "of": parts});
-                }
-            }
-            for fragment in fragments {
-                let chars = json_chars(&fragment) + 1;
-                if !page.is_empty() && page_chars + chars > row_budget {
-                    pages.push(std::mem::take(&mut page));
-                    page_chars = 0;
-                }
-                page_chars += chars;
-                page.push(fragment);
-            }
-        }
-        if !page.is_empty() || pages.is_empty() {
-            pages.push(page);
-        }
-        let total = full.encode_utf16().count();
-        let snapshot = format!(
-            "response-rows-v1:{}",
-            hex::encode(Sha256::digest(full.as_bytes()))
-        );
-        let requested = options.response_char_offset.unwrap_or(0);
-        let changed = options.response_snapshot.as_deref() != Some(&snapshot);
-        if requested > 0 && (changed || requested >= pages.len()) {
-            let expected = options.response_snapshot.clone();
-            structured.insert("results".into(), Value::Array(Vec::new()));
-            return (
-                structured,
-                ResponsePagination {
-                    scope: "rows".into(),
-                    current_page: 1,
-                    total_pages: pages.len(),
-                    has_more: true,
-                    char_offset: requested,
-                    char_length: 0,
-                    total_chars: total,
-                    snapshot,
-                    expected_snapshot: expected.clone(),
-                    changed: Some(expected.is_some() && changed),
-                    restart: Some(true),
-                    next_char_offset: Some(0),
-                    next: None,
-                },
-            );
-        }
-        let total_pages = pages.len();
-        let selected = pages.swap_remove(requested);
-        let has_more = requested + 1 < total_pages;
-        structured.insert("results".into(), Value::Array(selected));
-        let char_length = json_chars(&Value::Object(structured.clone()));
-        (
-            structured,
-            ResponsePagination {
-                scope: "rows".into(),
-                current_page: requested + 1,
-                total_pages,
-                has_more,
-                char_offset: requested,
-                char_length,
-                total_chars: total,
-                snapshot,
-                expected_snapshot: None,
-                changed: None,
-                restart: None,
-                next_char_offset: has_more.then_some(requested + 1),
-                next: None,
-            },
-        )
-    }
 
     fn envelope() -> Map<String, Value> {
         let matches = (0..400)
@@ -1599,59 +1691,197 @@ mod lazy_page_tests {
         }
     }
 
-    #[test]
-    fn every_page_matches_the_eager_reference() {
-        let structured = envelope();
+    /// Every page of `structured` at `length`, following the continuation.
+    fn walk(
+        structured: &Map<String, Value>,
+        length: usize,
+    ) -> Vec<(Map<String, Value>, ResponsePagination)> {
         let full = Value::Object(structured.clone()).to_string();
-        for length in [300, 700, 2_000, 9_000, 200_000] {
-            let (_, first) =
-                reference_paginate_rows(structured.clone(), &full, &options(length, 0, None));
-            for offset in 0..first.total_pages {
+        let (_, first) = paginate_rows(
+            structured.clone(),
+            &full,
+            &options(length, 0, None),
+            Vec::new(),
+        );
+        (0..first.total_pages)
+            .map(|offset| {
                 let request = options(length, offset, Some(first.snapshot.clone()));
-                let expected = reference_paginate_rows(structured.clone(), &full, &request);
-                let actual = paginate_rows(structured.clone(), &full, &request);
-                assert_eq!(actual.0, expected.0, "length {length} page {offset}");
+                let page = paginate_rows(structured.clone(), &full, &request, Vec::new());
+                assert!(page.1.restart.is_none(), "length {length} page {offset}");
+                page
+            })
+            .collect()
+    }
+
+    /// (row index, file path, line) of every delivered match.
+    fn delivered(pages: &[(Map<String, Value>, ResponsePagination)]) -> Vec<(u64, String, u64)> {
+        let mut seen = Vec::new();
+        for (page, _) in pages {
+            for row in page["results"].as_array().expect("rows") {
+                for file in row["data"]["files"].as_array().into_iter().flatten() {
+                    for item in file["matches"].as_array().into_iter().flatten() {
+                        seen.push((
+                            row["index"].as_u64().expect("index"),
+                            file["path"].as_str().expect("path").to_owned(),
+                            item["line"].as_u64().expect("line"),
+                        ));
+                    }
+                }
+            }
+        }
+        seen.sort();
+        seen
+    }
+
+    #[test]
+    fn every_row_is_delivered_exactly_once_within_the_page_bound() {
+        let structured = envelope();
+        let mut expected: Vec<(u64, String, u64)> = (0..400)
+            .flat_map(|line| [(0, "a.rs".to_owned(), line), (2, "c.rs".to_owned(), line)])
+            .chain([(0, "b.rs".to_owned(), 9999)])
+            .collect();
+        expected.sort();
+        for length in [300, 700, 2_000, 9_000, 200_000] {
+            let pages = walk(&structured, length);
+            assert_eq!(delivered(&pages), expected, "length {length}");
+            let mut parts: std::collections::BTreeMap<u64, Vec<(u64, u64)>> = Default::default();
+            let mut small = 0;
+            for (page, pagination) in &pages {
+                assert!(
+                    pagination.char_length <= length || pagination.oversized == Some(true),
+                    "length {length}: {} chars unflagged",
+                    pagination.char_length
+                );
+                for row in page["results"].as_array().expect("rows") {
+                    small += usize::from(row["data"]["content"] == "small");
+                    let index = row["index"].as_u64().expect("index");
+                    let part = (
+                        row["rowPart"]["part"].as_u64().unwrap_or(1),
+                        row["rowPart"]["of"].as_u64().unwrap_or(1),
+                    );
+                    parts.entry(index).or_default().push(part);
+                }
+            }
+            assert_eq!(small, 1, "length {length}");
+            for (index, seen) in parts {
+                let of = seen[0].1;
                 assert_eq!(
-                    serde_json::to_value(&actual.1).expect("pagination"),
-                    serde_json::to_value(&expected.1).expect("pagination"),
-                    "length {length} page {offset}"
+                    seen,
+                    (1..=of).map(|part| (part, of)).collect::<Vec<_>>(),
+                    "length {length} row {index}"
                 );
             }
         }
     }
 
-    /// H4: at a small `defaultCharLength` a split row's `next.*` appears only
-    /// on its last `rowPart`, so it cannot be followed before the row is whole.
+    /// B2: one broad row must not fill the first pages alone; every row of a
+    /// batch shows its head on page one, within the budget.
     #[test]
-    fn split_row_next_travels_only_with_its_last_part() {
-        let structured = envelope();
-        let full = Value::Object(structured.clone()).to_string();
-        let (_, first) = paginate_rows(structured.clone(), &full, &options(1_000, 0, None));
-        assert!(first.total_pages > 2);
+    fn the_first_page_shows_every_rows_head() {
+        let rows = (0..5)
+            .map(|index| {
+                let matches = (0..300)
+                    .map(|line| json!({"line": line, "value": format!("row {index} {}", "x".repeat(60))}))
+                    .collect::<Vec<_>>();
+                json!({"index": index, "data": {"files": [{"path": format!("f{index}.rs"), "matches": matches}],
+                    "next": {"nextPage": {"tool": "localSearch", "query": {"page": 2}}}}})
+            })
+            .collect::<Vec<_>>();
+        let structured = json!({"results": rows})
+            .as_object()
+            .cloned()
+            .expect("object");
+        let pages = walk(&structured, 20_000);
+        let (first, pagination) = &pages[0];
+        assert!(
+            pagination.char_length <= 20_000,
+            "{}",
+            pagination.char_length
+        );
+        let heads: Vec<_> = first["results"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| {
+                (
+                    row["index"].as_u64(),
+                    row["rowPart"]["part"].as_u64(),
+                    row["data"].get("next").is_some(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            heads,
+            (0..5)
+                .map(|index| (Some(index), Some(1), true))
+                .collect::<Vec<_>>()
+        );
+        for (page, pagination) in &pages {
+            assert!(
+                pagination.char_length <= 20_000,
+                "{}",
+                pagination.char_length
+            );
+            assert!(pagination.oversized.is_none(), "{page:?}");
+        }
+        assert_eq!(delivered(&pages).len(), 1_500);
+    }
+
+    /// B3: a split row's `next.*` rides its first part, beside the head of its
+    /// evidence, and appears exactly once.
+    #[test]
+    fn split_row_next_travels_with_its_first_part() {
+        let pages = walk(&envelope(), 1_000);
+        assert!(pages.len() > 2);
         let mut carriers = Vec::new();
-        for offset in 0..first.total_pages {
-            let request = options(1_000, offset, Some(first.snapshot.clone()));
-            let (page, _) = paginate_rows(structured.clone(), &full, &request);
+        for (page, _) in &pages {
             for row in page["results"].as_array().expect("rows") {
                 if row["index"] != 0 {
                     continue;
                 }
                 let part = row["rowPart"]["part"].as_u64().expect("row 0 is split");
-                let of = row["rowPart"]["of"].as_u64().expect("parts");
                 if row["data"].get("next").is_some() {
-                    carriers.push((part, of));
+                    carriers.push(part);
                 }
             }
         }
-        assert_eq!(carriers.len(), 1, "{carriers:?}");
-        assert_eq!(carriers[0].0, carriers[0].1, "next rides the last part");
+        assert_eq!(carriers, vec![1]);
+    }
+
+    #[test]
+    fn an_indivisible_fragment_flags_its_page_oversized() {
+        let structured = json!({"results": [
+            {"index": 0, "data": {"content": "x".repeat(5_000)}},
+            {"index": 1, "data": {"content": "small"}}
+        ]})
+        .as_object()
+        .cloned()
+        .expect("object");
+        let pages = walk(&structured, 1_000);
+        let flagged: Vec<_> = pages.iter().map(|(_, p)| p.oversized).collect();
+        assert!(flagged.contains(&Some(true)), "{flagged:?}");
+        let whole = pages
+            .iter()
+            .flat_map(|(page, _)| page["results"].as_array().cloned().unwrap_or_default())
+            .filter(|row| {
+                row["data"]["content"]
+                    .as_str()
+                    .is_some_and(|c| c.len() == 5_000)
+            })
+            .count();
+        assert_eq!(whole, 1, "the string is never cut");
     }
 
     #[test]
     fn a_page_request_builds_only_that_pages_fragments() {
         let structured = envelope();
         let full = Value::Object(structured.clone()).to_string();
-        let (_, first) = paginate_rows(structured.clone(), &full, &options(700, 0, None));
+        let (_, first) = paginate_rows(
+            structured.clone(),
+            &full,
+            &options(700, 0, None),
+            Vec::new(),
+        );
         assert!(first.total_pages > 20, "{}", first.total_pages);
         let last = first.total_pages - 1;
         MATERIALIZED.with(|count| count.set(0));
@@ -1659,6 +1889,7 @@ mod lazy_page_tests {
             structured,
             &full,
             &options(700, last, Some(first.snapshot.clone())),
+            Vec::new(),
         );
         let returned = page["results"].as_array().map_or(0, Vec::len);
         let built = MATERIALIZED.with(std::cell::Cell::get);

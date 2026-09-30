@@ -33,6 +33,9 @@ pub struct StructuralMatch {
     /// Per-capture precise ranges, parallel to `metavars` (same keys, same
     /// order). Lets an agent hand a capture straight to LSP without re-search.
     pub metavar_ranges: BTreeMap<String, Vec<MetavarRange>>,
+    /// Source before the node's `body` block when the node spans several
+    /// lines (declaration signature, loop head); `None` without a body field.
+    pub header: Option<String>,
 }
 
 #[cfg_attr(feature = "napi-addon", napi(object))]
@@ -68,6 +71,7 @@ pub struct StructuralDetailedMatch {
     pub text: String,
     pub metavars: HashMap<String, Vec<String>>,
     pub metavar_ranges: BTreeMap<String, Vec<MetavarRange>>,
+    pub header: Option<String>,
     pub node_kind: Option<String>,
     pub confidence: String,
 }
@@ -229,6 +233,7 @@ impl StructuralDetailedMatch {
             text: matched.text,
             metavars: matched.metavars,
             metavar_ranges: matched.metavar_ranges,
+            header: matched.header,
             node_kind: Some(node_kind.into()),
             // The octo matcher is a precise AST matcher: every match is an exact
             // tree-sitter node match, so there is no partial/fallback tier to

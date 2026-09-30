@@ -497,3 +497,45 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
         "{plain}"
     );
 }
+
+/// `files` leaves out `.gitignore`d entries like the tree and localSearch, and
+/// prunes ignored directories during the walk instead of listing their
+/// contents; `defaultExcludes:false` walks everything.
+#[test]
+fn files_follows_gitignore_and_prunes_ignored_directories() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "vendor/\n*.node\n").expect("gitignore");
+    std::fs::create_dir_all(root.0.join("vendor/pkg")).expect("vendor");
+    std::fs::create_dir_all(root.0.join("app")).expect("app");
+    for name in ["package.json", "app/package.json", "vendor/pkg/package.json", "addon.node"] {
+        std::fs::write(root.0.join(name), "{}\n").expect("file");
+    }
+    let paths = |out: &Value| {
+        let mut paths = out["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .filter_map(|row| row["path"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths
+    };
+    let base = root.0.file_name().unwrap().to_string_lossy().into_owned();
+    let out = run(
+        &root.0,
+        json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"names":["package.json","*.node"]}),
+    )
+    .expect("files");
+    assert_eq!(
+        paths(&out),
+        [format!("{base}/app/package.json"), format!("{base}/package.json")],
+        "{out}"
+    );
+    let all = run(
+        &root.0,
+        json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"names":["package.json","*.node"],"defaultExcludes":false}),
+    )
+    .expect("files");
+    assert_eq!(paths(&all).len(), 4, "{all}");
+}

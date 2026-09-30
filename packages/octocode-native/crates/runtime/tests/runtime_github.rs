@@ -1020,6 +1020,67 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
     runtime.close().await;
 }
 
+/// D4: a wrong-case path recovers to the case-corrected file, and a missing
+/// file to its nearest existing directory, never to another missing path.
+#[tokio::test]
+async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+        .mount(&server)
+        .await;
+    let listing = |entries: serde_json::Value| ResponseTemplate::new(200).set_body_json(entries);
+    for (dir, entries) in [
+        ("", json!([
+            {"name":"tokio","path":"tokio","type":"dir"},
+            {"name":"README.md","path":"README.md","type":"file","size":3,"sha":"1"}
+        ])),
+        ("/tokio", json!([{"name":"src","path":"tokio/src","type":"dir"}])),
+        ("/tokio%2Fsrc", json!([
+            {"name":"lib.rs","path":"tokio/src/lib.rs","type":"file","size":3,"sha":"2"}
+        ])),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents{dir}")))
+            .respond_with(listing(entries))
+            .mount(&server)
+            .await;
+    }
+    let not_found = || {
+        ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"}))
+    };
+    for missing in ["Tokio%2Fsrc%2Flib.rs", "Tokio%2Fsrc", "Tokio", "tokio%2Fsrc%2Fnope.rs"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents/{missing}")))
+            .respond_with(not_found())
+            .mount(&server)
+            .await;
+    }
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let read = |file: &str| {
+        json!({"owner":"a","repo":"b","path":file,"branch":"main","forceRefresh":true})
+    };
+    let outcome = call(&runtime, "ghGetFileContent", read("Tokio/src/lib.rs"))
+        .await
+        .expect("error row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "notFound", "{data}");
+    assert_eq!(data["next"]["readFile"]["query"]["path"], "tokio/src/lib.rs", "{data}");
+    assert_eq!(data["next"]["readFile"]["query"]["branch"], "main", "{data}");
+    assert_eq!(data["next"]["viewTree"]["query"]["path"], "tokio/src", "{data}");
+    let outcome = call(&runtime, "ghGetFileContent", read("tokio/src/nope.rs"))
+        .await
+        .expect("error row");
+    let data = row_data(&outcome);
+    assert!(data["next"].get("readFile").is_none(), "{data}");
+    assert_eq!(data["next"]["viewTree"]["query"]["path"], "tokio/src", "{data}");
+    assert_eq!(data["next"]["viewTree"]["confidence"], "exact", "{data}");
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn gh_search_concise_repositories_are_contract_valid() {
     let server = MockServer::start().await;
@@ -1099,6 +1160,8 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         assert_eq!(data["errorCode"], "rateLimited", "{data}");
         assert_eq!(data["rateLimit"]["resetEpochSeconds"], reset, "{data}");
         assert_eq!(data["rateLimit"]["resource"], "core", "{data}");
+        // D6: an authenticated caller is not told to authenticate.
+        assert!(!data.to_string().contains("auth login"), "{data}");
     }
     // The second read was refused before sending (mock expects one hit).
     let dir = workspace.home.join("tmp").join("ratelimit");
@@ -1112,6 +1175,43 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         serde_json::from_slice(&std::fs::read(files[0].path()).unwrap()).unwrap();
     assert_eq!(state["buckets"]["core"]["remaining"], 0, "{state}");
     assert_eq!(state["buckets"]["core"]["reset"], reset, "{state}");
+    runtime.close().await;
+}
+
+/// D6: only an anonymous caller is told that authenticating raises quota.
+#[tokio::test]
+async fn anonymous_rate_limit_advises_authentication() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", "4102444800")
+                .set_body_json(json!({"message": "API rate limit exceeded"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_TOKEN", String::new()),
+    ]);
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let outcome = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner": "a", "repo": "b", "path": "x.rs", "branch": sha, "forceRefresh": true}),
+    )
+    .await
+    .expect("row-level error");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "rateLimited", "{data}");
+    assert!(
+        data["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("auth login")),
+        "{data}"
+    );
     runtime.close().await;
 }
 

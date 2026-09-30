@@ -933,3 +933,35 @@ fn invalid_pattern_is_an_error_even_when_every_file_is_prefiltered() {
     // The response stage attaches the repair hint for this code.
     assert_eq!(error.code, "structural.query.compileFailed", "{error:?}");
 }
+
+/// A multi-line match with a body block shows its header (text before the
+/// body) with line/endLine anchors, not the flattened body; captureText:true
+/// (next.expandCaptures) returns the whole match text.
+#[test]
+fn block_matches_default_to_their_header_and_expand_on_request() {
+    let root = Fixture::new();
+    let source = root.0.join("lib.rs");
+    std::fs::write(
+        &source,
+        "pub fn load(\n    path: &str,\n) -> Result<u8, String> {\n    let raw = read(path)?;\n    parse(raw)\n}\n",
+    )
+    .expect("source");
+    let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,
+        "rule":"rule:\n  kind: function_item\n"});
+    let out = run(&root.0, query.clone()).expect("match");
+    let m = &out["files"][0]["matches"][0];
+    assert_eq!(
+        m["value"], "pub fn load( path: &str, ) -> Result<u8, String> …",
+        "{m}"
+    );
+    assert_eq!(m["line"], 1, "{m}");
+    assert_eq!(m["endLine"], 6, "{m}");
+    assert!(out["next"]["expandCaptures"].is_object(), "{out}");
+
+    let mut expanded = query;
+    expanded["captureText"] = json!(true);
+    let out = run(&root.0, expanded).expect("match");
+    let value = out["files"][0]["matches"][0]["value"].as_str().expect("value");
+    assert!(value.ends_with("parse(raw) }"), "{out}");
+    assert!(out["next"].get("expandCaptures").is_none(), "{out}");
+}

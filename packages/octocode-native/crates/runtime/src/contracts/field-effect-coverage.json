@@ -155,9 +155,6 @@
         "debug": [
           "workflow-metadata"
         ],
-        "followUp": [
-          "consumed"
-        ],
         "forks": [
           "forwarded"
         ],
@@ -235,9 +232,6 @@
         "filename": [
           "forwarded"
         ],
-        "followUp": [
-          "consumed"
-        ],
         "goal": [
           "workflow-metadata"
         ],
@@ -287,9 +281,6 @@
         ],
         "debug": [
           "workflow-metadata"
-        ],
-        "followUp": [
-          "consumed"
         ],
         "goal": [
           "workflow-metadata"
@@ -371,9 +362,6 @@
         "endLine": [
           "forwarded",
           "output-control"
-        ],
-        "followUp": [
-          "consumed"
         ],
         "forceRefresh": [
           "forwarded"
@@ -482,9 +470,6 @@
         ],
         "draft": [
           "forwarded"
-        ],
-        "followUp": [
-          "consumed"
         ],
         "goal": [
           "workflow-metadata"
@@ -691,9 +676,6 @@
           "output-control",
           "continuation"
         ],
-        "followUp": [
-          "consumed"
-        ],
         "goal": [
           "workflow-metadata"
         ],
@@ -781,9 +763,6 @@
         "debug": [
           "workflow-metadata"
         ],
-        "followUp": [
-          "consumed"
-        ],
         "goal": [
           "workflow-metadata"
         ],
@@ -822,9 +801,6 @@
         ],
         "debug": [
           "workflow-metadata"
-        ],
-        "followUp": [
-          "consumed"
         ],
         "forceRefresh": [
           "forwarded"
@@ -880,9 +856,6 @@
           "consumed"
         ],
         "excludeDir": [
-          "consumed"
-        ],
-        "followUp": [
           "consumed"
         ],
         "goal": [
@@ -1011,9 +984,6 @@
         "extensions": [
           "consumed"
         ],
-        "followUp": [
-          "consumed"
-        ],
         "goal": [
           "workflow-metadata"
         ],
@@ -1129,9 +1099,6 @@
           "consumed"
         ],
         "excludeDir": [
-          "consumed"
-        ],
-        "followUp": [
           "consumed"
         ],
         "goal": [
@@ -1297,9 +1264,6 @@
         "file": [
           "consumed"
         ],
-        "followUp": [
-          "consumed"
-        ],
         "goal": [
           "workflow-metadata"
         ],
@@ -1375,9 +1339,6 @@
           "consumed"
         ],
         "fix": [
-          "consumed"
-        ],
-        "followUp": [
           "consumed"
         ],
         "goal": [
@@ -1474,9 +1435,6 @@
           "consumed",
           "output-control"
         ],
-        "followUp": [
-          "consumed"
-        ],
         "fullContent": [
           "consumed",
           "output-control"
@@ -1558,9 +1516,6 @@
           "workflow-metadata"
         ],
         "depth": [
-          "consumed"
-        ],
-        "followUp": [
           "consumed"
         ],
         "goal": [

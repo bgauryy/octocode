@@ -106,6 +106,36 @@ fn clasify_missing_key_is_actionable() {
 }
 
 #[test]
+fn clasify_with_every_resource_failed_exits_by_failure_class() {
+    let workspace = Workspace::new();
+    let run = |question: serde_json::Value| {
+        let query = serde_json::json!({
+            "goal": "test", "reasoning":"Exercise failure exit codes.",
+            "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
+            "questions":[question]
+        });
+        workspace
+            .cli()
+            .env("OCTOCODE_CLASSIFICATION_API", "dummy")
+            .env("OCTOCODE_CLASSIFICATION_API_HOST", "http://127.0.0.1:9")
+            .args(["clasify", &query.to_string()])
+            .output()
+            .expect("clasify execution")
+    };
+    // A provider that cannot be reached is an execution failure, not bad input.
+    let unreachable = run(serde_json::json!({"type":"noul","instructions":"Is it relevant?"}));
+    assert_eq!(exit_code(&unreachable), Some(5), "{}", stdout(&unreachable));
+    // locate over supplied state rejects the caller's request.
+    let unsupported = run(serde_json::json!({"questionType":"locate","target":"fact"}));
+    assert_eq!(exit_code(&unsupported), Some(2), "{}", stdout(&unsupported));
+    assert!(
+        stdout(&unsupported).contains("classificationLocateUnsupported"),
+        "{}",
+        stdout(&unsupported)
+    );
+}
+
+#[test]
 fn tool_output_is_compact_by_default_and_pretty_on_request() {
     let workspace = Workspace::new();
     let query = serde_json::json!({

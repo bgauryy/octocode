@@ -138,7 +138,7 @@ class FieldIndex {
       : own;
   }
 
-  private nodesAt(path: readonly PropertyKey[]): JsonNode[] {
+  nodesAt(path: readonly PropertyKey[]): JsonNode[] {
     let nodes = this.branches(this.root);
     for (const key of path) {
       nodes = nodes.flatMap(node => {
@@ -184,6 +184,73 @@ export interface IssueContext {
   value: unknown;
   /** JSON Schema (input io) of the tool input, for valid-field lists. */
   jsonSchema: () => JsonNode | undefined;
+  /**
+   * The schema agents are shown. Field lists and suggestions keep only the
+   * fields it shows (continuation-only fields are copied from next.*, never
+   * composed), falling back to the canonical list where it shows none.
+   */
+  advertisedSchema?: () => JsonNode | undefined;
+}
+
+const LOSSLESS_INTEGER = /^-?(0|[1-9]\d*)$/;
+
+/** Every leaf alternative accepts `type` (or null) and nothing else. */
+const onlyType = (nodes: readonly JsonNode[], type: string) =>
+  nodes.length > 0 &&
+  nodes.some(node => node.type === type) &&
+  nodes.every(node => node.type === type || node.type === 'null');
+
+/**
+ * Agents often send `"10"` / `"true"` for integer and boolean fields. Convert
+ * a string only where every schema alternative at that path is an integer
+ * (exact canonical base-10 integer that round-trips) or a boolean (lowercase
+ * `true`/`false`); fields that accept strings are never touched.
+ */
+export function coerceLosslessScalars(
+  value: unknown,
+  jsonSchema: JsonNode | undefined
+): unknown {
+  if (!jsonSchema) return value;
+  const index = new FieldIndex(jsonSchema);
+  const walk = (node: unknown, path: PropertyKey[]): unknown => {
+    if (Array.isArray(node))
+      return node.map((item, i) => walk(item, [...path, i]));
+    if (node && typeof node === 'object')
+      return Object.fromEntries(
+        Object.entries(node).map(([key, child]) => [
+          key,
+          walk(child, [...path, key]),
+        ])
+      );
+    if (typeof node !== 'string') return node;
+    if (
+      LOSSLESS_INTEGER.test(node) &&
+      Number.isSafeInteger(Number(node)) &&
+      String(Number(node)) === node &&
+      onlyType(index.nodesAt(path), 'integer')
+    )
+      return Number(node);
+    if (
+      (node === 'true' || node === 'false') &&
+      onlyType(index.nodesAt(path), 'boolean')
+    )
+      return node === 'true';
+    return node;
+  };
+  return walk(value, []);
+}
+
+/** `queries` sent as a JSON-encoded array string is the array itself. */
+export function parseStringifiedQueries(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const queries = (value as { queries?: unknown }).queries;
+  if (typeof queries !== 'string') return value;
+  try {
+    const parsed: unknown = JSON.parse(queries);
+    return Array.isArray(parsed) ? { ...value, queries: parsed } : value;
+  } catch {
+    return value;
+  }
 }
 
 export function formatIssues(
@@ -191,13 +258,28 @@ export function formatIssues(
   context: IssueContext
 ): FormattedIssue[] {
   let index: FieldIndex | undefined | null = null;
-  const fieldIndex = () => {
+  let shown: FieldIndex | undefined | null = null;
+  const validFields = (path: readonly PropertyKey[], value: unknown) => {
     if (index === null) {
       const root = context.jsonSchema();
       index = root ? new FieldIndex(root) : undefined;
     }
-    return index;
+    if (shown === null) {
+      const root = context.advertisedSchema?.();
+      shown = root ? new FieldIndex(root) : undefined;
+    }
+    const all = index?.fields(path, value) ?? [];
+    const visible = new Set(shown?.fields(path, value) ?? []);
+    const kept = all.filter(field => visible.has(field));
+    return kept.length ? kept : all;
   };
+  /** Allowed values of a union discriminator, gathered across every branch. */
+  const discriminators = new Map<string, unknown[]>();
+  const missingField = (
+    name: PropertyKey | undefined,
+    allowed: readonly unknown[]
+  ) =>
+    `Missing required field${name === undefined ? '' : `: ${String(name)}`} (one of: ${[...new Set(allowed.map(String))].join(', ')})`;
   const out: FormattedIssue[] = [];
   const pointers = new Map<string, FormattedIssue>();
 
@@ -211,7 +293,7 @@ export function formatIssues(
             path,
             message:
               supplied === undefined
-                ? `Missing required field: ${String(path.at(-1))}; allowed: ${issue.options.map(String).join(', ')}`
+                ? missingField(path.at(-1), issue.options)
                 : enumMessage(supplied, issue.options),
           });
           return;
@@ -219,7 +301,7 @@ export function formatIssues(
         if (issue.errors?.length) return visitUnion(issue, path);
         break;
       case 'unrecognized_keys': {
-        const valid = fieldIndex()?.fields(path, supplied) ?? [];
+        const valid = validFields(path, supplied);
         for (const key of issue.keys ?? []) {
           out.push({
             path,
@@ -236,11 +318,35 @@ export function formatIssues(
       }
       case 'invalid_value':
         if (issue.values?.length) {
-          out.push({ path, message: enumMessage(supplied, issue.values) });
+          const allowed = discriminators.get(path.join('.')) ?? issue.values;
+          out.push({
+            path,
+            message:
+              supplied === undefined
+                ? missingField(path.at(-1), allowed)
+                : enumMessage(supplied, allowed),
+          });
           return;
         }
         break;
       case 'invalid_type':
+        // A lone string where a list is expected (`include:"src/**"`) is the
+        // most common shape slip; show the exact corrected value.
+        if (issue.expected === 'array' && typeof supplied === 'string') {
+          if (path.length === 1 && path[0] === 'queries') {
+            out.push({
+              path,
+              message:
+                'Expected an array of query objects; send queries as a JSON array, not a string',
+            });
+            return;
+          }
+          out.push({
+            path,
+            message: `Expected array; wrap the value: ${JSON.stringify([supplied])}`,
+          });
+          return;
+        }
         if (supplied === undefined) {
           const name = path.at(-1);
           // Keep core-authored guidance (e.g. "Set path to a local file.").
@@ -276,9 +382,78 @@ export function formatIssues(
       issue.message && issue.message !== 'Invalid input'
         ? issue.message
         : undefined;
+    for (const branch of branches)
+      for (const entry of branch)
+        if (entry.code === 'invalid_value' && entry.path?.length === 1) {
+          const key = [...path, segment(entry.path[0]!)].join('.');
+          discriminators.set(key, [
+            ...(discriminators.get(key) ?? []),
+            ...(entry.values ?? []),
+          ]);
+        }
+    // Two branches that each reject only the other's root fields: the input
+    // mixes forms (clasify preset + custom question, context value + tool).
+    const unknownOnly = branches
+      .map(branch =>
+        branch.every(
+          entry => entry.code === 'unrecognized_keys' && !entry.path?.length
+        )
+          ? branch.flatMap(entry => [...(entry.keys ?? [])])
+          : []
+      )
+      .filter(keys => keys.length);
+    for (const [index, left] of unknownOnly.entries()) {
+      const right = unknownOnly
+        .slice(index + 1)
+        .find(keys => !keys.some(key => left.includes(key)));
+      if (right) {
+        const quote = (keys: string[]) => keys.map(k => `\`${k}\``).join(', ');
+        out.push({
+          path,
+          message: `${quote(right)} and ${quote(left)} belong to different forms and cannot be combined; send one form`,
+        });
+        return;
+      }
+    }
     const candidates = branches.filter(
       branch => mismatches(branch).length === 0
     );
+    // A discriminator the candidate branches do not even declare (e.g.
+    // context.tool) selects the branch that pins it: report its allowed values.
+    const undeclared = new Set(
+      candidates.flatMap(branch =>
+        branch
+          .filter(
+            entry => entry.code === 'unrecognized_keys' && !entry.path?.length
+          )
+          .flatMap(entry => [...(entry.keys ?? [])])
+      )
+    );
+    const owned = branches
+      .filter(branch => !candidates.includes(branch))
+      .flatMap(mismatches)
+      .filter(
+        entry =>
+          undeclared.has(String(segment(entry.path![0]!))) &&
+          candidates.every(branch =>
+            branch.some(
+              other =>
+                other.code === 'unrecognized_keys' &&
+                !other.path?.length &&
+                other.keys?.includes(String(segment(entry.path![0]!)))
+            )
+          )
+      );
+    if (candidates.length && owned.length) {
+      for (const entry of owned) {
+        const key = String(segment(entry.path![0]!));
+        out.push({
+          path: [...path, key],
+          message: enumMessage(valueAt(row, [key]), entry.values ?? []),
+        });
+      }
+      return;
+    }
     if (candidates.length === 0) {
       const perBranch = branches.map(branch =>
         mismatches(branch).map(entry => String(segment(entry.path![0]!)))

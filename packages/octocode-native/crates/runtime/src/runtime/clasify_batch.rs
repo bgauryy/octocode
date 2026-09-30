@@ -8,8 +8,9 @@
 use super::{
     ExecutionContext, ExecutionError,
     clasify_locate::{
-        LocateRead, LocatedPage, collapse_locate_answer, literal_search, literal_target_hint,
-        locate_provider_questions, located_state, rank_locate, readable_best, with_row_reads,
+        LocateRead, LocatedPage, bare_identifier, bare_target_hint, collapse_locate_answer,
+        drop_redundant_page_reads, literal_search, literal_target_hint, locate_provider_questions,
+        located_state, rank_locate, readable_best, with_row_reads,
     },
     clasify_output::{self, PageOutcome},
     dispatch::{self, DomainResult},
@@ -441,7 +442,22 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
     let mut seen = HashSet::new();
     let candidates = files
         .iter()
-        .filter(|file| candidate_identity(source, state, file).is_some_and(|id| seen.insert(id)))
+        .filter_map(|file| {
+            let file = if let Some(row) = file.as_str() {
+                if source["tool"] == "ghSearchCode" {
+                    let (repo, path) = row.split_once(':')?;
+                    let (owner, repo) = repo.split_once('/')?;
+                    json!({"owner":owner, "repo":repo, "path":path})
+                } else {
+                    json!({"path":row})
+                }
+            } else {
+                file.clone()
+            };
+            candidate_identity(source, state, &file)
+                .is_some_and(|id| seen.insert(id))
+                .then_some(file)
+        })
         .map(|file| {
             let mut candidate = state.clone();
             candidate["results"][0]["data"]["files"] = json!([file]);
@@ -728,8 +744,8 @@ fn default_search_page_size(source: &Value) -> u64 {
     }
 }
 
-/// Bound candidate fan-out before executing search. Rewriting page size is
-/// safe only when the original offset is representable by the new page size.
+/// Bound candidate fan-out before executing search. The rewritten page size
+/// divides the original starting offset, so the page starts at the same file.
 fn bounded_search_source(
     source: &Value,
     candidate_limit: usize,
@@ -759,19 +775,17 @@ fn bounded_search_source(
         None if list => return Ok(bounded),
         None => default_search_page_size(source),
     };
-    let limit = u64::try_from(candidate_limit).unwrap_or(u64::MAX);
+    let mut limit = u64::try_from(candidate_limit).unwrap_or(u64::MAX);
     if original_size <= limit {
         return Ok(bounded);
     }
     let offset = page.saturating_sub(1).saturating_mul(original_size);
     if offset % limit != 0 {
-        return Err(ClassificationError::new(
-            "classificationExpandedCellsExceeded",
-            format!(
-                "Search page {page} with pageSize {original_size} cannot be safely bounded to {limit} candidates without skipping or repeating files."
-            ),
-            "Restart this clasify resource at page 1 or set pageSize to the returned bounded size.",
-        ));
+        // A smaller divisor starts at the same file while fitting the cell
+        // budget. Rounding the page number would skip or repeat candidates.
+        while offset % limit != 0 {
+            limit -= 1;
+        }
     }
     query.insert("pageSize".into(), json!(limit));
     // artifactSearch pages by cursor and has no page field to rewrite.
@@ -836,9 +850,9 @@ fn host_read(source: &Value, candidate: &Value) -> Option<Value> {
     let query = read.get_mut("query")?.as_object_mut()?;
     query.remove("chunkType");
     query.remove("chunkSize");
+    // The matrix brief is copied on by the response stage.
     query.remove("goal");
     query.remove("reasoning");
-    query.insert("followUp".into(), json!(true));
     read["confidence"] = json!("high");
     Some(read)
 }
@@ -2098,6 +2112,9 @@ fn execute_query(
             ));
         }
     };
+    if let Some(output) = literal_route(query) {
+        return Ok((dispatch::value_result(output), Vec::new()));
+    }
     let questions = query["questions"]
         .as_array()
         .ok_or(ExecutionError::WorkerFailed)?;
@@ -2264,6 +2281,8 @@ fn execute_query(
     let mut continuation_resources = Vec::new();
     let mut usage_records = Vec::new();
     let mut locate_reads = Vec::new();
+    let mut read_failures = Vec::new();
+    let mut judged = false;
 
     for (resource_index, captured_resource) in captured.into_iter().enumerate() {
         let CapturedResource {
@@ -2276,12 +2295,14 @@ fn execute_query(
         for (page_index, page) in pages.into_iter().enumerate() {
             match page {
                 CapturedPage::Failed { error, context } => {
+                    read_failures.push(error.failure);
                     outcomes.push(PageOutcome::Failed {
                         error,
                         receipt: context,
                     });
                 }
                 CapturedPage::Ready { context, .. } => {
+                    judged = true;
                     let Some((assessed_resource, assessed_page, answers, usage)) =
                         assessments.next()
                     else {
@@ -2304,6 +2325,9 @@ fn execute_query(
                                 .pointer("/source/path")
                                 .and_then(Value::as_str)
                                 .map(str::to_owned),
+                            scope: context["scope"]["startLine"]
+                                .as_u64()
+                                .zip(context["scope"]["endLine"].as_u64()),
                             read: read.clone(),
                         });
                     }
@@ -2355,11 +2379,14 @@ fn execute_query(
     // ranking is file-wide on the final call and travels in next.clasify.
     let best = rank_locate(&rendered, &locate_ids, query.get("carry"));
     let walk_open = !continuation_resources.is_empty();
-    if let Some(best) = &best
-        && let Some(visible) = readable_best(best, walk_open)
-    {
+    let visible = best
+        .as_ref()
+        .and_then(|best| readable_best(best, walk_open))
         // Public rows gain an exact read; `carry` keeps the copyable rows.
-        output["best"] = with_row_reads(visible, &locate_reads);
+        .map(|visible| with_row_reads(visible, &locate_reads));
+    drop_redundant_page_reads(&mut rendered, visible.as_ref());
+    if let Some(visible) = visible {
+        output["best"] = visible;
     }
     let hints = locate_targets
         .iter()
@@ -2395,7 +2422,52 @@ fn execute_query(
     if let Some(literal) = literal {
         output["next"]["localSearch"] = literal;
     }
-    Ok((dispatch::value_result(output), usage_records))
+    let mut result = dispatch::value_result(output);
+    // Nothing judged and every read failed alike (e.g. every file missing):
+    // the call fails the way that read tool fails.
+    if !judged {
+        result.failure = shared_kind(&read_failures);
+    }
+    Ok((result, usage_records))
+}
+
+fn shared_kind(kinds: &[Option<super::engine::FailureKind>]) -> Option<super::engine::FailureKind> {
+    let first = (*kinds.first()?)?;
+    kinds
+        .iter()
+        .all(|kind| *kind == Some(first))
+        .then_some(first)
+}
+
+/// Every question locates a bare identifier over local sources: an exact
+/// literal search answers it, so the matrix routes to `next.localSearch`
+/// without a read or provider request.
+fn literal_route(query: &Value) -> Option<Value> {
+    let identifiers = query["questions"]
+        .as_array()
+        .filter(|questions| !questions.is_empty())?
+        .iter()
+        .map(|question| {
+            let question = &question["question"];
+            clasify::questions::is_locate(question)
+                .then(|| question["target"].as_str().and_then(bare_identifier))
+                .flatten()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let search = literal_search(identifiers.iter().copied(), query["resources"].as_array()?)?;
+    let mut hints = Vec::<String>::new();
+    for identifier in identifiers {
+        let hint = bare_target_hint(identifier);
+        if !hints.contains(&hint) {
+            hints.push(hint);
+        }
+    }
+    Some(json!({
+        "queryId":query["id"],
+        "hints":hints,
+        "resources":[],
+        "next":{"localSearch":search}
+    }))
 }
 
 fn next_unused_id(prefix: &str, position: usize, used: &mut HashSet<String>) -> String {
@@ -2491,7 +2563,7 @@ pub(super) fn execute(
     };
     let mut rows = Vec::with_capacity(queries.len());
     let mut source_digest = None;
-    let mut failure = None;
+    let mut failures = Vec::with_capacity(queries.len());
     let mut evaluated = evaluated.into_iter();
     for _ in queries {
         context.check()?;
@@ -2500,9 +2572,16 @@ pub(super) fn execute(
         if queries.len() == 1 {
             source_digest = result.source_digest;
         }
-        failure = failure.or(result.failure);
+        failures.push(result.failure);
         rows.push(result.data);
     }
+    // A call-level kind holds only when every matrix failed the same way; a
+    // rejected matrix is a caller error, not that kind.
+    let failure = if rejected_rows.is_empty() {
+        shared_kind(&failures)
+    } else {
+        None
+    };
     super::engine::merge_rejected_rows(&mut rows, rejected_rows);
     let mut structured = json!({"queries": rows});
     // Email redaction is GitHub-only; receipts get the shared field sanitizer.
@@ -2981,12 +3060,34 @@ mod tests {
         let unaligned = json!({"tool":"localSearch","query":{
             "goal": "test", "reasoning":"find","path":"/repo","searchText":"x","page":2,"pageSize":6
         }});
+        let bounded = bounded_search_source(&unaligned, 5).expect("aligned smaller page");
+        assert_eq!(bounded["query"]["page"], 3);
+        assert_eq!(bounded["query"]["pageSize"], 3);
         assert_eq!(
-            bounded_search_source(&unaligned, 5)
-                .expect_err("offset cannot be represented")
-                .code,
-            "classificationExpandedCellsExceeded"
+            (bounded["query"]["page"].as_u64().expect("page") - 1)
+                * bounded["query"]["pageSize"].as_u64().expect("page size"),
+            6
         );
+    }
+
+    #[test]
+    fn concise_search_candidates_keep_per_file_identity_and_executable_reads() {
+        let source = json!({"tool":"ghSearchCode", "query":{"goal":"find evidence"}});
+        let state = json!({"results":[{"data":{"files":["o/r:src/a.rs", "o/r:src/b.rs", "o/r:src/a.rs"]}}]});
+        let candidates = search_candidate_states(&source, &state).expect("concise candidates");
+        assert_eq!(candidates.len(), 2);
+        for (candidate, path) in candidates.iter().zip(["src/a.rs", "src/b.rs"]) {
+            let file = &candidate["results"][0]["data"]["files"][0];
+            assert_eq!(
+                candidate_identity(&source, candidate, file),
+                Some(format!("o/r/{path}"))
+            );
+            let read = host_read(&source, candidate).expect("candidate read");
+            assert_eq!(read["tool"], "ghGetFileContent");
+            assert_eq!(read["query"]["owner"], "o");
+            assert_eq!(read["query"]["repo"], "r");
+            assert_eq!(read["query"]["path"], path);
+        }
     }
 
     #[test]

@@ -228,6 +228,10 @@ pub struct ValidationResult {
     pub is_valid: bool,
     pub has_secrets: bool,
     pub warnings: Vec<String>,
+    /// Dotted paths of the string leaves whose value sanitization rewrote
+    /// (`searchText`, `keywords[]`, `outer.key`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secret_fields: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -325,6 +329,7 @@ impl ContentSecurity {
                 is_valid: false,
                 has_secrets: false,
                 warnings: vec!["Invalid parameters: must be an object".to_owned()],
+                secret_fields: Vec::new(),
             };
         };
         self.validate_object(object, 0, MAX_STRING_LENGTH, false)
@@ -347,12 +352,14 @@ impl ContentSecurity {
                 is_valid: false,
                 has_secrets: false,
                 warnings: vec!["Maximum nesting depth exceeded".to_owned()],
+                secret_fields: Vec::new(),
             };
         }
         let mut sanitized = Map::new();
         let mut warnings = Vec::new();
         let mut valid = true;
         let mut has_secrets = false;
+        let mut secret_fields = Vec::new();
         for (key, value) in object {
             let limit = if in_context && key == "value" {
                 MAX_EVIDENCE_STRING_LENGTH
@@ -381,6 +388,7 @@ impl ContentSecurity {
                     let result = self.sanitize_text(text, None);
                     if result.has_secrets {
                         has_secrets = true;
+                        secret_fields.push(key.clone());
                         for secret in result.secrets_detected {
                             warnings.push(format!("Secrets detected in {key}: {secret}"));
                         }
@@ -396,6 +404,7 @@ impl ContentSecurity {
                         continue;
                     }
                     let mut array = Vec::new();
+                    let mut item_secrets = false;
                     for item in values {
                         match item {
                             Value::String(text) if text.encode_utf16().count() > limit => {
@@ -406,12 +415,18 @@ impl ContentSecurity {
                             }
                             Value::String(text) => {
                                 let result = self.sanitize_text(text, None);
-                                has_secrets |= result.has_secrets;
+                                item_secrets |= result.has_secrets;
                                 array.push(Value::String(result.content));
                             }
                             Value::Object(nested) => {
                                 let result = self.validate_object(nested, depth + 1, limit, false);
                                 has_secrets |= result.has_secrets;
+                                secret_fields.extend(
+                                    result
+                                        .secret_fields
+                                        .iter()
+                                        .map(|field| format!("{key}[].{field}")),
+                                );
                                 valid &= result.is_valid;
                                 warnings.extend(
                                     result
@@ -428,17 +443,27 @@ impl ContentSecurity {
                                 array.push(Value::Array(self.sanitize_nested_array(
                                     inner,
                                     depth + 1,
-                                    &mut has_secrets,
+                                    &mut item_secrets,
                                 )));
                             }
                             _ => array.push(item.clone()),
                         }
+                    }
+                    if item_secrets {
+                        has_secrets = true;
+                        secret_fields.push(format!("{key}[]"));
                     }
                     sanitized.insert(key.clone(), Value::Array(array));
                 }
                 Value::Object(nested) => {
                     let result = self.validate_object(nested, depth + 1, limit, key == "context");
                     has_secrets |= result.has_secrets;
+                    secret_fields.extend(
+                        result
+                            .secret_fields
+                            .iter()
+                            .map(|field| format!("{key}.{field}")),
+                    );
                     valid &= result.is_valid;
                     warnings.extend(result.warnings.iter().map(|warning| {
                         format!("Invalid nested object in parameter {key}: {warning}")
@@ -452,11 +477,14 @@ impl ContentSecurity {
         }
         warnings.sort();
         warnings.dedup();
+        secret_fields.sort();
+        secret_fields.dedup();
         ValidationResult {
             sanitized_params: sanitized,
             is_valid: valid,
             has_secrets,
             warnings,
+            secret_fields,
         }
     }
 
@@ -681,6 +709,42 @@ mod tests {
         assert!(!result.is_valid);
         assert_eq!(result.sanitized_params["ok"], "x");
         assert!(!result.sanitized_params.contains_key("prototype"));
+    }
+
+    #[test]
+    fn secret_fields_name_every_rewritten_leaf() {
+        let policy = ContentSecurity::new();
+        let token = format!("ghp_{}", "a".repeat(36));
+        let result = policy.validate_input_parameters(&serde_json::json!({
+            "searchText": token,
+            "keywords": ["safe", token],
+            "outer": {"key": token},
+            "grid": [[token]],
+            "rows": [{"inner": token}],
+            "clean": "needle",
+        }));
+        assert!(result.has_secrets);
+        assert_eq!(
+            result.secret_fields,
+            ["grid[]", "keywords[]", "outer.key", "rows[].inner", "searchText"]
+        );
+        let clean = policy.validate_input_parameters(&serde_json::json!({"searchText": "needle"}));
+        assert!(clean.secret_fields.is_empty());
+    }
+
+    #[test]
+    fn continuation_shaped_values_are_not_credentials() {
+        let policy = ContentSecurity::new();
+        for value in [
+            "lexical-live-v1:845e0d1f0b51e9d91d398dac8fdc9d3a0b88cb954e6434e78a56ff2b753a9a16",
+            "824df86de3bc3a3ff0c6201874d42955e8b5b12a0",
+            "3bc3a3ff0",
+            "MAX_STRING_LENGTH",
+            "fn validate_input_parameters",
+        ] {
+            let result = policy.validate_input_parameters(&serde_json::json!({"field": value}));
+            assert!(result.secret_fields.is_empty(), "{value} flagged as a secret");
+        }
     }
 
     #[test]

@@ -39,12 +39,12 @@ A coding agent's scarcest resource is context. Dumping files, whole diffs or raw
 flowchart LR
   S[SCOPE<br/>local or remote, which repo/ref] --> O[ORIENT - zoom out<br/>tree, outline, PR summary]
   O --> F[SEARCH<br/>text, AST, filtered PR query]
-  F -->|behavioral target, 2+ candidate files| C[clasify locate/scout]
+  F -->|list to classify, big known file, absence screen| C[clasify locate/scout]
   F --> R[READ EXACT - zoom in<br/>match window, line range, SHA]
   C --> R
   R --> P[PROVE<br/>LSP identity, diff, references]
   P --> D[DECIDE and cite]
-  R -. next.* followUp .-> F
+  R -. next.* continuation .-> F
   P -. zoom out .-> O
 ```
 
@@ -68,12 +68,18 @@ flowchart LR
 - `@octocodeai/config` generates the JSON contract and the Rust/TS types, and the native runtime embeds them.
 - The MCP server and the CLI run the same native code, so their output is **byte-identical**.
 - If the core and native contract fingerprints ever differ, the MCP server **refuses to start** rather than serve mismatched schemas.
+- MCP hosts resend every tool definition on every request, so `tools/list` shows a slim view that core generates from the same contract (`publishedInputSchema`), not a second schema. The view:
+  - merges operation variants into one object, with each variant's extra required fields on one line;
+  - keeps full descriptions on each tool's primary fields; other fields show only their type;
+  - leaves out validation-only bounds and the page, snapshot, and offset fields that agents copy from `next.*`.
+- The view accepts a superset of the contract and is never used to validate. The canonical schema still validates every call, and its errors list every valid field. `octocode scheme` shows the full contract.
+- Budget: the instructions plus every default tool definition stay within 32,000 characters (about 8k tokens); a core test enforces it.
 - Why: agents learn one shape per tool, and drift is caught before it reaches a user.
 
 ### 3.2 Goal and reasoning on every query
 - Every new query states a short `goal` (what it must find or decide) and a `reasoning` (why this call advances it).
-- The runtime rejects a new query without them.
-- `next.*` continuations carry `followUp: true` instead and inherit the brief, so it is never repeated.
+- The contract requires them on every query, so the published schema, MCP validation, and native validation agree.
+- `next.*` continuations carry the brief of the query that produced them, so agents replay them unchanged and never retype it.
 - Why:
   - **Forced intent.** The agent must say why it is calling, which prevents aimless calls.
   - **Semantic judgment.** The brief gives clasify's judgment the intent it needs.
@@ -156,8 +162,19 @@ Every list and every large body can be paged, and every page is honest about wha
   - **Judge** answers typed questions: contribution, supportsClaim, addsEvidence, and `sufficient`, which asks whether a snippet already answers the question.
 - It returns verdicts and windows, **never file bodies**. Each result carries the exact `next.read` for what's worth opening.
 - The provider receives the evidence plus goal, reasoning and question instructions, never tokens, cursors or snapshots.
-- Judgments are cached per process, keyed on the full state (content + question + goal), and identical in-flight calls are merged. Errors are never cached.
-- **When it pays:** there is a behavioral target (no exact literal) and there are two or more candidate files. **Skip it** for identifiers, literals and PR filters, where exact search already settles the question.
+- Judgments are cached per process, keyed on the full state (content + question + goal), and identical in-flight calls are merged. Errors are never cached. The cache lives only as long as the process: a warm MCP server reuses it, but every CLI invocation starts cold.
+- **When it pays** (measured in A/B runs on 2026-09-30):
+  - classifying an explicit list without reading every item;
+  - locating an answer inside a large known file, with `prefilter` literals when the answer contains one;
+  - screening for absence.
+
+  Scores from 0.36 to 0.69 are where its errors fell, so read to verify them.
+- **When it costs more:**
+  - locating behavior when a literal can be guessed (2.6× the bytes), so guess one literal and search for it first;
+  - literal targets (22×);
+  - screening search snippets, where scores stay flat (0.16–0.38).
+
+  Semantic search pages with at least eight files still carry a `next.clasify` handoff. Prefer a literal search, or classify the files themselves. **Skip it** for identifiers, literals and PR filters, where exact search already settles the question.
 - **Without a key** it disappears entirely: from the tool list, the instructions, and every `next.*`.
 - See [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 
@@ -198,7 +215,9 @@ Every list and every large body can be paged, and every page is honest about wha
 
 ## 4. Where Octocode excels (measured)
 
-The figures below come from earlier tool-level comparisons, which ran scripted tool calls rather than agents. Those campaigns have been retired, and their records remain only in git history. For current agent-vs-agent results, including where Octocode loses, see [BENCHMARKS.md](BENCHMARKS.md).
+The figures below come from earlier tool-level comparisons, which ran scripted tool calls rather than agents. Those campaigns have been retired, and their records remain only in git history, so treat these figures as historical. They measure single tool calls, not agent outcomes.
+
+The only agent-vs-agent run so far is `full-1` (2026-09-30), which ran on a build that predates the schema slimming. In it, Octocode scored 8.42 vs 9.12 for `rg` + `gh` at 1.67× the cost. See [BENCHMARKS.md](BENCHMARKS.md), including where Octocode loses.
 
 | Claim | Evidence |
 |---|---|
@@ -209,7 +228,7 @@ The figures below come from earlier tool-level comparisons, which ran scripted t
 | Semantic precision | LSP references are exact; `rg -w` precision on the same symbols was 0.26–0.62 |
 | Syntax-aware accuracy | Symbols were exact on 6 of 6 files (regexes/ctags scored 0.81–0.98). Codemods were identical to ast-grep on 5 of 5, while sed was wrong on 4 of 5 |
 | Safe on hostile input | 0 of 5 fake secrets leaked, vs 3 of 3 for rg. A 3.2 MB file costs 18k chars (vs 3.1M), and a 2 MB minified line costs 710 (vs 2.07M) |
-| clasify on "how/where" questions | Whole-file locate: 10/10 vs 9/10 for rg, with 43% fewer files opened |
+| clasify on "how/where" questions (retired scripted run) | Whole-file locate: 10/10 vs 9/10 for rg, with 43% fewer files opened. The 2026-09-30 A/B found clasify costlier than search when a literal can be guessed, and agents in `full-1` never called it |
 | Local parity with rg | Same accuracy (14/15). About 8% more chars, spent on the citable line gutter |
 | Degrades cleanly | Without a clasify key: 12 tools, no mentions, no dangling next steps |
 
@@ -219,6 +238,8 @@ The figures below come from earlier tool-level comparisons, which ran scripted t
 - **Whole-list GitHub reads:** a full compare, a deep tree or a long issue thread takes several paged calls, where a single `gh api --jq` pipeline takes one.
 - **Tiny single-line answers:** bare `gh` or rg output beats Octocode's evidence (SHA, line numbers, pagination) by a few hundred characters.
 - **Scouting PRs with clasify:** a literal filter is 16× cheaper, so the instructions tell agents to skip clasify there.
+- **Locating behavior with clasify when a literal can be guessed:** searching for the literal cost 2.6× fewer bytes (22× fewer for a literal target) in the 2026-09-30 A/B.
+- **Agent outcomes in `full-1`** (pre-slimming build): `rg` + `gh` beat Octocode on quality (16 losses, 3 wins) and on cost (1.67×). See [BENCHMARKS.md](BENCHMARKS.md).
 
 ## 6. Concept → code map for developers
 
@@ -227,10 +248,10 @@ The figures below come from earlier tool-level comparisons, which ran scripted t
 | Contracts, descriptions, instructions, budgets | core `src/toolContract/` (`instructions.ts`, `descriptions.ts`, `validation/`, `outputSchemas.ts`, `limits.ts`) → `packages/octocode-config/contract/` |
 | MCP startup, fingerprint gate, registration | `packages/octocode-mcp/src/native/index.ts` |
 | CLI dispatch and exit codes | `packages/octocode-native/crates/cli/src/cli/mod.rs` |
-| Validation, the brief rule, row isolation | `crates/runtime/src/contracts/` (`validate.rs`, `mod.rs`) |
+| Validation and row isolation | `crates/runtime/src/contracts/` (`validate.rs`, `mod.rs`) |
 | Gate, dispatch, row shaping | `crates/runtime/src/runtime/engine.rs`, `domain_dispatch.rs` |
 | Minimal output, next-step filtering | `crates/runtime/src/runtime/response.rs` |
-| followUp continuations | `crates/runtime/src/runtime/continuations.rs` |
+| Continuation compaction and brief inheritance | `crates/runtime/src/runtime/continuations.rs` |
 | Rendering and response paging | `crates/runtime/src/runtime/render.rs`, `response_stage.rs`, `crates/runtime/src/response/mod.rs` |
 | Cursors | `crates/runtime/src/runtime/cursor.rs` |
 | Path sandbox and directory pruning | `crates/runtime/src/policy/path.rs`, `policy/prune.rs` |

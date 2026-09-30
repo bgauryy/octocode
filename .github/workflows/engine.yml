@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   engine:
-    name: Engine Rust and native parity
+    name: Engine Rust checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -54,9 +54,7 @@ jobs:
       - name: Format check
         working-directory: packages/octocode-native
         run: cargo fmt --all --check
-      - name: Build engine addon
-        run: yarn workspace @octocodeai/octocode-native build:engine:dev
-      - name: Verify N-API ABI
+      - name: Verify N-API ABI (committed snapshot)
         run: yarn workspace @octocodeai/octocode-native verify:napi-abi
       - name: Clippy
         working-directory: packages/octocode-native
@@ -64,10 +62,6 @@ jobs:
       - name: Cargo tests
         working-directory: packages/octocode-native
         run: cargo test --locked -p octocode-engine --all-features
-      - name: Node parity tests
-        env:
-          OCTOCODE_REQUIRE_NATIVE: '1'
-        run: yarn workspace @octocodeai/octocode-native test:node
 
   coverage:
     name: Engine line coverage (informational)

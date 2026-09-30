@@ -22,6 +22,12 @@ const k = (n) => (n == null ? '—' : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : 
 const f1 = (n) => (n == null ? '—' : n.toFixed(1));
 const f2 = (n) => (n == null ? '—' : n.toFixed(2));
 const usd = (n) => (n == null ? '—' : `$${n.toFixed(3)}`);
+// Claude price multiples relative to fresh input (same for every current model):
+// cache write (5-minute TTL) 1.25×, cache read 0.1×, output 5×. Weighted tokens are
+// input-token equivalents, proportional to cost; raw totals count a cache read like
+// a fresh input token, which overstates a large, cached tool-definition prefix.
+const WEIGHTS = { input_tokens: 1, cache_creation_input_tokens: 1.25, cache_read_input_tokens: 0.1, output_tokens: 5 };
+const weightedTokens = (t) => (t ? Object.entries(WEIGHTS).reduce((s, [key, w]) => s + (t[key] ?? 0) * w, 0) : null);
 const surfaceOf = (q) => q.surface ?? ((q.repos ?? []).some((r) => r.dir) ? 'local' : 'github');
 const catKey = (q) => q.category ?? surfaceOf(q);
 
@@ -41,20 +47,21 @@ const rows = questions.map((q) => {
       completeness: mean(finals.map((f) => f.scores?.[w]?.completeness).filter((x) => x != null)),
       evidence: mean(finals.map((f) => f.scores?.[w]?.evidence).filter((x) => x != null)),
       wrongClaims: finals.flatMap((f) => f.scores?.[w]?.wrongClaims ?? []),
-      totalTokens: t.total_tokens, contextTokens: t.context_tokens, overheadTokens: t.fixed_overhead_tokens,
+      totalTokens: t.total_tokens, weightedTokens: weightedTokens(t), contextTokens: t.context_tokens, overheadTokens: t.fixed_overhead_tokens,
       researchTokens: t.research_tokens, outputTokens: t.output_tokens, requests: t.requests,
       firstRequestContext: t.first_request_context,
       cost: r.cost_usd, toolCalls: r.toolCallCount, toolCounts: r.toolCounts, counters: r.counters ?? {},
       wallMs: r.wallMs, numTurns: r.num_turns, toolErrors: r.toolErrorCount, denials: r.permission_denials?.length ?? 0,
       isolationOk: r.isolation?.ok ?? null, isolationProblems: r.isolation?.problems ?? [],
       efficiency: quality != null && t.total_tokens ? quality / (t.total_tokens / 10_000) : null,
+      weightedEfficiency: quality != null && weightedTokens(t) ? quality / (weightedTokens(t) / 10_000) : null,
       researchEfficiency: quality != null && t.research_tokens > 0 ? quality / (t.research_tokens / 10_000) : null,
     } : null;
   }
   row.judge = finals.map((f) => ({ pair: f.pairKey, tiebreak: f.tiebreak, orderSpread: f.orderSpread, graderErrors: f.graderErrors, preferred: f.preferred, referenceIssues: f.referenceIssues, cost: f.judgeCost }));
   row.ratios = Object.fromEntries(pairs.map(([a, b]) => {
     const A = row.w[a]; const B = row.w[b];
-    return [`${a}/${b}`, A && B ? { total: A.totalTokens / B.totalTokens, research: B.researchTokens > 0 ? A.researchTokens / B.researchTokens : null, cost: A.cost / B.cost } : null];
+    return [`${a}/${b}`, A && B ? { total: A.totalTokens / B.totalTokens, weighted: A.weightedTokens / B.weightedTokens, research: B.researchTokens > 0 ? A.researchTokens / B.researchTokens : null, cost: A.cost / B.cost } : null];
   }));
   return row;
 });
@@ -72,12 +79,13 @@ function aggregate(sel) {
     return [w, {
       runs: xs.length, ok: xs.filter((x) => x.status === 'ok').length,
       meanQuality: mean(qs), medianQuality: median(qs),
-      totalTokens: sum('totalTokens'), contextTokens: sum('contextTokens'), overheadTokens: sum('overheadTokens'),
+      totalTokens: sum('totalTokens'), weightedTokens: sum('weightedTokens'), contextTokens: sum('contextTokens'), overheadTokens: sum('overheadTokens'),
       researchTokens: sum('researchTokens'), outputTokens: sum('outputTokens'), requests: sum('requests'),
       cost: sum('cost'), toolCalls: sum('toolCalls'), wallMs: sum('wallMs'), toolErrors: sum('toolErrors'), denials: sum('denials'),
       meanTotalTokens: xs.length ? sum('totalTokens') / xs.length : null,
       meanResearchTokens: xs.length ? sum('researchTokens') / xs.length : null,
       efficiency: qs.length && sum('totalTokens') ? (sum('quality') / (sum('totalTokens') / 10_000)) : null,
+      weightedEfficiency: qs.length && sum('weightedTokens') ? (sum('quality') / (sum('weightedTokens') / 10_000)) : null,
       counters, tools,
       isolationFailures: xs.filter((x) => x.isolationOk === false).length,
     }];
@@ -91,11 +99,13 @@ const bySurface = Object.fromEntries(['github', 'local'].map((s) => [s, { n: row
 const ratioStats = Object.fromEntries(pairs.map(([a, b]) => {
   const key = `${a}/${b}`;
   const tot = rows.map((r) => r.ratios[key]?.total).filter(Number.isFinite);
+  const wtd = rows.map((r) => r.ratios[key]?.weighted).filter(Number.isFinite);
   const res = rows.map((r) => r.ratios[key]?.research).filter(Number.isFinite);
   const cost = rows.map((r) => r.ratios[key]?.cost).filter(Number.isFinite);
   const qd = rows.map((r) => (r.w[a]?.quality != null && r.w[b]?.quality != null ? r.w[a].quality - r.w[b].quality : null)).filter(Number.isFinite);
   return [key, {
     totalTokens: { mean: mean(tot), median: median(tot), n: tot.length },
+    weightedTokens: { mean: mean(wtd), median: median(wtd), n: wtd.length },
     researchTokens: { mean: mean(res), median: median(res), n: res.length },
     cost: { mean: mean(cost), median: median(cost), n: cost.length },
     qualityDelta: { mean: mean(qd), median: median(qd), wins: qd.filter((d) => d > 0.5).length, losses: qd.filter((d) => d < -0.5).length, ties: qd.filter((d) => Math.abs(d) <= 0.5).length },
@@ -143,14 +153,14 @@ const L = [];
 L.push(`# Unified benchmark — run \`${runId}\``, '');
 L.push(`Workers: ${workers.map((w) => `\`${w}\``).join(', ')} · model ${manifest.model} · ${questions.length} questions × 1 pass · judge Opus (blinded X/Y, both orders, tie-break when spread > 2).`);
 L.push(`Build: MCP dist sha256 \`${String(manifest.build?.mcpServerDist).slice(0, 12)}\` · Claude Code ${manifest.claudeVersion}.`, '');
-L.push('Quality 0–10 = correctness 0–5 + completeness 0–3 + evidence 0–2. Tokens: total = all input kinds + output; research = total − (first-request context × requests). Efficiency = quality per 10k total tokens.', '');
+L.push('Quality 0–10 = correctness 0–5 + completeness 0–3 + evidence 0–2. Tokens: total = all input kinds + output; research = total − (first-request context × requests). Weighted = input-token equivalents at Claude price multiples (cache write 1.25×, cache read 0.1×, output 5×), proportional to cost. Efficiency = quality per 10k total tokens; weighted efficiency = quality per 10k weighted tokens.', '');
 
 L.push('## Totals', '');
-L.push('| worker | mean quality | median quality | total tokens | research tokens | output tokens | requests | tool calls | cost | time | efficiency |', '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
-for (const w of workers) { const t = totals[w]; L.push(`| ${w} | ${f2(t.meanQuality)} | ${f1(t.medianQuality)} | ${k(t.totalTokens)} | ${k(t.researchTokens)} | ${k(t.outputTokens)} | ${t.requests} | ${t.toolCalls} | $${t.cost.toFixed(2)} | ${(t.wallMs / 60000).toFixed(1)} min | ${f2(t.efficiency)} |`); }
+L.push('| worker | mean quality | median quality | total tokens | weighted tokens | research tokens | output tokens | requests | tool calls | cost | time | efficiency | weighted efficiency |', '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
+for (const w of workers) { const t = totals[w]; L.push(`| ${w} | ${f2(t.meanQuality)} | ${f1(t.medianQuality)} | ${k(t.totalTokens)} | ${k(t.weightedTokens)} | ${k(t.researchTokens)} | ${k(t.outputTokens)} | ${t.requests} | ${t.toolCalls} | $${t.cost.toFixed(2)} | ${(t.wallMs / 60000).toFixed(1)} min | ${f2(t.efficiency)} | ${f2(t.weightedEfficiency)} |`); }
 L.push('');
 for (const [key, s] of Object.entries(ratioStats)) {
-  L.push(`Per-question ratio ${key}: total tokens mean ${f2(s.totalTokens.mean)}× / median ${f2(s.totalTokens.median)}×; research tokens mean ${f2(s.researchTokens.mean)}× / median ${f2(s.researchTokens.median)}×; cost mean ${f2(s.cost.mean)}× / median ${f2(s.cost.median)}×. Quality delta (${key.split('/')[0]} − ${key.split('/')[1]}): mean ${f2(s.qualityDelta.mean)}, wins/ties/losses ${s.qualityDelta.wins}/${s.qualityDelta.ties}/${s.qualityDelta.losses}.`);
+  L.push(`Per-question ratio ${key}: total tokens mean ${f2(s.totalTokens.mean)}× / median ${f2(s.totalTokens.median)}×; weighted tokens mean ${f2(s.weightedTokens.mean)}× / median ${f2(s.weightedTokens.median)}×; research tokens mean ${f2(s.researchTokens.mean)}× / median ${f2(s.researchTokens.median)}×; cost mean ${f2(s.cost.mean)}× / median ${f2(s.cost.median)}×. Quality delta (${key.split('/')[0]} − ${key.split('/')[1]}): mean ${f2(s.qualityDelta.mean)}, wins/ties/losses ${s.qualityDelta.wins}/${s.qualityDelta.ties}/${s.qualityDelta.losses}.`);
 }
 L.push('');
 
@@ -169,10 +179,10 @@ L.push('', 'Token columns are per-question means.', '');
 L.push('## Per question', '');
 const pair = (r, fn) => workers.map((w) => (r.w[w] ? fn(r.w[w]) : '—')).join(' / ');
 L.push(`Each cell shows ${workers.join(' / ')}.`, '');
-L.push('| q | category | quality | total tokens | research tokens | tool calls | time | cost | efficiency |', '|---|---|--:|--:|--:|--:|--:|--:|--:|');
+L.push('| q | category | quality | total tokens | weighted tokens | research tokens | tool calls | time | cost | efficiency |', '|---|---|--:|--:|--:|--:|--:|--:|--:|--:|');
 for (const r of rows) {
   const q = pair(r, (x) => `${f1(x.quality)}${x.status === 'ok' ? '' : ` (${x.status})`}`);
-  L.push(`| ${r.qid} | ${r.catKey} | ${q} | ${pair(r, (x) => k(x.totalTokens))} | ${pair(r, (x) => k(x.researchTokens))} | ${pair(r, (x) => String(x.toolCalls))} | ${pair(r, (x) => `${(x.wallMs / 1000).toFixed(0)}s`)} | ${pair(r, (x) => usd(x.cost))} | ${pair(r, (x) => f2(x.efficiency))} |`);
+  L.push(`| ${r.qid} | ${r.catKey} | ${q} | ${pair(r, (x) => k(x.totalTokens))} | ${pair(r, (x) => k(x.weightedTokens))} | ${pair(r, (x) => k(x.researchTokens))} | ${pair(r, (x) => String(x.toolCalls))} | ${pair(r, (x) => `${(x.wallMs / 1000).toFixed(0)}s`)} | ${pair(r, (x) => usd(x.cost))} | ${pair(r, (x) => f2(x.efficiency))} |`);
 }
 L.push('');
 

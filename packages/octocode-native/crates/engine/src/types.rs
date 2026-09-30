@@ -220,6 +220,9 @@ pub struct RipgrepStats {
     /// order and bounded; `binary_file_count` counts all of them.
     pub binary_files: Option<Vec<String>>,
     pub binary_file_count: Option<u32>,
+    /// Opaque binary files (first NUL before any text) skipped like rg skips
+    /// them. Nothing text-searchable was lost, so they are not a coverage gap.
+    pub skipped_binary_count: Option<u32>,
 }
 
 #[cfg_attr(feature = "napi-addon", napi(object))]

@@ -383,7 +383,21 @@ async fn execute_page(
         document.as_deref().map(|source| source.content.as_str()),
     ) {
         Ok(anchor) => anchor,
-        Err(error) => return fail("lsp.anchorUnresolved", &error, true),
+        Err(error) => {
+            let mut row = failure(
+                &query,
+                &canonical_uri,
+                "lsp.anchorUnresolved",
+                &error,
+                true,
+            );
+            failure::anchor_recovery(
+                &mut row,
+                &query,
+                document.as_deref().map(|source| source.content.as_str()),
+            );
+            return Ok(row);
+        }
     };
 
     let receipt_config = config.clone();

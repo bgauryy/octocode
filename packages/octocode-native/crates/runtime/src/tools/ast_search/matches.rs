@@ -386,6 +386,8 @@ fn execute_match_inner(
             .into_iter()
             .map(|value| match_value(value, q.capture_text().unwrap_or(false), content_length))
             .collect::<Vec<_>>();
+        let header_rows = matches.iter().map(|row| row.1).collect::<Vec<_>>();
+        let matches = matches.into_iter().map(|row| row.0).collect::<Vec<_>>();
         if !matches.is_empty() {
             let total = matches.len();
             total_matches += total as u64;
@@ -402,7 +404,10 @@ fn execute_match_inner(
             let more_matches = match_end < total;
             let truncated_captures = selected
                 .iter()
-                .any(|value| value["capturesTruncated"] == true);
+                .any(|value| value["capturesTruncated"] == true)
+                || header_rows
+                    .get(match_start..match_end)
+                    .is_some_and(|rows| rows.contains(&true));
             let out_of_range = match_start >= total;
             let mut group = json!({
                 "path":path,
@@ -568,9 +573,22 @@ fn execute_match_inner(
 /// 1-based position); the parallel engine `metavars` text map is only used as a
 /// fallback for a capture that carries no range. A multi-node list capture is
 /// one span row with `count` unless `captureText` is set. `endLine` is omitted
-/// when the span is single-line (it equals `line`).
-fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: usize) -> Value {
-    let text = compact_match(&m.text, content_length);
+/// when the span is single-line (it equals `line`). The flag is true when the
+/// value was cut to a header.
+///
+/// A multi-line match with a body block shows only its header (signature)
+/// followed by `…`; `line`/`endLine` anchor the full span, and `captureText`
+/// returns the whole text.
+fn match_value(
+    m: StructuralDetailedMatch,
+    capture_text: bool,
+    content_length: usize,
+) -> (Value, bool) {
+    let header = m.header.as_deref().filter(|_| !capture_text);
+    let text = match header {
+        Some(header) => format!("{} …", compact_match(header, content_length.saturating_sub(2).max(1))),
+        None => compact_match(&m.text, content_length),
+    };
     let mut ranges = serde_json::Map::new();
     let mut metavars = serde_json::Map::new();
     let mut truncated = false;
@@ -655,7 +673,7 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
     if truncated {
         value["capturesTruncated"] = json!(true);
     }
-    value
+    (value, header.is_some())
 }
 
 /// Whitespace-normalized match text bounded to `limit` characters

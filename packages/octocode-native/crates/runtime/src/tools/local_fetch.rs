@@ -259,7 +259,13 @@ mod tests {
             r.content.as_deref(),
             Some("hit\n... [lines 3-8 omitted] ...\nhit [REDACTED]\n")
         );
-        assert!(r.source_line_ranges.is_empty());
+        // Redaction keeps line counts, so the anchors stay; the warning says
+        // the text is not verbatim.
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange { start: 2, end: 2 }, LineRange { start: 9, end: 9 }]
+        );
+        assert!(r.warnings.iter().any(|w| w.contains("not verbatim")), "{:?}", r.warnings);
     }
     #[test]
     fn paged_match_windows_map_source_ranges_around_marker() {
@@ -300,6 +306,62 @@ mod tests {
         );
     }
     #[test]
+    fn matches_on_minified_lines_default_to_byte_windows() {
+        let t = Temp::new();
+        let p = t.0.join("bundle.min.js");
+        let filler = "x".repeat(3_000);
+        let source = format!("{filler}needle{filler}needle{filler}\nshort needle\n");
+        fs::write(&p, &source).expect("fixture");
+        let paths = Paths(t.0.clone());
+        let mut req = q(&p);
+        req.match_string = Some("needle".parse().expect("match string"));
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        let content = r.content.expect("content");
+        assert_eq!(content.matches("needle").count(), 3, "{content:?}");
+        assert!(content.len() < 2_000, "{} bytes", content.len());
+        for part in content.split('\n').filter(|part| !part.is_empty()) {
+            assert!(part.starts_with("... [") || source.contains(part), "{part:?}");
+        }
+        assert!(r.next.is_none(), "{:?}", r.next);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange { start: 1, end: 2 }],
+            "anchor kept"
+        );
+        assert!(
+            r.warnings.iter().any(|w| w.contains("contextLines")),
+            "{:?}",
+            r.warnings
+        );
+        // An explicit contextLines keeps whole lines.
+        req.context_lines = Some(0);
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        assert!(r.warnings.iter().all(|w| !w.contains("contextLines")), "{:?}", r.warnings);
+    }
+    #[test]
+    fn redacted_chunk_and_range_reads_keep_their_source_anchor() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(&p, numbered(30).replace("l12\n", "l12 SECRET\n")).expect("fixture");
+        let paths = Paths(t.0.clone());
+        let mut chunk = q(&p);
+        chunk.chunk_type = Some(ChunkType::Lines);
+        chunk.offset = Some(wire_count(10));
+        chunk.chunk_size = wire_positive(5);
+        let mut range = q(&p);
+        range.start_line = wire_positive(11);
+        range.end_line = wire_positive(13);
+        for (req, expected) in [(chunk, (11, 15)), (range, (11, 13))] {
+            let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+            assert!(r.content.as_deref().is_some_and(|c| c.contains("[REDACTED]")), "{r:?}");
+            assert_eq!(
+                r.source_line_ranges,
+                vec![LineRange { start: expected.0, end: expected.1 }]
+            );
+            assert!(r.warnings.iter().any(|w| w.contains("not verbatim")), "{:?}", r.warnings);
+        }
+    }
+    #[test]
     fn context_bytes_overlapping_windows_do_not_duplicate_source() {
         let t = Temp::new();
         let p = t.0.join("a.txt");
@@ -319,6 +381,48 @@ mod tests {
         }
         assert!(content.contains("bytes omitted"), "{content:?}");
     }
+    #[test]
+    fn multiline_matches_preserve_every_matched_source_line() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(&p, "before\nfirst\nsecond\nafter\n").expect("fixture");
+        let paths = Paths(t.0.clone());
+        for (pattern, is_regex) in [("first\nsecond", false), (r"first\nsecond", true)] {
+            let mut req = q(&p);
+            req.match_string = Some(pattern.parse().expect("match string"));
+            req.match_string_is_regex = Some(is_regex);
+            req.context_lines = Some(0);
+            let wire = serde_json::to_value(execute_local_fetch(&req, &paths, &Safe, &NeverCancel))
+                .expect("serializable");
+            assert_eq!(wire["content"], "first\nsecond\n", "{pattern:?}: {wire}");
+            assert_eq!(wire["matchedLines"], serde_json::json!([2, 3]));
+            assert_eq!(
+                wire["sourceLineRanges"],
+                serde_json::json!([{"start": 2, "end": 3}])
+            );
+        }
+    }
+
+    #[test]
+    fn context_bytes_keep_original_offsets_when_unicode_lowercase_expands() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        let paths = Paths(t.0.clone());
+        for (source, pattern, expected) in [
+            ("İneedle tail\n", "needle", "needle"),
+            ("İNEEDLE\n", "needle", "NEEDLE"),
+            ("prefix İ tail\n", "İ", "İ"),
+            ("İİneedle", "needle", "needle"),
+        ] {
+            fs::write(&p, source).expect("fixture");
+            let mut req = q(&p);
+            req.match_string = Some(pattern.parse().expect("match string"));
+            req.context_bytes = Some(0);
+            let result = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+            assert_eq!(result.content.as_deref(), Some(expected), "{source:?}");
+        }
+    }
+
     #[test]
     fn byte_pages_preserve_utf8_and_use_byte_offsets() {
         let t = Temp::new();
@@ -355,10 +459,12 @@ mod tests {
         assert_eq!(r.source_sha256.as_deref(), Some(expected_hash.as_str()));
         assert_eq!(r.content.as_deref(), Some("needle [REDACTED]\n"));
         assert_eq!(r.match_ranges, vec![LineRange { start: 2, end: 2 }]);
-        assert!(
-            r.source_line_ranges.is_empty(),
-            "redaction invalidates source mapping"
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange { start: 2, end: 2 }],
+            "line-preserving redaction keeps the source anchor"
         );
+        assert!(r.warnings.iter().any(|w| w.contains("not verbatim")), "{:?}", r.warnings);
         let bin = t.0.join("b.bin");
         fs::write(&bin, [0, 1, 2]).expect("test fixture operation should succeed");
         assert_eq!(

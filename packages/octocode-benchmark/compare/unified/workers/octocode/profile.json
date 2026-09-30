@@ -15,7 +15,6 @@
     { "label": "clasify calls", "tool": "clasify$" },
     { "label": "matchString queries", "inputKey": "matchString" },
     { "label": "lspSearch calls", "tool": "lspSearch$" },
-    { "label": "astSearch calls", "tool": "astSearch$" },
-    { "label": "followUp uses", "inputKey": "followUp" }
+    { "label": "astSearch calls", "tool": "astSearch$" }
   ]
 }

@@ -1296,6 +1296,41 @@ mod tests {
     }
 
     #[test]
+    fn opaque_binary_files_in_scope_do_not_make_a_search_partial() {
+        // An object-file header puts a NUL before any text: rg skips such
+        // files, nothing text-searchable is lost, and no warning is owed.
+        let body = search_fixture(
+            &[
+                ("addon.node", "\u{7f}ELF\u{2}\u{1}\u{1}\u{0}needle\n"),
+                ("a.txt", "needle\n"),
+            ],
+            ls_query(serde_json::json!({"searchText": "needle".to_string()}), None),
+        );
+        assert_ne!(body["isPartial"], true, "{body}");
+        assert_ne!(body["terminalLimit"], true, "{body}");
+        assert_ne!(body["status"], "partial", "{body}");
+        assert!(body.get("warnings").is_none_or(|w| w.as_array().is_some_and(Vec::is_empty)), "{body}");
+        assert!(body["stats"].get("capReason").is_none_or(serde_json::Value::is_null), "{body}");
+
+        // Targeted directly, the empty result still says why.
+        let root = tempfile::tempdir().expect("fixture directory");
+        let target = root.path().join("addon.node");
+        fs::write(&target, b"\x7fELF\x02\x01\x01\0needle\n").expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": target.to_string_lossy().into_owned(), "searchText": "needle".to_string()}),
+            None,
+        );
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel, None).expect("search");
+        assert!(
+            result.hints.iter().any(|h| h.contains("binary")),
+            "{:?}",
+            result.hints
+        );
+    }
+
+    #[test]
     fn an_empty_result_with_a_binary_cut_is_partial_not_empty() {
         let body = search_fixture(
             &[("blob.dat", "header\u{0}needle after the nul\n")],

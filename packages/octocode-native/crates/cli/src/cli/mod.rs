@@ -709,21 +709,16 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
     match result {
         Ok(outcome) => {
             let value = outcome.structured_content;
-            let mut exit = match outcome.failure {
-                Some(octocode_native::runtime::FailureKind::NotFound) => 3,
-                Some(octocode_native::runtime::FailureKind::Authentication) => 4,
-                Some(octocode_native::runtime::FailureKind::Permission) => 4,
-                Some(octocode_native::runtime::FailureKind::RateLimited) => 7,
-                Some(octocode_native::runtime::FailureKind::Execution) => 5,
-                None => 0,
-            };
+            let mut exit = outcome.failure.map_or(0, failure_exit);
             if outcome.all_failed {
                 // A whole-call failure that carries no runtime FailureKind (e.g. a
                 // config/gate refusal or admission-time validation) must not read
                 // as success — classify it as a usage/input error rather than 0.
                 // Rows that all reject the caller's input are exit 2 as well,
                 // not an execution failure.
-                if exit == 0 || (exit == 5 && all_rows_invalid_input(&value)) {
+                if let Some(code) = clasify_failure_exit(&value, outcome.failure) {
+                    exit = code;
+                } else if exit == 0 || (exit == 5 && all_rows_invalid_input(&value)) {
                     exit = 2;
                 }
             } else {
@@ -749,21 +744,8 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
                 // A batch row rejected by input validation is a caller error
                 // even when sibling rows succeeded (row isolation).
                 let rejected_row = rows.iter().any(|row| is_invalid_input_row(row));
-                // Every clasify resource errored: nothing was judged.
-                let clasify_failed = value["queries"].as_array().is_some_and(|queries| {
-                    !queries.is_empty()
-                        && queries.iter().all(|query| {
-                            query["resources"].as_array().is_some_and(|resources| {
-                                resources
-                                    .iter()
-                                    .all(|resource| resource["coverage"] == "error")
-                            })
-                        })
-                });
                 exit = if rejected_row {
                     2
-                } else if clasify_failed {
-                    5
                 } else if all_empty {
                     1
                 } else if has_continuation {
@@ -804,6 +786,80 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
             if error.code == "invalidInput" { 2 } else { 5 }
         }
     }
+}
+
+fn failure_exit(failure: octocode_native::runtime::FailureKind) -> u8 {
+    use octocode_native::runtime::FailureKind;
+    match failure {
+        FailureKind::NotFound => 3,
+        FailureKind::Authentication | FailureKind::Permission => 4,
+        FailureKind::RateLimited => 7,
+        FailureKind::Execution => 5,
+    }
+}
+
+/// Exit code for a clasify call in which every resource errored (nothing was
+/// judged): the caller's request (2) only when every error rejects it; when
+/// every delegated read failed alike, that read tool's exit (`failure`, e.g. 3
+/// for a missing file); missing sources (3), throttling (7), otherwise an
+/// execution/provider failure (5).
+fn clasify_failure_exit(
+    value: &Value,
+    failure: Option<octocode_native::runtime::FailureKind>,
+) -> Option<u8> {
+    let queries = value["queries"].as_array().filter(|q| !q.is_empty())?;
+    let mut codes = Vec::new();
+    for query in queries {
+        if let Some(code) = query.pointer("/error/code").and_then(Value::as_str) {
+            codes.push(code.to_owned());
+        }
+        for resource in query["resources"].as_array().into_iter().flatten() {
+            for page in resource["pages"].as_array().into_iter().flatten() {
+                if let Some(code) = page.pointer("/error/code").and_then(Value::as_str) {
+                    codes.push(code.to_owned());
+                }
+                for answer in page["answers"]
+                    .as_object()
+                    .into_iter()
+                    .flat_map(|a| a.values())
+                {
+                    if let Some(code) = answer.pointer("/error/code").and_then(Value::as_str) {
+                        codes.push(code.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    if codes.is_empty() {
+        return None;
+    }
+    let all = |test: fn(&str) -> bool| codes.iter().all(|code| test(code));
+    Some(if all(is_clasify_caller_code) {
+        2
+    } else if let Some(failure) = failure {
+        failure_exit(failure)
+    } else if all(octocode_native::runtime::response::is_not_found_code) {
+        3
+    } else if all(|code| matches!(code, "classificationRateLimited" | "rateLimited")) {
+        7
+    } else {
+        5
+    })
+}
+
+/// clasify error codes that reject the caller's request rather than report a
+/// failed read or provider call.
+fn is_clasify_caller_code(code: &str) -> bool {
+    octocode_native::runtime::response::is_invalid_input_code(code)
+        || matches!(
+            code,
+            "invalidClassificationContext"
+                | "invalidClassificationRequest"
+                | "classificationLocateUnsupported"
+                | "classificationExpandedCellsExceeded"
+                | "pathOutsideAllowedRoots"
+                | "pathValidationFailed"
+        )
 }
 
 /// An error row whose `errorCode` rejects the caller's input.
@@ -894,10 +950,40 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        INTERACTIVE_EXECUTION_TIMEOUT_SECS, all_rows_invalid_input, error_envelope,
-        has_clasify_continuation, has_cli_continuation, parse_args_from,
+        INTERACTIVE_EXECUTION_TIMEOUT_SECS, all_rows_invalid_input, clasify_failure_exit,
+        error_envelope, has_clasify_continuation, has_cli_continuation, parse_args_from,
     };
+    use octocode_native::runtime::FailureKind;
     use serde_json::json;
+
+    #[test]
+    fn clasify_whose_every_read_failed_exits_like_that_read() {
+        let failed = |code: &str| {
+            json!({"queries":[{"queryId":"q","resources":[{"resourceId":"x","coverage":"error",
+                "pages":[{"error":{"code":code,"message":"m"}}]}]}]})
+        };
+        // localFetch reports a missing file as fileAccessFailed + NotFound.
+        let missing = failed("fileAccessFailed");
+        assert_eq!(
+            clasify_failure_exit(&missing, Some(FailureKind::NotFound)),
+            Some(3)
+        );
+        assert_eq!(clasify_failure_exit(&missing, None), Some(5));
+        assert_eq!(clasify_failure_exit(&failed("pathNotFound"), None), Some(3));
+        assert_eq!(
+            clasify_failure_exit(&failed("rateLimited"), Some(FailureKind::RateLimited)),
+            Some(7)
+        );
+        assert_eq!(
+            clasify_failure_exit(
+                &failed("classificationLocateUnsupported"),
+                Some(FailureKind::NotFound)
+            ),
+            Some(2),
+            "a rejected request stays a caller error"
+        );
+        assert_eq!(clasify_failure_exit(&json!({"queries":[]}), None), None);
+    }
 
     #[test]
     fn json_error_envelope_matches_contract_tool_errors() {

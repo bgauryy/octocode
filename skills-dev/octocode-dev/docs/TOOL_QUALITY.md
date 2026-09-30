@@ -10,7 +10,7 @@ For response fields, path reconstruction, pagination layers, and producer-to-con
 handoffs, use the tool data contract (`<repo>/docs/TOOL_DATA_CONTRACT.md`). Keep ratings dated
 and evidence-backed; a documentation correction does not establish a runtime improvement.
 
-Every acceptance run must cover the shared contract as well as tool-specific behavior: a strict `{ queries: [...] }` envelope (`clasify` takes its own query shape); 1–5 same-tool query rows; required `reasoning` and `goal` on every new row (a top-level brief is not inherited; `followUp` continuations inherit the producing query's brief); zero-based result `index` alignment; isolated row errors; `scheme` `variants` and `rules`; collection/content/whole-response continuations; and typed terminal limits. The tool reference's base-call section (`<repo>/docs/OCTOCODE_TOOLS.md#how-every-tool-call-works`) is the normative prose summary.
+Every acceptance run must cover the shared contract as well as tool-specific behavior: a strict `{ queries: [...] }` envelope (`clasify` takes its own query shape); 1–5 same-tool query rows; required `reasoning` and `goal` on every row (a top-level brief is not inherited; `next.*` continuations carry the producing query's brief); zero-based result `index` alignment; isolated row errors; `scheme` `variants` and `rules`; collection/content/whole-response continuations; and typed terminal limits. The tool reference's base-call section (`<repo>/docs/OCTOCODE_TOOLS.md#how-every-tool-call-works`) is the normative prose summary.
 
 ## Inspect the surface being tested
 

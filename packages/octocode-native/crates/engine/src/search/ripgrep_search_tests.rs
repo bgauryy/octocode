@@ -840,6 +840,31 @@ fn long_leading_context_does_not_hide_the_match() {
     assert!(r.files[0].matches[0].value.contains("target"));
 }
 
+/// A file whose first NUL comes before any text (image, object file, archive
+/// headers) is opaque binary: skipped like rg skips it, counted, and not a
+/// coverage gap. Only a NUL after text leaves searchable text unread.
+#[test]
+fn opaque_binary_files_are_skipped_not_a_coverage_gap() {
+    let t = TmpDir::new();
+    fs::write(t.0.join("logo.png"), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR needle").expect("png");
+    fs::write(t.0.join("addon.node"), b"\x7fELF\x02\x01\x01\0needle").expect("elf");
+    fs::write(t.0.join("font.ttf"), b"\0\x01\0\0needle").expect("ttf");
+    t.write("text.txt", "needle plain\n");
+    let r = search(opts(t.path(), "needle")).expect("ok");
+    assert_eq!(r.files.len(), 1, "{:?}", r.files);
+    assert!(r.files[0].path.ends_with("text.txt"));
+    assert_eq!(r.stats.cap_reason, None, "{:?}", r.stats);
+    assert_ne!(r.stats.capped, Some(true), "{:?}", r.stats);
+    assert_eq!(r.stats.binary_files, None, "{:?}", r.stats);
+    assert_eq!(r.stats.skipped_binary_count, Some(3), "{:?}", r.stats);
+    assert_eq!(r.stats.files_searched, Some(4), "{:?}", r.stats);
+
+    // files-without-match still never lists a file it could not read as text.
+    let mut o = opts(t.path(), "needle");
+    o.files_without_match = Some(true);
+    assert!(search(o).expect("ok").files.is_empty());
+}
+
 #[test]
 fn binary_quit_keeps_matches_before_the_nul() {
     let t = TmpDir::new();

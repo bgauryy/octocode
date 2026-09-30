@@ -54,7 +54,7 @@ This check is manual.
 | Contract sync (published) | `yarn workspace @octocodeai/config check:core-contract-sync:published` | Embedded contracts match the **npm-published** core at the pinned version — what a clean install actually delivers. Runs automatically in native's `prepublishOnly`; blocks publish only, never dev |
 | Docs drift | `yarn workspace @octocodeai/octocode-native docs:claims` | README exit codes, tool count, and `CONFIGURATION.md` env names match source; no retired pre-v20 CLI grammar |
 | Docs links and catalog | `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify` (repo root) | Doc links, workflow references, tool catalog and counts, and config keys match source |
-| Launcher e2e | CI `launcher-e2e` job (Linux) | The built npm launcher drives the real native binary end-to-end |
+| Launcher e2e | `yarn workspace octocode exec vitest run tests/e2e/launcher.e2e.test.ts` after `build:dev` (local; not in CI) | The built npm launcher drives the real native binary end-to-end |
 | Version consistency | `yarn workspace @octocodeai/octocode-native version:check` | Native Cargo crates, `optionalDependencies`, and platform packages share the native version |
 
 ## Failure playbook

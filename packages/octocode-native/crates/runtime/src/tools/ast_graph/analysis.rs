@@ -187,12 +187,9 @@ fn traversal(
             format!("{} requires file", q.analysis().as_str()),
         )
     })?;
-    let file = graph_file(raw, &b.root);
+    let file = node_key(raw, &b.root, &b.nodes);
     if !b.nodes.contains_key(&file) {
-        return Err(AstGraphError::new(
-            "invalidGraphQuery",
-            missing_file_message(&file, &b.nodes),
-        ));
+        return Err(missing_file_error(q, &file, &b.nodes));
     }
     let graph = if q.analysis() == GraphAnalysis::Dependencies {
         b.nodes.clone()
@@ -242,17 +239,19 @@ fn path_analysis(
     b: &BuiltGraph,
     q: &AstTopologyQuery,
 ) -> Result<(Vec<Value>, Value, Vec<String>, bool), AstGraphError> {
-    let file = graph_file(
+    let file = node_key(
         q.file().ok_or_else(|| {
             AstGraphError::new("invalidGraphQuery", "path requires file and target")
         })?,
         &b.root,
+        &b.nodes,
     );
-    let target = graph_file(
+    let target = node_key(
         q.target().ok_or_else(|| {
             AstGraphError::new("invalidGraphQuery", "path requires file and target")
         })?,
         &b.root,
+        &b.nodes,
     );
     if !b.nodes.contains_key(&file) || !b.nodes.contains_key(&target) {
         return Err(AstGraphError::new(
@@ -763,7 +762,7 @@ fn entrypoints(
     let mut low = false;
     if let Some(explicit) = q.entrypoints().filter(|x| !x.is_empty()) {
         for raw in explicit {
-            let p = graph_file(raw, &b.root);
+            let p = node_key(raw, &b.root, &b.nodes);
             if b.nodes.contains_key(&p) {
                 push_unique(&mut roots, &mut seen_roots, p);
             } else {
@@ -1403,14 +1402,56 @@ fn missing_file_message(file: &str, nodes: &BTreeMap<String, Node>) -> String {
         "file is not in the scanned graph: {file}. `file` is relative to `path` \
          (or absolute under it), and must be a scanned source file"
     );
-    let suffix = format!("/{file}");
-    if let Some(candidate) = nodes
-        .keys()
-        .find(|key| key.ends_with(&suffix) || file.ends_with(&format!("/{key}")))
-    {
+    if let Some(candidate) = suffix_candidate(file, nodes) {
         message.push_str(&format!("; did you mean `{candidate}`?"));
     }
     message
+}
+
+fn suffix_candidate<'a>(file: &str, nodes: &'a BTreeMap<String, Node>) -> Option<&'a String> {
+    let suffix = format!("/{file}");
+    nodes
+        .keys()
+        .find(|key| key.ends_with(&suffix) || file.ends_with(&format!("/{key}")))
+}
+
+/// The missing-file error, with an executable `next.retry` on the suffix
+/// candidate when one exists.
+fn missing_file_error(
+    q: &AstTopologyQuery,
+    file: &str,
+    nodes: &BTreeMap<String, Node>,
+) -> AstGraphError {
+    let mut error = AstGraphError::new("invalidGraphQuery", missing_file_message(file, nodes));
+    if let Some(candidate) = suffix_candidate(file, nodes) {
+        let mut query = clean_query(q);
+        query["file"] = json!(candidate);
+        error.next = Some(Box::new(json!({"retry": {
+            "tool": "astTopology",
+            "query": query,
+            "why": "Retry with the scanned file that shares this path suffix.",
+            "confidence": "medium"
+        }})));
+    }
+    error
+}
+
+/// A graph key for `raw`: relative to the scanned root, or absolute under it.
+/// A workspace-relative spelling of a file under the root (leading components
+/// that name the root's own tail) resolves to the same key.
+fn node_key(raw: &str, root: &Path, nodes: &BTreeMap<String, Node>) -> String {
+    let key = graph_file(raw, root);
+    if nodes.contains_key(&key) || Path::new(raw).is_absolute() {
+        return key;
+    }
+    let parts = key.split('/').collect::<Vec<_>>();
+    (1..parts.len())
+        .find_map(|split| {
+            let (prefix, rest) = parts.split_at(split);
+            let rest = rest.join("/");
+            (root.ends_with(prefix.join("/")) && nodes.contains_key(&rest)).then_some(rest)
+        })
+        .unwrap_or(key)
 }
 
 fn graph_file(f: &str, root: &Path) -> String {
@@ -1701,6 +1742,32 @@ mod tests {
         assert_eq!(actual["right.ts"].as_deref(), Some("entry.ts"));
         assert_eq!(actual["shared.ts"].as_deref(), Some("entry.ts"));
         assert_eq!(actual["deep.ts"].as_deref(), Some("shared.ts"));
+    }
+
+    #[test]
+    fn workspace_relative_files_under_path_resolve_and_misses_get_a_repair() {
+        let root = Path::new("/ws/packages/pkg");
+        let nodes = BTreeMap::from([("src/index.ts".into(), node(&[]))]);
+        for spelling in ["src/index.ts", "pkg/src/index.ts", "packages/pkg/src/index.ts"] {
+            assert_eq!(node_key(spelling, root, &nodes), "src/index.ts", "{spelling}");
+        }
+        assert_eq!(
+            node_key("other/src/index.ts", root, &nodes),
+            "other/src/index.ts"
+        );
+
+        let query: AstTopologyQuery = serde_json::from_value(json!({
+            "goal": "test", "reasoning":"test",
+            "analysis":"dependencies",
+            "path":"packages/pkg",
+            "file":"lib/src/index.ts"
+        }))
+        .expect("graph query");
+        let error = missing_file_error(&query, "lib/src/index.ts", &nodes);
+        let next = error.next.expect("repair continuation");
+        assert_eq!(next["retry"]["tool"], "astTopology", "{next}");
+        assert_eq!(next["retry"]["query"]["file"], "src/index.ts", "{next}");
+        assert_eq!(next["retry"]["query"]["path"], "packages/pkg", "{next}");
     }
 
     #[test]

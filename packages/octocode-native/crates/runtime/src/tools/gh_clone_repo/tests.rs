@@ -701,7 +701,8 @@ fn missing_branch_endpoint_git_and_portable_paths_fail_closed() {
     let error = execute_clone(&query(), &context).expect_err("missing git");
     assert_eq!(error.code, "clone.git.unavailable");
 
-    let insecure = GitHubEndpoint::new(url::Url::parse("http://example.test/api/v3").expect("URL"))
+    // Plain http is only a valid API base on loopback; clone still refuses it.
+    let insecure = GitHubEndpoint::new(url::Url::parse("http://127.0.0.1/api/v3").expect("URL"))
         .expect("provider endpoint");
     assert_eq!(
         repository_url(&insecure, "owner", "repo")

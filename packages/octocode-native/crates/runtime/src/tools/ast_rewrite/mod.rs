@@ -1591,6 +1591,12 @@ mod tests {
         cancellation: &dyn CancellationCheck,
         options: &AstRewriteRuntimeOptions,
     ) -> Value {
+        let mut query = query;
+        for field in ["goal", "reasoning"] {
+            if query[field].is_null() {
+                query[field] = Value::from("test");
+            }
+        }
         let query: RewriteRequest = serde_json::from_value(query).expect("typed astRewrite row");
         execute_ast_rewrite_with_options(query, paths, security, cancellation, options)
     }

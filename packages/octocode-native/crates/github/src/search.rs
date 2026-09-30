@@ -174,7 +174,15 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 "application/vnd.github+json"
             }),
         );
-        let key = format!("{}\u{0}{}", spec.url, request.include_fragments);
+        // The transport outlives any one credential (it is resolved per
+        // request), so the key carries the endpoint+credential partition.
+        let partition = self.cache_partition(context, None).await?;
+        let key = format!(
+            "{}\u{0}{}\u{0}{}",
+            partition.identity(),
+            spec.url,
+            request.include_fragments
+        );
         if let Some(page) = self.search_results.get(&key) {
             return Ok((*page).clone());
         }
@@ -182,8 +190,11 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             self.execute(spec, context).await?.body.as_ref(),
             "invalid GitHub code search response",
         )?;
-        self.search_results
-            .insert(key, std::sync::Arc::new(page.clone()));
+        // An incomplete page is exactly what a retry must not get back.
+        if !page.incomplete_results {
+            self.search_results
+                .insert(key, std::sync::Arc::new(page.clone()));
+        }
         Ok(page)
     }
     pub async fn search_repositories(

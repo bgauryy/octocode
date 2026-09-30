@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..', '..');
-const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-benchmark'];
+// CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
+const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-benchmark', '--exclude', '@octocodeai/octocode-native'];
 
 const script = (name, ...args) => ['node', [path.join(HERE, name), ...args]];
 const health = (...args) => script('workspace-health.mjs', ...args);
@@ -18,14 +19,14 @@ const yarn = (...args) => ['yarn', args];
 const TASKS = {
   build: ['Release build of every workspace (slow)', [health('run', 'build', '--parallel')]],
   'build:dev': ['Fast debug build of every workspace (default locally)', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
-  'build:ci': ['Publish guard, then release build without benchmark', [script('prepublish.mjs'), guard, health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
+  'build:ci': ['Publish guard, then release build without benchmark or native', [script('prepublish.mjs'), guard, health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
   'build:publish': ['Publish guard, 6-platform native build, platform check, MCP publish build', [script('prepublish.mjs'), guard, yarn('build:native:all'), yarn('platforms:check'), yarn('workspace', 'octocode-mcp', 'build:publish')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
-  'test:ci': ['Tests without benchmark', [health('run', 'test', ...CI_EXCLUDE)]],
+  'test:ci': ['Tests without benchmark or native', [health('run', 'test', ...CI_EXCLUDE)]],
   lint: ['Run every workspace lint script', [health('run', 'lint')]],
-  'lint:ci': ['Lint without benchmark', [health('run', 'lint', ...CI_EXCLUDE)]],
+  'lint:ci': ['Lint without benchmark or native', [health('run', 'lint', ...CI_EXCLUDE)]],
   typecheck: ['Run every workspace typecheck script', [health('run', 'typecheck')]],
-  'typecheck:ci': ['Typecheck without benchmark', [health('run', 'typecheck', ...CI_EXCLUDE)]],
+  'typecheck:ci': ['Typecheck without benchmark or native', [health('run', 'typecheck', ...CI_EXCLUDE)]],
   verify: ['Full repo contract: dedupe, docs, per-package verify', [health('verify')]],
   'health:check': ['Required workspace scripts exist', [health('check')]],
   'health:report': ['Workspace script matrix', [health('report')]],

@@ -24,6 +24,13 @@ pub(crate) fn string(value: Option<&Value>) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A registry-recorded git commit (7–40 hex digits), lowercased.
+pub(crate) fn commit_sha(value: Option<&Value>) -> Option<String> {
+    string(value)
+        .filter(|sha| (7..=40).contains(&sha.len()) && sha.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(|sha| sha.to_ascii_lowercase())
+}
+
 pub(crate) fn required(
     value: Option<&Value>,
     artifact_type: ArtifactType,

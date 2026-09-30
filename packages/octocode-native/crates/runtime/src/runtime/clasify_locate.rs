@@ -377,19 +377,37 @@ pub(super) fn collapse_locate_answer(
     } else {
         1
     };
-    let matches = groups
+    let mut windows: Vec<(u64, u64, f64)> = Vec::new();
+    for group in groups
         .iter()
         .take(kept)
         .enumerate()
-        .filter(|(rank, group)| {
-            *rank == 0 || (group.probability > 0.0 && group.probability >= top * RUNNER_UP_SHARE)
+        .filter_map(|(rank, group)| {
+            (rank == 0 || (group.probability > 0.0 && group.probability >= top * RUNNER_UP_SHARE))
+                .then_some(group)
         })
-        .map(|(_, group)| {
-            let (start_line, end_line) = window(page, group);
+    {
+        let (start, end) = window(page, group);
+        // Adjacent declarations can yield overlapping verification windows;
+        // one merged window is one read, not two reads of the same lines.
+        if let Some(kept) = windows
+            .iter_mut()
+            .find(|(kept_start, kept_end, _)| start <= *kept_end && *kept_start <= end)
+        {
+            kept.0 = kept.0.min(start);
+            kept.1 = kept.1.max(end);
+            kept.2 += group.probability;
+        } else {
+            windows.push((start, end, group.probability));
+        }
+    }
+    let matches = windows
+        .into_iter()
+        .map(|(start_line, end_line, probability)| {
             json!({
                 "startLine":start_line,
                 "endLine":end_line,
-                "probability":rounded(group.probability)
+                "probability":rounded(probability.min(1.0))
             })
         })
         .collect::<Vec<_>>();
@@ -463,6 +481,21 @@ pub(super) fn rank_locate(
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
         });
+        // A carried row and a fresh one (or two pages' windows) can cover the
+        // same lines of one file; keep only the higher-ranked of them.
+        let mut kept: Vec<Value> = Vec::new();
+        for row in rows {
+            let same_lines = |other: &Value| {
+                other["resourceId"] == row["resourceId"]
+                    && other.get("path") == row.get("path")
+                    && key(&row, "startLine") <= key(other, "endLine")
+                    && key(other, "startLine") <= key(&row, "endLine")
+            };
+            if !kept.iter().any(same_lines) {
+                kept.push(row);
+            }
+        }
+        let mut rows = kept;
         rows.truncate(KEPT);
         best.insert((*id).to_owned(), Value::Array(rows));
     }
@@ -471,20 +504,25 @@ pub(super) fn rank_locate(
 
 /// Publish `best` when the walk is finished, or when its top window already
 /// answers; a lone strong window is published too. A low-exists ranking on
-/// an open walk stays in `carry` only.
+/// an open walk stays in `carry` only. Public rows are the answering windows
+/// (`exists` ≥ 0.5); a finished walk with none names only its closest
+/// passage. Every row stays in `carry`.
 pub(super) fn readable_best(best: &Value, walk_open: bool) -> Option<Value> {
+    let exists = |row: &Value| row.get("exists").and_then(Value::as_f64).unwrap_or(0.0);
     let mut kept = Map::new();
     for (id, rows) in best.as_object()? {
         let Some(rows) = rows.as_array().filter(|rows| !rows.is_empty()) else {
             continue;
         };
-        let top = rows
-            .first()
-            .and_then(|row| row.get("exists"))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        if !walk_open || top >= RUNNER_UP_MIN_EXISTS {
-            kept.insert(id.clone(), Value::Array(rows.clone()));
+        let answering = rows
+            .iter()
+            .filter(|row| exists(row) >= RUNNER_UP_MIN_EXISTS)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !answering.is_empty() {
+            kept.insert(id.clone(), Value::Array(answering));
+        } else if !walk_open {
+            kept.insert(id.clone(), Value::Array(rows[..1].to_vec()));
         }
     }
     (!kept.is_empty()).then_some(Value::Object(kept))
@@ -495,6 +533,8 @@ pub(super) fn readable_best(best: &Value, walk_open: bool) -> Option<Value> {
 pub(super) struct LocateRead {
     pub(super) resource_id: String,
     pub(super) path: Option<String>,
+    /// Source lines the page assessed; its read pins that observed version.
+    pub(super) scope: Option<(u64, u64)>,
     pub(super) read: Value,
 }
 
@@ -514,17 +554,66 @@ pub(super) fn with_row_reads(mut best: Value, reads: &[LocateRead]) -> Value {
         };
         let resource = row["resourceId"].as_str();
         let path = row.get("path").and_then(Value::as_str);
-        let read = reads
-            .iter()
-            .filter(|read| {
-                Some(read.resource_id.as_str()) == resource && read.path.as_deref() == path
-            })
+        let same_file = reads.iter().filter(|read| {
+            Some(read.resource_id.as_str()) == resource && read.path.as_deref() == path
+        });
+        // Prefer the page that assessed the window: its read carries that
+        // page's snapshot, so the row replays exactly like the page's read.
+        let (assessed, other): (Vec<_>, Vec<_>) = same_file.partition(|read| {
+            read.scope
+                .is_some_and(|(first, last)| first <= start && end <= last)
+        });
+        let read = assessed
+            .into_iter()
+            .chain(other)
             .find_map(|read| super::clasify_output::window_read(&read.read, start, end));
         if let Some(read) = read {
             row["next"] = json!({"read":read});
         }
     }
     best
+}
+
+/// A located page's `next.read` points at its top window. It stays only for
+/// an answering page (`exists` ≥ 0.5) whose read `best` does not already
+/// carry: a non-answer is not a read to run (its window stays in `matches`,
+/// and `next.clasify` or `best` is the route). Pages with other answers keep
+/// their read.
+pub(super) fn drop_redundant_page_reads(resources: &mut [Value], best: Option<&Value>) {
+    let best_reads = best
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|best| best.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|row| row.pointer("/next/read"))
+        .collect::<Vec<_>>();
+    let pages = resources
+        .iter_mut()
+        .filter_map(|resource| resource.get_mut("pages").and_then(Value::as_array_mut))
+        .flatten();
+    for page in pages {
+        let Some(exists) = page
+            .get("answers")
+            .and_then(Value::as_object)
+            .filter(|answers| !answers.is_empty())
+            .and_then(|answers| {
+                answers
+                    .values()
+                    .map(|answer| answer.get("exists").and_then(Value::as_f64))
+                    .collect::<Option<Vec<_>>>()
+            })
+        else {
+            continue;
+        };
+        let answering = exists.iter().any(|exists| *exists >= RUNNER_UP_MIN_EXISTS);
+        let redundant = page
+            .pointer("/next/read")
+            .is_some_and(|read| !answering || best_reads.contains(&read));
+        if redundant && let Some(page) = page.as_object_mut() {
+            page.remove("next");
+        }
+    }
 }
 
 fn is_candidate_row(row: &Value) -> bool {
@@ -557,6 +646,22 @@ pub(super) fn literal_target_hint(target: &str) -> Option<String> {
     ))
 }
 
+/// A target that is nothing but one identifier token: a literal lookup, not
+/// described behavior.
+pub(super) fn bare_identifier(target: &str) -> Option<&str> {
+    let token = target
+        .trim()
+        .trim_matches(['`', '"', '\''])
+        .trim_end_matches("()");
+    (!token.contains(char::is_whitespace) && looks_like_identifier(token)).then_some(token)
+}
+
+pub(super) fn bare_target_hint(identifier: &str) -> String {
+    format!(
+        "Target `{identifier}` is a bare identifier: locate was skipped (no read or provider call); run next.localSearch for its exact matches."
+    )
+}
+
 fn literal_target(target: &str) -> Option<&str> {
     target
         .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '"' | '\'' | '`' | '?' | '!'))
@@ -575,12 +680,17 @@ pub(super) fn literal_search<'a>(
     let literal = targets.into_iter().find_map(literal_target)?;
     let path = local_scope(resources)?;
     let query: crate::contracts::tool_types::LocalSearchQuery = serde_json::from_value(
-        json!({"path":path,"searchText":literal,"regex":"literal","followUp":true}),
+        // The typed query needs a brief; it is dropped again so the response
+        // stage gives this hint the matrix's own brief.
+        json!({"path":path,"searchText":literal,"regex":"literal","goal":"-","reasoning":"-"}),
     )
     .ok()?;
     let mut query = serde_json::to_value(query).ok()?;
-    query.as_object_mut()?.retain(|_, value| !value.is_null());
     super::continuations::compact_input("localSearch", &mut query);
+    let object = query.as_object_mut()?;
+    object.retain(|_, value| !value.is_null());
+    object.remove("goal");
+    object.remove("reasoning");
     Some(json!({"tool":"localSearch","query":query}))
 }
 
@@ -770,6 +880,51 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_winner_and_runner_up_windows_merge_into_one_read() {
+        let (_, page) = js_page();
+        // P003 and P004 both sit in `other`-adjacent passages whose ±2-line
+        // windows overlap; the host should get one window, not two copies.
+        let [choice, exists] = answers(json!({"P003":0.5,"P004":0.45,"P005":0.05}), 0.9);
+        let projected = collapse_locate_answer(&choice, &exists, &page).unwrap();
+        let matches = projected["answer"]["matches"].as_array().unwrap();
+        for (index, left) in matches.iter().enumerate() {
+            for right in &matches[index + 1..] {
+                assert!(
+                    left["endLine"].as_u64() < right["startLine"].as_u64()
+                        || right["endLine"].as_u64() < left["startLine"].as_u64(),
+                    "{matches:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ranking_drops_rows_covering_lines_a_better_row_covers() {
+        let row = |start: u64, end: u64, probability: f64| json!({"resourceId":"r","path":"/a.rs","exists":0.9,"startLine":start,"endLine":end,"probability":probability});
+        let carry = json!({"t":[row(10, 17, 0.8)]});
+        let resources = [json!({"resourceId":"r","pages":[{
+            "source":{"path":"/a.rs"},
+            "answers":{"t":{"exists":0.9,"matches":[
+                {"startLine":14,"endLine":21,"probability":0.5},
+                {"startLine":40,"endLine":47,"probability":0.4}
+            ]}}
+        }]})];
+        let best = rank_locate(&resources, &["t"], Some(&carry)).unwrap();
+        let lines: Vec<_> = best["t"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["startLine"].as_u64().unwrap(),
+                    row["endLine"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(lines, [(10, 17), (40, 47)]);
+    }
+
+    #[test]
     fn a_close_runner_up_is_returned_and_a_distant_one_is_not() {
         let (_, page) = js_page();
         let [choice, exists] = answers(json!({"P002":0.45,"P004":0.55}), 0.9);
@@ -870,6 +1025,30 @@ mod tests {
     }
 
     #[test]
+    fn best_lists_only_answering_windows_or_a_finished_walk_s_closest_passage() {
+        let row = |exists: f64, line: u64| json!({"resourceId":"r","exists":exists,"startLine":line,"endLine":line + 7,"probability":0.5});
+        let lines = |visible: &Value| {
+            visible["t"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["startLine"].as_u64().unwrap())
+                .collect::<Vec<_>>()
+        };
+        // A non-answering window is not a read to run, open walk or not.
+        let one = json!({"t":[row(0.98, 43), row(0.08, 745), row(0.05, 901)]});
+        for walk_open in [true, false] {
+            assert_eq!(lines(&readable_best(&one, walk_open).unwrap()), [43]);
+        }
+        let two = json!({"t":[row(0.9, 10), row(0.7, 40), row(0.2, 90)]});
+        assert_eq!(lines(&readable_best(&two, false).unwrap()), [10, 40]);
+        // A finished walk with no answer names only its closest passage.
+        let none = json!({"t":[row(0.3, 5), row(0.2, 50), row(0.1, 500)]});
+        assert_eq!(lines(&readable_best(&none, false).unwrap()), [5]);
+        assert!(readable_best(&none, true).is_none());
+    }
+
+    #[test]
     fn best_rows_read_exactly_their_window_and_carry_stays_copyable() {
         let page = |path: &str, line: u64| {
             json!({"source":{"path":path},"answers":{"t":{"exists":0.9,
@@ -881,11 +1060,13 @@ mod tests {
             LocateRead {
                 resource_id: "g".into(),
                 path: Some("o/r/src/other.rs".into()),
+                scope: None,
                 read: json!({"tool":"ghGetFileContent","query":{"owner":"o","repo":"r","path":"src/other.rs"}}),
             },
             LocateRead {
                 resource_id: "g".into(),
                 path: Some("o/r/src/a.rs".into()),
+                scope: None,
                 read: json!({"tool":"ghGetFileContent","query":{"owner":"o","repo":"r",
                     "path":"src/a.rs","branch":"abc","fullContent":true}}),
             },
@@ -902,6 +1083,7 @@ mod tests {
         let search = [LocateRead {
             resource_id: "g".into(),
             path: Some("o/r/src/a.rs".into()),
+            scope: None,
             read: json!({"tool":"ghSearchCode","query":{"keywords":["x"]}}),
         }];
         assert!(
@@ -914,6 +1096,48 @@ mod tests {
                 .get("next")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_best_row_reads_through_the_page_that_assessed_its_window() {
+        let best = json!({"t":[{"resourceId":"r","path":"/a.rs","exists":0.9,
+            "startLine":745,"endLine":752,"probability":0.8}]});
+        let page = |scope: (u64, u64), snapshot: &str| LocateRead {
+            resource_id: "r".into(),
+            path: Some("/a.rs".into()),
+            scope: Some(scope),
+            read: json!({"tool":"localFetch","query":{"path":"/a.rs","snapshot":snapshot}}),
+        };
+        let reads = [page((1, 468), "first"), page((469, 900), "second")];
+        let visible = with_row_reads(best, &reads);
+        assert_eq!(
+            visible["t"][0]["next"]["read"]["query"]["snapshot"],
+            "second"
+        );
+    }
+
+    #[test]
+    fn only_answering_located_pages_outside_best_keep_their_read() {
+        let read = |line: u64| json!({"tool":"localFetch","query":{"path":"/a.rs","startLine":line,"endLine":line + 7}});
+        let page = |exists: f64, line: u64| {
+            json!({"answers":{"t":{"exists":exists,"matches":[
+                {"startLine":line,"endLine":line + 7,"probability":0.8}
+            ]}},"next":{"read":read(line)}})
+        };
+        let best = json!({"t":[{"resourceId":"r","exists":0.98,"startLine":43,"endLine":50,
+            "probability":0.8,"next":{"read":read(43)}}]});
+        let judged = json!({"answers":{"n":{"noul":0.1}},"next":{"read":read(1)}});
+        let mut resources = vec![json!({"resourceId":"r","pages":[
+            page(0.98, 43), page(0.08, 745), page(0.7, 1000), judged.clone()
+        ]})];
+        drop_redundant_page_reads(&mut resources, Some(&best));
+        let pages = resources[0]["pages"].as_array().unwrap();
+        assert!(pages[0].get("next").is_none(), "best already reads it");
+        assert!(pages[1].get("next").is_none(), "a non-answer is no read");
+        assert_eq!(pages[2]["next"]["read"], read(1000));
+        assert_eq!(pages[3], judged, "non-locate pages keep their read");
+        // The page keeps its window; only the executable read leaves.
+        assert_eq!(pages[1]["answers"]["t"]["matches"][0]["startLine"], 745);
     }
 
     #[test]
@@ -934,6 +1158,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_a_lone_identifier_token_is_a_bare_target() {
+        for target in [
+            "MAX_EXPANDED_CELLS",
+            " `parse_cbor_internal` ",
+            "Engine::execute",
+            "applyEdits()",
+        ] {
+            assert!(bare_identifier(target).is_some(), "{target}");
+        }
+        for target in [
+            "Where is MAX_EXPANDED_CELLS defined?",
+            "retry",
+            "The retry loop.",
+            "a.b",
+            "",
+        ] {
+            assert!(bare_identifier(target).is_none(), "{target}");
+        }
+        assert!(bare_target_hint("MAX_EXPANDED_CELLS").contains("skipped"));
+    }
+
     fn local(tool: &str, path: &str) -> Value {
         json!({"id":path,"context":{"tool":tool,"query":{"path":path}}})
     }
@@ -947,9 +1193,11 @@ mod tests {
         assert_eq!(next["query"]["path"], "/repo/src/cbor.rs");
         assert_eq!(next["query"]["searchText"], "parse_cbor_internal");
         assert_eq!(next["query"]["regex"], "literal");
-        assert_eq!(next["query"]["followUp"], true);
         assert!(next["query"].get("page").is_none(), "compact: {next}");
-        crate::contracts::validate_query("localSearch", next["query"].clone()).unwrap();
+        let mut replay = next["query"].clone();
+        replay["goal"] = json!("Find the parser.");
+        replay["reasoning"] = json!("Literal target.");
+        crate::contracts::validate_query("localSearch", replay).unwrap();
         // Several local resources search their deepest shared directory.
         let many = [
             local("localFetch", "/repo/src/a/cbor.rs"),

@@ -87,6 +87,12 @@ pub fn execute_files(
     let time = &q.time;
     let access = q.access();
     let access = access.as_deref();
+    // Leave out what the tree and localSearch leave out: `.gitignore`d
+    // entries, pruned during the walk. `defaultExcludes:false` walks them too.
+    let gitignore = q
+        .default_excludes
+        .defaults()
+        .then(|| crate::policy::gitignore::GitignoreFilter::new(&validated.canonical));
     let native = octocode_engine::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
@@ -116,7 +122,15 @@ pub fn execute_files(
             stop_at_limit: Some(true),
             limit: Some(MAX_WALK),
         },
-        &|path| super::allow_discovery(path, paths, cancel),
+        &|path| {
+            if gitignore
+                .as_ref()
+                .is_some_and(|filter| filter.is_ignored(path))
+            {
+                return Ok(false);
+            }
+            super::allow_discovery(path, paths, cancel)
+        },
     )
     .map_err(super::walk_error)?;
     cancel.check().map_err(super::cancelled)?;

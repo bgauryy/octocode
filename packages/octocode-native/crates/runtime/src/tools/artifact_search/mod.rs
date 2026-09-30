@@ -196,6 +196,11 @@ async fn run(
                 "reasoning": "Inspect the package's upstream source tree.",
             },
         });
+        // The published version's own commit or tag; without one the lead
+        // reads the default branch, which may be ahead of the release.
+        if let Some(reference) = artifact.source_ref.as_deref() {
+            data["next"]["viewRepo"]["query"]["branch"] = json!(reference);
+        }
     }
     if let Some(limit) = page.terminal_limit.as_deref() {
         data["isPartial"] = json!(true);
@@ -238,8 +243,8 @@ fn github_repo(url: &str) -> Option<(String, String)> {
 }
 
 /// Monorepo subdirectory from a `/tree/<ref>/<dir>` or `/blob/<ref>/<file>`
-/// repository URL. The ref is dropped: refs may contain slashes, and registry
-/// refs are often stale, so the viewRepo lead reads the default branch.
+/// repository URL. The ref is dropped: refs may contain slashes, and URL refs
+/// are often stale; the viewRepo lead pins only the registry's source ref.
 fn github_repo_dir(url: &str) -> Option<String> {
     let rest = url.split_once("github.com/")?.1;
     let rest = rest.split(['#', '?']).next()?;
@@ -328,12 +333,12 @@ mod cursor_signing_tests {
         );
         let continued_scope = cursor_scope(&continued).expect("continuation scope");
         assert_eq!(continued_scope, scope);
-        // A followUp replay carries no brief; the page scope is unchanged.
-        let follow_up = crate::providers::artifact::artifact_query(
-            json!({"cursor": continued.cursor(), "followUp": true}),
+        // A replay with a different brief keeps the same page scope.
+        let rebriefed = crate::providers::artifact::artifact_query(
+            json!({"cursor": continued.cursor(), "goal": "other", "reasoning": "other"}),
             Some(&keyword_query(&["http"])),
         );
-        assert_eq!(cursor_scope(&follow_up).expect("followUp scope"), scope);
+        assert_eq!(cursor_scope(&rebriefed).expect("rebriefed scope"), scope);
         assert_eq!(
             cursor::verify_state(key, &continued_scope, continued.cursor().expect("cursor"))
                 .expect("issued continuation verifies"),
@@ -485,6 +490,48 @@ mod npm_auth_tests {
         assert_eq!(error.code, "notFound", "{error:?}");
         assert_eq!(error.status, Some(404));
         assert!(error.message.contains("no-such-package-zz"), "{error:?}");
+    }
+
+    /// D1: the upstream-source lead reads the commit the version was
+    /// published from (npm `gitHead`), not the default branch.
+    #[tokio::test]
+    async fn view_repo_pins_the_published_git_head() {
+        let sha = "4b0051f400219f8d8855f9a5433c6df35f15a639";
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "name": "audit-package", "version": "1.31.0", "gitHead": sha,
+                "repository": {"url": "git+https://github.com/o/r.git", "directory": "packages/x"}
+            })))
+            .mount(&server)
+            .await;
+        let query = json!({
+            "type": "npm",
+            "packageName": "audit-package",
+            "registry": format!("http://127.0.0.1:{}", server.address().port()),
+            "goal": "test", "reasoning": "test",
+        });
+        let deadline = Instant::now() + std::time::Duration::from_secs(300);
+        let data = run(
+            &query,
+            deadline,
+            CancellationToken::new(),
+            true,
+            None,
+            0,
+            false,
+            None,
+        )
+        .await
+        .expect("lookup succeeds");
+        let view = &data["next"]["viewRepo"]["query"];
+        assert_eq!(view["branch"], sha, "{data}");
+        assert_eq!(view["path"], "packages/x", "{data}");
+        let row = data["artifacts"][0].as_object().expect("row");
+        assert!(
+            row.keys().all(|key| key != "gitHead" && key != "sourceRef"),
+            "{data}"
+        );
     }
 
     #[tokio::test]

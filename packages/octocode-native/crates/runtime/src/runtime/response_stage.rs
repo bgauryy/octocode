@@ -47,7 +47,6 @@ pub(super) fn finish(
         allow_auto_paging,
         source_digest,
     } = input;
-    super::continuations::mark_follow_ups(&mut structured);
     // Validate the complete, sanitized rows before deriving text, error state,
     // or a pagination snapshot from them.
     match isolate_output_rows(tool.as_str(), &mut structured) {
@@ -60,9 +59,10 @@ pub(super) fn finish(
     // emit only the fields that change the replay.
     super::continuations::compact_continuations(&mut structured);
     // An explicitly paged text response hashes and windows the rendered
-    // text, so transient telemetry must leave before rendering (rows and
-    // structured scopes are handled by the pager itself).
+    // text, so transient telemetry must leave before rendering (row pages
+    // keep per-call facts outside their snapshot; the pager handles both).
     if options.explicit()
+        && !options.rows_scope()
         && let Some(envelope) = structured.as_object_mut()
     {
         crate::response::strip_transient_telemetry(envelope);
@@ -111,9 +111,12 @@ pub(super) fn finish_receipts(
         source_digest,
         mut failure,
     } = receipts;
-    // Page reads are follow-ups like any continuation; next.clasify keeps
-    // its briefs (the marking pass leaves clasify continuations alone).
-    super::continuations::mark_follow_ups(&mut structured);
+    // Page reads are continuations like any other: they carry the brief of
+    // the matrix that produced them.
+    super::continuations::inherit_clasify_briefs(&mut structured, &response_query);
+    // Page reads and nested read contexts replay through validation too; emit
+    // only fields that change the replay (no `debug:false`, default views).
+    super::continuations::compact_continuations(&mut structured);
     match isolate_output_rows(tool, &mut structured) {
         Ok(true) if failure.is_none() => failure = Some(FailureKind::Execution),
         Ok(_) => {}
@@ -350,8 +353,45 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// B1: an explicitly paged text response hashes the rendered text; a
+    /// GitHub error row's request id must not change that snapshot.
     #[test]
-    fn clasify_receipts_keep_their_nested_queries_whole() {
+    fn text_pages_ignore_provider_request_ids() {
+        let snapshot = |request_id: &str| {
+            let rows = json!({"results":[
+                {"index":0,"data":{"path":"a.txt","content":"one\n".repeat(200),"totalLines":200}},
+                {"index":1,"status":"error","data":{"error":"Not found","errorCode":"notFound",
+                    "retryable":false,"httpStatus":404,"requestId":request_id,
+                    "rateLimit":{"remaining":4999,"resetEpochSeconds":1_700_000_000}}}]});
+            let outcome = finish(
+                StageInput {
+                    tool: ToolId::GhGetFileContent,
+                    structured: rows,
+                    response_query: json!({"queries":[{"owner":"o","repo":"r","path":"a.txt","goal":"g","reasoning":"r"}]}),
+                    options: ResponsePageOptions {
+                        response_char_length: Some(300),
+                        ..Default::default()
+                    },
+                    mcp: true,
+                    failure: None,
+                    auto_page_chars: 20_000,
+                    text_format: super::super::render::TextFormat::Yaml,
+                    allow_auto_paging: true,
+                    source_digest: None,
+                },
+                &context(),
+            )
+            .expect("stage runs")
+            .expect("valid envelope");
+            outcome.structured_content["responsePagination"]["snapshot"].clone()
+        };
+        let first = snapshot("360F:376635:800998:A22B33:6ABD2D5E");
+        assert!(first.is_string(), "{first}");
+        assert_eq!(first, snapshot("47F4:376635:800A3C:A22BF9:6ABD2D60"));
+    }
+
+    #[test]
+    fn clasify_receipts_compact_nested_queries_to_replay_equivalent_fields() {
         let receipt = json!({"queries":[{"queryId":"q","resources":[{"resourceId":"r","coverage":"complete",
             "pages":[{"answers":{"a":{"noul":0.5}}}]}],
             "next":{"clasify":{"id":"q","goal": "test", "reasoning":"r","resources":[{"id":"r","context":{"tool":"localFetch",
@@ -369,7 +409,13 @@ mod tests {
         )
         .expect("stage runs")
         .expect("valid envelope");
-        assert_eq!(outcome.structured_content["queries"], receipt["queries"]);
+        // Only the default `debug:false` goes; the replay is unchanged.
+        let mut expected = receipt["queries"].clone();
+        expected[0]["next"]["clasify"]["resources"][0]["context"]["query"]
+            .as_object_mut()
+            .unwrap()
+            .remove("debug");
+        assert_eq!(outcome.structured_content["queries"], expected);
         assert!(outcome.content.is_empty(), "receipts are never rendered");
     }
 }

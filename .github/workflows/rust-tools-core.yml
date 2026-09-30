@@ -1,4 +1,4 @@
-name: Octocode Native — Build, Test & Package
+name: Octocode Native — Test & Lint
 
 on:
   pull_request:
@@ -18,10 +18,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# No native build artifacts in CI: platform binaries are built locally
+# (`build:target <platform>`, `build:all`, `dev.mjs build:publish`).
 jobs:
   # Supply-chain gate: RUSTSEC advisories, license policy, banned/duplicate
-  # crates, and registry allow-list — all driven by deny.toml (previously only
-  # runnable by hand via `yarn deny`).
+  # crates, and registry allow-list — all driven by deny.toml.
   deny:
     name: cargo-deny (advisories, licenses, bans, sources)
     runs-on: ubuntu-latest
@@ -45,9 +46,8 @@ jobs:
         with:
           toolchain: 1.96.0
           components: clippy, rustfmt
-      # mold links large Rust binaries ~5–10× faster than GNU BFD; a no-op on
-      # non-Linux runners. Combined with thin LTO this is the main build-speed
-      # lever for the matrix.
+      # mold links large Rust test binaries much faster than GNU BFD; a no-op on
+      # non-Linux runners.
       - name: Set up mold linker (Linux)
         if: runner.os == 'Linux'
         uses: rui314/setup-mold@v1
@@ -75,91 +75,3 @@ jobs:
       - name: Clippy workspace crates
         working-directory: packages/octocode-native
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-
-  package:
-    name: Package ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64-gnu
-            os: ubuntu-latest
-          - target: linux-x64-musl
-            os: ubuntu-latest
-            rustTarget: x86_64-unknown-linux-musl
-          - target: linux-arm64-gnu
-            os: ubuntu-24.04-arm
-          - target: darwin-arm64
-            os: macos-latest
-          - target: darwin-x64
-            os: macos-15-intel
-          - target: win32-x64-msvc
-            os: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: yarn
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.96.0
-          targets: ${{ matrix.rustTarget }}
-      # Faster release linking (thin-LTO link is the dominant per-target cost).
-      # Skipped for musl, whose static cross-link path does not use mold.
-      - name: Set up mold linker (Linux, non-musl)
-        if: runner.os == 'Linux' && matrix.target != 'linux-x64-musl'
-        uses: rui314/setup-mold@v1
-      - name: Install musl toolchain
-        if: matrix.target == 'linux-x64-musl'
-        uses: taiki-e/setup-cross-toolchain-action@v1
-        with:
-          target: x86_64-unknown-linux-musl
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/octocode-native
-          key: ${{ matrix.target }}
-      - run: corepack enable
-      - run: yarn install --immutable
-      - name: Build package
-        run: yarn workspace @octocodeai/octocode-native build:${{ matrix.target }}
-      - name: Verify package
-        working-directory: packages/octocode-native/npm/${{ matrix.target }}
-        run: node ../verify-binary.cjs
-      - uses: actions/upload-artifact@v4
-        with:
-          name: octocode-native-${{ matrix.target }}
-          path: packages/octocode-native/npm/${{ matrix.target }}
-          if-no-files-found: error
-
-  packages:
-    name: Validate all six release packages
-    needs: package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          package-manager-cache: false
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: octocode-native-*
-          path: native-artifacts
-      - name: Assemble release packages
-        shell: bash
-        run: |
-          for platform in darwin-arm64 darwin-x64 linux-arm64-gnu linux-x64-gnu linux-x64-musl win32-x64-msvc; do
-            cp -a "native-artifacts/octocode-native-$platform/." "packages/octocode-native/npm/$platform/"
-          done
-          chmod +x \
-            packages/octocode-native/npm/darwin-*/octocode* \
-            packages/octocode-native/npm/linux-*/octocode*
-      - name: Verify all 24 platform artifacts
-        run: node packages/octocode-native/scripts/check-platform-binaries.cjs
-      - uses: actions/upload-artifact@v4
-        with:
-          name: octocode-native-release-packages
-          path: packages/octocode-native/npm
-          if-no-files-found: error

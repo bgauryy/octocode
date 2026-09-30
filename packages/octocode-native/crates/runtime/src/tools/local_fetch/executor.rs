@@ -382,9 +382,11 @@ pub fn process_fetched_content(
     } else {
         None
     };
-    let (pg, view_redacted, view_empty) = if let Some((pg, redacted)) = line_page {
+    // Page sanitizers keep line counts, so a redacted page still maps onto
+    // source lines; a whole-view scan does only when it kept the count.
+    let (pg, view_redacted, view_empty, lines_kept) = if let Some((pg, redacted)) = line_page {
         warnings.extend(ext.warnings);
-        (pg, redacted, selected.is_empty())
+        (pg, redacted, selected.is_empty(), true)
     } else {
         let (safe, security_warnings) = match security.sanitize(&selected, source_path) {
             Ok(x) => x,
@@ -428,7 +430,8 @@ pub fn process_fetched_content(
             Ok(p) => p,
             Err(e) => return LocalFetchResult::error(q.path.to_string(), "invalidPagination", e),
         };
-        (pg, safe != selected, safe.is_empty())
+        let lines_kept = safe == selected || line_count(&safe) == line_count(&selected);
+        (pg, safe != selected, safe.is_empty(), lines_kept)
     };
     let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
     // Redacted text is not the source: say so, as localSearch does. Count only
@@ -479,11 +482,13 @@ pub fn process_fetched_content(
     } else {
         continuation(q, &pg.pagination)
     };
+    // Redaction (source-wide for matchString, or on the page) replaces text
+    // within lines; the anchors stay and the warning above says the text is
+    // not verbatim.
     let source_ranges = if !out_of_range
         && !view_empty
-        && !match_redacted
         && content_view == MinifyMode::None
-        && !view_redacted
+        && lines_kept
     {
         if let Some(lines) = ext.source_lines.as_ref() {
             let page_lines: Vec<usize> = lines

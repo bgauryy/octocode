@@ -32,7 +32,7 @@ const DISAGREE = 2;
 const TOOL_WORDS = [
   'localSearch', 'localFetch', 'lspSearch', 'astSearch', 'structureSearch', 'artifactSearch', 'clasify',
   'ghSearchCode', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'ghSearchRepo', 'ghStructure',
-  'matchString', 'followUp', 'contextLines',
+  'matchString', 'contextLines',
 ];
 export function scrub(text) {
   let t = String(text ?? '');

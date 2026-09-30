@@ -52,20 +52,6 @@ async fn ordinary_tools_require_trace_context() {
         "{details}"
     );
 
-    // A runtime-emitted continuation inherits the brief instead.
-    let follow_up = runtime
-        .execute(
-            "follow-up".into(),
-            "localFetch".into(),
-            json!({"path":path,"followUp":true}),
-        )
-        .await
-        .expect("a followUp continuation needs no brief");
-    assert_eq!(
-        follow_up.structured_content["results"][0]["data"]["content"],
-        "ok\n"
-    );
-
     let outcome = runtime
         .execute(
             "reasoning-valid".into(),
@@ -1022,7 +1008,7 @@ async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
 }
 
 #[tokio::test]
-async fn continuations_carry_follow_up_instead_of_the_brief_and_replay() {
+async fn continuations_carry_the_input_brief_and_replay() {
     let workspace = Workspace::new();
     for name in ["a", "b", "c"] {
         workspace.write(&format!("{name}.txt"), "needle\n");
@@ -1039,9 +1025,13 @@ async fn continuations_carry_follow_up_instead_of_the_brief_and_replay() {
         .expect("first page");
     let next = &first.structured_content["results"][0]["data"]["next"]["nextPage"];
     let query = next["query"].clone();
-    assert_eq!(query["followUp"], true, "{next}");
-    assert!(
-        query.get("goal").is_none() && query.get("reasoning").is_none(),
+    assert!(query.get("followUp").is_none(), "{next}");
+    assert_eq!(
+        query["goal"], "Find every needle file for the audit.",
+        "{next}"
+    );
+    assert_eq!(
+        query["reasoning"], "List files one page at a time.",
         "{next}"
     );
     let second = runtime

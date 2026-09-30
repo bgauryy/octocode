@@ -97,7 +97,7 @@ Per package:
 
 | Package | Test | Lint / format |
 |---|---|---|
-| native | `test` (scripts + vitest + `test:rust`), `test:rust` alone | `lint:rust` (clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `check:crate-boundaries`, `docs:claims` |
+| native | `test` (scripts + vitest + `test:rust`), `test:rust` alone | `lint` (clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `check:crate-boundaries`, `docs:claims` |
 | config | `test`, `check:tool-contract`, `check:config-contract` | `lint` |
 | mcp | `test`, `test:contracts` | `lint`, `format:check` |
 | octocode, vscode, skill-installer, benchmark | `test` | `lint` |

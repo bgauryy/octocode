@@ -1824,6 +1824,7 @@ async fn call_hierarchy_keeps_the_truncation_of_both_directions() {
     let mut row = with_next(&q, row);
     if let Some(next) = row["next"].as_object_mut() {
         for continuation in next.values_mut() {
+            continuation["query"]["goal"] = serde_json::json!("walk");
             continuation["query"]["reasoning"] = serde_json::json!("continue");
         }
     }
@@ -1871,5 +1872,46 @@ fn page_two_query_hashes_like_page_one() {
         "first={} second={}",
         first.to_row(),
         second.to_row()
+    );
+}
+
+#[test]
+fn unresolved_symbol_anchor_reads_the_hinted_lines_and_suggests_near_names() {
+    let q = query(serde_json::json!({
+        "operation": "references", "goal": "test", "reasoning": "test",
+        "uri": "/repo/lib.rs",
+        "symbolName": "is_invalid_input_codeX",
+        "lineHint": 12
+    }));
+    let source = (1..=20)
+        .map(|line| match line {
+            12 => "pub fn is_invalid_input_code(code: &str) -> bool {".to_owned(),
+            13 => "    is_input(code)".to_owned(),
+            _ => format!("// line {line}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut row = failure(&q, "file:///repo/lib.rs", "lsp.anchorUnresolved", "x", true);
+    anchor_recovery(&mut row, &q, Some(&source));
+    let read = &row["next"]["readFile"];
+    assert_eq!(read["query"]["path"], "/repo/lib.rs", "{row}");
+    assert_eq!(read["query"]["startLine"], 7, "{row}");
+    assert_eq!(read["query"]["endLine"], 17, "{row}");
+    assert!(read["query"].get("matchString").is_none(), "{row}");
+    assert!(
+        !read["why"].as_str().unwrap_or_default().contains("unavailable"),
+        "{row}"
+    );
+    let retry = &row["next"]["didYouMean"];
+    assert_eq!(retry["tool"], "lspSearch", "{row}");
+    assert_eq!(retry["query"]["symbolName"], "is_invalid_input_code", "{row}");
+    assert_eq!(retry["query"]["lineHint"], 12, "{row}");
+    assert!(
+        row["hints"]
+            .as_array()
+            .is_some_and(|hints| hints.iter().any(|h| h
+                .as_str()
+                .is_some_and(|h| h.contains("is_invalid_input_code")))),
+        "{row}"
     );
 }

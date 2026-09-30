@@ -137,7 +137,7 @@ packages/octocode-native/
 
 Build a single platform and copy binaries:
 ```sh
-yarn workspace @octocodeai/octocode-native build:darwin-arm64
+yarn workspace @octocodeai/octocode-native build:target darwin-arm64
 # → hosts + engine build concurrently in target/platforms/darwin-arm64/
 # → stages all four artifacts into npm/darwin-arm64/
 ```

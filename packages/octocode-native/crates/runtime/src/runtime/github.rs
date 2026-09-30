@@ -22,6 +22,9 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 /// chars); keep every GitHub recovery hint within it.
 const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or set OCTOCODE_TOKEN/GH_TOKEN/GITHUB_TOKEN; an invalid env token overrides stored login.";
 
+const ANONYMOUS_RATE_LIMIT_HINT: &str =
+    "Wait for the rate-limit reset, or run octocode auth login for a higher quota.";
+
 /// A repository that did not resolve: GitHub answers a private repository
 /// the token cannot see exactly like a missing one.
 const REPOSITORY_ACCESS_HINT: &str = "The repository is missing, private, or hidden from this token; check owner/repo spelling and token access.";
@@ -105,9 +108,6 @@ fn apply_provider_error_metadata(data: &mut Value, error: &ProviderError) {
         });
         if let Some(resource) = &rate_limit.resource {
             data["rateLimit"]["resource"] = json!(resource);
-        }
-        if let Some(retry_after) = rate_limit.retry_after_seconds {
-            data["retryAfterSeconds"] = json!(retry_after);
         }
     }
     if data.get("hints").is_none() {
@@ -205,7 +205,7 @@ impl GitHubServices {
             }
         };
         context.check()?;
-        handle.block_on(self.execute_resolved(
+        let mut result = handle.block_on(self.execute_resolved(
             tool,
             query,
             &request_context,
@@ -213,7 +213,14 @@ impl GitHubServices {
             security,
             regex,
             paths,
-        ))
+        ))?;
+        // Only an anonymous caller gains quota by authenticating.
+        if result.data["errorCode"] == "rateLimited"
+            && request_context.resolved_credential().is_none()
+        {
+            result.data["hints"] = json!([ANONYMOUS_RATE_LIMIT_HINT]);
+        }
+        Ok(result)
     }
 
     fn request_context(
@@ -562,11 +569,158 @@ impl GitHubServices {
                     ..DomainResult::payload(data, status)
                 })
             }
-            Err(error) => Ok(file_error(
-                error,
-                &serde_json::to_value(query).map_err(|_| ExecutionError::WorkerFailed)?,
-            )),
+            Err(error) => {
+                let query = serde_json::to_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
+                let found = if missing_path(&error, &query) {
+                    locate_path(&self.provider, &query, request_context).await
+                } else {
+                    None
+                };
+                context.check()?;
+                let mut row = file_error(error, &query);
+                if let Some(found) = found {
+                    apply_path_recovery(&mut row.data, &query, found);
+                }
+                Ok(row)
+            }
         }
+    }
+}
+
+/// A file read whose path (not repository or ref) did not resolve.
+fn missing_path(error: &ProviderError, query: &Value) -> bool {
+    error.kind == ProviderErrorKind::NotFound
+        && !repository_not_found(error)
+        && !error.message.starts_with("No commit found")
+        && query["path"].as_str().is_some_and(|path| !path.trim_matches('/').is_empty())
+}
+
+/// Directory listings a missing-path recovery may spend.
+const PATH_RECOVERY_LISTINGS: usize = 6;
+
+/// Where a missing path's nearest existing parts are.
+struct PathRecovery {
+    /// Deepest existing directory on the requested path (case-corrected).
+    directory: String,
+    /// The requested file itself when only its case differed.
+    file: Option<String>,
+}
+
+/// Walk up to the nearest directory that exists, then back down matching each
+/// remaining segment case-insensitively, within [`PATH_RECOVERY_LISTINGS`].
+async fn locate_path<R: CredentialResolver, C: ConditionalCache>(
+    provider: &GitHubProvider<R, C>,
+    query: &Value,
+    context: &RequestContext,
+) -> Option<PathRecovery> {
+    let owner = query["owner"].as_str()?;
+    let repo = query["repo"].as_str()?;
+    let segments: Vec<&str> = query["path"]
+        .as_str()?
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
+    let reference = provider
+        .resolve_reference(owner, repo, query["branch"].as_str(), false, context)
+        .await
+        .ok()?;
+    let mut listings = 0;
+    let mut depth = segments.len().saturating_sub(1);
+    let mut listing = loop {
+        listings += 1;
+        let directory = segments[..depth].join("/");
+        match provider
+            .repository_contents(owner, repo, &directory, &reference, context)
+            .await
+        {
+            Ok(listing) => break listing,
+            Err(error)
+                if error.kind == ProviderErrorKind::NotFound
+                    && depth > 0
+                    && listings < PATH_RECOVERY_LISTINGS =>
+            {
+                depth -= 1;
+            }
+            Err(_) => return None,
+        }
+    };
+    let mut directory = segments[..depth].join("/");
+    for (index, wanted) in segments.iter().enumerate().skip(depth) {
+        let matches: Vec<_> = listing
+            .entries
+            .iter()
+            .filter(|entry| entry.name.eq_ignore_ascii_case(wanted))
+            .collect();
+        let entry = match matches.as_slice() {
+            [entry] => *entry,
+            many => match many.iter().find(|entry| entry.name == *wanted) {
+                Some(entry) => *entry,
+                None => break,
+            },
+        };
+        let (kind, path) = (entry.kind.clone(), entry.path.clone());
+        let last = index + 1 == segments.len();
+        if last && kind == "file" {
+            return Some(PathRecovery {
+                directory,
+                file: Some(path),
+            });
+        }
+        if kind != "dir" {
+            break;
+        }
+        if last {
+            directory = path;
+            break;
+        }
+        if listings >= PATH_RECOVERY_LISTINGS {
+            break;
+        }
+        listings += 1;
+        match provider
+            .repository_contents(owner, repo, &path, &reference, context)
+            .await
+        {
+            Ok(next) => {
+                listing = next;
+                directory = path;
+            }
+            Err(_) => break,
+        }
+    }
+    Some(PathRecovery {
+        directory,
+        file: None,
+    })
+}
+
+/// Point a missing-path row at what exists: the case-corrected file, or a
+/// listing of the nearest existing directory.
+fn apply_path_recovery(data: &mut Value, query: &Value, found: PathRecovery) {
+    let owner = query["owner"].as_str().unwrap_or_default();
+    let repo = query["repo"].as_str().unwrap_or_default();
+    let directory = if found.directory.is_empty() {
+        "."
+    } else {
+        found.directory.as_str()
+    };
+    let mut tree = tree_recovery(owner, repo, directory, query);
+    tree["confidence"] = json!("exact");
+    data["next"] = json!({ "viewTree": tree });
+    if let Some(path) = found.file {
+        let mut read = query.clone();
+        crate::tools::result::remove_nulls(&mut read);
+        read["path"] = json!(path);
+        data["next"]["readFile"] = json!({
+            "tool": "ghGetFileContent",
+            "confidence": "high",
+            "query": read,
+        });
+        data["hints"] = json!(["Only the path's case differs; run the readFile continuation."]);
+    } else {
+        data["hints"] = json!([
+            "The rest of the path does not exist; next.viewTree lists the nearest existing directory."
+        ]);
     }
 }
 
@@ -792,7 +946,7 @@ fn search_error(tool: ToolId, error: ProviderError) -> DomainResult {
     } else if error.reason == Some(ProviderErrorReason::RefNotFound) {
         Some("Verify the branch, tag, or SHA exists, or omit branch to use the default branch.")
     } else if error.kind == ProviderErrorKind::RateLimited {
-        Some("Wait for Retry-After or the rate-limit reset; authenticate for a higher quota.")
+        Some("Wait for Retry-After or the rate-limit reset before retrying.")
     } else if error.kind == ProviderErrorKind::Validation
         && error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
     {
@@ -833,10 +987,7 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
             (error.message.as_ref(), None)
         }
         ProviderErrorKind::NotFound => ("Repository, resource, or path not found", None),
-        ProviderErrorKind::RateLimited => (
-            error.message.as_ref(),
-            Some("Set GITHUB_TOKEN for higher rate limits (5000/hour vs 60/hour)"),
-        ),
+        ProviderErrorKind::RateLimited => (error.message.as_ref(), None),
         ProviderErrorKind::Validation if error.status == Some(422) && search => (
             "Invalid search query or request parameters",
             Some("Check search syntax and parameter values"),
@@ -914,9 +1065,6 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
         }
         if let Some(value) = rate.reset_epoch_seconds {
             data["rateLimitReset"] = json!(value.saturating_mul(1000));
-        }
-        if let Some(value) = rate.retry_after_seconds {
-            data["retryAfter"] = json!(value);
         }
     }
     row
@@ -1232,6 +1380,20 @@ mod tests {
         assert_eq!(data["rateLimit"]["resetEpochSeconds"], 1_700_000_000);
         assert_eq!(data["rateLimit"]["retryAfterSeconds"], 30);
         assert!(data["rateLimit"].get("reset_epoch_seconds").is_none());
+        // D6: the retry delay is stated once, inside rateLimit.
+        assert!(data.get("retryAfterSeconds").is_none(), "{data}");
+        for result in [
+            search_error(ToolId::GhSearchCode, error.clone()),
+            history_error(error.clone(), true),
+            file_error(error.clone(), &json!({"owner":"a","repo":"b","path":"x"})),
+        ] {
+            let rendered = result.data.to_string();
+            assert!(!rendered.contains("retryAfter\""), "{rendered}");
+            // Authentication advice depends on the caller, added only for
+            // anonymous requests.
+            assert!(!rendered.to_ascii_lowercase().contains("auth"), "{rendered}");
+            assert!(!rendered.contains("GITHUB_TOKEN"), "{rendered}");
+        }
     }
 
     /// ghGetHistoryItem is not a search endpoint: a bogus commit SHA (GitHub

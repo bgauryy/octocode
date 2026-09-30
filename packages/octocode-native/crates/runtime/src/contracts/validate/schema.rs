@@ -250,13 +250,16 @@ fn validate_array(
 ) -> Result<(), ContractValidationError> {
     let received = value.clone();
     let array = value.as_array_mut().ok_or_else(|| {
-        schema_issue(
-            "schema.type",
-            path.clone(),
-            "Expected array",
-            schema,
-            &received,
-        )
+        // A lone string where a list is expected (`include:"src/**"`) is the
+        // most common shape slip; show the exact corrected value.
+        let message = match &received {
+            Value::String(_) => format!(
+                "Expected array; wrap the value: [{}]",
+                received
+            ),
+            _ => "Expected array".to_owned(),
+        };
+        schema_issue("schema.type", path.clone(), &message, schema, &received)
     })?;
     let mut issues = Vec::new();
     if let Err(error) = check_size(schema, array.len(), path) {

@@ -1,7 +1,7 @@
 use super::http::RegistryClient;
 use super::util::{
-    coordinate_path, endpoint, license, object_for, parse_url, required, rows, safe_url, string,
-    total,
+    commit_sha, coordinate_path, endpoint, license, object_for, parse_url, required, rows,
+    safe_url, string, total,
 };
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
@@ -173,6 +173,7 @@ pub(crate) async fn go(
             Some(returned.clone())
         };
         artifact.package_path = is_package.then_some(returned);
+        artifact.source_ref = go_source_ref(&artifact);
         return Ok(single(artifact));
     }
     let url = endpoint(
@@ -221,6 +222,43 @@ pub(crate) async fn go(
     })
 }
 
+/// The VCS ref a Go module version names: a pseudo-version's commit, or the
+/// release tag (prefixed by the module's directory inside its repository;
+/// a major-version suffix is never part of that prefix).
+fn go_source_ref(artifact: &ArtifactItem) -> Option<String> {
+    let version = artifact.version.as_deref()?;
+    let version = version.strip_suffix("+incompatible").unwrap_or(version);
+    // vX.Y.Z-yyyymmddhhmmss-abcdefabcdef (also with a .0./-0. base).
+    if let Some(commit) = version
+        .rsplit_once('-')
+        .map(|(_, tail)| tail)
+        .filter(|tail| tail.len() == 12 && version.matches('-').count() >= 2)
+        .and_then(|tail| commit_sha(Some(&Value::String(tail.to_owned()))))
+    {
+        return Some(commit);
+    }
+    let module = artifact.module_path.as_deref()?;
+    let repository = artifact.repository.as_deref()?;
+    let root = repository
+        .split_once("://")
+        .map_or(repository, |(_, rest)| rest)
+        .trim_end_matches('/')
+        .trim_end_matches(".git");
+    let dir = module.strip_prefix(root)?;
+    if !(dir.is_empty() || dir.starts_with('/')) {
+        return None;
+    }
+    let mut segments: Vec<&str> = dir.split('/').filter(|part| !part.is_empty()).collect();
+    if segments.last().is_some_and(|last| {
+        last.strip_prefix('v')
+            .is_some_and(|major| !major.is_empty() && major.bytes().all(|b| b.is_ascii_digit()))
+    }) {
+        segments.pop();
+    }
+    segments.push(version);
+    Some(segments.join("/"))
+}
+
 fn composer(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
     let name = required(row.get("name"), ArtifactType::Packagist)?;
     let mut artifact = ArtifactItem::new(
@@ -236,6 +274,10 @@ fn composer(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, Artifa
         .and_then(Value::as_object)
         .and_then(|value| safe_url(value.get("url")))
         .or_else(|| safe_url(row.get("repository")));
+    artifact.source_ref = row
+        .get("source")
+        .and_then(Value::as_object)
+        .and_then(|source| commit_sha(source.get("reference")));
     artifact.homepage = safe_url(row.get("homepage"));
     Ok(artifact)
 }
@@ -504,6 +546,44 @@ mod tests {
             serde_json::json!({"type": artifact_type, "packageName": name.to_string()}),
             None,
         )
+    }
+
+    #[test]
+    fn go_source_ref_names_the_tag_or_pseudo_version_commit() {
+        let item = |module: &str, version: &str| {
+            let mut item = ArtifactItem::new(ArtifactType::Go, module.into(), String::new());
+            item.module_path = Some(module.into());
+            item.version = Some(version.into());
+            item.repository = Some("https://github.com/o/r".into());
+            go_source_ref(&item)
+        };
+        assert_eq!(item("github.com/o/r", "v1.10.2").as_deref(), Some("v1.10.2"));
+        assert_eq!(item("github.com/o/r/v2", "v2.3.0").as_deref(), Some("v2.3.0"));
+        assert_eq!(
+            item("github.com/o/r/sub/mod", "v0.4.1").as_deref(),
+            Some("sub/mod/v0.4.1")
+        );
+        assert_eq!(
+            item("github.com/o/r", "v2.0.0+incompatible").as_deref(),
+            Some("v2.0.0")
+        );
+        assert_eq!(
+            item("github.com/o/r", "v0.0.0-20240101120000-abcdef123456").as_deref(),
+            Some("abcdef123456")
+        );
+        assert_eq!(item("github.com/o/rx", "v1.0.0"), None);
+    }
+
+    #[test]
+    fn composer_source_reference_is_the_release_commit() {
+        let row = json!({"name": "o/r", "version": "v1.0.0",
+            "source": {"type": "git", "url": "https://github.com/o/r.git",
+                       "reference": "0a2e291c0d9c0c7675d445703e51750363a549ef"}});
+        let item = composer(row.as_object().unwrap()).unwrap();
+        assert_eq!(
+            item.source_ref.as_deref(),
+            Some("0a2e291c0d9c0c7675d445703e51750363a549ef")
+        );
     }
 
     #[tokio::test]

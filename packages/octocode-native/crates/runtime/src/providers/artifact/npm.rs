@@ -1,5 +1,7 @@
 use super::http::{DnsPin, RegistryClient};
-use super::util::{encode_component, endpoint, object_for, required, safe_url, string, total};
+use super::util::{
+    commit_sha, encode_component, endpoint, object_for, required, safe_url, string, total,
+};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
     ArtifactType, ResolvedNpmRegistry,
@@ -238,6 +240,7 @@ async fn exact(
         value => string(value),
     };
     artifact.homepage = string(row.get("homepage"));
+    artifact.source_ref = commit_sha(row.get("gitHead"));
     match row.get("repository") {
         Some(Value::String(value)) => artifact.repository = normalize_repository(value),
         Some(Value::Object(value)) => {

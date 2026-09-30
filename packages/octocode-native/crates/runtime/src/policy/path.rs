@@ -149,14 +149,20 @@ impl PathPolicy {
             let name = ancestor.file_name().ok_or_else(|| {
                 PolicyError::new(
                     PolicyErrorCode::NotFound,
-                    format!("Path does not exist: {}", self.redact(input)),
+                    format!(
+                        "Path does not exist: {}",
+                        self.display_requested(input, &absolute)
+                    ),
                 )
             })?;
             tail.push(name.to_os_string());
             ancestor = ancestor.parent().ok_or_else(|| {
                 PolicyError::new(
                     PolicyErrorCode::NotFound,
-                    format!("Path does not exist: {}", self.redact(input)),
+                    format!(
+                        "Path does not exist: {}",
+                        self.display_requested(input, &absolute)
+                    ),
                 )
             })?;
         }
@@ -401,8 +407,8 @@ impl PathPolicy {
             }
             _ => (PolicyErrorCode::Io, "Unexpected error validating path"),
         };
-        PolicyError::new(code, format!("{prefix}: {}", self.redact(input)))
-            .with_path(self.redact(input))
+        let shown = self.display_requested(input, &self.expand_and_resolve(input));
+        PolicyError::new(code, format!("{prefix}: {shown}")).with_path(shown)
     }
 }
 
@@ -544,6 +550,25 @@ mod tests {
         assert_eq!(result.display, "source.rs");
         assert_eq!(policy.redact(root.join("src\\sub\\..\\a.ts")), "src/a.ts");
         std::fs::remove_dir_all(root).expect("path policy test setup should succeed");
+    }
+
+    #[test]
+    fn missing_paths_echo_the_requested_path_not_its_basename() {
+        let root = fixture();
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        for input in ["packages/nope/dir", "./packages/nope/dir"] {
+            let error = policy.validate(input).expect_err("missing");
+            assert_eq!(error.code, PolicyErrorCode::NotFound);
+            assert_eq!(error.message, "Path does not exist: packages/nope/dir");
+        }
+        let absolute = root.join("gone/file.rs");
+        let error = policy.validate(&absolute).expect_err("missing");
+        assert_eq!(error.message, "Path does not exist: gone/file.rs");
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]

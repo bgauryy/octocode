@@ -9,11 +9,17 @@ import {
 } from '@octocodeai/config/schema';
 import {
   buildMcpInstructions,
+  publishedInputSchema,
   type GrammarCapability,
 } from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 import packageJson from '../../package.json';
-import { formatIssues, type RawIssue } from './validationMessages.js';
+import {
+  coerceLosslessScalars,
+  formatIssues,
+  parseStringifiedQueries,
+  type RawIssue,
+} from './validationMessages.js';
 
 /**
  * A tool as reported by the native runtime catalog: runtime truth only —
@@ -208,16 +214,44 @@ type ToolDefinition = ReturnType<
 >[number];
 
 /**
- * The Standard Schema registered for a tool: bare queries are wrapped and
- * partially invalid batches reach native row isolation. The advertised
- * contract stays canonical. Clasify advertises bare-or-batch, but the MCP SDK
- * resolves its root object shape as the queries[] branch; preprocess its bare
- * form to that branch before SDK validation while preserving the union JSON
- * Schema shown to agents.
+ * Run `normalize` on the input before `inputSchema` validates it, so every
+ * later step (row isolation, the value passed to native) sees one shape.
+ */
+export function normalizingSchema(
+  inputSchema: StandardSchema,
+  normalize: (value: unknown) => unknown
+): StandardSchema {
+  const standard = inputSchema['~standard'];
+  return {
+    '~standard': {
+      ...standard,
+      validate: value => standard.validate(normalize(value)),
+    },
+  };
+}
+
+/**
+ * The Standard Schema registered for a tool: bare queries are wrapped, a
+ * JSON-encoded `queries` array is parsed, lossless numeric/boolean strings
+ * are coerced (CLI parity), and partially invalid batches reach native row
+ * isolation. Validation uses the canonical contract; agents see core's slim
+ * published view of it (a superset, sized for hosts that resend tools/list
+ * every request). Clasify's bare matrix is wrapped into the queries[] branch
+ * before SDK validation, which resolves its root object as that branch.
  */
 export function toolInputSchema(
   definition: Pick<ToolDefinition, 'name' | 'schema' | 'inputSchema'>
 ): unknown {
+  const canonical = z.toJSONSchema(definition.inputSchema, {
+    io: 'input',
+    unrepresentable: 'any',
+  }) as Record<string, unknown>;
+  const advertised = publishedInputSchema(definition.name, canonical);
+  const normalize = (value: unknown) =>
+    coerceLosslessScalars(
+      parseStringifiedQueries(wrapBareQuery(value)),
+      canonical
+    );
   const bare = definition.name === 'clasify';
   const schema = bare
     ? (z.preprocess(
@@ -232,35 +266,37 @@ export function toolInputSchema(
         definition.schema,
         definition.inputSchema
       );
-  return actionableIssuesSchema(schema, {
-    normalize: wrapBareQuery,
-    jsonSchema: () =>
-      z.toJSONSchema(definition.inputSchema, {
-        io: 'input',
-        unrepresentable: 'any',
-      }) as Record<string, unknown>,
+  return actionableIssuesSchema(normalizingSchema(schema, normalize), {
+    normalize,
+    jsonSchema: () => canonical,
+    advertised,
   });
 }
 
 /**
- * Keep the schema's accept/reject decisions and advertised JSON Schema, but
- * rewrite rejection issues into the CLI's actionable wording (allowed enum
- * values, nearest field, missing field, valid field list).
+ * Keep the schema's accept/reject decisions, but rewrite rejection issues
+ * into the CLI's actionable wording (allowed enum values, nearest field,
+ * missing field, valid field list) from the canonical `jsonSchema`. When
+ * `advertised` is set, tools/list shows it instead of the canonical input.
  */
 export function actionableIssuesSchema(
   inputSchema: StandardSchema,
   options: {
     normalize: (value: unknown) => unknown;
     jsonSchema: () => Record<string, unknown> | undefined;
+    advertised?: Record<string, unknown>;
   }
 ): StandardSchema {
   const standard = inputSchema['~standard'];
   if (!standard.jsonSchema) return inputSchema;
+  const advertised = options.advertised;
   return {
     '~standard': {
       version: standard.version,
       vendor: standard.vendor,
-      jsonSchema: standard.jsonSchema,
+      jsonSchema: advertised
+        ? { ...(standard.jsonSchema as object), input: () => advertised }
+        : standard.jsonSchema,
       validate: async value => {
         const result = await standard.validate(value);
         if (!result.issues?.length) return result;
@@ -268,6 +304,7 @@ export function actionableIssuesSchema(
           const issues = formatIssues(result.issues as readonly RawIssue[], {
             value: options.normalize(value),
             jsonSchema: options.jsonSchema,
+            ...(advertised && { advertisedSchema: () => advertised }),
           });
           return issues.length ? { issues } : result;
         } catch {

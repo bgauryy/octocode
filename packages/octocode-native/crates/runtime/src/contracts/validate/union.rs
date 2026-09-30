@@ -48,6 +48,9 @@ pub(super) fn validate(
         *value = candidate;
         return Ok(());
     }
+    if let Some(mixed) = mixed_forms(&failures, path) {
+        return Err(mixed);
+    }
     // Zod 4.6.2 returns the sole non-aborted branch before constructing an
     // invalid_union issue. Shape-only key errors and ordinary checks continue;
     // missing values, invalid types and selectors abort a branch.
@@ -184,12 +187,68 @@ fn widen_literal_issues(issues: &mut [ValidationIssue], allowed: &[(Vec<String>,
     }
 }
 
+/// Two branches that each reject only the other's fields (e.g. a clasify
+/// preset `questionType`+`target` sent together with a custom `type`+
+/// `instructions`, or `context.value` with `tool`+`query`): the input mixes
+/// forms. Name both field sets instead of calling one set "unknown".
+fn mixed_forms(
+    failures: &[Vec<ValidationIssue>],
+    path: &[String],
+) -> Option<ContractValidationError> {
+    let unknown_sets = failures
+        .iter()
+        .filter_map(|issues| {
+            let fields = issues
+                .iter()
+                .map(|item| {
+                    (item.rule_id == "schema.unknown-field" && item.path.len() == path.len() + 1)
+                        .then(|| item.path.last().cloned())
+                        .flatten()
+                })
+                .collect::<Option<Vec<_>>>()?;
+            (!fields.is_empty()).then_some(fields)
+        })
+        .collect::<Vec<_>>();
+    for (index, left) in unknown_sets.iter().enumerate() {
+        for right in &unknown_sets[index + 1..] {
+            if left.iter().any(|field| right.contains(field)) {
+                continue;
+            }
+            let quote = |fields: &[String]| {
+                fields
+                    .iter()
+                    .map(|field| format!("`{field}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            return Some(ContractValidationError {
+                issues: issue(
+                    "schema.union-mixed",
+                    path.to_vec(),
+                    format!(
+                        "{} and {} belong to different forms and cannot be combined; send one form",
+                        quote(right),
+                        quote(left)
+                    ),
+                )
+                .issues,
+            });
+        }
+    }
+    None
+}
+
 fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
+    // A branch that does not declare a named discriminator (`tool`, `type`, …)
+    // rejects it as strongly as a branch that pins it to other literals.
     let invalid = |names: &[&str]| {
         issues
             .iter()
             .filter(|issue| {
-                matches!(issue.rule_id.as_str(), "schema.const" | "schema.enum")
+                matches!(
+                    issue.rule_id.as_str(),
+                    "schema.const" | "schema.enum" | "schema.unknown-field"
+                ) && issue.path.len() == depth + 1
                     && issue
                         .path
                         .get(depth)

@@ -117,7 +117,7 @@ Copy the returned target and query. Follow every independent partial surface rel
 
 One PR action is a template, not a replay: `next.findInPatches` (a large pull request's metadata or first inventory page, `confidence: "low"`) leaves `matchString` as `<literal from the question>`; replace it (and optionally add `fileFilter.paths`) before running.
 
-Every `next.*` query except `next.clasify` carries `followUp: true` instead of `goal` and `reasoning`: a continuation serves the decision of the query that produced it, so the brief is not repeated on each page or retyped on replay. Run it unchanged. A query you write yourself still needs its own `goal` and `reasoning`; the runtime rejects a new query without them. Clasify continuations keep their briefs because clasify sends them to its provider.
+Every `next.*` query is complete under the contract: it carries the `goal` and `reasoning` of the query that produced it, plus any page, snapshot, or offset fields the published schemas leave out. Run it unchanged. A query you write yourself needs its own `goal` and `reasoning`; the contract rejects a query without them, whoever wrote it.
 
 The CLI accepts the returned query or envelope through `<next.tool> '<next.query JSON>'`. A numeric cursor alone is not a complete continuation. Preserve the returned operation, scope, revision, filters, bounds, and unrelated pagination axes.
 

@@ -75,10 +75,9 @@ fn absolute(base: Option<&str>, path: &str) -> String {
     }
 }
 
-/// A kept candidate's fetch. It is a follow-up of the scouting matrix: the
-/// brief is inherited, so the query carries `followUp` instead.
-fn read(tool: &str, mut query: serde_json::Map<String, Value>) -> Value {
-    query.insert("followUp".into(), json!(true));
+/// A kept candidate's fetch. It serves the scouting matrix, whose brief the
+/// response stage copies onto it (see `continuations::inherit_clasify_briefs`).
+fn read(tool: &str, query: serde_json::Map<String, Value>) -> Value {
     json!({"tool":tool,"confidence":"high","query":query})
 }
 
@@ -353,8 +352,10 @@ mod tests {
         assert_eq!(read["tool"], "localFetch");
         assert_eq!(read["query"]["startLine"], 1);
         assert_eq!(read["query"]["endLine"], 100);
-        assert_eq!(read["query"]["followUp"], true);
-        assert!(read["query"].get("goal").is_none());
+        assert!(
+            read["query"].get("goal").is_none(),
+            "the matrix brief is added later"
+        );
         assert!(
             items[1].read.as_ref().unwrap()["query"]
                 .get("startLine")
@@ -429,7 +430,7 @@ mod tests {
         assert_eq!(items[0].item.as_deref(), Some("o/r#7"));
         assert_eq!(
             items[1].read.as_ref().unwrap()["query"],
-            json!({"operation":"pullRequest","number":8,"owner":"x","repo":"y","followUp":true})
+            json!({"operation":"pullRequest","number":8,"owner":"x","repo":"y"})
         );
 
         let commits =

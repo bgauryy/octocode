@@ -10,6 +10,11 @@ pub struct Extraction {
     pub count: Option<usize>,
     pub warnings: Vec<String>,
 }
+/// A matched line longer than this (minified or bundled source) is read in
+/// byte windows unless the caller chose a context.
+const LONG_LINE_BYTES: usize = 2_000;
+const LONG_LINE_CONTEXT_BYTES: usize = 200;
+
 /// View-line sentinel for an omission marker (source lines are 1-based).
 pub const OMISSION_LINE: usize = 0;
 
@@ -101,36 +106,29 @@ fn match_extract(
     regex: &impl RegexMatch,
 ) -> Result<Extraction, String> {
     let sensitive = q.match_string_case_sensitive.unwrap_or(false);
-    let regex_ranges = if q.match_string_is_regex.unwrap_or(false) {
-        Some(regex.matching_ranges(pattern, sensitive, content).map_err(|error| {
+    let spans = if q.match_string_is_regex.unwrap_or(false) {
+        regex.matching_ranges(pattern, sensitive, content).map_err(|error| {
             if pattern == "[" { "Invalid regex pattern: Invalid regular expression: /[/: Unterminated character class".to_owned() } else { error }
-        })?)
+        })?
     } else {
-        None
-    };
-    let needle = if sensitive {
-        pattern.into()
-    } else {
-        pattern.to_lowercase()
+        literal_ranges(content, pattern, sensitive)
     };
     let mut hits = vec![];
     let mut line_start = 0;
+    let mut next_match = 0;
     for (i, line) in lines.iter().enumerate() {
         let line_end = line_start + line.len();
-        let found = regex_ranges
-            .as_ref()
-            .map(|ranges| {
-                ranges
-                    .iter()
-                    .any(|(start, _)| *start >= line_start && *start < line_end)
-            })
-            .unwrap_or_else(|| {
-                if sensitive {
-                    line.contains(pattern)
-                } else {
-                    line.to_lowercase().contains(&needle)
-                }
-            });
+        while spans
+            .get(next_match)
+            .is_some_and(|(start, end)| *start < line_start && *end <= line_start)
+        {
+            next_match += 1;
+        }
+        // Include every line touched by a multiline match, not just its start.
+        // A match ending at the next line's start does not touch that line.
+        let found = spans
+            .get(next_match)
+            .is_some_and(|(start, _)| *start < line_end);
         if found {
             hits.push(i + 1)
         }
@@ -182,23 +180,21 @@ fn match_extract(
         }
         prev_end = Some(r.end)
     }
-    if let Some(bytes) = q.context_bytes() {
-        let mut spans = vec![];
-        if let Some(found) = regex_ranges.as_ref() {
-            spans.extend(found.iter().copied());
-        } else {
-            let hay = if sensitive {
-                content.into()
-            } else {
-                content.to_lowercase()
-            };
-            let mut from = 0;
-            while let Some(pos) = hay[from..].find(&needle) {
-                let start = from + pos;
-                spans.push((start, start + needle.len()));
-                from = start + needle.len().max(1)
-            }
-        }
+    let long_lines = q.context_lines().is_none()
+        && q.context_bytes().is_none()
+        && hits
+            .iter()
+            .any(|line| lines[line - 1].len() > LONG_LINE_BYTES);
+    let mut warnings = vec![];
+    if long_lines {
+        warnings.push(format!(
+            "longMatchedLines: a matched line exceeds {LONG_LINE_BYTES} bytes (minified source), so each match is shown with {LONG_LINE_CONTEXT_BYTES} bytes of context; `... [N bytes omitted] ...` marks gaps. Set contextLines to read whole lines, or contextBytes to resize the windows."
+        ));
+    }
+    if let Some(bytes) = q
+        .context_bytes()
+        .or(long_lines.then_some(LONG_LINE_CONTEXT_BYTES))
+    {
         text = String::new();
         let mut last_end = 0;
         selected.clear();
@@ -248,6 +244,54 @@ fn match_extract(
         match_ranges: ranges,
         matched_lines: hits.clone(),
         count: Some(hits.len()),
-        warnings: vec![],
+        warnings,
     })
+}
+
+/// Literal matches in original byte coordinates. Unicode lowercasing can
+/// change byte length (e.g. İ → i + combining dot), so folded offsets must
+/// never be used to slice the source. Only length-changing characters need
+/// an entry in the offset map; ordinary text keeps an empty map.
+fn literal_ranges(content: &str, pattern: &str, sensitive: bool) -> Vec<(usize, usize)> {
+    if sensitive {
+        return content
+            .match_indices(pattern)
+            .map(|(start, matched)| (start, start + matched.len()))
+            .collect();
+    }
+    let folded = content.to_lowercase();
+    let needle = pattern.to_lowercase();
+    let mut changes = Vec::new();
+    let mut folded_start = 0;
+    for (start, character) in content.char_indices() {
+        let source_end = start + character.len_utf8();
+        let folded_end = folded_start + character.to_lowercase().map(char::len_utf8).sum::<usize>();
+        if folded_end - folded_start != character.len_utf8() {
+            changes.push((folded_start..folded_end, start..source_end));
+        }
+        folded_start = folded_end;
+    }
+    let original_offset = |offset, end| {
+        let index = changes.partition_point(|(range, _)| range.end <= offset);
+        if let Some((range, source)) = changes.get(index)
+            && range.start < offset
+        {
+            return if end { source.end } else { source.start };
+        }
+        if index == 0 {
+            offset
+        } else {
+            let (range, source) = &changes[index - 1];
+            offset - range.end + source.end
+        }
+    };
+    folded
+        .match_indices(&needle)
+        .map(|(start, matched)| {
+            (
+                original_offset(start, false),
+                original_offset(start + matched.len(), true),
+            )
+        })
+        .collect()
 }

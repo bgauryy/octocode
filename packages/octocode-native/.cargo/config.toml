@@ -15,7 +15,11 @@
 # `target/debug/incremental` alone reached 78 GB here (163 GB across all
 # incremental dirs). Incremental caches are regenerable scratch — safe to delete;
 # `deps/` (the compiled dependency crates) stays, so builds stay warm.
-#   yarn clean:cache          # portable: rm every target/**/incremental, print size
+# `split-debuginfo = "unpacked"` also leaves per-CGU `deps/*.o` that cargo never
+# prunes: 1.39M files / 96 GB here, making every rustc/linker directory scan slow
+# (`ls target/debug/deps` alone took 95s). clean:cache deletes them too; debug
+# backtraces lose file:line only until the next rebuild.
+#   yarn clean:cache          # rm target/**/incremental + stale deps/*.o, print size
 #   yarn clean:cache:sweep    # + `cargo sweep --maxsize 30` (needs cargo-sweep)
 # Make it periodic without a daemon, e.g. weekly cron:
 #   0 9 * * 1  cd <repo>/packages/octocode-native && yarn clean:cache

@@ -192,10 +192,11 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
     }
     let menu = row["next"].as_object().expect("next");
-    // 250 files: a literal search of every patch leads the inventory's steps.
+    // 250 files: no every-patch read, and no placeholder literal search
+    // (only the caller knows the literal).
     assert_eq!(
         menu.keys().collect::<Vec<_>>(),
-        ["findInPatches", "getSelectedPatches", "getMergeCommit"],
+        ["getSelectedPatches", "getMergeCommit"],
         "{row}"
     );
     // An omitted pageSize reads the whole 250-file inventory in one page.
@@ -213,6 +214,46 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
         })
         .sum::<usize>();
     assert_eq!(rows, 250, "{row}");
+}
+
+/// D2: the selected-patch pick is the most reviewable, most changed source
+/// file (not the alphabetically first changeset), labelled as a ranking
+/// guess; a small PR keeps the every-patch read beside it.
+#[tokio::test]
+async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 5).await;
+    let hunk = Some("@@ -1 +1 @@\n-a\n+b");
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file(".changeset/sse-keepalive.md", hunk, 8, 0),
+            rest_file("src/server/sseKeepAlive.ts", hunk, 15, 0),
+            rest_file("src/server/webStandardStreamableHttp.ts", hunk, 241, 94),
+            rest_file("test/server/sseKeepAlive.test.ts", hunk, 29, 0),
+            rest_file("test/server/streamableHttp.test.ts", hunk, 879, 3),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"changedFiles": true}, "debug": false}),
+    )
+    .await;
+    let menu = &data["pullRequests"][0]["next"];
+    let selected = &menu["getSelectedPatches"];
+    assert_eq!(
+        selected["query"]["content"]["patches"]["files"],
+        json!(["src/server/webStandardStreamableHttp.ts"]),
+        "{menu}"
+    );
+    assert_eq!(selected["confidence"], "high", "{menu}");
+    assert_eq!(
+        menu["getAllPatches"]["query"]["content"]["patches"]["mode"], "all",
+        "{menu}"
+    );
+    assert!(data.get("hints").is_none(), "{data}");
 }
 
 #[tokio::test]
@@ -337,29 +378,17 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
         Duration::ZERO,
     )
     .await;
-    let query =
+    // Page one carries the header and menu; a later page re-proves identity only.
+    let query = json!({"content": {"changedFiles": true}, "pageSize": 100, "debug": false});
+    let follow =
         json!({"content": {"changedFiles": true}, "pageSize": 100, "filePage": 2, "debug": false});
-    let mut follow = query.clone();
-    follow["followUp"] = json!(true);
     let first = run(&server, query).await;
     let first_row = &first["pullRequests"][0];
     assert_eq!(first_row["title"], "Large refactor", "{first_row}");
     assert!(first_row.get("next").is_some(), "{first_row}");
-    // A large inventory's first action is a matching-lines search of every
-    // patch (a template the caller fills with its literal), not more pages.
-    let actions = first_row["next"]
-        .as_object()
-        .map(|next| next.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    assert_eq!(
-        actions.first().map(String::as_str),
-        Some("findInPatches"),
-        "{first_row}"
-    );
-    assert_eq!(
-        first_row["next"]["findInPatches"]["query"]["matchContext"],
-        0
-    );
+    // A literal search of every patch needs the caller's literal: it is
+    // never offered as an executable placeholder.
+    assert!(first_row["next"].get("findInPatches").is_none(), "{first_row}");
 
     let data = run(&server, follow).await;
     let row = &data["pullRequests"][0];
@@ -394,9 +423,8 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     assert!(data["next"]["nextChangedFilesPage"].is_object(), "{data}");
 
     // debug keeps the full header.
-    let mut debug = json!({"content": {"changedFiles": true}, "pageSize": 100, "filePage": 2});
-    debug["followUp"] = json!(true);
-    debug["debug"] = json!(true);
+    let debug =
+        json!({"content": {"changedFiles": true}, "pageSize": 100, "filePage": 2, "debug": true});
     let debug = run(&server, debug).await;
     assert_eq!(debug["pullRequests"][0]["labels"], json!(["refactor"]));
 }

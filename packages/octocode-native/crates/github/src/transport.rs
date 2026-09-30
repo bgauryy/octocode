@@ -164,10 +164,9 @@ pub struct GitHubTransport<R> {
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
     pub graphql_enabled: bool,
-    /// Code-search pages by request URL and accept mode for 60 s: a repeated
-    /// search (re-page, retry, follow-up) spends none of the 10/min budget.
-    /// One transport serves one credential resolver, so results never cross
-    /// identities; clones share it.
+    /// Complete code-search pages by credential partition, request URL, and
+    /// accept mode for 60 s: a repeated search (re-page, follow-up) spends
+    /// none of the 10/min budget. Clones share it.
     pub(crate) search_results: moka::sync::Cache<String, Arc<super::search::CodeSearchPage>>,
 }
 impl<R> Clone for GitHubTransport<R> {
@@ -399,7 +398,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         let resource = GitHubResource::classify(&spec.url);
         let group = match (resource, spec.method) {
             (GitHubResource::Graphql, _) => Some(Group::Graphql),
-            (GitHubResource::Search | GitHubResource::CodeSearch, _) => Some(Group::Search),
+            (GitHubResource::Search, _) => Some(Group::Search),
+            (GitHubResource::CodeSearch, _) => Some(Group::CodeSearch),
             (GitHubResource::Core, HttpMethod::Post) => Some(Group::Write),
             (GitHubResource::Core, HttpMethod::Get) => None,
         };

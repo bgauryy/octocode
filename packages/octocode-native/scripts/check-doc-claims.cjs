@@ -185,12 +185,16 @@ const ignoredPaths = new Set([
   path.join(repoRoot, 'packages/octocode/skills/octocode-research/scripts/check-guidance.mjs'),
 ]);
 const activeExtensions = new Set(['.md', '.rs', '.ts', '.mts', '.cts', '.js', '.mjs', '.cjs']);
+const fixtureReposRoot = path.join(repoRoot, 'octocode-local-testing/repos');
 function scanRetiredCliGrammar(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (ignoredDirs.has(entry.name)) continue;
     const file = path.join(dir, entry.name);
     if (ignoredPaths.has(file)) continue;
     if (entry.isDirectory()) {
+      // Downloaded third-party fixtures are not maintained Octocode source.
+      // Keep checking the tracked README beside them.
+      if (dir === fixtureReposRoot) continue;
       scanRetiredCliGrammar(file);
       continue;
     }

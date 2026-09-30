@@ -106,6 +106,9 @@ pub struct ClassificationError {
     /// callers can map vendor error details to distinct codes.
     /// Boxed to keep the error small in `Result`s.
     pub provider_body: Option<Box<Value>>,
+    /// Failure kind of the delegated read behind a context error, so a call
+    /// whose every read failed alike reports it like the read tool would.
+    pub failure: Option<crate::runtime::FailureKind>,
 }
 
 impl ClassificationError {
@@ -128,7 +131,13 @@ pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<Url, Classification
         )
     })?;
     let host = base.host_str().unwrap_or_default();
-    let loopback = matches!(host, "localhost" | "127.0.0.1" | "::1");
+    // `host_str` brackets IPv6 (`[::1]`); match the parsed host instead.
+    let loopback = match base.host() {
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    };
     let valid_scheme = base.scheme() == "https" || (base.scheme() == "http" && loopback);
     if !valid_scheme
         || host.is_empty()
@@ -1050,12 +1059,15 @@ mod tests {
         assert!(endpoint("https://api.typesafe.ai/", "v1/systemone").is_ok());
         // HTTP is allowed only on loopback.
         assert!(endpoint("http://127.0.0.1", "v1/systemone").is_ok());
+        assert!(endpoint("http://[::1]:8080", "v1/systemone").is_ok());
+        assert!(endpoint("http://LOCALHOST", "v1/systemone").is_ok());
     }
 
     #[test]
     fn endpoint_rejects_non_root_or_insecure_bases() {
         for bad in [
             "http://api.typesafe.ai",            // http, non-loopback
+            "http://[2001:db8::1]",              // http, non-loopback IPv6
             "https://api.typesafe.ai/v1",        // has a path
             "https://api.typesafe.ai/?x=1",      // has a query
             "https://api.typesafe.ai/#frag",     // has a fragment

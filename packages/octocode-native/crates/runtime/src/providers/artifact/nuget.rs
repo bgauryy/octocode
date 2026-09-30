@@ -1,5 +1,7 @@
 use super::http::RegistryClient;
-use super::util::{endpoint, object_for, parse_url, required, rows, safe_url, string, total};
+use super::util::{
+    commit_sha, endpoint, object_for, parse_url, required, rows, safe_url, string, total,
+};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
     ArtifactType,
@@ -178,7 +180,11 @@ async fn exact(
     if artifact.repository.is_none()
         && let Some(version) = artifact.version.clone()
     {
-        artifact.repository = nuspec_repository(package_name, &version, client).await;
+        if let Some((repository, commit)) = nuspec_repository(package_name, &version, client).await
+        {
+            artifact.repository = Some(repository);
+            artifact.source_ref = commit;
+        }
     }
     Ok(ArtifactProviderPage {
         artifacts: vec![artifact],
@@ -192,12 +198,13 @@ async fn exact(
 /// Registration pages read (newest first) while looking for a stable release.
 const MAX_REGISTRATION_PAGES: usize = 4;
 
-/// `<repository url="…">` from the package's nuspec in the flat container.
+/// `<repository url="…" commit="…">` from the package's nuspec in the flat
+/// container: the source repository and the commit the package was built from.
 async fn nuspec_repository(
     package_name: &str,
     version: &str,
     client: &RegistryClient<'_>,
-) -> Option<String> {
+) -> Option<(String, Option<String>)> {
     let base = service_endpoint("PackageBaseAddress", client).await.ok()?;
     let id = super::util::encode_component(&package_name.to_ascii_lowercase());
     let url = parse_url(&format!(
@@ -212,8 +219,11 @@ async fn nuspec_repository(
         .ok()
         .flatten()?;
     let tag = nuspec.split("<repository").nth(1)?.split('>').next()?;
-    let url = tag.split("url=\"").nth(1)?.split('"').next()?;
-    safe_url(Some(&Value::String(url.to_owned())))
+    let attribute = |name: &str| {
+        tag.split(&format!(" {name}=\"")).nth(1)?.split('"').next().map(str::to_owned)
+    };
+    let url = safe_url(Some(&Value::String(attribute("url")?)))?;
+    Some((url, commit_sha(attribute("commit").map(Value::String).as_ref())))
 }
 
 async fn service_endpoint(kind: &str, client: &RegistryClient<'_>) -> Result<Url, ArtifactError> {
@@ -494,7 +504,7 @@ mod tests {
         ]);
         http.0.push((
             "newtonsoft.json.nuspec",
-            br#"<package><metadata><repository type="git" url="https://github.com/JamesNK/Newtonsoft.Json" /></metadata></package>"#.to_vec(),
+            br#"<package><metadata><repository type="git" url="https://github.com/JamesNK/Newtonsoft.Json" commit="0A2E291C0D9C0C7675D445703E51750363A549EF" /></metadata></package>"#.to_vec(),
         ));
         let b = budget();
         let client = RegistryClient {
@@ -513,6 +523,11 @@ mod tests {
         let item = &page.artifacts[0];
         // 13.0.5 is unlisted; 14.0.1-beta2 is a prerelease.
         assert_eq!(item.version.as_deref(), Some("13.0.4"));
+        // The nuspec's build commit pins the upstream-source lead.
+        assert_eq!(
+            item.source_ref.as_deref(),
+            Some("0a2e291c0d9c0c7675d445703e51750363a549ef")
+        );
         assert_eq!(
             item.repository.as_deref(),
             Some("https://github.com/JamesNK/Newtonsoft.Json")

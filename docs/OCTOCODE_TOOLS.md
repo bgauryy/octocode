@@ -51,9 +51,8 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
 | Field | Scope | Meaning |
 | --- | --- | --- |
 | `queries` | Required outer field | Array of 1–5 queries for the **same tool**. Queries are independent and response rows retain their zero-based input `index`. Rows of one call run concurrently (`ghCloneRepo` and `astRewrite` rows run in order; `clasify` schedules its own provider work), so batching reduces round trips but does not create dependencies between rows. |
-| `goal` | Required per query (omitted with `followUp`), at most 500 characters | States what this row must find or decide. Each row states its own; a top-level `goal` is not inherited. It is not a ranking instruction or proof of correctness. |
-| `reasoning` | Required per query (omitted with `followUp`), at most 500 characters | States why this row advances its goal. Do not put secrets, hidden chain-of-thought, or required runtime data here. |
-| `followUp` | Set by `next.*` continuations | `followUp: true` replaces `goal` and `reasoning`: the continuation inherits the brief of the query that produced it. Copy it from `next.*`; do not hand-write it. |
+| `goal` | Required per query, at most 500 characters | States what this row must find or decide. Each row states its own; a top-level `goal` is not inherited. `next.*` continuations already carry the producing query's goal. It is not a ranking instruction or proof of correctness. |
+| `reasoning` | Required per query, at most 500 characters | States why this row advances its goal; `next.*` continuations carry it too. Do not put secrets, hidden chain-of-thought, or required runtime data here. |
 | `debug` | Optional per query | `true` adds metadata (scan stats, provider receipts, snapshots, info diagnostics). Default output is minimal. |
 | `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. When omitted, responses larger than `output.pagination.defaultCharLength` (default 50,000) are paged automatically; follow `responsePagination.next`. |
 | `responseCharOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
@@ -399,8 +398,8 @@ PR reads narrow with three optional fields:
 - `matchContext` (0–10) sets the lines kept around each hit. Omitted, it is 3
   and narrowed files offer `next.readFullPatches` for their whole patches.
 
-A file inventory, a patch read, or a continuation replay (`followUp: true`)
-returns a slim identity header (`number`, `state`, `sourceSha`; inventories
+A file inventory, a patch read, or a later page (a file, comment, commit, or
+review page after the first, or a nonzero body offset) returns a slim identity header (`number`, `state`, `sourceSha`; inventories
 also keep title, author, and counts), not labels, body preview, or the
 follow-up menu, unless `debug: true`.
 

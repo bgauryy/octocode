@@ -329,8 +329,107 @@ pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
     }
     value["next"]["readFile"] = json!({
         "tool": "localFetch",
-        "why": "Read the source directly because semantic navigation is unavailable.",
+        "why": "Read the source directly to confirm the symbol and its anchor.",
         "query": read,
         "confidence": "exact"
     });
+}
+
+/// Lines read on each side of `lineHint` when the symbol is not there.
+const ANCHOR_READ_RADIUS: u32 = 5;
+/// Lines scanned on each side of `lineHint` for a near-miss name.
+const SUGGESTION_RADIUS: usize = 20;
+
+/// Recovery for a `symbolName` that did not resolve: read the lines around
+/// `lineHint` (a `matchString` of the missing name cannot match), and offer
+/// the closest identifier near the hint as an executable `next.didYouMean`.
+pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source: Option<&str>) {
+    let (Some(name), Some(path)) = (query.symbol_name(), query.uri().map(uri_to_path)) else {
+        return;
+    };
+    let hint = query.line_hint().filter(|line| *line > 0);
+    if let Some(line) = hint {
+        value["next"]["readFile"] = json!({
+            "tool": "localFetch",
+            "why": format!("`{name}` was not found near line {line}; read the lines around it."),
+            "query": {
+                "path": path,
+                "startLine": line.saturating_sub(ANCHOR_READ_RADIUS).max(1),
+                "endLine": line.saturating_add(ANCHOR_READ_RADIUS)
+            },
+            "confidence": "exact"
+        });
+    }
+    let suggestions = source
+        .map(|source| near_names(source, name, hint))
+        .unwrap_or_default();
+    let Some((best, line)) = suggestions.first() else {
+        return;
+    };
+    let mut retry = query_value(query);
+    if let Some(object) = retry.as_object_mut() {
+        object.insert("symbolName".into(), json!(best));
+        object.insert("lineHint".into(), json!(line));
+        object.remove("orderHint");
+    }
+    value["next"]["didYouMean"] = json!({
+        "tool": "lspSearch",
+        "query": retry,
+        "confidence": "medium"
+    });
+    let listed = suggestions
+        .iter()
+        .map(|(name, line)| format!("`{name}` (line {line})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if let Some(hints) = value["hints"].as_array_mut() {
+        hints.push(json!(format!("Closest names: {listed}.")));
+    }
+}
+
+/// Up to three distinct identifiers within a small edit distance of `name`,
+/// nearest `lineHint` first (the whole file without a hint).
+fn near_names(source: &str, name: &str, hint: Option<u32>) -> Vec<(String, usize)> {
+    let hint = hint.map(|line| line as usize);
+    let limit = (name.chars().count() / 4).max(1);
+    let mut found: Vec<(usize, usize, String, usize)> = Vec::new();
+    for (index, text) in source.lines().enumerate() {
+        let line = index + 1;
+        if hint.is_some_and(|hint| line.abs_diff(hint) > SUGGESTION_RADIUS) {
+            continue;
+        }
+        for word in text
+            .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+            .filter(|word| !word.is_empty() && *word != name && word.len() <= 256)
+        {
+            let distance = edit_distance(word, name);
+            if distance <= limit && !found.iter().any(|entry| entry.2 == word) {
+                let offset = hint.map_or(0, |hint| line.abs_diff(hint));
+                found.push((distance, offset, word.to_owned(), line));
+            }
+        }
+    }
+    found.sort();
+    found
+        .into_iter()
+        .take(3)
+        .map(|(_, _, word, line)| (word, line))
+        .collect()
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b = b.chars().collect::<Vec<_>>();
+    let mut row = (0..=b.len()).collect::<Vec<_>>();
+    for (i, left) in a.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, right) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (above + 1)
+                .min(row[j] + 1)
+                .min(diagonal + usize::from(left != *right));
+            diagonal = above;
+        }
+    }
+    row[b.len()]
 }

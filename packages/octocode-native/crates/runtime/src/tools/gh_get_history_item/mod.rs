@@ -289,13 +289,18 @@ impl GhGetHistoryItemQuery {
             _ => None,
         }
     }
-    /// Whether the query replays a `next.*` continuation (`followUp: true`):
-    /// the caller already holds the item header and follow-up menu.
-    pub fn follow_up(&self) -> bool {
-        match self {
-            Self::PullRequest { follow_up, .. } => *follow_up == Some(true),
-            _ => false,
-        }
+    /// Whether the query reads a later page of a pull request (a file, commit,
+    /// review or comment page after the first, or a text window past the
+    /// start): the caller already holds the item header and menu from page one.
+    pub fn later_page(&self) -> bool {
+        let after_first = |page: Option<usize>| page.is_some_and(|page| page > 1);
+        matches!(self, Self::PullRequest { .. })
+            && (after_first(self.file_page())
+                || after_first(self.comment_page())
+                || after_first(self.commit_page())
+                || after_first(self.review_page())
+                || self.char_offset().is_some_and(|offset| offset > 0)
+                || self.comment_body_offset().is_some_and(|offset| offset > 0))
     }
     /// `debug: true` keeps diagnostic fields a default response omits.
     pub fn debug(&self) -> bool {

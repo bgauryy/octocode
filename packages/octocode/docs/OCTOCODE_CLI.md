@@ -117,9 +117,9 @@ npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs
 npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"goal":"Trace usages.","reasoning":"Trace usages."}'
 ```
 
-Every new query requires nonblank `goal` (what the query must find) and
-`reasoning` (why it advances the goal) strings; a `next.*` continuation sent
-with `followUp: true` inherits them. Queries accept a single object, a JSON
+Every query requires nonblank `goal` (what the query must find) and
+`reasoning` (why it advances the goal) strings; a `next.*` continuation
+already carries the brief of the query that produced it. Queries accept a single object, a JSON
 array, or `{"queries":[…]}` for a batch (up to 5). Large queries avoid shell
 quoting with `--input <file>`.
 

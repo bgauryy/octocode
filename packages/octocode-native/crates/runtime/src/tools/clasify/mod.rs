@@ -153,6 +153,23 @@ pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError
                 "Resource context requires a non-empty value, or an allowed read tool with one ordinary query.",
             ));
         }
+        let prefiltered = resource
+            .get("prefilter")
+            .and_then(Value::as_array)
+            .is_some_and(|terms| !terms.is_empty());
+        if prefiltered && !matches!(tool, Some("localFetch" | "ghGetFileContent")) {
+            return Err(ClassificationError {
+                code: "invalidClassificationContext".into(),
+                message: format!(
+                    "prefilter applies only to localFetch or ghGetFileContent file reads; resource {} would ignore it.",
+                    resource["id"].as_str().unwrap_or("?")
+                ),
+                hints: vec![
+                    "Remove prefilter, or narrow a search with its own searchText/keywords and include filters.".into(),
+                ],
+                ..Default::default()
+            });
+        }
     }
     let mut resolved = Vec::with_capacity(questions.len());
     for question in questions {
@@ -401,6 +418,19 @@ mod tests {
         query.as_object_mut().unwrap().remove("carry");
         query["unexpected"] = json!(1);
         assert!(preflight(&query).is_err());
+    }
+
+    #[test]
+    fn preflight_rejects_prefilter_outside_file_reads() {
+        let search = json!({"tool":"localSearch","query":{"path":"/repo","searchText":"retry"}});
+        let mut query = semantic_query(search, question());
+        query["resources"][0]["prefilter"] = json!(["retry"]);
+        let error = preflight(&query).expect_err("search resources cannot prefilter");
+        assert_eq!(error.code, "invalidClassificationContext");
+        let read = json!({"tool":"localFetch","query":{"path":"/repo/a.rs"}});
+        let mut query = semantic_query(read, question());
+        query["resources"][0]["prefilter"] = json!(["retry"]);
+        assert!(preflight(&query).is_ok());
     }
 
     fn budget() -> RequestBudget {

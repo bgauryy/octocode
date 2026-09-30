@@ -1,7 +1,8 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
 use super::continuations::{
-    BODY_PREVIEW_CHARS, attach_full_patch_continuation, pr_next_menu, promote_pr_continuations,
+    BODY_PREVIEW_CHARS, INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation,
+    pr_next_menu, promote_pr_continuations,
 };
 use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
 use super::graphql::{
@@ -257,19 +258,19 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         }
     }
 
-    // A continuation replay already holds the header and the follow-up menu,
+    // A later page already holds the header and the menu from page one,
     // and a file inventory or patch read is read for its files: both carry
     // only the identity fields every page must re-prove, plus the fields the
     // output contract requires of every pull-request row.
     let file_read = wants.files;
-    let slim = (query.follow_up() || file_read) && !query.debug();
+    let slim = (query.later_page() || file_read) && !query.debug();
     let mut row = pr_metadata(&raw, query, wants.body);
     if slim && let Some(fields) = row.as_object_mut() {
         // A patch read re-proves only the head it read; a list page also
         // keeps the merge commit and file count, and a first inventory page
         // the diff size it lists.
         let patches = patch_mode != "none";
-        let totals = !query.follow_up() && !patches;
+        let totals = !query.later_page() && !patches;
         fields.retain(|key, _| {
             matches!(
                 key.as_str(),
@@ -306,7 +307,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             scope.as_ref(),
         );
         no_selected_files_matched = shaped.no_selected_match;
-        first_changed_path = shaped.first_path;
+        first_changed_path = shaped.patch_target;
         unsearched = shaped.unsearched;
         first_unsearched = shaped.first_unsearched;
         if let Some(page) = content_pagination.get_mut("changedFiles") {
@@ -357,13 +358,17 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         );
     } else if file_read
         && patch_mode == "none"
-        && !query.follow_up()
+        && !query.later_page()
         && query.file_filter().is_none()
     {
-        // An unfiltered inventory's own next steps: a literal search of every
-        // patch on a large PR (before its next page), selected patches, the
-        // merge commit. A filtered inventory or a patch read is a targeted
-        // answer and keeps only its continuations.
+        // An unfiltered inventory's own next steps: the ranked selected
+        // patch (and every patch on a small PR) and the merge commit. A
+        // filtered inventory or a patch read is a targeted answer and keeps
+        // only its continuations.
+        let all_patches = raw
+            .get("changed_files")
+            .and_then(Value::as_u64)
+            .is_some_and(|files| files <= INVENTORY_ALL_PATCHES_FILES);
         let mut menu = pr_next_menu(
             query,
             content,
@@ -373,10 +378,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         );
         if let Some(menu) = menu.as_object_mut() {
             menu.retain(|name, _| {
-                matches!(
-                    name.as_str(),
-                    "findInPatches" | "getSelectedPatches" | "getMergeCommit"
-                )
+                matches!(name.as_str(), "getSelectedPatches" | "getMergeCommit")
+                    || (all_patches && name == "getAllPatches")
             });
         }
         if menu.as_object().is_some_and(|menu| !menu.is_empty()) {

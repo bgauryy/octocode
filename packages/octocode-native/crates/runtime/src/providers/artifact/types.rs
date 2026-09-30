@@ -153,6 +153,10 @@ pub struct ArtifactItem {
     pub package_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module_path: Option<String>,
+    /// Commit or tag the registry says this version was published from; it
+    /// pins the `viewRepo` lead and is not a public row field.
+    #[serde(skip)]
+    pub source_ref: Option<String>,
 }
 
 impl ArtifactItem {
@@ -169,6 +173,7 @@ impl ArtifactItem {
             repository_directory: None,
             package_path: None,
             module_path: None,
+            source_ref: None,
         }
     }
 }

@@ -25,47 +25,77 @@ pub fn compact_input(tool: &str, input: &mut Value) {
 
 type Memo = HashMap<(String, String), Value>;
 
-/// Marks every runtime-emitted `next` continuation as a follow-up: it serves
-/// the decision of the query that produced it, so it drops `goal` and
-/// `reasoning` and carries `followUp: true`. The brief is then neither
-/// repeated on every page nor retyped on replay. Clasify continuations keep
-/// their briefs: clasify forwards them to its provider.
-pub fn mark_follow_ups(structured: &mut Value) {
-    match structured {
-        Value::Array(items) => items.iter_mut().for_each(mark_follow_ups),
-        Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                if key == "next" {
-                    mark_next(child);
-                } else {
-                    mark_follow_ups(child);
-                }
-            }
+/// Gives every runtime-emitted `next` continuation the brief (`goal`,
+/// `reasoning`) of the input query that produced its row, so each
+/// continuation is a complete query under the contract, which requires the
+/// brief. `row_queries[i]` is the input query of result row `i` (`None` for a
+/// rejected row). A brief a continuation already carries is kept.
+pub fn inherit_briefs(structured: &mut Value, row_queries: &[Option<&Value>]) {
+    let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (position, row) in rows.iter_mut().enumerate() {
+        let index = row
+            .get("index")
+            .and_then(Value::as_u64)
+            .and_then(|index| usize::try_from(index).ok())
+            .unwrap_or(position);
+        if let Some(Some(query)) = row_queries.get(index) {
+            brief_walk(row, &brief_of(query));
         }
+    }
+}
+
+/// Clasify results: each result query inherits the brief of the input
+/// matrix with the same id (else the one at the same position).
+pub fn inherit_clasify_briefs(structured: &mut Value, input: &Value) {
+    let queries: Vec<&Value> = match input.get("queries").and_then(Value::as_array) {
+        Some(rows) => rows.iter().collect(),
+        None => vec![input],
+    };
+    let Some(rows) = structured.get_mut("queries").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (position, row) in rows.iter_mut().enumerate() {
+        let id = row.get("queryId").cloned();
+        let query = queries
+            .iter()
+            .find(|query| id.is_some() && query.get("id") == id.as_ref())
+            .or_else(|| queries.get(position));
+        if let Some(query) = query {
+            brief_walk(row, &brief_of(query));
+        }
+    }
+}
+
+fn brief_of(query: &Value) -> Map<String, Value> {
+    ["goal", "reasoning"]
+        .into_iter()
+        .filter_map(|field| {
+            query
+                .get(field)
+                .filter(|value| value.is_string())
+                .map(|value| (field.to_owned(), value.clone()))
+        })
+        .collect()
+}
+
+fn brief_walk(value: &mut Value, brief: &Map<String, Value>) {
+    if brief.is_empty() {
+        return;
+    }
+    if continuation_target(value).is_some() {
+        fill_brief(value, brief);
+        return;
+    }
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(|item| brief_walk(item, brief)),
+        Value::Object(map) => map.values_mut().for_each(|child| brief_walk(child, brief)),
         _ => {}
     }
 }
 
-fn mark_next(next: &mut Value) {
-    if continuation_target(next).is_some() {
-        mark_continuation(next);
-        return;
-    }
-    if let Some(map) = next.as_object_mut() {
-        for action in map.values_mut() {
-            if continuation_target(action).is_some() {
-                mark_continuation(action);
-            } else {
-                mark_follow_ups(action);
-            }
-        }
-    }
-}
-
-fn mark_continuation(continuation: &mut Value) {
-    if continuation.get("tool").and_then(Value::as_str) == Some("clasify") {
-        return;
-    }
+fn fill_brief(continuation: &mut Value, brief: &Map<String, Value>) {
     let Some(query) = continuation.get_mut("query") else {
         return;
     };
@@ -75,9 +105,9 @@ fn mark_continuation(continuation: &mut Value) {
     };
     for row in rows {
         if let Some(object) = row.as_object_mut() {
-            object.remove("goal");
-            object.remove("reasoning");
-            object.insert("followUp".to_owned(), Value::Bool(true));
+            for (field, value) in brief {
+                object.entry(field.clone()).or_insert_with(|| value.clone());
+            }
         }
     }
 }
@@ -162,9 +192,33 @@ fn compact_next(next: &mut Value, memo: &mut Memo) {
         return;
     }
     if let Some(map) = next.as_object_mut() {
-        map.values_mut().for_each(|continuation| {
-            compact_continuation(continuation, memo);
-        });
+        for (name, continuation) in map.iter_mut() {
+            // clasify's own `next.clasify` is a bare matrix, not `{tool, query}`.
+            if !compact_continuation(continuation, memo) && name == "clasify" {
+                compact_clasify_contexts(continuation, memo);
+            }
+        }
+    }
+}
+
+/// A clasify matrix nests one ordinary read query per resource; compact each
+/// against its own tool (the matrix itself is validated as clasify).
+fn compact_clasify_contexts(matrix: &mut Value, memo: &mut Memo) {
+    for resource in matrix
+        .get_mut("resources")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let Some(context) = resource.get_mut("context").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let Some(tool) = context.get("tool").and_then(Value::as_str).map(str::to_owned) else {
+            continue;
+        };
+        if let Some(query) = context.get_mut("query").filter(|query| query.is_object()) {
+            compact_query(&tool, query, memo);
+        }
     }
 }
 
@@ -186,10 +240,18 @@ fn compact_continuation(value: &mut Value, memo: &mut Memo) -> bool {
 
 fn compact_query_or_envelope(tool: &str, query: &mut Value, memo: &mut Memo) {
     match query.get_mut("queries").and_then(Value::as_array_mut) {
-        Some(queries) => queries
-            .iter_mut()
-            .for_each(|row| compact_query(tool, row, memo)),
-        None => compact_query(tool, query, memo),
+        Some(queries) => queries.iter_mut().for_each(|row| {
+            compact_query(tool, row, memo);
+            if tool == "clasify" {
+                compact_clasify_contexts(row, memo);
+            }
+        }),
+        None => {
+            compact_query(tool, query, memo);
+            if tool == "clasify" {
+                compact_clasify_contexts(query, memo);
+            }
+        }
     }
 }
 
@@ -202,7 +264,16 @@ fn compact_query(tool: &str, query: &mut Value, memo: &mut Memo) {
         *query = compact.clone();
         return;
     }
+    // A continuation may be compacted before it inherits its brief; validate
+    // it with a placeholder brief, which is never emitted.
+    let placeholder: Vec<&str> = ["goal", "reasoning"]
+        .into_iter()
+        .filter(|field| !object.contains_key(*field))
+        .collect();
     let mut compact: Map<String, Value> = object.clone();
+    for field in &placeholder {
+        compact.insert((*field).to_owned(), Value::String("-".to_owned()));
+    }
     let Ok(full) = validate_query(tool, Value::Object(compact.clone())) else {
         return;
     };
@@ -231,23 +302,38 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn continuations_inherit_the_brief_as_a_follow_up() {
+    fn continuations_inherit_the_brief_of_their_input_query() {
+        let first = json!({"goal":"Find a.","reasoning":"First."});
+        let second = json!({"goal":"Find b.","reasoning":"Second."});
         let mut out = json!({"results":[
             {"index":0,"data":{"next":{
-                "viewRepo":{"tool":"ghStructure","query":{"owner":"o","repo":"r","goal":"Find a.","reasoning":"r"}},
+                "viewRepo":{"tool":"ghStructure","query":{"owner":"o","repo":"r"}},
                 "clasify":{"tool":"clasify","query":{"goal":"Locate.","reasoning":"Unread.","resources":[],"questions":[]}}
             }}},
-            {"index":1,"data":{"items":[{"next":{"tool":"localFetch","query":{"queries":[{"path":"/a","reasoning":"r"}]}}}]}}
+            {"index":1,"data":{"items":[{"next":{"tool":"localFetch","query":{"queries":[{"path":"/a"}]}}}]}}
         ]});
-        mark_follow_ups(&mut out);
+        inherit_briefs(&mut out, &[Some(&first), Some(&second)]);
         let view = &out["results"][0]["data"]["next"]["viewRepo"]["query"];
-        assert_eq!(view, &json!({"owner":"o","repo":"r","followUp":true}));
+        assert_eq!(
+            view,
+            &json!({"owner":"o","repo":"r","goal":"Find a.","reasoning":"First."})
+        );
         let clasify = &out["results"][0]["data"]["next"]["clasify"]["query"];
-        assert_eq!(clasify["goal"], "Locate.", "clasify forwards its brief");
-        assert!(clasify.get("followUp").is_none());
+        assert_eq!(clasify["goal"], "Locate.", "an existing brief is kept");
         assert_eq!(
             out["results"][1]["data"]["items"][0]["next"]["query"]["queries"][0],
-            json!({"path":"/a","followUp":true})
+            json!({"path":"/a","goal":"Find b.","reasoning":"Second."})
+        );
+    }
+
+    #[test]
+    fn clasify_page_reads_inherit_their_matrix_brief_by_query_id() {
+        let input = json!({"queries":[{"id":"m1","goal":"G1","reasoning":"R1"},{"id":"m2","goal":"G2","reasoning":"R2"}]});
+        let mut out = json!({"queries":[{"queryId":"m2","resources":[{"pages":[{"next":{"read":{"tool":"localFetch","query":{"path":"/a"}}}}]}]}]});
+        inherit_clasify_briefs(&mut out, &input);
+        assert_eq!(
+            out["queries"][0]["resources"][0]["pages"][0]["next"]["read"]["query"],
+            json!({"path":"/a","goal":"G2","reasoning":"R2"})
         );
     }
 

@@ -17,6 +17,13 @@ impl GitHubEndpoint {
     }
 
     pub fn new(mut rest_base: Url) -> Result<Self, ProviderError> {
+        // The Bearer token rides every request: plain http only to loopback.
+        if rest_base.scheme() == "http" && !is_loopback(&rest_base) {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "GitHub API base URL must use https (plain http is allowed only for loopback)",
+            ));
+        }
         if !matches!(rest_base.scheme(), "http" | "https")
             || rest_base.host_str().is_none()
             || !rest_base.username().is_empty()
@@ -72,6 +79,14 @@ impl GitHubEndpoint {
             })?;
             path.pop_if_empty();
             for segment in segments {
+                // `url` resolves a pushed `.`/`..` segment, which would
+                // silently re-route an owner/repo to another API path.
+                if matches!(*segment, "." | "..") {
+                    return Err(ProviderError::new(
+                        ProviderErrorKind::Validation,
+                        "GitHub route segments cannot be '.' or '..'",
+                    ));
+                }
                 path.push(segment);
             }
         }
@@ -81,5 +96,14 @@ impl GitHubEndpoint {
         self.rest_base.scheme() == url.scheme()
             && self.rest_base.host_str() == url.host_str()
             && self.rest_base.port_or_known_default() == url.port_or_known_default()
+    }
+}
+
+fn is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
     }
 }

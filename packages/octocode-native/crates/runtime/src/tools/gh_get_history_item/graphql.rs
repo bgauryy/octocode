@@ -164,7 +164,9 @@ pub(super) fn graphql_collection_state(pr: &Value, key: &str, wanted: bool) -> G
         .pointer(&format!("/{key}/pageInfo/hasNextPage"))
         .and_then(Value::as_bool)
         == Some(true)
-        || pr.get(key).is_none()
+        // A connection the token cannot read comes back `null` with the
+        // cause in `errors[]`: missing, not empty.
+        || pr.get(key).is_none_or(Value::is_null)
     {
         GraphqlCollection::Incomplete
     } else {
@@ -392,5 +394,32 @@ mod tests {
             "labels": {"pageInfo": {"hasNextPage": false}, "nodes": []}
         }));
         assert_eq!(complete["labels_truncated"], false);
+    }
+
+    /// GitHub nulls a connection the token cannot read and reports the cause
+    /// in `errors[]` beside `data`: that is a missing collection, not an
+    /// empty complete one.
+    #[test]
+    fn a_nulled_connection_is_incomplete_not_empty() {
+        let pr = json!({
+            "reviews": null,
+            "commits": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
+        });
+        assert_eq!(
+            super::graphql_collection_state(&pr, "reviews", true),
+            super::GraphqlCollection::Incomplete
+        );
+        assert_eq!(
+            super::graphql_collection_state(&pr, "files", true),
+            super::GraphqlCollection::Incomplete
+        );
+        assert_eq!(
+            super::graphql_collection_state(&pr, "commits", true),
+            super::GraphqlCollection::Complete
+        );
+        assert_eq!(
+            super::graphql_collection_state(&pr, "reviews", false),
+            super::GraphqlCollection::Unused
+        );
     }
 }
