@@ -388,7 +388,10 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     assert!(first_row.get("next").is_some(), "{first_row}");
     // A literal search of every patch needs the caller's literal: it is
     // never offered as an executable placeholder.
-    assert!(first_row["next"].get("findInPatches").is_none(), "{first_row}");
+    assert!(
+        first_row["next"].get("findInPatches").is_none(),
+        "{first_row}"
+    );
 
     let data = run(&server, follow).await;
     let row = &data["pullRequests"][0];

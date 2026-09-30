@@ -557,8 +557,14 @@ mod tests {
             item.repository = Some("https://github.com/o/r".into());
             go_source_ref(&item)
         };
-        assert_eq!(item("github.com/o/r", "v1.10.2").as_deref(), Some("v1.10.2"));
-        assert_eq!(item("github.com/o/r/v2", "v2.3.0").as_deref(), Some("v2.3.0"));
+        assert_eq!(
+            item("github.com/o/r", "v1.10.2").as_deref(),
+            Some("v1.10.2")
+        );
+        assert_eq!(
+            item("github.com/o/r/v2", "v2.3.0").as_deref(),
+            Some("v2.3.0")
+        );
         assert_eq!(
             item("github.com/o/r/sub/mod", "v0.4.1").as_deref(),
             Some("sub/mod/v0.4.1")

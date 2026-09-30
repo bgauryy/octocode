@@ -65,7 +65,11 @@ pub fn execute_local_fetch_with_regex(
         Ok(path) => path,
         Err(failure) => {
             let display = failure.safe_path.as_deref().unwrap_or(&q.path);
-            let message = if failure.resource_missing {
+            let message = if failure.sparse_checkout {
+                format!(
+                    "File not found: {display}. It lies in a sparse checkout, so it may exist outside the checked-out paths: re-clone with a sparsePath that covers it, or read it with ghGetFileContent."
+                )
+            } else if failure.resource_missing {
                 format!(
                     "File not found: {display}. Verify the path with structureSearch operation:\"files\"."
                 )
@@ -485,28 +489,25 @@ pub fn process_fetched_content(
     // Redaction (source-wide for matchString, or on the page) replaces text
     // within lines; the anchors stay and the warning above says the text is
     // not verbatim.
-    let source_ranges = if !out_of_range
-        && !view_empty
-        && content_view == MinifyMode::None
-        && lines_kept
-    {
-        if let Some(lines) = ext.source_lines.as_ref() {
-            let page_lines: Vec<usize> = lines
-                [pg.view_lines.0.saturating_sub(1)..pg.view_lines.1.min(lines.len())]
-                .iter()
-                .copied()
-                .filter(|line| *line != super::extraction::OMISSION_LINE)
-                .collect();
-            compress_ranges(&page_lines)
+    let source_ranges =
+        if !out_of_range && !view_empty && content_view == MinifyMode::None && lines_kept {
+            if let Some(lines) = ext.source_lines.as_ref() {
+                let page_lines: Vec<usize> = lines
+                    [pg.view_lines.0.saturating_sub(1)..pg.view_lines.1.min(lines.len())]
+                    .iter()
+                    .copied()
+                    .filter(|line| *line != super::extraction::OMISSION_LINE)
+                    .collect();
+                compress_ranges(&page_lines)
+            } else {
+                vec![LineRange {
+                    start: pg.view_lines.0,
+                    end: pg.view_lines.1,
+                }]
+            }
         } else {
-            vec![LineRange {
-                start: pg.view_lines.0,
-                end: pg.view_lines.1,
-            }]
-        }
-    } else {
-        vec![]
-    };
+            vec![]
+        };
     let matched_lines = ext
         .matched_lines
         .into_iter()
@@ -719,6 +720,7 @@ mod source_size_tests {
                     message: error.to_string(),
                     safe_path: None,
                     resource_missing: false,
+                    sparse_checkout: false,
                 })
         }
     }
@@ -1100,9 +1102,10 @@ mod line_page_scan_tests {
         let result = fetch(&source, &lines_query(10, 5));
         let content = result.content.expect("content");
         assert!(!content.contains("s3cr3t"), "{content}");
-        assert!(
-            result.source_line_ranges.is_empty(),
-            "redacted page drops source mapping"
+        // The page scan kept line counts, so the page still anchors to 11-15.
+        assert_eq!(
+            result.source_line_ranges,
+            vec![LineRange { start: 11, end: 15 }]
         );
     }
 

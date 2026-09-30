@@ -1748,8 +1748,16 @@ mod tests {
     fn workspace_relative_files_under_path_resolve_and_misses_get_a_repair() {
         let root = Path::new("/ws/packages/pkg");
         let nodes = BTreeMap::from([("src/index.ts".into(), node(&[]))]);
-        for spelling in ["src/index.ts", "pkg/src/index.ts", "packages/pkg/src/index.ts"] {
-            assert_eq!(node_key(spelling, root, &nodes), "src/index.ts", "{spelling}");
+        for spelling in [
+            "src/index.ts",
+            "pkg/src/index.ts",
+            "packages/pkg/src/index.ts",
+        ] {
+            assert_eq!(
+                node_key(spelling, root, &nodes),
+                "src/index.ts",
+                "{spelling}"
+            );
         }
         assert_eq!(
             node_key("other/src/index.ts", root, &nodes),

@@ -92,9 +92,9 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
                 (Some(requires), _) => {
                     format!("Remove '{field}' from {query}: it applies only with {requires}.")
                 }
-                (None, Some(s)) => format!(
-                    "Remove unknown field '{field}' from {query} (did you mean '{s}'?)"
-                ),
+                (None, Some(s)) => {
+                    format!("Remove unknown field '{field}' from {query} (did you mean '{s}'?)")
+                }
                 (None, None) => format!("Remove unknown field(s) from {query}: {field}"),
             };
             details.push(msg);
@@ -1353,7 +1353,17 @@ mod tests {
         assert_eq!(union["queries"][0]["position"]["line"], 3);
         assert_eq!(union["queries"][0]["position"]["character"], 0);
         assert_eq!(union["queries"][1]["lineHint"], 4);
-        for bad in ["02", "2.0", "1e3", " 2", "+2", "-0", "", "9007199254740993", "two"] {
+        for bad in [
+            "02",
+            "2.0",
+            "1e3",
+            " 2",
+            "+2",
+            "-0",
+            "",
+            "9007199254740993",
+            "two",
+        ] {
             assert!(
                 validate(
                     "localFetch",

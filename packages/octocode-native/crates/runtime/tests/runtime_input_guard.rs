@@ -61,7 +61,7 @@ async fn credential_shaped_search_text_is_rejected_not_rewritten() {
 #[tokio::test]
 async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     let workspace = Workspace::new();
-    let file = workspace.write("src/a.txt", &"needle\n".repeat(40));
+    let file = workspace.write("src/a.txt", "needle\n".repeat(40));
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
     let input = json!({"queries":[
@@ -151,7 +151,10 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
         .await
         .expect("MCP reports the reason in-band");
     let text = mcp["content"][0]["text"].as_str().unwrap();
-    assert!(text.contains("searchText") && text.contains("10000"), "{text}");
+    assert!(
+        text.contains("searchText") && text.contains("10000"),
+        "{text}"
+    );
     runtime.close().await;
 }
 
@@ -187,5 +190,40 @@ async fn numeric_and_boolean_strings_are_coerced_for_typed_fields() {
             .expect_err("only exact integer strings coerce");
         assert_eq!(error.code, "invalidInput", "{bad}");
     }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn clasify_redacts_evidence_but_rejects_a_credential_in_a_context_read() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(wiremock::ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("trace.txt", "Evidence is present.\n");
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+    ]);
+    let input = json!({
+        "id":"decision",
+        "goal":"Decide whether the file states the fact.",
+        "reasoning":"Exercise the context-read input guard.",
+        "resources":[{"id":"source","context":{"tool":"localFetch","query":{"path":file,"matchString":TOKEN}}}],
+        "questions":[{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]
+    });
+    let error = runtime
+        .execute("clasify-secret".into(), "clasify".into(), input)
+        .await
+        .expect_err("a context read must not run a rewritten query");
+    assert_eq!(error.code, "invalidInput");
+    let details = error.payload.as_deref().unwrap()["details"].to_string();
+    assert!(
+        details.contains("context.query.matchString") && details.contains("credential"),
+        "{details}"
+    );
+    assert!(!details.contains(TOKEN), "{details}");
     runtime.close().await;
 }

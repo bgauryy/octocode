@@ -51,6 +51,8 @@ pub enum ProviderErrorReason {
     RefNotFound,
     /// A pull-request number names an issue.
     PullRequestIsIssue,
+    /// A file read named binary content, which is never returned as text.
+    BinaryFile,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -398,6 +398,9 @@ pub struct PathFailure {
     pub message: String,
     pub safe_path: Option<String>,
     pub resource_missing: bool,
+    /// The missing path lies in a sparse git checkout, so it may exist
+    /// upstream outside the checked-out paths.
+    pub sparse_checkout: bool,
 }
 pub trait PathAccess {
     fn validate_read(&self, path: &Path) -> Result<ValidatedRead, PathFailure>;
@@ -469,9 +472,29 @@ impl PathAccess for crate::policy::path::PathPolicy {
                     message: error.message,
                     safe_path: error.safe_path,
                     resource_missing: missing,
+                    sparse_checkout: missing && in_sparse_checkout(&self.expand_and_resolve(path)),
                 }
             })
     }
+}
+
+/// Whether `path` lies in a git worktree with sparse checkout enabled (as a
+/// `ghCloneRepo` clone with `sparsePath` is).
+fn in_sparse_checkout(path: &Path) -> bool {
+    path.ancestors()
+        .skip(1)
+        .map(|dir| dir.join(".git"))
+        .find(|git| git.is_dir())
+        .is_some_and(|git| {
+            git.join("info/sparse-checkout").is_file()
+                && std::fs::read_to_string(git.join("config")).is_ok_and(|config| {
+                    config.lines().any(|line| {
+                        line.split_whitespace()
+                            .collect::<String>()
+                            .eq_ignore_ascii_case("sparseCheckout=true")
+                    })
+                })
+        })
 }
 
 #[cfg(test)]

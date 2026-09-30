@@ -508,7 +508,12 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
     std::fs::write(root.0.join(".gitignore"), "vendor/\n*.node\n").expect("gitignore");
     std::fs::create_dir_all(root.0.join("vendor/pkg")).expect("vendor");
     std::fs::create_dir_all(root.0.join("app")).expect("app");
-    for name in ["package.json", "app/package.json", "vendor/pkg/package.json", "addon.node"] {
+    for name in [
+        "package.json",
+        "app/package.json",
+        "vendor/pkg/package.json",
+        "addon.node",
+    ] {
         std::fs::write(root.0.join(name), "{}\n").expect("file");
     }
     let paths = |out: &Value| {
@@ -529,7 +534,10 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
     .expect("files");
     assert_eq!(
         paths(&out),
-        [format!("{base}/app/package.json"), format!("{base}/package.json")],
+        [
+            format!("{base}/app/package.json"),
+            format!("{base}/package.json")
+        ],
         "{out}"
     );
     let all = run(

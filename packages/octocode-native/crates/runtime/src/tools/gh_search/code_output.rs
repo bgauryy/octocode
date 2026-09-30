@@ -85,25 +85,33 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             "exact",
             "ghRepoArchived",
         ),
-        _ => (
-            "viewStructure",
-            "ghStructure",
-            json!({"owner":owner,"repo":repo,"path":""}),
-            "Verify that the scoped repository and path exist before concluding absence.",
-            "exact",
-            "ghScopedZeroUnproven",
-        ),
+        // The repository exists: only a scoped path is left to verify.
+        _ => {
+            let hint = "No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.";
+            diagnostics.add("ghScopedZeroUnproven", hint, false);
+            let Some(scope) = query.path.as_deref() else {
+                return Ok(());
+            };
+            (
+                "viewStructure",
+                "ghStructure",
+                json!({"owner":owner,"repo":repo,"path":scope.as_str()}),
+                "Verify that the scoped path exists before concluding absence.",
+                "exact",
+                "ghScopedZeroUnproven",
+            )
+        }
     };
     let hint = match code {
-        "ghRepoNotFound" => "The repository is missing, private, or hidden from this token; check owner/repo spelling and token access.".to_owned(),
-        "ghRepoRenamed" => format!("The repository was renamed to {}/{}; retry against the renamed repository.", next_query["owner"].as_str().unwrap_or_default(), next_query["repo"].as_str().unwrap_or_default()),
-        "ghRepoArchived" => "The repository is archived, so its code-search index may lag or be incomplete; verify its structure and search locally.".to_owned(),
-        _ => "No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.".to_owned(),
+        "ghRepoNotFound" => Some("The repository is missing, private, or hidden from this token; check owner/repo spelling and token access.".to_owned()),
+        "ghRepoRenamed" => Some(format!("The repository was renamed to {}/{}; run the retryRenamed continuation.", next_query["owner"].as_str().unwrap_or_default(), next_query["repo"].as_str().unwrap_or_default())),
+        "ghRepoArchived" => Some("The repository is archived, so its code-search index may lag; verify its structure and search locally.".to_owned()),
+        _ => None,
     };
-    diagnostics.add(code, &hint, false);
-    // A repository the token cannot see is the answer: say so instead of the
-    // generic default-branch note.
-    if code == "ghRepoNotFound" {
+    // A missing, renamed, or archived repository is the answer: say so
+    // instead of the generic default-branch note.
+    if let Some(hint) = hint {
+        diagnostics.add(code, &hint, false);
         value["hints"] = json!([hint]);
     }
     // These are advisory "start a fresh query" actions (renamed repo / a
@@ -137,6 +145,18 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     }
     value["next"][name] = json!({"tool":tool,"query":next_query,"confidence":confidence,"why":why});
     Ok(())
+}
+
+/// A `match:"path"` search whose keywords read as code (spaces or syntax
+/// characters) rather than path segments.
+pub(super) fn path_mode_given_code(query: &GhSearchCodeQuery) -> bool {
+    query.match_ == GhSearchCodeQueryMatch::Path
+        && query.keywords.iter().any(|keyword| {
+            keyword
+                .trim()
+                .chars()
+                .any(|c| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | '/')))
+        })
 }
 
 /// Code-search fragments carry no line numbers. Point the top hit at an exact
@@ -254,8 +274,11 @@ pub(super) fn files(
                 }
             } else {
                 indices.insert(key, files.len());
-                let mut row =
-                    json!({"owner":owner,"repo":repo,"path":matched.path,"matches":values});
+                let mut row = json!({"owner":owner,"repo":repo,"path":matched.path});
+                // Path matches carry no snippets.
+                if !path_only {
+                    row["matches"] = json!(values);
+                }
                 if let Some(stamp) = timestamps
                     .get(&(group.id.clone(), matched.path.clone()))
                     .and_then(|value| value.as_ref())

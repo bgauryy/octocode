@@ -405,24 +405,12 @@ fn file_chunks(source: &Value) -> bool {
     source.get("candidateEvidence").and_then(Value::as_str) == Some("fileChunks")
 }
 
-fn candidate_identity(source: &Value, state: &Value, file: &Value) -> Option<String> {
+fn candidate_identity(source: &Value, file: &Value) -> Option<String> {
     let path = file.get("path")?.as_str()?;
     match source.get("tool").and_then(Value::as_str)? {
-        "localSearch" => Some(
-            state
-                .get("base")
-                .and_then(Value::as_str)
-                .filter(|_| !std::path::Path::new(path).is_absolute())
-                .map_or_else(
-                    || path.to_owned(),
-                    |base| {
-                        std::path::Path::new(base)
-                            .join(path)
-                            .to_string_lossy()
-                            .into_owned()
-                    },
-                ),
-        ),
+        // Rows are workspace-relative (base is the workspace root) or
+        // absolute outside it, so either form reads back through localFetch.
+        "localSearch" => Some(path.to_owned()),
         "ghSearchCode" => Some(format!(
             "{}/{}/{}",
             file.get("owner")?.as_str()?.to_ascii_lowercase(),
@@ -454,7 +442,7 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
             } else {
                 file.clone()
             };
-            candidate_identity(source, state, &file)
+            candidate_identity(source, &file)
                 .is_some_and(|id| seen.insert(id))
                 .then_some(file)
         })
@@ -583,7 +571,7 @@ fn local_window_read(path: &str, (start, end): (u64, u64), max_bytes: usize) -> 
 /// One bounded read per hit cluster of a local candidate, densest first.
 fn local_candidate_reads(candidate: &Value, max_bytes: usize) -> Option<Vec<Value>> {
     let file = candidate.pointer("/results/0/data/files/0")?;
-    let path = candidate_identity(&json!({"tool":"localSearch"}), candidate, file)?;
+    let path = candidate_identity(&json!({"tool":"localSearch"}), file)?;
     Some(
         hit_cluster_windows(candidate_hit_lines(file))
             .into_iter()
@@ -1027,7 +1015,7 @@ fn candidate_jobs(
         .iter()
         .map(|candidate| {
             let file = candidate.pointer("/results/0/data/files/0")?;
-            let path = candidate_identity(&json!({"tool":"localSearch"}), candidate, file)?;
+            let path = candidate_identity(&json!({"tool":"localSearch"}), file)?;
             Some((path, hit_cluster_windows(candidate_hit_lines(file))))
         })
         .collect::<Vec<_>>();
@@ -2929,7 +2917,8 @@ mod tests {
         }]}}]});
         let read = local_candidate_read(&local, 12_000).expect("local read");
         assert_eq!(read["tool"], "localFetch");
-        assert_eq!(read["query"]["path"], "/repo/src/a.rs");
+        // Rows are workspace-relative, which localFetch resolves as-is.
+        assert_eq!(read["query"]["path"], "src/a.rs");
         assert_eq!(read["query"]["startLine"], 30);
         assert_eq!(read["query"]["endLine"], 150);
         assert_eq!(read["query"]["chunkSize"], 12_000);
@@ -3079,7 +3068,7 @@ mod tests {
         for (candidate, path) in candidates.iter().zip(["src/a.rs", "src/b.rs"]) {
             let file = &candidate["results"][0]["data"]["files"][0];
             assert_eq!(
-                candidate_identity(&source, candidate, file),
+                candidate_identity(&source, file),
                 Some(format!("o/r/{path}"))
             );
             let read = host_read(&source, candidate).expect("candidate read");

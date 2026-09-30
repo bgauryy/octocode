@@ -562,26 +562,54 @@ pub(super) fn attach_diff_continuations(
             make(nq, "Continue the current patch window."),
         );
     }
-    // Commit → pull request: GitHub issue search matches PRs by commit SHA.
-    if matches!(operation, ItemOperation::Commit)
-        && !with_why
-        && let Some(sha) = out.get("sha").and_then(Value::as_str)
-    {
-        next.insert(
-            "findPullRequest".into(),
-            json!({"tool":"ghSearchHistory","confidence":"high","query":{
-                "operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"keywords":[sha]
-            }}),
-        );
+    // Commit → pull request: a squash-merge headline names its PR
+    // (`… (#8506)`); otherwise issue search matches PRs by commit SHA.
+    if matches!(operation, ItemOperation::Commit) && !with_why {
+        if let Some(number) = out
+            .get("messageHeadline")
+            .and_then(Value::as_str)
+            .and_then(headline_pull_request)
+        {
+            next.insert(
+                "readPullRequest".into(),
+                json!({"tool":"ghGetHistoryItem","confidence":"high","query":{
+                    "operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"number":number
+                }}),
+            );
+        } else if let Some(sha) = out.get("sha").and_then(Value::as_str) {
+            next.insert(
+                "findPullRequest".into(),
+                json!({"tool":"ghSearchHistory","confidence":"high","query":{
+                    "operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"keywords":[sha]
+                }}),
+            );
+        }
     }
     if !next.is_empty() {
         out["next"] = Value::Object(next);
     }
 }
 
+/// The pull request a squash-merge headline ends with: `subject (#123)`.
+fn headline_pull_request(headline: &str) -> Option<u64> {
+    let digits = headline.trim_end().strip_suffix(')')?.rsplit_once("(#")?.1;
+    digits.parse().ok().filter(|number| *number > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn squash_headline_names_its_pull_request() {
+        assert_eq!(
+            headline_pull_request("io: use `spawn_mandatory_blocking` (#8506)"),
+            Some(8506)
+        );
+        assert_eq!(headline_pull_request("Merge branch main"), None);
+        assert_eq!(headline_pull_request("fix (#abc)"), None);
+        assert_eq!(headline_pull_request("revert (#12) partially"), None);
+    }
 
     #[test]
     fn selected_patch_continuation_stops_after_every_requested_path_is_returned() {

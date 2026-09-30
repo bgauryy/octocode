@@ -726,7 +726,13 @@ mod tests {
         assert!(result.has_secrets);
         assert_eq!(
             result.secret_fields,
-            ["grid[]", "keywords[]", "outer.key", "rows[].inner", "searchText"]
+            [
+                "grid[]",
+                "keywords[]",
+                "outer.key",
+                "rows[].inner",
+                "searchText"
+            ]
         );
         let clean = policy.validate_input_parameters(&serde_json::json!({"searchText": "needle"}));
         assert!(clean.secret_fields.is_empty());
@@ -743,7 +749,10 @@ mod tests {
             "fn validate_input_parameters",
         ] {
             let result = policy.validate_input_parameters(&serde_json::json!({"field": value}));
-            assert!(result.secret_fields.is_empty(), "{value} flagged as a secret");
+            assert!(
+                result.secret_fields.is_empty(),
+                "{value} flagged as a secret"
+            );
         }
     }
 

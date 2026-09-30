@@ -124,6 +124,20 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     if data.items.is_empty() {
         output.status = Some("empty");
         code_output::empty_scope(value, &mut output.diagnostics, query, transport, context).await?;
+        if value.get("hints").is_none() && code_output::path_mode_given_code(query) {
+            // Path matching never sees file contents: search them instead.
+            let mut content = serde_json::to_value(query).map_err(|error| {
+                ProviderError::new(ProviderErrorKind::Decode, error.to_string())
+            })?;
+            remove_null_fields(&mut content);
+            content["match"] = json!("file");
+            content["page"] = json!(1);
+            value["next"]["searchContent"] =
+                json!({"tool":"ghSearchCode","query":content,"confidence":"high"});
+            value["hints"] = json!([
+                "match:\"path\" matches file paths, not code; run searchContent to search file contents."
+            ]);
+        }
         if value.get("hints").is_none() {
             // Absence in the index is not absence on other branches.
             value["hints"] = json!([
@@ -196,7 +210,14 @@ pub async fn execute_repositories<
     let mut listing: Option<OwnerListing> = None;
     let data = if owner_only {
         let owner = owner.as_deref().map_or("", String::as_str);
-        let sort = (*sort == GhSearchRepoQuerySort::Updated).then_some("updated");
+        // The listing API cannot rank by relevance, and its own default
+        // order is creation (oldest first): best-match lists the most
+        // recently pushed repositories first.
+        let sort = if *sort == GhSearchRepoQuerySort::Updated {
+            "updated"
+        } else {
+            "pushed"
+        };
         // Search excludes archived repositories by default
         // (`archived:false`); the owner listing API cannot, so filter
         // and keep reading provider pages until a page of kept rows,
@@ -672,6 +693,111 @@ mod tests {
             }
         }
 
+        /// D5: empty-search hints name the actual cause, and a repository
+        /// known to exist gets no root viewStructure.
+        #[tokio::test]
+        async fn empty_code_search_hints_are_cause_specific() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(
+                        json!({"total_count":0,"incomplete_results":false,"items":[]}),
+                    ),
+                )
+                .mount(&server)
+                .await;
+            for (repo, full_name) in [("b", "a/b"), ("old", "c/d")] {
+                Mock::given(method("GET"))
+                    .and(path(format!("/api/v3/repos/a/{repo}")))
+                    .respond_with(
+                        ResponseTemplate::new(200)
+                            .set_body_json(json!({"default_branch":"main","full_name":full_name})),
+                    )
+                    .mount(&server)
+                    .await;
+            }
+            let hint =
+                |out: &ToolData| out.data["hints"][0].as_str().unwrap_or_default().to_owned();
+            let renamed = run(
+                &server,
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"old","keywords":["needle"]}),
+            )
+            .await
+            .expect("search");
+            assert!(hint(&renamed).contains("renamed"), "{}", renamed.data);
+            assert!(
+                !hint(&renamed).contains("default branch"),
+                "{}",
+                renamed.data
+            );
+
+            let existing = run(
+                &server,
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
+            )
+            .await
+            .expect("search");
+            assert!(
+                existing.data["next"].get("viewStructure").is_none(),
+                "{}",
+                existing.data
+            );
+            let scoped = run(
+                &server,
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"path":"src/io"}),
+            )
+            .await
+            .expect("search");
+            assert_eq!(
+                scoped.data["next"]["viewStructure"]["query"]["path"], "src/io",
+                "{}",
+                scoped.data
+            );
+
+            let path_mode = run(
+                &server,
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b",
+                       "keywords":["fn spawn_blocking"],"match":"path"}),
+            )
+            .await
+            .expect("search");
+            assert!(
+                hint(&path_mode).contains("match:\"path\""),
+                "{}",
+                path_mode.data
+            );
+            let content = &path_mode.data["next"]["searchContent"]["query"];
+            assert_eq!(content["match"], "file", "{}", path_mode.data);
+            assert_eq!(content["keywords"], json!(["fn spawn_blocking"]));
+        }
+
+        /// D9: path matches carry no empty snippet list.
+        #[tokio::test]
+        async fn path_match_rows_omit_empty_matches() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":1,"incomplete_results":false,"items":[{
+                        "name":"pool.rs","path":"src/pool.rs","sha":"1","html_url":"https://x",
+                        "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}
+                    }]
+                })))
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b",
+                       "keywords":["pool"],"match":"path"}),
+            )
+            .await
+            .expect("search");
+            let row = &out.data["files"][0];
+            assert_eq!(row["path"], "src/pool.rs", "{}", out.data);
+            assert!(row.get("matches").is_none(), "{}", out.data);
+        }
+
         #[tokio::test]
         async fn concise_repositories_are_flat_rows() {
             let server = MockServer::start().await;
@@ -717,6 +843,29 @@ mod tests {
                 .map(|row| row["repo"].as_str().unwrap_or_default().to_owned())
                 .collect::<Vec<_>>();
             assert_eq!(names, vec!["live".to_owned()], "{}", out.data);
+        }
+
+        /// D8: the listing API's own order is creation (oldest first); the
+        /// default best-match listing asks for the most recently pushed.
+        #[tokio::test]
+        async fn owner_listing_default_sort_is_recent_activity_not_creation() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/orgs/o/repos"))
+                .and(query_param("sort", "pushed"))
+                .and(query_param("direction", "desc"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!([repo_item("live", false)])),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"repositories","goal": "test", "reasoning":"test","owner":"o"}),
+            )
+            .await
+            .expect("owner listing");
+            assert_eq!(out.data["repositories"][0]["repo"], "live", "{}", out.data);
         }
 
         #[tokio::test]

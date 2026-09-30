@@ -219,8 +219,10 @@ fn cached_query(language: &Language, body_query: &'static str) -> Option<Arc<Que
     }) {
         return None;
     }
+    // A concurrent caller may have compiled the same query first: keep
+    // theirs so every caller shares one instance.
     if let Ok(mut cache) = cache.write() {
-        cache.insert(key, Arc::clone(&query));
+        return Some(Arc::clone(cache.entry(key).or_insert(query)));
     }
     Some(query)
 }

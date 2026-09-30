@@ -846,7 +846,11 @@ fn long_leading_context_does_not_hide_the_match() {
 #[test]
 fn opaque_binary_files_are_skipped_not_a_coverage_gap() {
     let t = TmpDir::new();
-    fs::write(t.0.join("logo.png"), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR needle").expect("png");
+    fs::write(
+        t.0.join("logo.png"),
+        b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR needle",
+    )
+    .expect("png");
     fs::write(t.0.join("addon.node"), b"\x7fELF\x02\x01\x01\0needle").expect("elf");
     fs::write(t.0.join("font.ttf"), b"\0\x01\0\0needle").expect("ttf");
     t.write("text.txt", "needle plain\n");

@@ -1304,13 +1304,25 @@ mod tests {
                 ("addon.node", "\u{7f}ELF\u{2}\u{1}\u{1}\u{0}needle\n"),
                 ("a.txt", "needle\n"),
             ],
-            ls_query(serde_json::json!({"searchText": "needle".to_string()}), None),
+            ls_query(
+                serde_json::json!({"searchText": "needle".to_string()}),
+                None,
+            ),
         );
         assert_ne!(body["isPartial"], true, "{body}");
         assert_ne!(body["terminalLimit"], true, "{body}");
         assert_ne!(body["status"], "partial", "{body}");
-        assert!(body.get("warnings").is_none_or(|w| w.as_array().is_some_and(Vec::is_empty)), "{body}");
-        assert!(body["stats"].get("capReason").is_none_or(serde_json::Value::is_null), "{body}");
+        assert!(
+            body.get("warnings")
+                .is_none_or(|w| w.as_array().is_some_and(Vec::is_empty)),
+            "{body}"
+        );
+        assert!(
+            body["stats"]
+                .get("capReason")
+                .is_none_or(serde_json::Value::is_null),
+            "{body}"
+        );
 
         // Targeted directly, the empty result still says why.
         let root = tempfile::tempdir().expect("fixture directory");

@@ -208,7 +208,10 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
                 raw_response_bytes = raw_response_bytes.saturating_add(blob_bytes);
                 bytes
             }
-            None => decode_bytes(payload.encoding.as_deref(), payload.content)?,
+            None => text_bytes(
+                decode_bytes(payload.encoding.as_deref(), payload.content)?,
+                payload.sha.as_deref(),
+            )?,
         };
         let etag = page
             .headers
@@ -430,7 +433,10 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
             ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub blob response")
         })?;
         Ok((
-            decode_bytes(Some(&payload.encoding), Some(payload.content))?,
+            text_bytes(
+                decode_bytes(Some(&payload.encoding), Some(payload.content))?,
+                Some(sha),
+            )?,
             blob.body.len(),
         ))
     }
@@ -649,13 +655,25 @@ fn decode_bytes(encoding: Option<&str>, content: Option<String>) -> Result<Vec<u
             ));
         }
     };
-    if bytes.contains(&0) {
-        return Err(ProviderError::new(
-            ProviderErrorKind::Decode,
-            "binary files are not supported",
-        ));
-    }
     Ok(bytes)
+}
+/// Text content only: a NUL byte marks binary content, reported with its size
+/// and blob SHA as a request the file read cannot serve (not a decode fault).
+fn text_bytes(bytes: Vec<u8>, blob_sha: Option<&str>) -> Result<Vec<u8>, ProviderError> {
+    if !bytes.contains(&0) {
+        return Ok(bytes);
+    }
+    let blob = blob_sha
+        .map(|sha| format!(", blob {sha}"))
+        .unwrap_or_default();
+    Err(ProviderError::new(
+        ProviderErrorKind::Validation,
+        format!(
+            "Binary file ({} bytes{blob}); ghGetFileContent returns text only.",
+            bytes.len()
+        ),
+    )
+    .with_reason(super::ProviderErrorReason::BinaryFile))
 }
 fn validate_name(value: &str) -> Result<(), ProviderError> {
     if value.is_empty() || value == "." || value == ".." || value.contains('/') {

@@ -77,6 +77,86 @@ pub struct ToolRuntime {
     /// Sanitized full views of recently paged local files (this runtime's
     /// security policy only), so each localFetch page skips a full rescan.
     local_views: Arc<crate::security::scan::SanitizedViewMemo>,
+    /// Pre-paging envelopes of recent paged responses (this runtime's config
+    /// and workspace only), so a later page skips re-executing the batch.
+    page_replays: Arc<PageReplayMemo>,
+}
+
+/// One paged response's envelope before paging, replayed only for a request
+/// that carries the page's `responseSnapshot`.
+#[derive(Clone)]
+struct PageReplay {
+    key: [u8; 32],
+    snapshot: String,
+    stored: std::time::Instant,
+    bytes: usize,
+    structured: Value,
+    response_query: Value,
+    failure: Option<FailureKind>,
+    source_digest: Option<String>,
+}
+
+/// Bounded LRU of [`PageReplay`]s. A page served from it is byte-identical
+/// to the one a same-snapshot re-execution would produce, without the
+/// dispatch; a mismatched or missing snapshot always re-executes.
+#[derive(Default)]
+struct PageReplayMemo {
+    entries: std::sync::Mutex<std::collections::VecDeque<PageReplay>>,
+}
+
+impl PageReplayMemo {
+    const MAX_ENTRIES: usize = 8;
+    const MAX_BYTES: usize = 32 * 1024 * 1024;
+    const TTL: Duration = Duration::from_secs(120);
+
+    fn get(&self, key: &[u8; 32], snapshot: &str) -> Option<PageReplay> {
+        let mut entries = self.entries.lock().ok()?;
+        entries.retain(|entry| entry.stored.elapsed() < Self::TTL);
+        let position = entries
+            .iter()
+            .position(|entry| &entry.key == key && entry.snapshot == snapshot)?;
+        let entry = entries.remove(position)?;
+        entries.push_back(entry.clone());
+        Some(entry)
+    }
+
+    fn insert(&self, entry: PageReplay) {
+        if entry.bytes > Self::MAX_BYTES {
+            return;
+        }
+        let Ok(mut entries) = self.entries.lock() else {
+            return;
+        };
+        entries.retain(|stored| stored.key != entry.key && stored.stored.elapsed() < Self::TTL);
+        entries.push_back(entry);
+        let mut bytes: usize = entries.iter().map(|stored| stored.bytes).sum();
+        while entries.len() > Self::MAX_ENTRIES || bytes > Self::MAX_BYTES {
+            let Some(evicted) = entries.pop_front() else {
+                break;
+            };
+            bytes -= evicted.bytes;
+        }
+    }
+}
+
+/// Identity of an executed batch: the validated (defaulted, sanitized) rows
+/// and rejected rows, so a compacted `next.query` replay maps to its origin.
+fn page_replay_key(
+    tool: &str,
+    mcp: bool,
+    revision: u64,
+    queries: &[Value],
+    rejected: &[(usize, Value)],
+) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let identity = json!({
+        "tool": tool,
+        "mcp": mcp,
+        "revision": revision,
+        "queries": queries,
+        "rejected": rejected,
+    });
+    Sha256::digest(identity.to_string().as_bytes()).into()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,12 +212,13 @@ fn invalid_input_error(
 
 /// Security-gate failures of one row as field issues, so they isolate and
 /// render like any other invalid field. Only clasify evidence may be
-/// redacted in place: any other rewritten value would silently change what
-/// the tool runs and leak the placeholder into continuations.
+/// redacted in place: any other rewritten value — including a clasify
+/// context read's `query` — would silently change what a tool runs and leak
+/// the placeholder into continuations.
 fn security_issues(
     checked: &ValidationResult,
     prefix: &[String],
-    redaction_allowed: bool,
+    clasify: bool,
 ) -> Vec<contracts::ValidationIssue> {
     let issue = |rule_id: &str, field: Option<&str>, message: String| {
         let mut path = prefix.to_vec();
@@ -167,15 +248,20 @@ fn security_issues(
                 }),
         );
     }
-    if !redaction_allowed {
-        issues.extend(checked.secret_fields.iter().map(|field| {
+    let redactable = |field: &&String| clasify && !field.contains("context.query.");
+    issues.extend(
+        checked
+            .secret_fields
+            .iter()
+            .filter(|field| !redactable(field))
+            .map(|field| {
             issue(
                 "security.credential",
                 Some(field),
                 "Value looks like a credential and was not run (its redacted form would match unrelated text); search a non-secret fragment instead, such as its prefix or the identifier that holds it".into(),
             )
-        }));
-    }
+        }),
+    );
     issues
 }
 
@@ -459,6 +545,7 @@ impl ToolRuntime {
             github_services: Arc::new(std::sync::OnceLock::new()),
             lsp_pool: Arc::new(octocode_engine::lsp::pool::LspClientPool::default()),
             local_views: Arc::default(),
+            page_replays: Arc::default(),
         })
     }
 
@@ -926,9 +1013,33 @@ impl ToolRuntime {
         let text_format =
             super::render::TextFormat::from_config(&self.config.resolved.output.format);
         let output_tool = tool.clone();
+        let replay_key = page_replay_key(&tool, mcp, self.input.revision, &queries, &rejected_rows);
+        let replayed = options
+            .response_snapshot
+            .as_deref()
+            .filter(|_| clasify.is_none())
+            .and_then(|snapshot| self.page_replays.get(&replay_key, snapshot));
+        let page_replays = self.page_replays.clone();
         let outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
+                if let Some(replay) = replayed {
+                    return super::response_stage::finish(
+                        super::response_stage::StageInput {
+                            tool: id,
+                            structured: replay.structured,
+                            response_query: replay.response_query,
+                            options,
+                            mcp,
+                            failure: replay.failure,
+                            auto_page_chars,
+                            text_format,
+                            allow_auto_paging: true,
+                            source_digest: replay.source_digest,
+                        },
+                        &context,
+                    );
+                }
                 if let Some(clasify) = &clasify {
                     let receipts = clasify.execute(
                         &queries,
@@ -995,7 +1106,13 @@ impl ToolRuntime {
                             && dispatcher.available_tools.contains(&target)
                     },
                 );
-                super::response_stage::finish(
+                let seed = (
+                    structured.clone(),
+                    response_query.clone(),
+                    failure,
+                    source_digest.clone(),
+                );
+                let finished = super::response_stage::finish(
                     super::response_stage::StageInput {
                         tool: id,
                         structured,
@@ -1009,7 +1126,26 @@ impl ToolRuntime {
                         source_digest,
                     },
                     &context,
-                )
+                )?;
+                if let Ok(outcome) = &finished {
+                    let pagination = &outcome.structured_content["responsePagination"];
+                    if pagination["hasMore"] == true
+                        && let Some(snapshot) = pagination["snapshot"].as_str()
+                    {
+                        let (structured, response_query, failure, source_digest) = seed;
+                        page_replays.insert(PageReplay {
+                            key: replay_key,
+                            snapshot: snapshot.to_owned(),
+                            stored: std::time::Instant::now(),
+                            bytes: structured.to_string().len(),
+                            structured,
+                            response_query,
+                            failure,
+                            source_digest,
+                        });
+                    }
+                }
+                Ok(finished)
             })
             .await
             .map_err(runtime_execution_error)?

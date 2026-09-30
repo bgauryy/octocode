@@ -570,7 +570,8 @@ impl GitHubServices {
                 })
             }
             Err(error) => {
-                let query = serde_json::to_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
+                let query =
+                    serde_json::to_value(query).map_err(|_| ExecutionError::WorkerFailed)?;
                 let found = if missing_path(&error, &query) {
                     locate_path(&self.provider, &query, request_context).await
                 } else {
@@ -592,7 +593,9 @@ fn missing_path(error: &ProviderError, query: &Value) -> bool {
     error.kind == ProviderErrorKind::NotFound
         && !repository_not_found(error)
         && !error.message.starts_with("No commit found")
-        && query["path"].as_str().is_some_and(|path| !path.trim_matches('/').is_empty())
+        && query["path"]
+            .as_str()
+            .is_some_and(|path| !path.trim_matches('/').is_empty())
 }
 
 /// Directory listings a missing-path recovery may spend.
@@ -763,14 +766,11 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
         }
         ProviderErrorKind::Transport => "Network connection failed".into(),
         ProviderErrorKind::Timeout => "Request timeout".into(),
-        _ if error.message.as_ref() == BINARY_FILE_MESSAGE => {
-            "Binary file detected. Cannot display as text - download directly from GitHub".into()
-        }
         _ => error.message.to_string(),
     };
     let requested = query["path"].as_str().unwrap_or_default();
-    let (hints, next): (Vec<String>, Option<Value>) = if error.message.as_ref()
-        == BINARY_FILE_MESSAGE
+    let (hints, next): (Vec<String>, Option<Value>) = if error.reason
+        == Some(ProviderErrorReason::BinaryFile)
     {
         (
             vec!["Binary content cannot be returned as text; retrying will not help. Use ghCloneRepo for a local copy.".into()],
@@ -818,8 +818,6 @@ fn attach_file_identity(data: &mut Value, owner: &str, repo: &str, query: &Value
     data["repo"] = json!(repo);
     data["path"] = query["path"].clone();
 }
-
-const BINARY_FILE_MESSAGE: &str = "binary files are not supported";
 
 /// An issue number that GitHub reports as a pull request: rerun the same read
 /// as operation:"pullRequest". Issue content selections (body, discussion
@@ -1346,11 +1344,24 @@ mod tests {
         assert_eq!(data["next"]["viewTree"]["query"]["path"], "src");
         assert_eq!(data["next"]["viewTree"]["query"]["branch"], "main");
 
-        let error = ProviderError::new(ProviderErrorKind::Decode, "binary files are not supported");
+        let error = ProviderError::new(
+            ProviderErrorKind::Validation,
+            "Binary file (1234 bytes, blob abc); ghGetFileContent returns text only.",
+        )
+        .with_reason(ProviderErrorReason::BinaryFile);
         let result = file_error(error, &json!({"owner":"a","repo":"b","path":"x.png"}));
         let hint = result.data["hints"][0].as_str().unwrap_or_default();
         assert!(!hint.contains("Retry once"), "{hint}");
         assert!(hint.contains("Binary"), "{hint}");
+        // D7: the caller's request cannot be served (exit 2), with the
+        // file's size and blob SHA, never a decode/execution failure.
+        assert_eq!(result.data["errorCode"], "validation", "{}", result.data);
+        let message = result.data["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("1234 bytes") && message.contains("blob abc"),
+            "{message}"
+        );
+        assert!(result.data.get("next").is_none(), "{}", result.data);
     }
 
     /// Recovery keys on the typed reason: the same text without the reason
@@ -1391,7 +1402,10 @@ mod tests {
             assert!(!rendered.contains("retryAfter\""), "{rendered}");
             // Authentication advice depends on the caller, added only for
             // anonymous requests.
-            assert!(!rendered.to_ascii_lowercase().contains("auth"), "{rendered}");
+            assert!(
+                !rendered.to_ascii_lowercase().contains("auth"),
+                "{rendered}"
+            );
             assert!(!rendered.contains("GITHUB_TOKEN"), "{rendered}");
         }
     }

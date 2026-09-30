@@ -213,7 +213,11 @@ fn compact_clasify_contexts(matrix: &mut Value, memo: &mut Memo) {
         let Some(context) = resource.get_mut("context").and_then(Value::as_object_mut) else {
             continue;
         };
-        let Some(tool) = context.get("tool").and_then(Value::as_str).map(str::to_owned) else {
+        let Some(tool) = context
+            .get("tool")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        else {
             continue;
         };
         if let Some(query) = context.get_mut("query").filter(|query| query.is_object()) {

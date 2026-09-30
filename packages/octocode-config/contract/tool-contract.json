@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "28b0f861ef765489b7a06fc1b211c96eb8bca3dd91e50f2987d5bc249f39c68e",
+  "fingerprint": "1e749779e1ca146049447f7bc9bdf27b06e436935a90a7139e327d333cbd4a2c",
   "tools": [
     {
       "defaults": [
@@ -7893,7 +7893,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -13490,8 +13490,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -13672,6 +13678,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -14377,7 +14393,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -19974,8 +19990,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -20119,6 +20141,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -21013,7 +21045,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -26610,8 +26642,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -26764,6 +26802,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -27455,7 +27503,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -33075,8 +33123,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -33253,6 +33307,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -34466,7 +34530,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -40063,8 +40127,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -40514,6 +40584,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -42473,7 +42553,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -48070,8 +48150,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -48678,6 +48764,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -51713,7 +51809,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -57310,8 +57406,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -57583,6 +57685,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -58333,7 +58445,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -63930,8 +64042,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -64045,6 +64163,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -64749,7 +64877,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -70346,8 +70474,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -70598,6 +70732,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -72190,7 +72334,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -77787,8 +77931,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -78112,6 +78262,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -79734,7 +79894,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -85331,8 +85491,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -85830,6 +85996,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -89512,7 +89688,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -95109,8 +95285,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -95933,6 +96115,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -98286,7 +98478,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -103883,8 +104075,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -104301,6 +104499,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -106127,7 +106335,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -111747,8 +111955,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -111912,6 +112126,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",
@@ -113322,7 +113546,7 @@
             "type": "integer"
           },
           "responseCharOffset": {
-            "description": "Copy next response offset.",
+            "description": "Copy next response offset; with responseScope rows, a zero-based page index.",
             "minimum": 0,
             "type": "integer"
           },
@@ -119680,8 +119904,14 @@
           },
           "responsePagination": {
             "additionalProperties": {},
-            "description": "Whole-response pagination for a split bulk envelope. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
+            "description": "Whole-response pagination for a split bulk envelope. With scope rows, page 1 carries every row's head and its row-level next (a fair budget share); remaining parts follow in row order. Follow next unchanged. If the snapshot expires or mismatches, discard earlier pages and restart from the returned offset-zero continuation.",
             "properties": {
+              "charOffset": {
+                "description": "This page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "hasMore": {
                 "type": "boolean"
               },
@@ -120392,6 +120622,16 @@
                   "query"
                 ],
                 "type": "object"
+              },
+              "nextCharOffset": {
+                "description": "Next page's offset; with scope rows, a zero-based page index.",
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "oversized": {
+                "description": "This page exceeds the requested length because one string, scalar, or row skeleton cannot be split.",
+                "type": "boolean"
               },
               "responseSnapshot": {
                 "description": "Snapshot binding for all response pages; preserve unchanged.",

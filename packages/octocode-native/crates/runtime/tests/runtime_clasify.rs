@@ -1227,13 +1227,29 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     for page in pages {
         assert_eq!(page["next"]["read"]["tool"], "localFetch", "{page}");
         assert_eq!(page["next"]["read"]["confidence"], "exact", "{page}");
+        // Workspace-relative, like every local tool's rows.
         assert!(
             page["source"]["path"]
                 .as_str()
-                .is_some_and(|p| std::path::Path::new(p).is_absolute())
+                .is_some_and(|p| p.starts_with("src/candidate")),
+            "{page}"
         );
         assert!(page.get("limitations").is_none(), "stated once: {page}");
     }
+    let read = &pages[0]["next"]["read"];
+    let fetched = runtime
+        .execute(
+            "hydrated-read".into(),
+            "localFetch".into(),
+            json!({"queries":[read["query"]]}),
+        )
+        .await
+        .expect("read replays");
+    assert_eq!(
+        fetched.structured_content["results"][0]["data"]["path"], pages[0]["source"]["path"],
+        "{}",
+        fetched.structured_content
+    );
     // Every page shares the bounded-chunk limit, so the resource states it once.
     assert!(
         query["resources"][0]["limitations"]

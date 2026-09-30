@@ -1899,12 +1899,18 @@ fn unresolved_symbol_anchor_reads_the_hinted_lines_and_suggests_near_names() {
     assert_eq!(read["query"]["endLine"], 17, "{row}");
     assert!(read["query"].get("matchString").is_none(), "{row}");
     assert!(
-        !read["why"].as_str().unwrap_or_default().contains("unavailable"),
+        !read["why"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("unavailable"),
         "{row}"
     );
     let retry = &row["next"]["didYouMean"];
     assert_eq!(retry["tool"], "lspSearch", "{row}");
-    assert_eq!(retry["query"]["symbolName"], "is_invalid_input_code", "{row}");
+    assert_eq!(
+        retry["query"]["symbolName"], "is_invalid_input_code",
+        "{row}"
+    );
     assert_eq!(retry["query"]["lineHint"], 12, "{row}");
     assert!(
         row["hints"]

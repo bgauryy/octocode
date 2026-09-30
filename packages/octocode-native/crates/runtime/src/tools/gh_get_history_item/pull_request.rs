@@ -1,8 +1,8 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
 use super::continuations::{
-    BODY_PREVIEW_CHARS, INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation,
-    pr_next_menu, promote_pr_continuations,
+    BODY_PREVIEW_CHARS, INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation, pr_next_menu,
+    promote_pr_continuations,
 };
 use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
 use super::graphql::{

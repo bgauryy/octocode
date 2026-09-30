@@ -41,7 +41,10 @@ pub(super) fn coerce_scalar_strings(candidates: &[Typed<'_>], value: &mut Value)
                 let children = schemas
                     .iter()
                     .filter_map(|&(root, schema)| {
-                        schema.get("properties")?.get(key).map(|child| (root, child))
+                        schema
+                            .get("properties")?
+                            .get(key)
+                            .map(|child| (root, child))
                     })
                     .collect::<Vec<_>>();
                 coerce_scalar_strings(&children, field);
@@ -86,7 +89,10 @@ fn flatten<'a>(root: &'a Value, schema: &'a Value, depth: usize, out: &mut Vec<T
         return;
     }
     let forbidden = schema.as_object().is_some_and(|object| {
-        object.len() == 1 && object.get("not").is_some_and(|not| not == &Value::Object(Default::default()))
+        object.len() == 1
+            && object
+                .get("not")
+                .is_some_and(|not| not == &Value::Object(Default::default()))
     });
     if !forbidden {
         out.push((root, schema));
@@ -110,7 +116,10 @@ fn agreed_scalar(schemas: &[Typed<'_>]) -> Option<Scalar> {
                 "boolean" => Scalar::Boolean,
                 _ => return None,
             };
-            if agreed.replace(kind).is_some_and(|previous| previous != kind) {
+            if agreed
+                .replace(kind)
+                .is_some_and(|previous| previous != kind)
+            {
                 return None;
             }
         }
@@ -149,7 +158,10 @@ mod tests {
     fn nullable_alternatives_coerce_and_string_alternatives_veto() {
         let nullable = json!({"anyOf":[{"type":"integer"},{"type":"null"}]});
         assert_eq!(coerced(&nullable, json!("3")), json!(3));
-        assert_eq!(coerced(&json!({"type":["boolean","null"]}), json!("true")), json!(true));
+        assert_eq!(
+            coerced(&json!({"type":["boolean","null"]}), json!("true")),
+            json!(true)
+        );
         let widened = json!({"anyOf":[{"type":"integer"},{"type":"string"}]});
         assert_eq!(coerced(&widened, json!("3")), json!("3"));
         assert_eq!(coerced(&json!({}), json!("3")), json!("3"));
@@ -167,7 +179,17 @@ mod tests {
         ] {
             assert_eq!(coerced(&integer, json!(text)), expected, "{text}");
         }
-        for text in [" 3", "3.0", "1e2", "+3", "03", "-0", "0x10", "9007199254740992", ""] {
+        for text in [
+            " 3",
+            "3.0",
+            "1e2",
+            "+3",
+            "03",
+            "-0",
+            "0x10",
+            "9007199254740992",
+            "",
+        ] {
             assert_eq!(coerced(&integer, json!(text)), json!(text), "{text}");
         }
     }

@@ -298,7 +298,7 @@ impl PathPolicy {
         self.ignored(path.as_ref())
     }
 
-    fn expand_and_resolve(&self, input: &Path) -> PathBuf {
+    pub(crate) fn expand_and_resolve(&self, input: &Path) -> PathBuf {
         let expanded = input.to_string_lossy();
         let path = if expanded == "~" {
             self.home_dir.clone().unwrap_or_else(|| PathBuf::from("~"))

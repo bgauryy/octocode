@@ -879,7 +879,7 @@ pub(super) fn shape_files(
 /// most of the page (4/5 by default, 9/10 at most) less a fixed reserve for
 /// the row header and metadata, never below 2/5 and 3/5 of it. A window of patches plus row
 /// metadata then fits one response page, so responsePagination rarely splits
-/// the row; when it does, the row's `next.*` rides only its last `rowPart`.
+/// the row; when it does, the row's `next.*` rides only its first `rowPart`.
 const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
 const PATCH_BUDGET_SHARE: (usize, usize) = (9, 10);
 const PATCH_DEFAULT_RESERVE: usize = 5_000;

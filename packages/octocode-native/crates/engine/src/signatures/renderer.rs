@@ -1,4 +1,4 @@
-/// Render `KeptLine`s into the canonical `NNN| text` gutter format.
+/// Render `KeptLine`s into the canonical `N| text` gutter format.
 /// Blank lines and pure-comment lines are excluded before rendering.
 pub fn render_skeleton(kept: &[(usize, String)], comment_prefix: &str) -> Option<String> {
     let visible: Vec<&(usize, String)> = kept
@@ -11,12 +11,11 @@ pub fn render_skeleton(kept: &[(usize, String)], comment_prefix: &str) -> Option
         return None;
     }
 
-    let max_line = visible.iter().map(|(n, _)| *n).max().unwrap_or(1);
-    let width = max_line.to_string().len();
-
+    // Unpadded numbers: the content-view minifier trims leading whitespace on
+    // some lines, which would leave a padded gutter uneven.
     let s = visible
         .iter()
-        .map(|(n, text)| format!("{:>width$}| {}", n, text, width = width))
+        .map(|(n, text)| format!("{n}| {text}"))
         .collect::<Vec<_>>()
         .join("\n");
 

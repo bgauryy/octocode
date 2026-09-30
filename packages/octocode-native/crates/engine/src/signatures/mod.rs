@@ -352,6 +352,29 @@ mod tests {
         extract_signatures_inner(content, path)
     }
 
+    /// Gutters are unpadded so the content-view minifier (which trims
+    /// leading whitespace on some lines) cannot leave them uneven.
+    #[test]
+    fn skeleton_gutters_are_uniform_after_minification() {
+        let mut source = String::new();
+        for i in 0..40 {
+            source.push_str(&format!(
+                "impl S{i} {{\n    pub fn run(&self) -> usize {{\n        let x = {i};\n        x + 1\n    }}\n}}\n\n"
+            ));
+        }
+        let skeleton = extract(&source, "lib.rs").expect("skeleton");
+        let minified =
+            crate::minify::apply::apply_content_view_minification_inner(&skeleton, "lib.rs");
+        for view in [&skeleton, &minified] {
+            for line in view.lines() {
+                assert!(
+                    line.starts_with(|c: char| c.is_ascii_digit()) && line.contains("| "),
+                    "{line:?} in\n{view}"
+                );
+            }
+        }
+    }
+
     /// Flow-typed JS in the shape of React's `ReactHooks.js`: `import type`,
     /// Flow function types (`S => S`) and annotated hooks.
     const FLOW_HOOKS: &str = r#"/**

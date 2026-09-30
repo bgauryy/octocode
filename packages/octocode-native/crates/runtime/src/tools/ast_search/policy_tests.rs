@@ -961,7 +961,9 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
     let mut expanded = query;
     expanded["captureText"] = json!(true);
     let out = run(&root.0, expanded).expect("match");
-    let value = out["files"][0]["matches"][0]["value"].as_str().expect("value");
+    let value = out["files"][0]["matches"][0]["value"]
+        .as_str()
+        .expect("value");
     assert!(value.ends_with("parse(raw) }"), "{out}");
     assert!(out["next"].get("expandCaptures").is_none(), "{out}");
 }

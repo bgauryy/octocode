@@ -232,7 +232,17 @@ pub(super) fn value_result(data: Value) -> DomainResult {
         Some("empty") => Some("empty"),
         _ => None,
     };
-    DomainResult::payload(data, status)
+    let kind = data
+        .get("errorCode")
+        .and_then(Value::as_str)
+        .map(error_failure);
+    let mut result = DomainResult::payload(data, status);
+    if result.failure.is_some()
+        && let Some(kind) = kind
+    {
+        result.failure = Some(kind);
+    }
+    result
 }
 
 pub(super) fn provider_failure(
@@ -271,11 +281,13 @@ pub(super) fn provider_failure(
     row
 }
 
-/// A missing local path or registry package is not-found (like a GitHub 404),
-/// not an execution failure; every other domain error stays an execution
-/// failure.
+/// A missing local path, registry package, or unresolved LSP anchor is
+/// not-found (like a GitHub 404), not an execution failure; every other
+/// domain error stays an execution failure.
 fn error_failure(code: &str) -> FailureKind {
-    if code == "notFound" || super::response::is_not_found_code(code) {
+    if matches!(code, "notFound" | "lsp.anchorUnresolved")
+        || super::response::is_not_found_code(code)
+    {
         FailureKind::NotFound
     } else {
         FailureKind::Execution
@@ -295,6 +307,21 @@ mod provider_failure_tests {
         assert_eq!(error_failure("pathNotFound"), FailureKind::NotFound);
         assert_eq!(error_failure("notFound"), FailureKind::NotFound);
         assert_eq!(error_failure("fileAccessFailed"), FailureKind::Execution);
+    }
+
+    #[test]
+    fn tool_error_rows_take_their_failure_kind_from_the_error_code() {
+        let unresolved = value_result(json!({"status":"error","errorCode":"lsp.anchorUnresolved"}));
+        assert_eq!(unresolved.failure, Some(FailureKind::NotFound));
+        let missing =
+            value_result(json!({"status":"error","errorCode":"structure.policy.notFound"}));
+        assert_eq!(missing.failure, Some(FailureKind::NotFound));
+        let other = value_result(json!({"status":"error","errorCode":"lsp.serverUnavailable"}));
+        assert_eq!(other.failure, Some(FailureKind::Execution));
+        assert_eq!(
+            value_result(json!({"status":"error"})).failure,
+            Some(FailureKind::Execution)
+        );
     }
 
     #[test]

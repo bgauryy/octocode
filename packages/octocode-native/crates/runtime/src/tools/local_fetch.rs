@@ -59,6 +59,7 @@ mod tests {
                     message: error.to_string(),
                     safe_path: None,
                     resource_missing: false,
+                    sparse_checkout: false,
                 })
         }
     }
@@ -263,9 +264,16 @@ mod tests {
         // the text is not verbatim.
         assert_eq!(
             r.source_line_ranges,
-            vec![LineRange { start: 2, end: 2 }, LineRange { start: 9, end: 9 }]
+            vec![
+                LineRange { start: 2, end: 2 },
+                LineRange { start: 9, end: 9 }
+            ]
         );
-        assert!(r.warnings.iter().any(|w| w.contains("not verbatim")), "{:?}", r.warnings);
+        assert!(
+            r.warnings.iter().any(|w| w.contains("not verbatim")),
+            "{:?}",
+            r.warnings
+        );
     }
     #[test]
     fn paged_match_windows_map_source_ranges_around_marker() {
@@ -320,7 +328,10 @@ mod tests {
         assert_eq!(content.matches("needle").count(), 3, "{content:?}");
         assert!(content.len() < 2_000, "{} bytes", content.len());
         for part in content.split('\n').filter(|part| !part.is_empty()) {
-            assert!(part.starts_with("... [") || source.contains(part), "{part:?}");
+            assert!(
+                part.starts_with("... [") || source.contains(part),
+                "{part:?}"
+            );
         }
         assert!(r.next.is_none(), "{:?}", r.next);
         assert_eq!(
@@ -336,7 +347,39 @@ mod tests {
         // An explicit contextLines keeps whole lines.
         req.context_lines = Some(0);
         let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
-        assert!(r.warnings.iter().all(|w| !w.contains("contextLines")), "{:?}", r.warnings);
+        assert!(
+            r.warnings.iter().all(|w| !w.contains("contextLines")),
+            "{:?}",
+            r.warnings
+        );
+    }
+    #[test]
+    fn missing_files_in_a_sparse_checkout_say_so() {
+        let t = Temp::new();
+        let git = t.0.join("clone/.git");
+        fs::create_dir_all(git.join("info")).expect("fixture");
+        fs::write(git.join("info/sparse-checkout"), "/*\n!/*/\n/src/\n").expect("fixture");
+        fs::write(git.join("config"), "[core]\n\tsparseCheckout = true\n").expect("fixture");
+        let policy = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(t.0.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let mut req = LocalFetchQuery::test_default();
+        req.path = "clone/docs/guide.md".parse().expect("path");
+        let r = execute_local_fetch(&req, &policy, &Safe, &NeverCancel);
+        assert!(r.resource_missing, "{r:?}");
+        let error = r.error.as_deref().unwrap_or_default();
+        assert!(error.contains("clone/docs/guide.md"), "{error}");
+        assert!(error.contains("sparse checkout"), "{error}");
+
+        // An ordinary repository keeps the plain not-found message.
+        fs::write(git.join("config"), "[core]\n\tbare = false\n").expect("fixture");
+        let r = execute_local_fetch(&req, &policy, &Safe, &NeverCancel);
+        assert!(
+            !r.error.as_deref().unwrap_or_default().contains("sparse"),
+            "{r:?}"
+        );
     }
     #[test]
     fn redacted_chunk_and_range_reads_keep_their_source_anchor() {
@@ -353,12 +396,24 @@ mod tests {
         range.end_line = wire_positive(13);
         for (req, expected) in [(chunk, (11, 15)), (range, (11, 13))] {
             let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
-            assert!(r.content.as_deref().is_some_and(|c| c.contains("[REDACTED]")), "{r:?}");
+            assert!(
+                r.content
+                    .as_deref()
+                    .is_some_and(|c| c.contains("[REDACTED]")),
+                "{r:?}"
+            );
             assert_eq!(
                 r.source_line_ranges,
-                vec![LineRange { start: expected.0, end: expected.1 }]
+                vec![LineRange {
+                    start: expected.0,
+                    end: expected.1
+                }]
             );
-            assert!(r.warnings.iter().any(|w| w.contains("not verbatim")), "{:?}", r.warnings);
+            assert!(
+                r.warnings.iter().any(|w| w.contains("not verbatim")),
+                "{:?}",
+                r.warnings
+            );
         }
     }
     #[test]
@@ -464,7 +519,11 @@ mod tests {
             vec![LineRange { start: 2, end: 2 }],
             "line-preserving redaction keeps the source anchor"
         );
-        assert!(r.warnings.iter().any(|w| w.contains("not verbatim")), "{:?}", r.warnings);
+        assert!(
+            r.warnings.iter().any(|w| w.contains("not verbatim")),
+            "{:?}",
+            r.warnings
+        );
         let bin = t.0.join("b.bin");
         fs::write(&bin, [0, 1, 2]).expect("test fixture operation should succeed");
         assert_eq!(

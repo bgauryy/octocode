@@ -911,6 +911,11 @@ export interface RipgrepStats {
    */
   binaryFiles?: Array<string>
   binaryFileCount?: number
+  /**
+   * Opaque binary files (first NUL before any text) skipped like rg skips
+   * them. Nothing text-searchable was lost, so they are not a coverage gap.
+   */
+  skippedBinaryCount?: number
 }
 
 /**
@@ -998,6 +1003,7 @@ export interface StructuralDetailedMatch {
   text: string
   metavars: Record<string, Array<string>>
   metavarRanges: Record<string, Array<MetavarRange>>
+  header?: string
   nodeKind?: string
   confidence: string
 }
@@ -1034,6 +1040,11 @@ export interface StructuralMatch {
    * order). Lets an agent hand a capture straight to LSP without re-search.
    */
   metavarRanges: Record<string, Array<MetavarRange>>
+  /**
+   * Source before the node's `body` block when the node spans several
+   * lines (declaration signature, loop head); `None` without a body field.
+   */
+  header?: string
 }
 
 export interface StructuralQueryExplanation {

@@ -824,8 +824,7 @@ fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, u64)> {
 fn is_text_prefix(prefix: &[u8]) -> bool {
     std::str::from_utf8(prefix).is_ok_and(|text| {
         !text.bytes().any(|byte| {
-            byte == 0x7f
-                || (byte < 0x20 && !matches!(byte, b'\t' | b'\n' | b'\r' | 0x0c | 0x1b))
+            byte == 0x7f || (byte < 0x20 && !matches!(byte, b'\t' | b'\n' | b'\r' | 0x0c | 0x1b))
         })
     })
 }

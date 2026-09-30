@@ -59,6 +59,12 @@ pub(super) async fn commit<R: CredentialResolver>(
         // A scan stopped at the batch cap never saw the remaining files.
         "changedFilesCountScope":if state.capped {"partial"} else if state.exhausted {"complete"} else {"loaded"}
     });
+    // A caller-supplied SHA is not restated as the ref it already names.
+    if reference.eq_ignore_ascii_case(&sha)
+        && let Some(fields) = out.as_object_mut()
+    {
+        fields.remove("ref");
+    }
     // A path scope counts only its files, while GitHub's line stats cover the
     // whole commit: name those totals as the commit's, never the scope's.
     if path.is_some()

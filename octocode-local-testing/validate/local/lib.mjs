@@ -134,7 +134,7 @@ export function ocAll(tool, queries, opts = {}) {
     for (const r of p.results || []) {
       const nx = r.data?.next;
       const np = nx?.nextPage || nx?.nextMatchPage || nx?.continueWalk || nx?.nextSymbolPage;
-      if (np?.query && (!r.rowPart || r.rowPart.part === r.rowPart.of)) queue.push({ queries: [np.query] });
+      if (np?.query && (!r.rowPart || r.rowPart.part === 1)) queue.push({ queries: [np.query] });
     }
   };
   enqueue(parts[0]);

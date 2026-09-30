@@ -229,7 +229,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
     pub async fn list_owner_repositories(
         &self,
         owner: &str,
-        sort: Option<&str>,
+        sort: &str,
         page: usize,
         per_page: usize,
         context: &RequestContext,
@@ -243,12 +243,9 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 let mut pairs = url.query_pairs_mut();
                 pairs
                     .append_pair("page", &page.to_string())
-                    .append_pair("per_page", &per_page.to_string());
-                if let Some(sort) = sort {
-                    pairs
-                        .append_pair("sort", sort)
-                        .append_pair("direction", "desc");
-                }
+                    .append_pair("per_page", &per_page.to_string())
+                    .append_pair("sort", sort)
+                    .append_pair("direction", "desc");
             }
             Ok(RequestSpec::get(url))
         };

@@ -384,13 +384,7 @@ async fn execute_page(
     ) {
         Ok(anchor) => anchor,
         Err(error) => {
-            let mut row = failure(
-                &query,
-                &canonical_uri,
-                "lsp.anchorUnresolved",
-                &error,
-                true,
-            );
+            let mut row = failure(&query, &canonical_uri, "lsp.anchorUnresolved", &error, true);
             failure::anchor_recovery(
                 &mut row,
                 &query,

@@ -253,10 +253,7 @@ fn validate_array(
         // A lone string where a list is expected (`include:"src/**"`) is the
         // most common shape slip; show the exact corrected value.
         let message = match &received {
-            Value::String(_) => format!(
-                "Expected array; wrap the value: [{}]",
-                received
-            ),
+            Value::String(_) => format!("Expected array; wrap the value: [{}]", received),
             _ => "Expected array".to_owned(),
         };
         schema_issue("schema.type", path.clone(), &message, schema, &received)

@@ -586,7 +586,10 @@ fn match_value(
 ) -> (Value, bool) {
     let header = m.header.as_deref().filter(|_| !capture_text);
     let text = match header {
-        Some(header) => format!("{} …", compact_match(header, content_length.saturating_sub(2).max(1))),
+        Some(header) => format!(
+            "{} …",
+            compact_match(header, content_length.saturating_sub(2).max(1))
+        ),
         None => compact_match(&m.text, content_length),
     };
     let mut ranges = serde_json::Map::new();

@@ -179,12 +179,10 @@ async fn exact(
     // own nuspec declares it.
     if artifact.repository.is_none()
         && let Some(version) = artifact.version.clone()
+        && let Some((repository, commit)) = nuspec_repository(package_name, &version, client).await
     {
-        if let Some((repository, commit)) = nuspec_repository(package_name, &version, client).await
-        {
-            artifact.repository = Some(repository);
-            artifact.source_ref = commit;
-        }
+        artifact.repository = Some(repository);
+        artifact.source_ref = commit;
     }
     Ok(ArtifactProviderPage {
         artifacts: vec![artifact],
@@ -220,10 +218,17 @@ async fn nuspec_repository(
         .flatten()?;
     let tag = nuspec.split("<repository").nth(1)?.split('>').next()?;
     let attribute = |name: &str| {
-        tag.split(&format!(" {name}=\"")).nth(1)?.split('"').next().map(str::to_owned)
+        tag.split(&format!(" {name}=\""))
+            .nth(1)?
+            .split('"')
+            .next()
+            .map(str::to_owned)
     };
     let url = safe_url(Some(&Value::String(attribute("url")?)))?;
-    Some((url, commit_sha(attribute("commit").map(Value::String).as_ref())))
+    Some((
+        url,
+        commit_sha(attribute("commit").map(Value::String).as_ref()),
+    ))
 }
 
 async fn service_endpoint(kind: &str, client: &RegistryClient<'_>) -> Result<Url, ArtifactError> {

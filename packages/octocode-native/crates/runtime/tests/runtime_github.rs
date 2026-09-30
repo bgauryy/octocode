@@ -524,6 +524,58 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
         rendered.contains("critical regression"),
         "expected commit message in {rendered}"
     );
+    // D9: a SHA ref is not restated beside the same sha.
+    let data = row_data(&outcome);
+    assert_eq!(data["sha"], sha, "{data}");
+    assert!(data.get("ref").is_none(), "{data}");
+    assert_eq!(
+        data["next"]["findPullRequest"]["query"]["keywords"],
+        json!([sha]),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// D9: a squash-merge headline names its pull request: read it directly
+/// instead of searching by SHA.
+#[tokio::test]
+async fn squash_merge_commit_reads_its_pull_request_directly() {
+    let server = MockServer::start().await;
+    let sha = "30df32a13f9cf5f129b913b967ff6f137c5511d6";
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": sha,
+            "commit": {
+                "message": "io: use `spawn_mandatory_blocking` (#8506)\n\nCo-authored-by: x",
+                "author": {"name": "Alice", "date": "2024-01-01T00:00:00Z"}
+            },
+            "files": []
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "commit", "owner": "a", "repo": "b", "ref": sha}),
+    )
+    .await
+    .expect("commit read");
+    let data = row_data(&outcome);
+    let read = &data["next"]["readPullRequest"];
+    assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
+    assert_eq!(read["query"]["number"], 8506, "{data}");
+    assert!(data["next"].get("findPullRequest").is_none(), "{data}");
+    assert!(
+        !outcome
+            .structured_content
+            .to_string()
+            .contains("outputContractViolation"),
+        "{}",
+        outcome.structured_content
+    );
     runtime.close().await;
 }
 
@@ -1020,6 +1072,46 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
     runtime.close().await;
 }
 
+/// D7: a binary file is a request the text read cannot serve: it names the
+/// size and blob SHA under an invalid-input code, not a decode failure.
+#[tokio::test]
+async fn gh_file_read_of_binary_content_reports_size_and_blob() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let blob = "b".repeat(40);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/icon.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file",
+            "encoding": "base64",
+            "content": STANDARD.encode(b"\x89PNG\0\0\0\rIHDR"),
+            "size": 12,
+            "sha": blob,
+            "path": "icon.png"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"icon.png","branch":sha,"forceRefresh":true}),
+    )
+    .await
+    .expect("error row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "validation", "{data}");
+    let message = data["error"].as_str().unwrap_or_default();
+    assert!(message.contains("12 bytes"), "{data}");
+    assert!(message.contains(&blob), "{data}");
+    assert!(
+        octocode_native::runtime::response::is_invalid_input_code("validation"),
+        "binary reads must exit as caller errors"
+    );
+    runtime.close().await;
+}
+
 /// D4: a wrong-case path recovers to the case-corrected file, and a missing
 /// file to its nearest existing directory, never to another missing path.
 #[tokio::test]
@@ -1033,14 +1125,23 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
         .await;
     let listing = |entries: serde_json::Value| ResponseTemplate::new(200).set_body_json(entries);
     for (dir, entries) in [
-        ("", json!([
-            {"name":"tokio","path":"tokio","type":"dir"},
-            {"name":"README.md","path":"README.md","type":"file","size":3,"sha":"1"}
-        ])),
-        ("/tokio", json!([{"name":"src","path":"tokio/src","type":"dir"}])),
-        ("/tokio%2Fsrc", json!([
-            {"name":"lib.rs","path":"tokio/src/lib.rs","type":"file","size":3,"sha":"2"}
-        ])),
+        (
+            "",
+            json!([
+                {"name":"tokio","path":"tokio","type":"dir"},
+                {"name":"README.md","path":"README.md","type":"file","size":3,"sha":"1"}
+            ]),
+        ),
+        (
+            "/tokio",
+            json!([{"name":"src","path":"tokio/src","type":"dir"}]),
+        ),
+        (
+            "/tokio%2Fsrc",
+            json!([
+                {"name":"lib.rs","path":"tokio/src/lib.rs","type":"file","size":3,"sha":"2"}
+            ]),
+        ),
     ] {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents{dir}")))
@@ -1048,10 +1149,13 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
             .mount(&server)
             .await;
     }
-    let not_found = || {
-        ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"}))
-    };
-    for missing in ["Tokio%2Fsrc%2Flib.rs", "Tokio%2Fsrc", "Tokio", "tokio%2Fsrc%2Fnope.rs"] {
+    let not_found = || ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"}));
+    for missing in [
+        "Tokio%2Fsrc%2Flib.rs",
+        "Tokio%2Fsrc",
+        "Tokio",
+        "tokio%2Fsrc%2Fnope.rs",
+    ] {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{missing}")))
             .respond_with(not_found())
@@ -1060,23 +1164,33 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let read = |file: &str| {
-        json!({"owner":"a","repo":"b","path":file,"branch":"main","forceRefresh":true})
-    };
+    let read = |file: &str| json!({"owner":"a","repo":"b","path":file,"branch":"main","forceRefresh":true});
     let outcome = call(&runtime, "ghGetFileContent", read("Tokio/src/lib.rs"))
         .await
         .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
-    assert_eq!(data["next"]["readFile"]["query"]["path"], "tokio/src/lib.rs", "{data}");
-    assert_eq!(data["next"]["readFile"]["query"]["branch"], "main", "{data}");
-    assert_eq!(data["next"]["viewTree"]["query"]["path"], "tokio/src", "{data}");
+    assert_eq!(
+        data["next"]["readFile"]["query"]["path"], "tokio/src/lib.rs",
+        "{data}"
+    );
+    assert_eq!(
+        data["next"]["readFile"]["query"]["branch"], "main",
+        "{data}"
+    );
+    assert_eq!(
+        data["next"]["viewTree"]["query"]["path"], "tokio/src",
+        "{data}"
+    );
     let outcome = call(&runtime, "ghGetFileContent", read("tokio/src/nope.rs"))
         .await
         .expect("error row");
     let data = row_data(&outcome);
     assert!(data["next"].get("readFile").is_none(), "{data}");
-    assert_eq!(data["next"]["viewTree"]["query"]["path"], "tokio/src", "{data}");
+    assert_eq!(
+        data["next"]["viewTree"]["query"]["path"], "tokio/src",
+        "{data}"
+    );
     assert_eq!(data["next"]["viewTree"]["confidence"], "exact", "{data}");
     runtime.close().await;
 }
