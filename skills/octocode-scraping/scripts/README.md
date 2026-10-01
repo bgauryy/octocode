@@ -19,7 +19,7 @@ Schemas live in `schemas/graph.schema.json` and `schemas/provider.schema.json`. 
 
 `node scripts/corpus-find.mjs --session-dir <dir> --query <text> --limit 20` returns a ranked page. `--limit` is a positive safe integer (default 20); `--offset` is a non-negative safe integer (default 0). Partial output includes exact counts and `next.page` with an absolute executable `command` and raw `args`. Run that command with those arguments unchanged until `completeness` is `complete` and `next` is `null`. Evidence-file suggestions are separate in `suggestedFiles`. See `../references/session-corpus.md` for the output contract and corpus stability requirement.
 
-Classification admission belongs to `octocode-clasify`; admitted requests use [../references/clasify-screen.md](../references/clasify-screen.md). `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
+Classification admission belongs to the `octocode-research` clasify gate; admitted requests use [../references/clasify-screen.md](../references/clasify-screen.md). `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
 
 ## Focused regressions
 

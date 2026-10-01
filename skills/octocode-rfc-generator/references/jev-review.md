@@ -1,6 +1,6 @@
 # Optional `clasify` review inside the RFC workflow
 
-Load only for an explicit classification request or experiment admitted by `octocode-clasify`, which owns the decision gate. Ordinary RFC work uses evidence review directly; this optional protocol is not a verified research improvement.
+Load only for an explicit classification request or experiment admitted by the `octocode-research` clasify gate, which owns the decision gate. Ordinary RFC work uses evidence review directly; this optional protocol is not a verified research improvement.
 
 ## Availability and limits
 

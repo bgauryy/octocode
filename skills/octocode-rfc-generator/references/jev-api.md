@@ -1,6 +1,6 @@
 # `clasify` through Octocode (Jev provider)
 
-Load when `octocode-clasify` admits an explicit classification request or experiment and request mechanics are needed. `clasify` is the public Octocode tool; Jev is the configured classification provider. The provider evaluates typed questions over supplied evidence, while the host owns review admission and every subsequent action.
+Load when the `octocode-research` clasify gate admits an explicit classification request or experiment and request mechanics are needed. `clasify` is the public Octocode tool; Jev is the configured classification provider. The provider evaluates typed questions over supplied evidence, while the host owns review admission and every subsequent action.
 
 ## Availability and setup
 

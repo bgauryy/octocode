@@ -12,8 +12,7 @@ Pick by the job in front of you. Each row says when the skill applies and when a
 
 | Skill | Use it when | Use something else when |
 |---|---|---|
-| [octocode-research](octocode-research/) | A code claim needs evidence before you assert it: trace callers, imports, runtime wiring, a regression, GitHub history, or change impact. Also for "research this" or "use octocode" | The fix is already known → do it directly. Open-ended ideas → octocode-brainstorming |
-| [octocode-clasify](octocode-clasify/) | You explicitly want a typed judgment, or need to locate a semantic answer inside a known but unread file before reading it | The target is a literal or an identifier → use direct search |
+| [octocode-research](octocode-research/) | A code claim needs evidence before you assert it: trace callers, imports, runtime wiring, a regression, GitHub history, or change impact. Also for "research this" or "use octocode", a typed judgment, or locating a described answer inside an unread file (`clasify`) | The fix is already known → do it directly. Open-ended ideas → octocode-brainstorming |
 | [octocode-scraping](octocode-scraping/) | You want public web pages or a whole site saved as a local, cited corpus for repeated queries: docs, pricing tables, link maps | The page is JS-rendered or needs interaction → octocode-chrome-devtools |
 | [octocode-chrome-devtools](octocode-chrome-devtools/) | You need a real running browser: JS-rendered pages, live DOM, clicks, network (HAR) capture, console, or performance traces, signed-in sessions | The page is static and public → octocode-scraping |
 

@@ -10,7 +10,7 @@ Fetch public web pages into a local corpus, search targeted spans, and cite insp
 |---|---|
 | Scrape or crawl public URLs, docs, tables, pricing pages | ✅ This skill |
 | Extract structured data (links, forms, headings, JSON-LD) from a static page | ✅ This skill |
-| Locate semantic answers in unread saved pages | → `octocode-clasify`, then verify source windows; skip cheap exact reads |
+| Locate semantic answers in unread saved pages | → the `octocode-research` clasify gate, then verify source windows; skip cheap exact reads |
 | Page renders in the browser but has no content when fetched statically | ❌ → `octocode-chrome-devtools` |
 | You need to click, fill, log in, or interact with a live page | ❌ → `octocode-chrome-devtools` |
 | You want network HAR, console errors, or live DOM state | ❌ → `octocode-chrome-devtools` |
@@ -33,7 +33,7 @@ FRAME → POLICY → ROUTE → FETCH → CORPUS → READ → CITE → RECOVER
 1. **FRAME** — set URL, goal, depth, output path before fetching
 2. **FETCH** — `scripts/fetch.mjs` (or `fetch-and-brief.mjs` for a quick summary)
 3. **CORPUS** — pages land in `.octocode/tmp/scrape/<sessionId>/text/`, extracts in `/extracts/`
-4. **READ** — use metadata and snippets to select deciding source spans. Classification delegates to `octocode-clasify`. See [references/clasify-screen.md](references/clasify-screen.md)
+4. **READ** — use metadata and snippets to select deciding source spans. Classification delegates to the `octocode-research` clasify gate. See [references/clasify-screen.md](references/clasify-screen.md)
 5. **LITERAL VERIFY** — inspect the selected source and use `corpus-run.mjs --regex <pattern>` for exact text checks
 6. **CITE** — report artifact paths + URL metadata; never paste raw HTML into chat
 

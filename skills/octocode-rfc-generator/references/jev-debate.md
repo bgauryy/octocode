@@ -1,6 +1,6 @@
 # Two agents, one bounded disagreement
 
-Load before spawning only for the explicit protocol admitted by `octocode-clasify`. This protocol supplies frozen evidence and does not establish a quality or token benefit.
+Load before spawning only for the explicit protocol admitted by the `octocode-research` clasify gate. This protocol supplies frozen evidence and does not establish a quality or token benefit.
 
 ## Dispatch packet
 

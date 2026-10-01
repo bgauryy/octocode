@@ -34,7 +34,7 @@ OPEN/ATTACH → STEALTH → PICK ONE INTENT → RUN(CDP) → REUSE PORT/TAB → 
 
 1. **OPEN** — `scripts/open-browser.mjs --headless --port 9222 --url <url>` → emits `BROWSER_READY` only; does **not** capture page content
 2. **RUN** — `scripts/cdp-sandbox.mjs <check-script.mjs> --port 9222` (sequentially — never two in parallel on the same port)
-3. **READ** — use capture metadata and exact checks to select source spans. Classification delegates to `octocode-clasify`. See [references/clasify-screen.md](references/clasify-screen.md)
+3. **READ** — use capture metadata and exact checks to select source spans. Classification delegates to the `octocode-research` clasify gate. See [references/clasify-screen.md](references/clasify-screen.md)
 4. **QUERY DISK** — read the smallest deciding source span
 5. **CLEANUP** — `scripts/open-browser.mjs --cleanup --port 9222`
 

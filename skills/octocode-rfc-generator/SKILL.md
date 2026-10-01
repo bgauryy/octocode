@@ -33,7 +33,7 @@ For a consequential decision, start with `RFC.md`; an RFC-linked execution plan 
 ## Completeness and optional semantic assessment
 At blocker closure and validation, self-ask what must be true, what could refute the proposed answer, and which missing answer could reverse the decision. Use `references/rfc-completeness.md` to discover questions and track their closure in the existing ledger.
 
-Use ordinary evidence review by default. `octocode-clasify` owns classification admission; no RFC debate recipe overrides its benefit gate. Only for an admitted classification request or experiment, load `references/jev-review.md` for the optional frozen two-worker protocol. A judgment never closes a blocker by itself.
+Use ordinary evidence review by default. The `octocode-research` clasify gate owns classification admission; no RFC debate recipe overrides its benefit gate. Only for an admitted classification request or experiment, load `references/jev-review.md` for the optional frozen two-worker protocol. A judgment never closes a blocker by itself.
 
 ## Smart routes — load only what the current step needs
 - To understand the ask and select a mode before drafting, load `references/workflow.md` — gates, claim ledger, artifact set, traceability, validation, and delivery order.

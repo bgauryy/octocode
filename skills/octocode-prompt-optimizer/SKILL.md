@@ -54,7 +54,7 @@ Load references that resolve the current decision. Reuse material already read a
 |---|---|---|
 | READ, UNDERSTAND | `references/flow/gates.md` | intent and runtime-context map before judgment |
 | RATE | `references/flow/rate.md` | evidenced severity and baseline score |
-| Typed judgment or semantic location in unread files | `octocode-clasify` | Delegate unread evidence when hints can replace broad host reads; skip exact lookups and verify deciding source |
+| Typed judgment or semantic location in unread files | the `octocode-research` clasify gate | Delegate unread evidence when hints can replace broad host reads; skip exact lookups and verify deciding source |
 | FIX | `references/flow/fix.md` | smallest repair in the owning layer |
 | VALIDATE | `references/flow/validate.md` | applicable behavioral and domain gates |
 | OUTPUT | `references/flow/output.md` | delivery variant and truthful delta |

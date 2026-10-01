@@ -14,7 +14,7 @@ To answer “what did Jev help with?”, freeze the host action before seeing it
 
 Until a matched comparison improves answer quality and reduces total host tokens, keep this an explicitly requested experiment. Confidence, agreement, a changed check, and a successful provider call do not establish either benefit.
 
-Predeclare the keep/discard rule: strictly better held-out disposition accuracy AND fewer total host tokens, with all safety/traceability guards passing. If either gate fails or host tokens are unavailable, keep the ordinary path as default. Report regressions and added costs. One small run establishes feasibility or finds failures, not broad superiority, latency savings or statistical significance. Classification admission remains owned by `octocode-clasify`.
+Predeclare the keep/discard rule: strictly better held-out disposition accuracy AND fewer total host tokens, with all safety/traceability guards passing. If either gate fails or host tokens are unavailable, keep the ordinary path as default. Report regressions and added costs. One small run establishes feasibility or finds failures, not broad superiority, latency savings or statistical significance. Classification admission remains owned by the `octocode-research` clasify gate.
 
 Store fixtures, hashes, rubric, raw outcomes, receipts and a report under `<output>/octocode-eval-benchmark/`. Keep evaluation development files outside the shipped skill. Repeat only for a changed candidate or unresolved variance, not until a favorable judge vote appears.
 

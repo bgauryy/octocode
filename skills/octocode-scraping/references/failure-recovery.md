@@ -14,7 +14,7 @@ Load when a scrape fails, blocks, times out, or creates too much data. Why: reco
 | robots disallow / unavailable 5xx | Skip that URL/origin. Report the saved failure; do not route around the policy with Chrome. |
 | `429` / `503` with `Retry-After` | Direct fetch waits once only when the requested delay is at most 10 seconds; otherwise report it and stop. |
 | Timeout | One URL, `--wait-for`, or smaller limits; retry once. |
-| Huge output | `--max-raw-bytes` / `--max-text-bytes` / `--no-raw`; search compact files first. Read targeted spans; classification delegates to `octocode-clasify` through `clasify-screen.md`. |
+| Huge output | `--max-raw-bytes` / `--max-text-bytes` / `--no-raw`; search compact files first. Read targeted spans; classification delegates to the `octocode-research` clasify gate through `clasify-screen.md`. |
 | Auth required | Stop → `octocode-chrome-devtools`; ask before cookie/profile. |
 | CAPTCHA/MFA | Stop and ask; do not bypass. |
 

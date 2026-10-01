@@ -28,7 +28,7 @@ Skills are the default entry point for research, architecture, and eval work:
 | Evidence, tracing, change impact | [octocode-research](skills/octocode-research/SKILL.md) |
 | Architecture decisions | [octocode-architect](skills/octocode-architect/SKILL.md) |
 | Benchmark/keep-discard | [octocode-eval-benchmark](skills/octocode-eval-benchmark/SKILL.md) |
-| Semantic judgment affecting the next read | [octocode-clasify](skills/octocode-clasify/SKILL.md) |
+| Semantic judgment affecting the next read | [octocode-research clasify gate](skills/octocode-research/references/clasify.md) |
 | Local worker offload | [octocode-subagent](skills/octocode-subagent/SKILL.md) |
 | Loaded context audit | [octocode-context-audit](skills-dev/octocode-context-audit/SKILL.md) |
 | Open Rust/AST/LSP implementation choices | [rust-best-practices](skills-dev/rust-best-practices/SKILL.md) plus native architecture/engine docs |

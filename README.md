@@ -408,7 +408,7 @@ Text search, ordinary reads, GitHub/history tools, and artifact lookup remain la
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-**16 public skills** in [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
+**15 public skills** in [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
 
 Tested skills live in [`skills-beta/`](skills-beta/) and are not published. Skills for working on this repository live in [`skills-dev/`](skills-dev/).
 
@@ -422,9 +422,8 @@ npx octocode skill help
 ### Core research and extraction
 | Skill | Use when |
 |-------|----------|
-| ⭐ [**octocode-research**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) | Evidence-first research, review, debugging, refactors, prior-art validation. |
+| ⭐ [**octocode-research**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) | Evidence-first research, review, debugging, refactors, prior-art validation, and `clasify` typed judgments over unread files. |
 | [**octocode-architect**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-architect) | Architecture and algorithm review, dependency/flow analysis, verified flaw detection, and evidence-gated refactoring. |
-| [**octocode-clasify**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-clasify) | Judge unread candidates (Noul / Choice / Score) to decide what to read before spending context; skip exact checks and settled decisions. |
 | [**octocode-scraping**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Public page extraction and crawl triage: static corpus + graph v2 (pages/data/actions/risks/evidence), then CDP handoff for dynamic actions and blocked pages. |
 | [**octocode-chrome-devtools**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Browser/CDP evidence: network, console, performance, cookies/storage, screenshots, auth-gated pages, and live validation of scrape-graph actions. |
 

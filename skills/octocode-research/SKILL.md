@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when a code claim needs evidence before assertion: trace callers, imports, runtime wiring, regressions, GitHub, or change impact; also when asked to 'research this' or 'use octocode'. Skip when the fix is already known and needs no investigation. Not for open-ended ideation → octocode-brainstorming."
+description: "Use when a code claim needs evidence before assertion: trace callers, imports, runtime wiring, regressions, GitHub, or change impact; locate a described answer in unread files or make a typed classification judgment (clasify); also when asked to 'research this' or 'use octocode'. Skip when the fix is already known and needs no investigation. Not for open-ended ideation → octocode-brainstorming."
 ---
 
 # Octocode Research
@@ -23,7 +23,7 @@ Flow: `FRAME → CLASSIFY → MODEL → SEMANTIC? → SEARCH/READ → PROVE → 
 - Stop when no remaining uncertainty changes the decision. A budget checkpoint reassesses unproductive work; it does not abandon an authorized task. When blocked, name the missing evidence.
 
 ## SEMANTIC? (clasify)
-Use `clasify` on an explicit classification request, or before the host reads a large known file when the target is described, not named. It also covers saved scrape text, browser snapshots, logs, and reports. Pass each unread file as a flat `{tool,query}` resource (`prefilter` rare literals for huge files) with flat `questions:[{id,type:"locate",ask}]` (≤ 25 cells). Skip literals, small exact reads, settled decisions, and exact AST/LSP facts: guess one literal and search first; never classify an empty search. No automatic Scout → Judge chain. Replay `next.clasify` while the top `exists` is below 0.5, then read the `best` windows. Hints do not establish source facts or global absence; count the request, verification reads and extra turns as cost. If unavailable, use targeted direct reads. Details: `octocode-clasify`.
+Use `clasify` on an explicit classification request, or before the host reads a large known file when the target is described, not named. It also covers saved scrape text, browser snapshots, logs, and reports. Pass each unread file as a flat `{tool,query}` resource (`prefilter` rare literals for huge files) with flat `questions:[{id,type:"locate",ask}]` (≤ 25 cells). Skip literals, small exact reads, settled decisions, and exact AST/LSP facts: guess one literal and search first; never classify an empty search. No automatic Scout → Judge chain. Replay `next.clasify` while the top `exists` is below 0.5, then read the `best` windows. Hints do not establish source facts or global absence; count the request, verification reads and extra turns as cost. If unavailable, use targeted direct reads. Requests, question types, Scout/Judge, and results: `references/clasify.md`.
 
 ## Routes
 | Need | Load |
@@ -35,6 +35,7 @@ Use `clasify` on an explicit classification request, or before the host reads a 
 | Callers, cycles, reachability, deletion, architecture | `references/code-research.md` |
 | Loops, budgets, workers, durable briefs, landscapes | `references/campaigns.md` |
 | Invocation, pagination, exit codes / query templates | `references/octocode.md` / `references/tool-examples.md` |
+| Typed judgment or semantic locate in unread files, lists, saved artifacts | `references/clasify.md` |
 | Source authority, editing this skill | `references/references.md` |
 
 ## Tools and output
