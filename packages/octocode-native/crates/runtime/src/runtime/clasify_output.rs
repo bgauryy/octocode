@@ -99,6 +99,9 @@ fn page_base(receipt: &Value) -> Map<String, Value> {
     page
 }
 
+/// Size failures name one candidate each; their receipts keep its read.
+const PER_PAGE_FAILURES: [&str; 2] = ["classificationContextTooLarge", "classificationBudgetSpent"];
+
 /// Every page failed with one identical error (e.g. the matrix was over its
 /// cell budget before any provider call): one page states it once, with the
 /// resource's page count, instead of repeating it beside every page receipt.
@@ -106,6 +109,7 @@ fn collapse_shared_failure(pages: Vec<PageOutcome>) -> Vec<PageOutcome> {
     let shared = match pages.as_slice() {
         [PageOutcome::Failed { error, .. }, rest @ ..]
             if !rest.is_empty()
+                && !PER_PAGE_FAILURES.contains(&error.code.as_str())
                 && rest.iter().all(|page| {
                     matches!(page, PageOutcome::Failed { error: other, .. }
                         if other.code == error.code && other.message == error.message)
@@ -291,6 +295,57 @@ fn narrow_read_to_top_window(
     }
 }
 
+/// P(yes) below which a yes/no verdict reads as "no" (the documented lower
+/// edge of the verify band).
+const VERIFY_FLOOR: f64 = 0.36;
+
+/// Whether a page's verdicts leave its evidence worth reading: any answer other
+/// than a confident yes/no "no".
+fn worth_reading(answers: &[Result<Value, ClassificationError>]) -> bool {
+    answers
+        .iter()
+        .filter_map(|answer| answer.as_ref().ok())
+        .any(|data| {
+            data["answer"]
+                .get("noul")
+                .and_then(Value::as_f64)
+                .is_none_or(|yes| yes >= VERIFY_FLOOR)
+        })
+}
+
+/// The host never received a delegated file read's evidence, so a verdict over
+/// it (even `sufficient`) is not the deciding fact. Such a page gets the read of
+/// exactly its judged lines, unless every verdict is a confident "no". A page
+/// with a located window already has its bounded read (`best`, `next.read`).
+fn verification_read(
+    page: &mut Map<String, Value>,
+    receipt: &Value,
+    answers: &[Result<Value, ClassificationError>],
+) {
+    let located = answers.iter().any(|answer| {
+        answer
+            .as_ref()
+            .is_ok_and(|data| data["answer"]["type"] == "locate")
+    });
+    if located
+        || page.contains_key("next")
+        || receipt.get("read").is_some()
+        || !worth_reading(answers)
+    {
+        return;
+    }
+    let (Some(template), Some(start), Some(end)) = (
+        receipt.get("fileRead"),
+        receipt.pointer("/scope/startLine").and_then(Value::as_u64),
+        receipt.pointer("/scope/endLine").and_then(Value::as_u64),
+    ) else {
+        return;
+    };
+    if let Some(read) = window_read(template, start, end) {
+        page.insert("next".into(), json!({"read":read}));
+    }
+}
+
 /// Render one resource. `question_ids` orders the per-page answer map.
 pub(super) fn resource(
     resource_id: &Value,
@@ -317,6 +372,8 @@ pub(super) fn resource(
                 let mut page = page_base(&receipt);
                 if only_located(&answers) {
                     narrow_read_to_top_window(&mut page, read_template(&receipt), &answers);
+                } else {
+                    verification_read(&mut page, &receipt, &answers);
                 }
                 let mut by_question = Map::new();
                 for (id, answer) in question_ids.iter().zip(answers) {
@@ -742,7 +799,8 @@ mod tests {
         );
         assert!(!rendered.to_string().contains("fileRead"), "{rendered}");
         // A page that also answers a non-locate question publishes no
-        // whole-file read from the private template.
+        // whole-file read from the private template: its located window is
+        // the bounded read.
         let mixed = resource(
             &json!("f"),
             &ids,

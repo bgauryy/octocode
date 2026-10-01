@@ -14,7 +14,7 @@
 
 use super::LspSearchQuery;
 use super::failure::push_reason;
-use super::importers::{MAX_CANDIDATE_FILES, SCAN_CAPPED, SCAN_COMPLETE};
+use super::importers::{MAX_CANDIDATE_FILES, SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
 use crate::tools::id::ToolId;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -22,6 +22,8 @@ use std::path::Path;
 pub(super) const REASON: &str = "inferredProject";
 /// More files mention the name than importer recovery verifies.
 pub(super) const CAPPED_REASON: &str = "importerScanCapped";
+/// The lexical importer scan failed, so no importer was verified.
+pub(super) const FAILED_REASON: &str = "importerScanFailed";
 const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with next.textSearch.";
 
 pub(super) const TS_LANGUAGE_IDS: [&str; 4] = [
@@ -100,6 +102,10 @@ pub(super) fn annotate(
             format!(
                 "More than {MAX_CANDIDATE_FILES} files mention this name; only the first {MAX_CANDIDATE_FILES} were opened and verified as importers. Confirm the rest with next.textSearch."
             ),
+        ),
+        Some(SCAN_FAILED) => (
+            FAILED_REASON,
+            "The scan for files importing this name failed, so importers outside the server's project were not verified. Confirm with next.textSearch.".to_owned(),
         ),
         _ if lacks_project_config(Path::new(anchor_path)) => (REASON, INFERRED_WARNING.to_owned()),
         _ => return,

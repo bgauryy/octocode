@@ -133,7 +133,9 @@ fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> O
         .chars()
         .take(goal_chars)
         .collect();
-    if goal.trim().is_empty() {
+    // A bare identifier is a literal lookup: clasify would route it straight
+    // back to localSearch without a read, so offering it only adds a turn.
+    if goal.trim().is_empty() || super::clasify_locate::bare_identifier(&goal).is_some() {
         return None;
     }
     let mut read = Map::new();
@@ -332,6 +334,16 @@ mod tests {
                 paged.clone(),
             ),
             ("localSearch", query.clone(), paged.clone()),
+            (
+                "localFetch",
+                json!({"path":"a","goal":"MAX_CALL_CAPTURES"}),
+                paged.clone(),
+            ),
+            (
+                "ghGetFileContent",
+                json!({"owner":"o","repo":"r","path":"a.go","goal":"`newElementWith()`"}),
+                partial.clone(),
+            ),
         ] {
             assert!(
                 large_read_handoff(tool, &query, data.as_object().unwrap()).is_none(),

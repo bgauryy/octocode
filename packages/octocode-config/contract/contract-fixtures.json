@@ -3627,29 +3627,7 @@
       ],
       "qualifiers": "is:draft label:\"good first issue\" -reviewed-by:x"
     },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "goal": "Exercise the history-search.qualifier-draft-beside-state fixture.",
-          "reasoning": "Exercise the history-search.qualifier-draft-beside-state native parity fixture.",
-          "debug": false,
-          "keywords": [
-            "cache"
-          ],
-          "owner": "o",
-          "repo": "r",
-          "state": "open",
-          "label": [
-            "bug"
-          ],
-          "qualifiers": "is:draft label:\"good first issue\" -reviewed-by:x",
-          "pageSize": 30,
-          "page": 1,
-          "operation": "pullRequest"
-        }
-      ]
-    }
+    "accepted": false
   },
   {
     "id": "history-search.qualifier-pr-key-on-issue",

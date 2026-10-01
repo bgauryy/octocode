@@ -338,6 +338,27 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
         .as_str()
         .expect("path");
     assert_eq!(Path::new(path), Path::new(local).join("src"), "{sparse}");
+    assert_eq!(sparse["next"]["exploreClone"]["tool"], "structureSearch");
+
+    // A single checked-out file is read, not listed as a directory.
+    let file = row(&execute_clone(
+        &GhCloneRepoQuery {
+            sparse_path: Some(one("src/lib.rs")),
+            ..query()
+        },
+        &context,
+    )
+    .expect("sparse file clone"));
+    let local = file["location"]["localPath"].as_str().expect("localPath");
+    let explore = &file["next"]["exploreClone"];
+    assert_eq!(explore["tool"], "localFetch", "{file}");
+    let path = explore["query"]["path"].as_str().expect("path");
+    assert_eq!(
+        Path::new(path),
+        Path::new(local).join("src/lib.rs"),
+        "{file}"
+    );
+    assert!(Path::new(path).is_file(), "{file}");
 }
 
 #[test]

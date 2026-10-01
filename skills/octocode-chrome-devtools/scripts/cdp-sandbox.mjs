@@ -90,7 +90,7 @@ const CONFIG_ENTRY_REAL = safePath(CONFIG_ENTRY);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
-const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'mandatory-stealth.mjs', 'human-input.mjs', 'dom-actionability.mjs'];
+const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'mandatory-stealth.mjs', 'human-input.mjs', 'dom-actionability.mjs', 'ax-snapshot.mjs'];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
   const dst = join(TMPDIR_RAW, helper);
@@ -152,6 +152,7 @@ const SCRIPT_ENV_ALLOWLIST = [
   'SHOT_FORMAT',
   'SHOT_QUALITY',
   'SHOT_SCALE',
+  'SHOT_ANNOTATE',
   'BODY_URL',
   'BODY_MATCH',
   'BODY_WAIT_MS',
@@ -162,10 +163,27 @@ const SCRIPT_ENV_ALLOWLIST = [
   'DOM_ACTION',
   'DOM_VALUE',
   'DOM_STABILITY_MS',
+  'DOM_INPUT',
+  'DOM_KEY',
+  'DOM_SETTLE_MS',
+  'DOM_DIALOG',
+  'DOM_STEPS',
+  'DOM_WAIT_TEXT',
+  'DOM_WAIT_MS',
+  'DOM_TO_REF',
+  'DOM_TO_SELECTOR',
+  'DOM_DIFF',
   'SNAPSHOT_DEPTH',
   'SNAPSHOT_MAX',
   'SNAPSHOT_STDOUT',
   'SNAPSHOT_TEXT',
+  'SNAPSHOT_PAGE',
+  'SNAPSHOT_ROOT',
+  'SNAPSHOT_VIEWPORT',
+  'SNAPSHOT_OUTLINE',
+  'SNAPSHOT_CONTEXT',
+  'SNAPSHOT_URLS',
+  'SNAPSHOT_CLICKABLE',
   'WEBMCP_ACTION',
   'WEBMCP_TOOL',
   'WEBMCP_INPUT',

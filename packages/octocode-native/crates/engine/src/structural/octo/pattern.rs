@@ -158,6 +158,18 @@ impl CompiledPattern {
                 "invalid structural pattern: pattern parsed with syntax errors".to_string(),
             );
         }
+        // Several top-level nodes (`a(); b()`) have no single node to match;
+        // compiled as a whole file they would silently match only a file
+        // starting with that sequence.
+        let top_level = named_children(root)
+            .into_iter()
+            .filter(|node| !node.is_extra())
+            .count();
+        if is_pattern_wrapper(root.kind()) && top_level > 1 {
+            return Err(format!(
+                "invalid structural pattern: it has {top_level} top-level nodes, but a pattern matches one node. Search for one statement, or use a rule with `has`/`inside` to relate them."
+            ));
+        }
         let candidate_plan = if meta_from_node(root, &source, lang.expando()).is_some() {
             CandidatePlan::Any
         } else {
@@ -488,13 +500,71 @@ impl CompiledPattern {
         depth: usize,
         budget: &mut MatchBudget,
     ) -> Result<bool, ExecutionError> {
+        if self.match_multi_split(
+            name,
+            remaining_pattern,
+            pattern_source,
+            candidate_children,
+            candidate_source,
+            captures,
+            depth,
+            budget,
+            0,
+        )? {
+            return Ok(true);
+        }
+        // As in ast-grep, punctuation the pattern spells right after `$$$` is
+        // optional: `f($$$A, x)` matches `f(x)` and `f(1, $$$M, 3)` matches
+        // `f(1, 3)`. The skipped tokens never extend the capture.
+        let skipped = remaining_pattern
+            .iter()
+            .take_while(|node| !node.is_named())
+            .count();
+        if skipped == 0 {
+            return Ok(false);
+        }
+        self.match_multi_split(
+            name,
+            &remaining_pattern[skipped..],
+            pattern_source,
+            candidate_children,
+            candidate_source,
+            captures,
+            depth,
+            budget,
+            skipped,
+        )
+    }
+
+    /// Try every split of `candidate_children` between a `$$$` capture and
+    /// `remaining_pattern`, shortest capture first. A trailing `$$$` takes
+    /// every remaining candidate. Up to `trim` anonymous tokens at the end
+    /// of a taken run stay out of the capture.
+    #[allow(clippy::too_many_arguments)]
+    fn match_multi_split(
+        &self,
+        name: Option<&str>,
+        remaining_pattern: &[Node<'_>],
+        pattern_source: &str,
+        candidate_children: &[Node<'_>],
+        candidate_source: &str,
+        captures: &mut CaptureEnv,
+        depth: usize,
+        budget: &mut MatchBudget,
+        trim: usize,
+    ) -> Result<bool, ExecutionError> {
         let min_remaining =
             minimum_candidate_nodes(remaining_pattern, pattern_source, self.expando);
         if candidate_children.len() < min_remaining {
             return Ok(false);
         }
         let max_take = candidate_children.len() - min_remaining;
-        for take in 0..=max_take {
+        let min_take = if remaining_pattern.is_empty() {
+            max_take
+        } else {
+            0
+        };
+        for take in min_take..=max_take {
             ExecutionError::check(budget.deadline)?;
             // Each split point is one unit of the shared backtracking budget;
             // exhausting it bails the whole match rather than continuing to
@@ -509,7 +579,13 @@ impl CompiledPattern {
             budget.attempts -= 1;
             let checkpoint = captures.checkpoint();
             if let Some(name) = name {
-                let taken = &candidate_children[..take];
+                let mut taken = &candidate_children[..take];
+                for _ in 0..trim {
+                    match taken.split_last() {
+                        Some((last, rest)) if !last.is_named() => taken = rest,
+                        _ => break,
+                    }
+                }
                 let texts = taken.iter().map(|node| node_text(*node, candidate_source));
                 if !captures.capture_many(name, texts, || {
                     taken.iter().map(|node| raw_range(*node)).collect()

@@ -47,12 +47,20 @@ use crate::tools::id::clasify_policy::{
     MAX_FILE_CHUNK_CHARS as MAX_HYDRATED_CHARS, MAX_RESOURCE_CHARS, PREFILTER_WINDOWS,
 };
 const HYDRATED_LINE_RADIUS: u64 = 60;
-/// Row `data` fields that route the host (continuations, scan diagnostics,
-/// follow-up hints) rather than carry evidence. They are withheld from the
-/// provider and excluded from the `maxChars` evidence budget.
 #[path = "clasify_items.rs"]
 mod items;
 
+#[path = "clasify_budget.rs"]
+mod budget;
+use budget::{
+    Candidate, CaptureBudget, MAX_SHRINK_ATTEMPTS, assessed_payload_chars, budget_candidates,
+    budget_spent, candidate_chars, evidence_chars, restore_chunk, resume_search, shrunk_page,
+    too_large,
+};
+
+/// Row `data` fields that route the host (continuations, scan diagnostics,
+/// follow-up hints) rather than carry evidence. They are withheld from the
+/// provider and excluded from the `maxChars` evidence budget.
 const CONTROL_FIELDS: [&str; 3] = ["next", "diagnostics", "hints"];
 
 /// Counting semaphore for blocking capture workers; waits observe the
@@ -133,31 +141,6 @@ fn fallback_context(source: &Value) -> Value {
         None => json!({"source":"value","resultHash":digest,"coverage":"partial",
             "limitations":["Context retrieval failed before a complete page was captured."]}),
     }
-}
-
-fn logical_chars(value: &Value) -> usize {
-    match value {
-        Value::Null => 0,
-        Value::Bool(value) => value.to_string().chars().count(),
-        Value::Number(value) => value.to_string().chars().count(),
-        Value::String(value) => value.chars().count(),
-        Value::Array(values) => values.iter().map(logical_chars).sum(),
-        Value::Object(values) => values
-            .iter()
-            .map(|(key, value)| key.chars().count().saturating_add(logical_chars(value)))
-            .sum(),
-    }
-}
-
-fn tool_data_chars(data: &Value) -> usize {
-    let Some(fields) = data.as_object() else {
-        return logical_chars(data);
-    };
-    fields
-        .iter()
-        .filter(|(key, _)| !CONTROL_FIELDS.contains(&key.as_str()))
-        .map(|(key, value)| key.chars().count().saturating_add(logical_chars(value)))
-        .sum()
 }
 
 /// Evidence the provider judges: row data without the response envelope or
@@ -428,7 +411,14 @@ fn candidate_identity(source: &Value, file: &Value) -> Option<String> {
 }
 
 /// Turn one lexical search page into independent, path-deduplicated files.
+#[cfg(test)]
 fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> {
+    positioned_search_candidates(source, state)
+        .map(|candidates| candidates.into_iter().map(|(_, state)| state).collect())
+}
+
+/// Search candidates with the position of their file row on the page.
+fn positioned_search_candidates(source: &Value, state: &Value) -> Option<Vec<(usize, Value)>> {
     if !is_candidate_search(source) {
         return None;
     }
@@ -445,7 +435,8 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
     let mut seen = HashSet::new();
     let candidates = files
         .iter()
-        .filter_map(|file| {
+        .enumerate()
+        .filter_map(|(position, file)| {
             let file = if let Some(row) = file.as_str() {
                 if source["tool"] == ToolId::GhSearchCode.as_str() {
                     let (repo, path) = row.split_once(':')?;
@@ -467,12 +458,12 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
             };
             candidate_identity(source, &file)
                 .is_some_and(|id| seen.insert(id))
-                .then_some(file)
+                .then_some((position, file))
         })
-        .map(|file| {
+        .map(|(position, file)| {
             let mut candidate = state.clone();
             candidate["results"][0]["data"]["files"] = json!([file]);
-            candidate
+            (position, candidate)
         })
         .collect::<Vec<_>>();
     (!candidates.is_empty()).then_some(candidates)
@@ -824,15 +815,6 @@ fn bounded_search_source(
     Ok(bounded)
 }
 
-fn evidence_chars(evidence: &Value) -> usize {
-    match evidence {
-        Value::Array(entries) => entries.iter().map(evidence_chars).sum(),
-        entry => entry["content"]
-            .as_str()
-            .map_or(0, |content| content.chars().count()),
-    }
-}
-
 /// The runtime already continued this page, so its continuation and
 /// "continue explicitly" limitation no longer describe caller work.
 fn mark_followed(context: &mut Value) {
@@ -848,28 +830,6 @@ fn mark_followed(context: &mut Value) {
             receipt.remove("limitations");
         }
     }
-}
-
-/// Count the sanitized resource payload rather than its transport envelope.
-/// JSON punctuation, escaping, row wrappers, and executable continuations are
-/// control-plane overhead and must not reduce the caller's `maxChars` budget.
-fn assessed_payload_chars(source: &Value, state: &Value) -> usize {
-    if source.get("value").is_some() {
-        return state.to_string().chars().count();
-    }
-    if let Some(evidence) = is_file_read(source).then(|| file_evidence(state)).flatten() {
-        return evidence_chars(&evidence);
-    }
-    state
-        .get("results")
-        .and_then(Value::as_array)
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row.get("data"))
-                .map(tool_data_chars)
-                .sum()
-        })
-        .unwrap_or_else(|| logical_chars(state))
 }
 
 /// The read a host runs for a kept search candidate: the same anchored
@@ -1099,15 +1059,26 @@ fn candidate_jobs(
         .collect()
 }
 
+/// Hydrate candidates with `budget` characters shared by every read: each of
+/// the planned reads is bounded to an equal share.
 fn hydrate_candidates(
     source: &Value,
     candidates: Vec<Value>,
-    max_bytes: usize,
+    budget: usize,
     page_budget: usize,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
     reads: &ReadLimiter,
 ) -> Result<Vec<CapturedPage>, ExecutionError> {
+    let planned = candidate_jobs(source, &candidates, 1, page_budget)
+        .iter()
+        .flatten()
+        .map(Vec::len)
+        .sum::<usize>();
+    let max_bytes = budget
+        .checked_div(planned.max(1))
+        .unwrap_or(budget)
+        .clamp(1, MAX_HYDRATED_CHARS);
     let jobs = candidate_jobs(source, &candidates, max_bytes, page_budget);
     std::thread::scope(|scope| {
         let mut completed = Vec::with_capacity(candidates.len());
@@ -1182,24 +1153,26 @@ fn capture_resource(
         execution,
         reads,
         candidate_limit,
-        false,
+        CaptureBudget::whole(max_chars(resource)),
     )?;
     Ok((pages, remaining))
 }
 
-/// Capture one resource's pages within its `maxChars`. Returns the pages, the
-/// resource continuation, and the characters captured. `defer_oversize`
-/// defers a first page above the budget to the continuation instead of
-/// failing it (a later prefilter window after the shared budget is spent).
+/// Capture one resource's pages within its budget. Returns the pages, the
+/// resource continuation, and the characters captured.
 fn capture_pages(
     resource: &Value,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
     reads: &ReadLimiter,
     candidate_limit: usize,
-    defer_oversize: bool,
+    budget: CaptureBudget,
 ) -> Result<(Vec<CapturedPage>, Option<Value>, usize), ExecutionError> {
-    let max_chars = max_chars(resource);
+    let CaptureBudget {
+        left: max_chars,
+        cap,
+        defer: defer_oversize,
+    } = budget;
     let requested_source = resource["context"].clone();
     let hydrated = file_chunks(&requested_source);
     // Pages this resource may judge (one per candidate, or per hit cluster
@@ -1231,6 +1204,8 @@ fn capture_pages(
     let mut captured_chars = 0usize;
     let mut seen = HashSet::new();
     let mut remaining = None;
+    // The page size a shrunk page's continuation returns to.
+    let mut walk_chunk: Option<Value> = None;
 
     loop {
         execution.check()?;
@@ -1252,7 +1227,8 @@ fn capture_pages(
         }
         match resolve_limited(&source, dispatcher, execution, reads)? {
             Ok((state, receipt)) => {
-                if let Some(candidates) = search_candidate_states(&source, &state) {
+                let remaining_chars = max_chars.saturating_sub(captured_chars);
+                if let Some(candidates) = positioned_search_candidates(&source, &state) {
                     let mut next = if hydrated
                         && source.get("tool").and_then(Value::as_str)
                             == Some(ToolId::LocalSearch.as_str())
@@ -1275,35 +1251,76 @@ fn capture_pages(
                         next.insert("candidateEvidence".into(), candidate_evidence.clone());
                     }
                     if !hydrated {
-                        pages.extend(candidates.into_iter().map(|candidate| {
-                            let mut context =
-                                super::clasify_context::candidate_receipt(&source, &candidate);
-                            if let Some(read) = host_read(&source, &candidate) {
-                                super::clasify_context::attach_read(&mut context, read);
+                        let candidates = candidates
+                            .into_iter()
+                            .map(|(position, candidate)| {
+                                let mut context =
+                                    super::clasify_context::candidate_receipt(&source, &candidate);
+                                if let Some(read) = host_read(&source, &candidate) {
+                                    super::clasify_context::attach_read(&mut context, read);
+                                }
+                                let state = candidate_state(&source, candidate);
+                                Candidate {
+                                    chars: candidate_chars(&state),
+                                    page: CapturedPage::Ready { state, context },
+                                    position: Some(position),
+                                }
+                            })
+                            .collect();
+                        let (kept, chars, deferred) =
+                            budget_candidates(candidates, remaining_chars, cap);
+                        captured_chars = captured_chars.saturating_add(chars);
+                        pages.extend(kept);
+                        remaining = match deferred.first().and_then(|first| first.position) {
+                            None => next,
+                            Some(position) => {
+                                match resume_search(&source, receipt.as_ref(), position) {
+                                    Some(resume) => Some(resume),
+                                    None => {
+                                        pages.extend(deferred.into_iter().map(|candidate| {
+                                            budget_spent(candidate, remaining_chars)
+                                        }));
+                                        next
+                                    }
+                                }
                             }
-                            CapturedPage::Ready {
-                                state: candidate_state(&source, candidate),
-                                context,
-                            }
-                        }));
-                        remaining = next;
+                        };
                         break;
                     }
 
-                    let max_bytes = max_chars
-                        .checked_div(candidates.len().max(1))
-                        .unwrap_or(max_chars)
-                        .clamp(1, MAX_HYDRATED_CHARS);
+                    let candidates = candidates
+                        .into_iter()
+                        .map(|(_, candidate)| candidate)
+                        .collect();
                     let hydrated_pages = hydrate_candidates(
                         &source,
                         candidates,
-                        max_bytes,
+                        remaining_chars,
                         page_budget,
                         dispatcher,
                         execution,
                         reads,
                     )?;
-                    pages.extend(hydrated_pages);
+                    let hydrated_pages = hydrated_pages
+                        .into_iter()
+                        .map(|page| Candidate {
+                            chars: match &page {
+                                CapturedPage::Ready { state, .. } => evidence_chars(state),
+                                CapturedPage::Failed { .. } => 0,
+                            },
+                            page,
+                            position: None,
+                        })
+                        .collect();
+                    let (kept, chars, deferred) =
+                        budget_candidates(hydrated_pages, remaining_chars, cap);
+                    captured_chars = captured_chars.saturating_add(chars);
+                    pages.extend(kept);
+                    pages.extend(
+                        deferred
+                            .into_iter()
+                            .map(|candidate| budget_spent(candidate, remaining_chars)),
+                    );
                     remaining = next;
                     break;
                 }
@@ -1329,12 +1346,63 @@ fn capture_pages(
                             .as_ref()
                             .and_then(super::clasify_context::continuation)
                     });
-                    pages.extend(items.into_iter().map(|item| item_page(&source, item)));
+                    let items = items
+                        .into_iter()
+                        .map(|item| {
+                            let page = item_page(&source, item);
+                            Candidate {
+                                chars: match &page {
+                                    CapturedPage::Ready { state, .. } => candidate_chars(state),
+                                    CapturedPage::Failed { .. } => 0,
+                                },
+                                page,
+                                position: None,
+                            }
+                        })
+                        .collect();
+                    let (kept, chars, deferred) = budget_candidates(items, remaining_chars, cap);
+                    captured_chars = captured_chars.saturating_add(chars);
+                    pages.extend(kept);
+                    pages.extend(
+                        deferred
+                            .into_iter()
+                            .map(|candidate| budget_spent(candidate, remaining_chars)),
+                    );
                     break;
                 }
-                let state_chars = assessed_payload_chars(&source, &state);
-                let remaining_chars = max_chars.saturating_sub(captured_chars);
-                if state_chars > remaining_chars && (defer_oversize || !pages.is_empty()) {
+                let (mut state, mut receipt) = (state, receipt);
+                let mut state_chars = assessed_payload_chars(&source, &state);
+                // A page over the whole cap would fail on every replay; read
+                // the same start in smaller chunks until it fits.
+                let mut attempts = 0;
+                while state_chars > cap && attempts < MAX_SHRINK_ATTEMPTS {
+                    let Some(smaller) = shrunk_page(&source, &state, state_chars, cap) else {
+                        break;
+                    };
+                    attempts += 1;
+                    let Ok((shrunk_state, shrunk_receipt)) =
+                        resolve_limited(&smaller, dispatcher, execution, reads)?
+                    else {
+                        break;
+                    };
+                    if walk_chunk.is_none() {
+                        walk_chunk = state
+                            .pointer("/results/0/data/pagination/chunkSize")
+                            .or_else(|| {
+                                state.pointer("/results/0/data/files/0/pagination/chunkSize")
+                            })
+                            .cloned();
+                    }
+                    seen.insert(smaller.to_string());
+                    source = smaller;
+                    state = shrunk_state;
+                    receipt = shrunk_receipt;
+                    state_chars = assessed_payload_chars(&source, &state);
+                }
+                if state_chars <= cap
+                    && state_chars > remaining_chars
+                    && (defer_oversize || !pages.is_empty())
+                {
                     remaining = Some(source);
                     break;
                 }
@@ -1345,16 +1413,11 @@ fn capture_pages(
                     context["fileRead"] = template;
                 }
                 // Never classify an arbitrary prefix with the full page's
-                // source receipt. The caller can choose a smaller complete section.
+                // source receipt. The caller can choose a smaller complete
+                // section; no continuation replays a page that cannot fit.
                 if state_chars > remaining_chars {
                     pages.push(CapturedPage::Failed {
-                        error: ClassificationError::new(
-                            "classificationContextTooLarge",
-                            format!(
-                                "The first captured page is {state_chars} characters, above maxChars {max_chars}; no classification was run."
-                            ),
-                            "Select a smaller complete section, reduce the read page size, or raise maxChars within its limit.",
-                        ),
+                        error: too_large(state_chars, cap),
                         context,
                     });
                     break;
@@ -1406,6 +1469,7 @@ fn capture_pages(
                     pages.push(CapturedPage::Ready { state, context });
                     break;
                 }
+                let next = restore_chunk(next, walk_chunk.as_ref());
                 if !pages_within || captured_chars >= max_chars || pages.len() + 1 >= 100 {
                     pages.push(CapturedPage::Ready { state, context });
                     remaining = Some(next);
@@ -1534,15 +1598,18 @@ fn capture_prefiltered(
             resume = Some(start);
             break;
         }
-        let mut window = prefilter_window(resource, start, end);
-        window["maxChars"] = json!(left);
+        let window = prefilter_window(resource, start, end);
         let (window_pages, next, chars) = capture_pages(
             &window,
             dispatcher,
             execution,
             reads,
             candidate_limit,
-            !pages.is_empty(),
+            CaptureBudget {
+                left,
+                cap: budget,
+                defer: !pages.is_empty(),
+            },
         )?;
         used = used.saturating_add(chars);
         let covered = window_pages
@@ -2966,38 +3033,6 @@ mod tests {
         }}]});
         let evidence = file_evidence(&state).expect("file evidence");
         assert!(evidence.get("lines").is_none());
-    }
-
-    #[test]
-    fn supplied_value_budget_counts_object_keys_and_fields_named_next() {
-        let state = json!({"next":{"this-key-is-evidence":"retained"}});
-        let source = json!({"value":state});
-        assert_eq!(
-            assessed_payload_chars(&source, &state),
-            state.to_string().chars().count()
-        );
-    }
-
-    #[test]
-    fn tool_budget_excludes_only_the_canonical_data_continuation() {
-        let source = json!({"tool":"localFetch","query":{"path":"/tmp/source"}});
-        let first = json!({"results":[{"data":{
-            "content":{"next":"evidence"},
-            "next":{"continue":{"tool":"localFetch","query":{"path":"short"}}}
-        }}]});
-        let second = json!({"results":[{"data":{
-            "content":{"next":"evidence"},
-            "next":{"continue":{"tool":"localFetch","query":{"path":"a".repeat(10_000)}}}
-        }}]});
-        assert_eq!(
-            assessed_payload_chars(&source, &first),
-            assessed_payload_chars(&source, &second),
-            "continuation metadata must not consume the evidence budget"
-        );
-        assert!(
-            assessed_payload_chars(&source, &first) >= "contentnextevidence".chars().count(),
-            "nested evidence named next must still consume the budget"
-        );
     }
 
     #[test]

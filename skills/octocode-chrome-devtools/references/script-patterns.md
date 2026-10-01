@@ -7,7 +7,7 @@ Load when no ready check fits and you write `run(cdp)`. Start from `scripts/cdp-
 - Enable domains and attach listeners before acting. `--new-tab <url>` loads before `run` starts, so for load evidence `Page.navigate` (or `Page.reload`, as the template does) after attaching listeners.
 - **Network idle**: track in-flight requests, resolve after a quiet window, skip websockets and long polling, always time out.
 - **Wait for element**: poll `Runtime.evaluate` for existence, non-zero size, `el.matches(':disabled')` (covers disabled `<fieldset>`), and a stable box.
-- **Fill**: use the prototype's native `value` setter plus `input`/`change` events; React ignores instance assignment. If it still fails, use trusted input: `runEventSequence(cdp, buildElementClickSequence(x, y, rect, true))`, then `buildTypingEvents(text)`.
+- **Input**: prefer `dom-operations-check`. In custom scripts use `human-input.mjs`: `runEventSequence(cdp, buildElementClickSequence(x, y, rect, true))`, `buildTypingEvents(text)` (real keydown/keyup), `buildKeyPressEvents('Control+a')`. Synthetic fallback: the prototype's native `value` setter plus `input`/`change`.
 
 ## Browser surfaces
 

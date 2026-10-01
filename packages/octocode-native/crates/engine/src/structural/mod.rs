@@ -249,3 +249,7 @@ pub fn search_detailed(
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "embedded-ast-grep-rewrite"))]
+#[path = "parity_tests.rs"]
+mod parity_tests;

@@ -22,7 +22,7 @@ Flow for every task: `scripts/open-browser.mjs` → `scripts/cdp-sandbox.mjs <ch
 - Every run applies stealth and reloads an attached tab. For follow-up steps on a kept tab (fill → click → read) pass `--no-reload`, or state is lost.
 - Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, deletes, account changes, or submitting real user data.
 - Stop after two same-class live failures, an unapproved gate, or a login/challenge that persists after stealth; summarize and switch to visible `user-auth` or scraping diagnostics.
-- Understand pages with `page-snapshot` (+`SNAPSHOT_TEXT=800`) first, ~1 KB; screenshot only when layout, visuals, or a mismatch matters.
+- Understand pages with `page-snapshot` (+`SNAPSHOT_TEXT=800`) first, ~2–3 KB; long pages: `SNAPSHOT_OUTLINE=1` then `SNAPSHOT_ROOT=rN`; screenshot only when layout, visuals, or a mismatch matters.
 - Search existing artifacts before reopening Chrome. Report paths and focused findings; never print secrets or raw dumps.
 
 ## Commands
@@ -32,7 +32,8 @@ S=<skill>/scripts
 node $S/open-browser.mjs --headless --port 9222 --url "<url>"   # --help: profile, proxy, UA, features
 node $S/cdp-sandbox.mjs $S/cdp-checks/page-snapshot.mjs --port 9222 --keep-tab
 SHOT_SCALE=0.5 node $S/cdp-sandbox.mjs $S/cdp-checks/page-screenshot.mjs --port 9222 --keep-tab --no-reload   # layout/visual only
-DOM_REF=e3 DOM_ACTION=click node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload
+DOM_REF=e3 DOM_ACTION=type DOM_VALUE="text" node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload   # or click|fill|press|select|check|hover; read [VERIFY]
+DOM_REF=e4 DOM_ACTION=click node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload
 node $S/cdp-sandbox.mjs <check-or-custom.mjs> --port 9222 --new-tab "<url>"   # fresh tab, stealth before navigation
 node $S/open-browser.mjs --cleanup --port 9222 [--dry-run]
 ```

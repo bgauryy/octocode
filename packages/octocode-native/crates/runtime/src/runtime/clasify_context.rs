@@ -665,6 +665,15 @@ pub(super) fn continuation(receipt: &Value) -> Option<Value> {
     }))
 }
 
+/// Whether the receipt still has an inner page (e.g. more matches of the
+/// page's files) to visit before its outer page advances.
+pub(super) fn has_inner_page(receipt: &Value) -> bool {
+    receipt
+        .get("next")
+        .and_then(Value::as_object)
+        .is_some_and(|next| INNER_PAGE_AXES.iter().any(|axis| next.contains_key(*axis)))
+}
+
 /// Select a named same-resource continuation. Hydrated search candidates use
 /// only `nextPage`: `nextMatchPage` revisits files already hydrated and judged.
 pub(super) fn continuation_named(receipt: &Value, name: &str) -> Option<Value> {
@@ -682,11 +691,15 @@ pub(super) fn continuation_named(receipt: &Value, name: &str) -> Option<Value> {
 /// Recover from a context-tool error only when the tool supplied an exact,
 /// validated continuation. Candidate continuations remain evidence hints and
 /// must not silently replace a failed request.
+/// A `restart` re-reads a changed source from its start; following it would
+/// mix two versions of one resource, so the failure stands.
 pub(super) fn exact_continuation(receipt: &Value) -> Option<Value> {
     let continuation = receipt
         .get("next")
         .and_then(Value::as_object)?
-        .values()
+        .iter()
+        .filter(|(name, _)| name.as_str() != "restart")
+        .map(|(_, candidate)| candidate)
         .find(|candidate| candidate.get("confidence").and_then(Value::as_str) == Some("exact"))?
         .as_object()?;
     Some(json!({

@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "a86125b508aab0593f805912de4562f2b1114973ef786325c94618724a9cfe15",
+  "fingerprint": "8a00aee83edd2f6cf671657455ff26d5421e4a50625ba70e0deba680670a9c2e",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -19468,7 +19468,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -19621,7 +19621,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -26799,7 +26799,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -26952,7 +26952,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -34235,7 +34235,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -34388,7 +34388,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -41506,7 +41506,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -41659,7 +41659,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -46973,7 +46973,7 @@
                     "qualifiers": {
                       "description": "More filters: \"reviewed-by:x label:bug\".",
                       "maxLength": 200,
-                      "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                      "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                       "type": "string"
                     },
                     "reactions": {
@@ -47143,7 +47143,7 @@
                     "qualifiers": {
                       "description": "More filters, e.g. \"commenter:x label:bug\".",
                       "maxLength": 200,
-                      "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                      "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                       "type": "string"
                     },
                     "reactions": {
@@ -49398,7 +49398,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -49551,7 +49551,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -53801,7 +53801,7 @@
                                 },
                                 "qualifiers": {
                                   "maxLength": 200,
-                                  "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                                  "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                                   "type": "string"
                                 },
                                 "reactions": {
@@ -53954,7 +53954,7 @@
                                 },
                                 "qualifiers": {
                                   "maxLength": 200,
-                                  "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                                  "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                                   "type": "string"
                                 },
                                 "reactions": {
@@ -54936,7 +54936,7 @@
               "qualifiers": {
                 "description": "More filters: \"reviewed-by:x label:bug\".",
                 "maxLength": 200,
-                "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                 "type": "string"
               },
               "reactions": {
@@ -55106,7 +55106,7 @@
               "qualifiers": {
                 "description": "More filters, e.g. \"commenter:x label:bug\".",
                 "maxLength": 200,
-                "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                 "type": "string"
               },
               "reactions": {
@@ -58400,7 +58400,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -58553,7 +58553,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -68767,7 +68767,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -68920,7 +68920,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -76215,7 +76215,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -76368,7 +76368,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -83464,7 +83464,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -83617,7 +83617,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -91719,7 +91719,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -91872,7 +91872,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -100228,7 +100228,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -100381,7 +100381,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -110975,7 +110975,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -111128,7 +111128,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -120552,7 +120552,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -120705,7 +120705,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -129235,7 +129235,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -129388,7 +129388,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -137279,7 +137279,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:-is:draft|(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+))\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -137432,7 +137432,7 @@
                           },
                           "qualifiers": {
                             "maxLength": 200,
-                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+                            "pattern": "^\\s*(?:(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {

@@ -88,7 +88,8 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     let fragment_read = code_output::read_top_match(&json!({"files": &items}));
     let mut value = json!({});
     let resolution = code_output::resolve_lines(provider, query, &items, context, security).await?;
-    let top_read = code_output::shape_files(&mut value, &mut items, query, resolution);
+    let top_read =
+        code_output::shape_files(&mut value, &mut items, query, resolution, fragment_read);
     if !items.is_empty() {
         value["files"] = json!(items);
     }
@@ -99,14 +100,16 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
         page.remove("nextPage");
     }
     add_next(&mut value, ToolId::GhSearchCode, query, current, more);
-    if let Some(read) = top_read.or(fragment_read) {
+    if let Some(read) = top_read {
         value["next"]["readTopMatch"] = read;
     }
+    // Provider-index completeness is reported on every page, apart from
+    // whether another page exists.
     apply_partial(
         &mut value,
         ToolId::GhSearchCode,
         query,
-        data.incomplete_results && data.items.is_empty(),
+        data.incomplete_results,
         data.total_count > 1000,
         current,
         more,
@@ -115,23 +118,12 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     let mut output = ToolData::from(value);
     let value = &mut output.data;
     if data.incomplete_results {
-        if data.items.is_empty() {
-            value["incompleteResults"] = json!(true);
-        }
+        value["incompleteResults"] = json!(true);
         output.diagnostics.add(
             "ghIncompleteResults",
             "GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.",
-            more || data.items.is_empty(),
+            true,
         );
-        let mut retry = serde_json::to_value(query)
-            .map_err(|error| ProviderError::new(ProviderErrorKind::Decode, error.to_string()))?;
-        remove_null_fields(&mut retry);
-        value["next"]["retry"] =
-            json!({"tool":ToolId::GhSearchCode.as_str(),"query":retry,"confidence":"exact"});
-        if data.items.is_empty() {
-            value["next"]["retry"]["why"] =
-                json!("Retry the same query because GitHub marked the result incomplete.");
-        }
     }
     if data.items.is_empty() {
         output.status = Some("empty");
@@ -935,9 +927,112 @@ mod tests {
                 "default-branch text is not shown as the ref: {data}"
             );
             assert_eq!(
-                data["next"]["readTopMatch"]["query"]["branch"], "dev",
+                data["next"]["readTopMatch"]["query"]["branch"], TREE_SHA,
+                "the read is pinned to the commit the lines came from: {data}"
+            );
+        }
+
+        /// A file the index lists but the requested ref lacks offers no
+        /// read: the fragment came from the default branch, and reading it
+        /// there would cross the requested scope.
+        #[tokio::test]
+        async fn a_file_missing_at_the_requested_ref_offers_no_default_branch_read() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":1,"incomplete_results":false,"items":[
+                        {"name":"app.rs","path":"app.rs","sha":"1","html_url":"https://x",
+                         "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                         "text_matches":[{"fragment":"fn wrap_app() {}","matches":[{"text":"wrap_app","indices":[3,11]}]}]}
+                    ]
+                })))
+                .mount(&server)
+                .await;
+            mount_ref(&server, "dev").await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents/app.rs"))
+                .respond_with(
+                    ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":"b",
+                    "keywords":["wrap_app"],"branch":"dev"}),
+            )
+            .await
+            .expect("search");
+            let data = &out.data;
+            assert_eq!(data["files"][0]["atRef"], false, "{data}");
+            assert!(
+                data.pointer("/next/readTopMatch").is_none(),
+                "no read outside the requested ref: {data}"
+            );
+
+            // The file exists at the ref but no line holds the keyword: the
+            // fragment read stays pinned to the resolved commit.
+            let unmatched = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":1,"incomplete_results":false,"items":[
+                        {"name":"app.rs","path":"app.rs","sha":"1","html_url":"https://x",
+                         "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                         "text_matches":[{"fragment":"fn wrap_app() {}","matches":[{"text":"wrap_app","indices":[3,11]}]}]}
+                    ]
+                })))
+                .mount(&unmatched)
+                .await;
+            mount_ref(&unmatched, "dev").await;
+            mount_content(&unmatched, "app.rs", "fn renamed() {}\n").await;
+            let out = run(
+                &unmatched,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":"b",
+                    "keywords":["wrap_app"],"branch":"dev"}),
+            )
+            .await
+            .expect("search");
+            let read = &out.data["next"]["readTopMatch"]["query"];
+            assert_eq!(read["branch"], TREE_SHA, "{}", out.data);
+            assert_eq!(read["matchString"], "wrap_app", "{}", out.data);
+        }
+
+        /// A non-empty page GitHub marks incomplete says so in its data,
+        /// without debug, separately from whether another page exists.
+        #[tokio::test]
+        async fn a_non_empty_incomplete_page_reports_partial_coverage() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":1,"incomplete_results":true,"items":[
+                        {"name":"app.rs","path":"app.rs","sha":"1","html_url":"https://x",
+                         "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                         "text_matches":[]}
+                    ]
+                })))
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a",
+                    "keywords":["wrap_app"],"match":"path"}),
+            )
+            .await
+            .expect("search");
+            let data = &out.data;
+            assert_eq!(data["isPartial"], true, "{data}");
+            assert_eq!(data["incompleteResults"], true, "{data}");
+            assert_eq!(
+                data["partialReasons"],
+                json!(["providerIncompleteResults"]),
                 "{data}"
             );
+            assert!(data.pointer("/pagination/hasMore").is_none(), "{data}");
+            assert_eq!(data["next"]["retry"]["query"]["page"], 1, "{data}");
+            assert!(out.diagnostics.partial);
         }
 
         /// Empty searches name the default-branch index only when a branch
@@ -1391,28 +1486,29 @@ mod tests {
             assert_eq!(invalid.kind, ProviderErrorKind::Validation);
         }
 
-        /// ghStructure: a recursive listing on an unresolved ref fetches
-        /// the tree by ref name while the ref resolves; the tree is used only
-        /// when it reports the resolved commit.
+        /// ghStructure: a recursive listing fetches its tree once, by the
+        /// resolved commit SHA. GitHub's tree response carries the tree
+        /// object's SHA, never the commit's, so a tree fetched by ref name
+        /// cannot be proven to belong to the resolved commit.
         #[tokio::test]
-        async fn tree_by_ref_overlaps_the_resolve_and_is_checked_against_it() {
+        async fn deep_tree_is_fetched_once_at_the_resolved_commit() {
             let server = MockServer::start().await;
             mount_ref(&server, "main").await;
-            let listing = |sha: &str, file: &str| json!({"sha":sha,"truncated":false,"tree":[{"path":file,"type":"blob","size":1}]});
+            let tree_object = "b".repeat(40);
             Mock::given(method("GET"))
                 .and(path("/api/v3/repos/a/b/git/trees/main"))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_json(listing(TREE_SHA, "by-ref.rs")),
-                )
-                .expect(1)
+                .respond_with(ResponseTemplate::new(200).set_body_json(
+                    json!({"sha":tree_object,"truncated":false,"tree":[{"path":"by-ref.rs","type":"blob","size":1}]}),
+                ))
+                .expect(0)
                 .mount(&server)
                 .await;
             Mock::given(method("GET"))
                 .and(path(format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}")))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_json(listing(TREE_SHA, "by-sha.rs")),
-                )
-                .expect(0)
+                .respond_with(ResponseTemplate::new(200).set_body_json(
+                    json!({"sha":tree_object,"truncated":false,"tree":[{"path":"pinned.rs","type":"blob","size":1}]}),
+                ))
+                .expect(1)
                 .mount(&server)
                 .await;
             let out = run(
@@ -1424,41 +1520,105 @@ mod tests {
             .expect("tree");
             assert_eq!(
                 out.data["structure"][0]["files"],
-                json!(["by-ref.rs"]),
+                json!(["pinned.rs"]),
                 "{}",
                 out.data
             );
             assert_eq!(out.data["commitSha"], TREE_SHA);
+            let requests = server.received_requests().await.unwrap_or_default();
+            let paths = requests
+                .iter()
+                .map(|request| request.url.path().to_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                paths,
+                [
+                    "/api/v3/repos/a/b/commits/main".to_owned(),
+                    format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}"),
+                ],
+                "no speculative tree request"
+            );
+        }
 
-            // The branch moved between the two requests: refetch by SHA.
-            let moved = MockServer::start().await;
-            mount_ref(&moved, "dev").await;
-            Mock::given(method("GET"))
-                .and(path("/api/v3/repos/a/b/git/trees/dev"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(listing(
-                    "fedcba9876543210fedcba9876543210fedcba98",
-                    "moved.rs",
-                )))
-                .mount(&moved)
-                .await;
+        /// Paths beneath an ignored directory are dropped before paging,
+        /// sizing, and materializing, and the recursive tree and the
+        /// Contents walk list the same permitted entries.
+        #[tokio::test]
+        async fn ignored_directories_hide_their_descendants_from_every_consumer() {
+            let expected = json!([{"dir":".","files":["app.rs"]}]);
+            // Recursive Git Trees listing.
+            let server = MockServer::start().await;
+            mount_ref(&server, "main").await;
             Mock::given(method("GET"))
                 .and(path(format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}")))
-                .respond_with(
-                    ResponseTemplate::new(200).set_body_json(listing(TREE_SHA, "pinned.rs")),
-                )
-                .expect(1)
-                .mount(&moved)
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha":"c".repeat(40),"truncated":false,"tree":[
+                    {"path":"app.rs","type":"blob","size":3},
+                    {"path":"vendor","type":"tree"},
+                    {"path":"vendor/hidden.rs","type":"blob","size":9},
+                    {"path":"vendor/deep","type":"tree"},
+                    {"path":"vendor/deep/more.rs","type":"blob","size":9}
+                ]})))
+                .mount(&server)
+                .await;
+            mount_content(&server, "app.rs", "app").await;
+            Mock::given(method("GET"))
+                .and(wiremock::matchers::path_regex("/contents/vendor"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "type":"file","encoding":"base64","content":STANDARD.encode("hidden")
+                })))
+                .expect(0)
+                .mount(&server)
                 .await;
             let out = run(
-                &moved,
-                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b",
-                    "branch":"dev","maxDepth":3}),
+                &server,
+                json!({"operation":"tree","goal":"test","reasoning":"test","owner":"a","repo":"b",
+                    "branch":"main","maxDepth":5,"pageSize":1,"include":["sizes"],"materialize":true}),
             )
             .await
-            .expect("moved tree");
+            .expect("recursive tree");
+            let data = &out.data;
+            assert_eq!(data["structure"], expected, "{data}");
+            assert!(data.get("pagination").is_none(), "no phantom page: {data}");
+            assert_eq!(data["fileSizes"], json!({"app.rs":3}), "{data}");
+            assert_eq!(data["omitted"]["entries"], json!({"vendor":1}), "{data}");
+            let local = std::path::Path::new(
+                data["location"]["localPath"]
+                    .as_str()
+                    .expect("materialized location"),
+            );
+            assert!(local.join("app.rs").exists(), "{data}");
+            assert!(!local.join("vendor").exists(), "{data}");
+            let _ = std::fs::remove_dir_all(local);
+
+            // Contents walk (the recursive tree is unavailable).
+            let walked = MockServer::start().await;
+            mount_ref(&walked, "main").await;
+            Mock::given(method("GET"))
+                .and(wiremock::matchers::path_regex("/git/trees/"))
+                .respond_with(ResponseTemplate::new(500))
+                .mount(&walked)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {"name":"app.rs","path":"app.rs","type":"file","size":3},
+                    {"name":"vendor","path":"vendor","type":"dir"}
+                ])))
+                .mount(&walked)
+                .await;
+            let out = run(
+                &walked,
+                json!({"operation":"tree","goal":"test","reasoning":"test","owner":"a","repo":"b",
+                    "branch":"main","maxDepth":5,"pageSize":1,"include":["sizes"]}),
+            )
+            .await
+            .expect("contents walk");
+            assert_eq!(out.data["structure"], expected, "{}", out.data);
+            assert_eq!(out.data["fileSizes"], json!({"app.rs":3}), "{}", out.data);
             assert_eq!(
-                out.data["structure"][0]["files"],
-                json!(["pinned.rs"]),
+                out.data["omitted"]["entries"],
+                json!({"vendor":1}),
                 "{}",
                 out.data
             );

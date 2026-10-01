@@ -237,7 +237,9 @@ Fields: `keywords`, required `owner`, `repo`, `path` (prefix), `extension`,
 `filename`, `language`, `match` (`"file"` or `"path"`), `page`, `pageSize`
 (1-100, default 30), and `concise`. `match` defaults to `"file"`; use
 `match:"path"` for path-only discovery. `next.readTopMatch` routes to
-`ghGetFileContent`. A repository that GitHub reports as renamed returns
+`ghGetFileContent` pinned to the commit the hit was verified at; a file absent
+at a requested `branch` offers no read. A page GitHub marks incomplete is
+`isPartial` with `partialReasons:["providerIncompleteResults"]`, empty or not. A repository that GitHub reports as renamed returns
 `next.retryRenamed` against the new name.
 
 Keywords (also for `ghSearchRepo`) are literal ANDed terms. Each one is sent as
@@ -349,8 +351,9 @@ Prefer title-first PR and issue searches. For commit archaeology, narrow by path
 and time before fetching a commit diff. Rarer PR/issue filters go in one
 `qualifiers` string (`"reviewed-by:x review:approved label:bug comments:>5"`);
 it maps onto the typed fields (which stay valid), and rejects `repo:`/`org:`/
-`user:` (scope comes from `owner`/`repo`), unknown keys (with a suggestion), and
-a filter set twice. `next.readPr` targets the first merged row (else the first)
+`user:` (scope comes from `owner`/`repo`), unknown keys (with a suggestion),
+negation other than a PR's `-is:draft`, and a filter set twice. `archived`
+always routes a PR query through search, which enforces it. `next.readPr` targets the first merged row (else the first)
 and lists up to three `candidates`; a bare issue number in `keywords` adds
 `next.readIssueLinks`, the issue read whose `closedBy` names its fix PRs.
 Commit rows carry the author's login (else git name), never an email; read the
@@ -381,8 +384,10 @@ Sections are selected with `include` (PR: `body`, `files`, `patches`,
 The nested spellings (`content.*`, `fileFilter`, `includeDiff`, `path`,
 `operation:"compare"`) stay valid aliases and return identical rows. Every PR
 row carries its merge state (`mergedAt`, `closedAt`, `targetBranch`; labels on
-the first page). An issue read lists the pull requests that closed it
-(`closedBy`, merged first) and offers `next.readFixPr`.
+the first page). An issue read lists up to 25 pull requests that closed it
+(`closedBy`, merged first) and offers `next.readFixPr`; past 25 the row is
+`isPartial` with `partialReasons:["closingReferenceLimit"]` and the fix is a
+medium-confidence candidate.
 
 Fields from another operation are rejected rather than ignored. In particular,
 PR and issue identity is always `number`; commit identity is `ref`; comparison
@@ -517,7 +522,8 @@ Returns a location with an absolute path, commit identity, resolved branch,
 alike; a hit's commit may lag the branch until then, so pass `forceRefresh` for
 the current head). `verified` and `complete` appear only when false.
 `next.exploreClone` lists the checkout (the sparse subtree for one path, the
-root for several) with `structureSearch operation:"tree"`. No GitHub API call
+root for several) with `structureSearch operation:"tree"`; a single sparse
+file is read with `localFetch` instead. No GitHub API call
 precedes git: an unbranched cache hit finds its entry through a recorded
 default-branch alias, and a fresh clone lets git resolve the remote HEAD. The
 API is asked only after git fails, to name a missing or inaccessible
@@ -1197,7 +1203,7 @@ recovered through an aliasing import (not reported by the server) carry
 `source: "recoveredAlias"`, and `payload.recoveredAliasReferences` counts them.
 References found by re-querying the server from a verified importer's import
 anchor carry `source: "recoveredImporter"`. When the importer scan is capped
-(`importerScanCapped`) or a TypeScript file has no project configuration
+(`importerScanCapped`) or fails (`importerScanFailed`), or a TypeScript file has no project configuration
 (`inferredProject`), the row is partial, `payload.coverage.exhaustive` is
 `false`, and a name-anchored request carries `next.textSearch`, a `localSearch`
 for the textual uses the server cannot see. Inspection or verification gaps

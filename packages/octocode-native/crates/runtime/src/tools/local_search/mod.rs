@@ -473,6 +473,159 @@ mod tests {
         fs::remove_dir_all(root).expect("cleanup");
     }
 
+    /// A continuation's stored scan is bound to the query that produced
+    /// it: changing any search-semantic field while keeping the cursor must
+    /// reject, whether the stored scan is still cached or was evicted.
+    #[test]
+    fn frozen_snapshot_rejects_changed_search_semantics_on_cache_hit_and_miss() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::write(
+            root.path().join("sample.ts"),
+            "export function alpha(x: number): number {\n  return x + 1;\n}\nexport const b = alpha(2);\n",
+        )
+        .expect("fixture");
+        fs::write(
+            root.path().join("other.ts"),
+            "import { alpha } from \"./sample\";\nexport const value = alpha(3);\n",
+        )
+        .expect("fixture");
+        fs::write(root.path().join("notes.md"), "alpha in prose\n").expect("fixture");
+        fs::create_dir(root.path().join("node_modules")).expect("dir");
+        fs::write(
+            root.path().join("node_modules/dep.ts"),
+            "export const alpha = 1;\n",
+        )
+        .expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha", "include": ["*.ts"], "noIgnore": true, "pageSize": 1, "maxMatchesPerFile": 1, "sort": "path"}),
+            None,
+        );
+        let initial = execute_local_search(&request, &policy, &security, &NeverCancel, None)
+            .expect("initial search");
+        let snapshot = initial.source_snapshot.clone().expect("frozen identity");
+        let continued = ls_query(
+            serde_json::json!({"snapshot": snapshot, "page": 2}),
+            Some(&request),
+        );
+        let changes = [
+            (
+                "searchText",
+                serde_json::json!({"searchText": "nonexistent_literal_control"}),
+            ),
+            ("include", serde_json::json!({"include": ["*.md"]})),
+            (
+                "defaultExcludes",
+                serde_json::json!({"defaultExcludes": false}),
+            ),
+            ("regex", serde_json::json!({"regex": "literal"})),
+            ("caseMode", serde_json::json!({"caseMode": "insensitive"})),
+            ("hidden", serde_json::json!({"hidden": true})),
+            ("wholeWord", serde_json::json!({"wholeWord": true})),
+            (
+                "path",
+                serde_json::json!({"path": root.path().join("other.ts").to_string_lossy().into_owned()}),
+            ),
+        ];
+        for cached in [true, false] {
+            if !cached {
+                super::manifest::evict(&snapshot);
+            }
+            let page_two = execute_local_search(&continued, &policy, &security, &NeverCancel, None)
+                .unwrap_or_else(|e| {
+                    panic!("unchanged continuation (cached={cached}): {}", e.message)
+                });
+            assert_eq!(
+                page_two
+                    .files
+                    .iter()
+                    .map(|f| f.path.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["sample.ts"],
+                "cached={cached}"
+            );
+            assert_eq!(page_two.source_snapshot.as_deref(), Some(snapshot.as_str()));
+            for (field, change) in &changes {
+                if !cached {
+                    super::manifest::evict(&snapshot);
+                }
+                let changed = ls_query(change.clone(), Some(&continued));
+                match execute_local_search(&changed, &policy, &security, &NeverCancel, None) {
+                    Ok(result) => panic!(
+                        "{field} change reused the old cursor (cached={cached}): {:?}",
+                        result.files.iter().map(|f| &f.path).collect::<Vec<_>>()
+                    ),
+                    Err(error) => {
+                        assert_eq!(error.code, "staleSnapshot", "{field} cached={cached}");
+                        let restart = error.next.expect("restart");
+                        assert!(restart["restart"]["query"].get("snapshot").is_none());
+                    }
+                }
+            }
+        }
+        let control = ls_query(
+            serde_json::json!({"searchText": "nonexistent_literal_control"}),
+            Some(&request),
+        );
+        let control = execute_local_search(&control, &policy, &security, &NeverCancel, None)
+            .expect("control search");
+        assert!(control.files.is_empty());
+    }
+
+    /// Continuations reuse the page-1 scan whatever `noIgnore` says, so pages
+    /// stay consistent; a matched file that changed since the scan, or a
+    /// scan that expired, falls back to a rescan that restarts a changed
+    /// result.
+    #[test]
+    fn continuations_reuse_their_scan_until_a_matched_file_changes() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            fs::write(root.path().join(name), "needle\n").expect("fixture");
+        }
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle", "pageSize": 1, "sort": "path"}),
+            None,
+        );
+        let first =
+            execute_local_search(&request, &policy, &security, &NeverCancel, None).expect("page 1");
+        let snapshot = first
+            .source_snapshot
+            .clone()
+            .expect("continuation identity");
+        let page = |n: u32| {
+            ls_query(
+                serde_json::json!({"snapshot": snapshot, "page": n}),
+                Some(&request),
+            )
+        };
+        // A new matching file is not part of the stored scan.
+        fs::write(root.path().join("a0.txt"), "needle\n").expect("new file");
+        let second = execute_local_search(&page(2), &policy, &security, &NeverCancel, None)
+            .expect("page 2 from the stored scan");
+        assert_eq!(second.files[0].path, "b.txt");
+        // Once the scan is gone, the rescan sees the new file and restarts.
+        super::manifest::evict(&snapshot);
+        assert_eq!(
+            execute_local_search(&page(2), &policy, &security, &NeverCancel, None)
+                .expect_err("changed result")
+                .code,
+            "staleSnapshot"
+        );
+        fs::remove_file(root.path().join("a0.txt")).expect("cleanup");
+        let first = execute_local_search(&request, &policy, &security, &NeverCancel, None)
+            .expect("page 1 again");
+        assert_eq!(first.source_snapshot.as_deref(), Some(snapshot.as_str()));
+        // A matched file that changed invalidates the stored scan.
+        fs::write(root.path().join("c.txt"), "needle\nneedle\n").expect("edit");
+        assert_eq!(
+            execute_local_search(&page(3), &policy, &security, &NeverCancel, None)
+                .expect_err("edited matched file")
+                .code,
+            "staleSnapshot"
+        );
+    }
+
     #[test]
     fn capped_or_bound_results_are_partial_and_terminal_when_next_is_impossible() {
         use super::executor::classify_search;
@@ -788,6 +941,43 @@ mod tests {
             ),
         );
         assert!(!all_values(&body).contains("interior"), "{body}");
+    }
+
+    /// Sources above the whole-file key-scan cap are verified by the streamed
+    /// prefix pass: late interior key bodies stay redacted (terminated or
+    /// not), while innocent base64 outside any block stays readable.
+    #[test]
+    fn late_key_bodies_in_large_sources_stay_redacted() {
+        let filler = "let filler_value = 0;\n".repeat(560_000);
+        let body = "MIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let innocent = "QUJDREVGR0hJSktMTU5PUFFSU1RVinnocentB64VldYWVowMTIzNDU2Nzg5";
+        let terminated = format!(
+            "{innocent}\n{filler}-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----\n"
+        );
+        let unterminated =
+            format!("{innocent}\n{filler}-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n{body}\n");
+        for content in [&terminated, &unterminated] {
+            assert!(content.len() as u64 > 10 * 1024 * 1024);
+            for view in ["matchOnly", "detailed"] {
+                let found = search_fixture(
+                    &[("big.txt", content.as_str())],
+                    ls_query(
+                        serde_json::json!({"searchText": "interior", "resultView": view, "contextLines": 0}),
+                        None,
+                    ),
+                );
+                assert_eq!(found["files"][0]["matches"][0]["line"], 560_003, "{found}");
+                assert!(!all_values(&found).contains("interior"), "{found}");
+            }
+            let readable = search_fixture(
+                &[("big.txt", content.as_str())],
+                ls_query(
+                    serde_json::json!({"searchText": "innocentB64", "resultView": "detailed", "contextLines": 0}),
+                    None,
+                ),
+            );
+            assert!(all_values(&readable).contains(innocent), "{readable}");
+        }
     }
 
     #[test]
@@ -1576,10 +1766,56 @@ mod tests {
             .expect("fixture directory")
             .path()
             .join("gone.txt");
-        let verified =
-            executor::guard_clipped_secrets(&mut file, &missing, 0..10, &security, false);
+        let verified = executor::guard_clipped_secrets(
+            &mut file,
+            &missing,
+            0..10,
+            &security,
+            false,
+            &NeverCancel,
+        )
+        .expect("not cancelled");
         assert!(!verified);
         assert!(!file.matches[0].value.contains("ghp_"));
         assert!(file.matches[0].value.contains("REDACTED"));
+    }
+
+    /// A source that shrank or was replaced after the search no longer holds
+    /// the matched line, so the clipped value cannot be verified.
+    #[test]
+    fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
+        let security = ContentSecurity::new();
+        let root = tempfile::tempdir().expect("fixture directory");
+        let source = root.path().join("shrunk.txt");
+        fs::write(&source, "one line now\n").expect("fixture");
+        let mut file = octocode_engine::types::RipgrepFile {
+            path: "shrunk.txt".into(),
+            match_count: 1,
+            matches: vec![octocode_engine::types::RipgrepMatch {
+                line: 40,
+                column: 0,
+                value: "…token = ghp_abcdefghijklmnop".into(),
+                count: None,
+                kind: None,
+                score_hint: None,
+                rank: None,
+                original_chars: Some(400),
+            }],
+        };
+        let verified = executor::guard_clipped_secrets(
+            &mut file,
+            &source,
+            0..10,
+            &security,
+            false,
+            &NeverCancel,
+        )
+        .expect("not cancelled");
+        assert!(!verified);
+        assert!(
+            !file.matches[0].value.contains("ghp_"),
+            "{}",
+            file.matches[0].value
+        );
     }
 }

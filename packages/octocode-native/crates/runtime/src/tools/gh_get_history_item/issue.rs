@@ -141,15 +141,47 @@ pub(super) async fn issue<R: CredentialResolver>(
         row["contentPagination"] = Value::Object(pagination);
     }
     let closed = raw.get("state").and_then(Value::as_str) == Some("closed");
-    if let Some(prs) = closed_by.as_ref().filter(|prs| !prs.is_empty()) {
-        row["closedBy"] = json!(prs);
+    if let Some(references) = closed_by.as_ref().filter(|refs| !refs.prs.is_empty()) {
+        row["closedBy"] = json!(references.prs);
     }
     let mut out = json!({"type":"issues","owner":query.owner(),"repo":query.repo(),"issues":[row],"totalCount":1});
     promote_issue_continuations(&mut out, query);
+    let bounded = closed_by.as_ref().and_then(|references| {
+        references
+            .bounded_total
+            .map(|total| (references.prs.len(), total))
+    });
+    if let Some((listed, total)) = bounded {
+        // No cursor continues the set: it ends here, and the fix it names
+        // is a candidate among the listed references only.
+        out["isPartial"] = json!(true);
+        out["terminalLimit"] = json!(true);
+        out["partialReasons"] = json!(["closingReferenceLimit"]);
+        out["warnings"] = json!([format!(
+            "closedBy lists {listed} of {total} linked pull requests; readFixPr is a candidate, not the complete fix set."
+        )]);
+    }
     if first_window {
-        attach_fix_pr(&mut out, query, closed_by.as_deref(), closed);
+        let prs = closed_by
+            .as_ref()
+            .map(|references| references.prs.as_slice());
+        attach_fix_pr(&mut out, query, prs, closed, bounded.is_some());
     }
     Ok(out)
+}
+
+/// Closing references one issue read lists. Past it the set is bounded and
+/// the response says so.
+const MAX_CLOSING_REFERENCES: usize = 25;
+
+/// The closing-reference lookup; `first` is [`MAX_CLOSING_REFERENCES`].
+pub(super) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage } nodes{ number state mergedAt } } } } }";
+
+/// The linked pull requests one read returned, merged first, and GitHub's
+/// total when more exist than were returned.
+struct ClosingReferences {
+    prs: Vec<Value>,
+    bounded_total: Option<u64>,
 }
 
 /// The pull requests whose merge closes (or closed) the issue, merged first:
@@ -159,22 +191,39 @@ async fn closing_pull_requests<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
     query: &HistoryItemRequest,
     context: &RequestContext,
-) -> Option<Vec<Value>> {
+) -> Option<ClosingReferences> {
     if !transport.graphql_enabled || !transport.graphql_available(context).await {
         return None;
     }
-    let document = "query($owner:String!,$repo:String!,$number:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:10,includeClosedPrs:true){ nodes{ number state mergedAt } } } } }";
-    let variables = json!({"owner":query.owner(),"repo":query.repo(),"number":query.number()?});
+    let variables = json!({
+        "owner": query.owner(),
+        "repo": query.repo(),
+        "number": query.number()?,
+        "first": MAX_CLOSING_REFERENCES,
+    });
     let page = transport
-        .execute_graphql(document, variables, context)
+        .execute_graphql(CLOSING_REFERENCES_DOCUMENT, variables, context)
         .await
         .ok()?;
-    let nodes = page
+    let references = page
         .data
         .as_ref()?
-        .pointer("/repository/issue/closedByPullRequestsReferences/nodes")?
-        .as_array()?;
-    Some(map_closing_pull_requests(nodes))
+        .pointer("/repository/issue/closedByPullRequestsReferences")?;
+    let more = references
+        .pointer("/pageInfo/hasNextPage")
+        .and_then(Value::as_bool)
+        == Some(true);
+    let prs = map_closing_pull_requests(references.get("nodes")?.as_array()?);
+    let listed = u64::try_from(prs.len()).unwrap_or(u64::MAX);
+    Some(ClosingReferences {
+        bounded_total: more.then(|| {
+            references
+                .get("totalCount")
+                .and_then(Value::as_u64)
+                .map_or(listed, |total| total.max(listed))
+        }),
+        prs,
+    })
 }
 
 fn map_closing_pull_requests(nodes: &[Value]) -> Vec<Value> {
@@ -203,11 +252,13 @@ fn attach_fix_pr(
     query: &HistoryItemRequest,
     closed_by: Option<&[Value]>,
     closed: bool,
+    bounded: bool,
 ) {
+    let confidence = if bounded { "medium" } else { "high" };
     let next = match closed_by.and_then(<[Value]>::first) {
         Some(pr) => (
             "readFixPr",
-            json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":"high","query":{
+            json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":confidence,"query":{
                 "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
                 "number":pr["number"],"include":["body","files"]}}),
         ),

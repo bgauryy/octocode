@@ -59,31 +59,27 @@ pub(super) fn graphql_complete_collection_eligible(query: &HistoryItemRequest) -
     eligible >= 2
 }
 
-/// Fetch the PR and its wanted collections in one GraphQL request. `None`
-/// means GraphQL is unavailable or answered nothing usable (fall back to REST).
-pub(super) async fn graphql_pull_request<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
-    query: &HistoryItemRequest,
-    context: &RequestContext,
-    wants: &ContentWants,
-) -> Result<Option<GraphqlPr>, ProviderError> {
-    if !transport.graphql_enabled || !transport.graphql_available(context).await {
-        return Ok(None);
-    }
-    let Some(number) = query.number() else {
-        return Ok(None);
-    };
+/// What the GraphQL fast path produced for one pull-request read.
+pub(super) enum GraphqlOutcome {
+    /// GraphQL is disabled or unavailable for this endpoint: REST serves the
+    /// read as the configured path, with nothing to report.
+    Unavailable,
+    /// GraphQL answered without a usable pull request; REST serves the read
+    /// and the reason stays observable.
+    Failed(String),
+    Served(Box<GraphqlPr>),
+}
+
+/// The pull-request document for the wanted collections, and the page size
+/// variable each collection binds.
+pub(super) fn pull_request_document(wants: &ContentWants) -> (String, Vec<(&'static str, u32)>) {
     let mut selections: Vec<&str> = vec![
-        "number title url state body isDraft isMerged author { login }",
+        "number title url state body isDraft author { login }",
         "labels(first:20){ pageInfo{ hasNextPage } nodes { name } }",
         "baseRefName headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid }",
         "comments { totalCount } changedFiles additions deletions",
     ];
-    let mut variables = json!({
-        "owner": query.owner(),
-        "repo": query.repo(),
-        "number": number
-    });
+    let mut variables = Vec::new();
     let mut header = String::from("query($owner:String!,$repo:String!,$number:Int!");
     for (wanted, variable, first, selection) in [
         (
@@ -102,7 +98,7 @@ pub(super) async fn graphql_pull_request<R: CredentialResolver>(
             wants.reviews,
             "reviews",
             100,
-            "reviews(first:$reviews){ pageInfo{ hasNextPage } nodes{ author{ login } state body submittedAt } }",
+            "reviews(first:$reviews){ pageInfo{ hasNextPage } nodes{ databaseId author{ login } state body submittedAt commit{ oid } } }",
         ),
         (
             wants.commits,
@@ -113,7 +109,7 @@ pub(super) async fn graphql_pull_request<R: CredentialResolver>(
     ] {
         if wanted {
             selections.push(selection);
-            variables[variable] = json!(first);
+            variables.push((variable, first));
             header.push_str(&format!(",${variable}:Int!"));
         }
     }
@@ -122,12 +118,51 @@ pub(super) async fn graphql_pull_request<R: CredentialResolver>(
         "{header}{{ repository(owner:$owner,name:$repo){{ pullRequest(number:$number){{ {} }} }} }}",
         selections.join(" ")
     );
+    (document, variables)
+}
+
+/// Why a GraphQL answer carried no data: the first error's class and text.
+fn graphql_failure(errors: &[crate::providers::github::GraphQlError]) -> String {
+    errors.first().map_or_else(
+        || "GraphQL returned no pull request".to_owned(),
+        |error| {
+            let class = error
+                .error_type
+                .as_deref()
+                .or_else(|| error.extensions.get("code").and_then(Value::as_str));
+            match class {
+                Some(class) => format!("{class}: {}", error.message),
+                None => error.message.clone(),
+            }
+        },
+    )
+}
+
+/// Fetch the PR and its wanted collections in one GraphQL request.
+pub(super) async fn graphql_pull_request<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    wants: &ContentWants,
+) -> Result<GraphqlOutcome, ProviderError> {
+    if !transport.graphql_enabled || !transport.graphql_available(context).await {
+        return Ok(GraphqlOutcome::Unavailable);
+    }
+    let Some(number) = query.number() else {
+        return Ok(GraphqlOutcome::Unavailable);
+    };
+    let (document, bound) = pull_request_document(wants);
+    let mut variables = json!({
+        "owner": query.owner(),
+        "repo": query.repo(),
+        "number": number
+    });
+    for (variable, first) in bound {
+        variables[variable] = json!(first);
+    }
     let page = transport
         .execute_graphql(&document, variables, context)
         .await?;
-    if page.data.is_none() && !page.errors.is_empty() {
-        return Ok(None);
-    }
     let pr = page
         .data
         .as_ref()
@@ -135,16 +170,16 @@ pub(super) async fn graphql_pull_request<R: CredentialResolver>(
         .cloned()
         .unwrap_or(Value::Null);
     if pr.is_null() {
-        return Ok(None);
+        return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
     }
-    Ok(Some(GraphqlPr {
+    Ok(GraphqlOutcome::Served(Box::new(GraphqlPr {
         files: graphql_collection_state(&pr, "files", wants.files),
         discussion: graphql_collection_state(&pr, "commentsConn", wants.discussion),
         reviews: graphql_collection_state(&pr, "reviews", wants.reviews),
         commits: graphql_collection_state(&pr, "commits", wants.commits),
         raw: map_graphql_pr_metadata(&pr),
         source: pr,
-    }))
+    })))
 }
 
 /// Whether a paginated PR sub-collection was fully returned by the GraphQL
@@ -258,12 +293,14 @@ pub(super) fn map_graphql_reviews(pr: &Value) -> Vec<Value> {
         .into_iter()
         .flatten()
         .map(|node| {
+            // The REST review shape: numeric id and the reviewed commit.
             json!({
-                "id": node.get("id"),
+                "id": node.get("databaseId"),
                 "user": { "login": str_at(node, "/author/login").unwrap_or("unknown") },
                 "state": node.get("state"),
                 "body": node.get("body"),
                 "submitted_at": node.get("submittedAt"),
+                "commit_id": node.pointer("/commit/oid"),
             })
         })
         .collect()
@@ -296,6 +333,134 @@ pub(super) fn map_graphql_commits(pr: &Value) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fields and arguments `document` selects that the GitHub schema
+    /// fixture does not define, walked from the root `Query` type.
+    fn undefined_selections(document: &str) -> Vec<String> {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/github/graphql-schema.json"
+        ))
+        .expect("schema fixture");
+        let mut tokens = Vec::new();
+        let mut chars = document.chars().peekable();
+        while let Some(&c) = chars.peek() {
+            if c.is_alphanumeric() || c == '_' {
+                let mut word = String::new();
+                while let Some(&c) = chars.peek().filter(|c| c.is_alphanumeric() || **c == '_') {
+                    word.push(c);
+                    chars.next();
+                }
+                tokens.push(word);
+            } else {
+                if !c.is_whitespace() {
+                    tokens.push(c.to_string());
+                }
+                chars.next();
+            }
+        }
+        fn selection(
+            tokens: &[String],
+            at: &mut usize,
+            ty: &str,
+            types: &Value,
+            missing: &mut Vec<String>,
+        ) {
+            while *at < tokens.len() && tokens[*at] != "}" {
+                let mut name = tokens[*at].as_str();
+                *at += 1;
+                if tokens.get(*at).is_some_and(|t| t == ":") {
+                    name = tokens[*at + 1].as_str();
+                    *at += 2;
+                }
+                let field = &types[ty][name];
+                if field.is_null() {
+                    missing.push(format!("{ty}.{name}"));
+                }
+                if tokens.get(*at).is_some_and(|t| t == "(") {
+                    *at += 1;
+                    while tokens[*at] != ")" {
+                        let arg = tokens[*at].as_str();
+                        let known = field["args"]
+                            .as_array()
+                            .is_some_and(|args| args.iter().any(|a| a == arg));
+                        if !field.is_null() && !known {
+                            missing.push(format!("{ty}.{name}({arg})"));
+                        }
+                        while !matches!(tokens[*at].as_str(), "," | ")") {
+                            *at += 1;
+                        }
+                        if tokens[*at] == "," {
+                            *at += 1;
+                        }
+                    }
+                    *at += 1;
+                }
+                if tokens.get(*at).is_some_and(|t| t == "{") {
+                    *at += 1;
+                    let child = field["type"].as_str().unwrap_or("?");
+                    selection(tokens, at, child, types, missing);
+                    *at += 1;
+                }
+            }
+        }
+        assert_eq!(tokens.first().map(String::as_str), Some("query"));
+        let mut at = 1;
+        if tokens[at] == "(" {
+            while tokens[at] != ")" {
+                at += 1;
+            }
+            at += 1;
+        }
+        assert_eq!(tokens[at], "{");
+        at += 1;
+        let mut missing = Vec::new();
+        selection(&tokens, &mut at, "Query", &schema["types"], &mut missing);
+        assert_eq!(at, tokens.len() - 1, "document fully walked");
+        missing
+    }
+
+    /// The outgoing documents select only fields and arguments GitHub's
+    /// schema defines; an undefined field fails the whole request.
+    #[test]
+    fn outgoing_documents_validate_against_the_github_schema() {
+        let every: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b","number":1,
+            "content":{"body":true,"changedFiles":true,"reviews":true,
+                "comments":{"discussion":true},"commits":{}}
+        }))
+        .expect("GitHub history test data should be valid");
+        let wants = content_wants(&every);
+        assert!(wants.files && wants.discussion && wants.reviews && wants.commits);
+        let (document, variables) = pull_request_document(&wants);
+        assert_eq!(undefined_selections(&document), Vec::<String>::new());
+        assert_eq!(variables.len(), 4, "{document}");
+        assert_eq!(
+            undefined_selections(super::super::issue::CLOSING_REFERENCES_DOCUMENT),
+            Vec::<String>::new()
+        );
+        // The validator rejects what GitHub rejects.
+        assert_eq!(
+            undefined_selections(
+                "query{ repository(owner:\"a\",name:\"b\"){ pullRequest(number:1){ isMerged reviews(bogus:1){ nodes{ id } } } } }"
+            ),
+            ["PullRequest.isMerged", "PullRequest.reviews(bogus)"]
+        );
+    }
+
+    /// Two reviews keep two identities and their reviewed commits.
+    #[test]
+    fn graphql_reviews_carry_distinct_rest_ids() {
+        let pr = json!({"reviews":{"pageInfo":{"hasNextPage":false},"nodes":[
+            {"databaseId":11,"author":{"login":"a"},"state":"APPROVED","body":"",
+             "submittedAt":"2026-01-01T00:00:00Z","commit":{"oid":"c1"}},
+            {"databaseId":12,"author":{"login":"b"},"state":"COMMENTED","body":"x",
+             "submittedAt":"2026-01-02T00:00:00Z","commit":{"oid":"c2"}}
+        ]}});
+        let reviews = map_graphql_reviews(&pr);
+        assert_eq!(reviews[0]["id"], 11);
+        assert_eq!(reviews[1]["id"], 12);
+        assert_eq!(reviews[1]["commit_id"], "c2");
+    }
 
     #[test]
     fn graphql_fast_path_requires_two_flags_first_pages_and_no_patches() {

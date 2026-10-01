@@ -29,7 +29,7 @@ Load when a run errors, returns nothing, or fails twice. Match the symptom; afte
 | Listeners miss load events | `--new-tab about:blank`, attach, then `Page.navigate` in `run` |
 | Dialog blocks every command | Dialog guard (`cdp-protocol.md`) |
 | `Runtime.evaluate` hangs after `Debugger.enable` | `Debugger.setSkipAllPauses({skip:true})` |
-| Framework ignores filled value | Native setter (built into `dom-operations-check`), else `human-input` typing |
+| `VERIFY_MISMATCH` / framework ignores value | Try `DOM_ACTION=type` (keystrokes), then `DOM_INPUT=js` (native setter) |
 | Bot/CDN challenge or CAPTCHA | Try a current desktop `--userAgent`; else visible user-auth |
 | Consent wall | Locate the control, act only when authorized, re-navigate |
 | Headless text shows ligature gaps (`Sy tem One`) | Use `octocode-scraping` for clean text |

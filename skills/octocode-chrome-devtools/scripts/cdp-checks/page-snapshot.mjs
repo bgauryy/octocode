@@ -1,121 +1,208 @@
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { pathToFileURL } from 'url';
 
-const { waitForPageReady } = await import(pathToFileURL(resolve(process.cwd(), '.octocode', 'dom-actionability.mjs')).href);
+const helper = (name) => import(pathToFileURL(resolve(process.cwd(), '.octocode', name)).href);
+const { waitForPageReady } = await helper('dom-actionability.mjs');
+const { collectRefs, clip, flat } = await helper('ax-snapshot.mjs');
 
-// Compact, ref-based alternative to selector-guessing or screenshots: capture
-// the accessibility tree, keep only interactive/named nodes, give each a
-// short ref backed by a stable backendDOMNodeId. Pass that ref straight to
-// dom-operations-check.mjs's DOM_REF to act on it without writing a selector.
+// Compact, ref-based page view from the accessibility tree: controls, headings, and
+// non-semantic clickables in document order (same-process iframes inlined), each with a
+// ref backed by a backendDOMNodeId that dom-operations-check.mjs accepts as DOM_REF.
+// Every ref of the run is saved to page-snapshot.json; stdout shows one page of them.
 //
 // Env:
-//   SNAPSHOT_DEPTH  max AX tree depth to request (default: unlimited -> -1)
-//   SNAPSHOT_MAX    max refs to keep, highest-signal first (default: 60)
-//   SNAPSHOT_STDOUT summary keeps refs on disk; default prints refs for direct interaction
-//   SNAPSHOT_TEXT   print the first N chars (max 4000) of main/body text; full text -> page-text.txt
+//   SNAPSHOT_MAX       refs per printed page (default 60, max 300)
+//   SNAPSHOT_PAGE      page to print (default 1); refs keep global numbers e61…
+//   SNAPSHOT_ROOT      only this region: CSS selector, eN ref, or rN region from the outline
+//   SNAPSHOT_VIEWPORT  1 keeps only elements intersecting the current viewport
+//   SNAPSHOT_OUTLINE   1 prints landmarks/headings with ref spans instead of refs
+//   SNAPSHOT_CONTEXT   0 drops row/card context lines and inferred names (default on)
+//   SNAPSHOT_URLS      1 appends link targets (→ /path)
+//   SNAPSHOT_CLICKABLE 0 skips cursor:pointer/onclick detection (one DOMSnapshot call)
+//   SNAPSHOT_TEXT      print the first N chars (max 4000) of main/body text; full text -> page-text.txt
+//   SNAPSHOT_STDOUT    summary keeps refs on disk
+//   SNAPSHOT_DEPTH     max AX tree depth (default unlimited)
 
-const DEPTH = Number.parseInt(process.env.SNAPSHOT_DEPTH ?? '-1', 10);
-const MAX_REFS = Math.max(1, Math.min(300, Number.parseInt(process.env.SNAPSHOT_MAX ?? '60', 10)));
-const MAX_NAME = 80;
-const TEXT_CHARS = Math.max(0, Math.min(4000, Number.parseInt(process.env.SNAPSHOT_TEXT ?? '0', 10) || 0));
+const int = (name, fallback) => Number.parseInt(process.env[name] ?? String(fallback), 10);
+const DEPTH = int('SNAPSHOT_DEPTH', -1);
+const MAX_REFS = Math.max(1, Math.min(300, int('SNAPSHOT_MAX', 60) || 60));
+const PAGE = Math.max(1, int('SNAPSHOT_PAGE', 1) || 1);
+const ROOT = (process.env.SNAPSHOT_ROOT ?? '').trim();
+const VIEWPORT = process.env.SNAPSHOT_VIEWPORT === '1';
+const OUTLINE = process.env.SNAPSHOT_OUTLINE === '1';
+const CONTEXT = process.env.SNAPSHOT_CONTEXT !== '0';
+const URLS = process.env.SNAPSHOT_URLS === '1';
+const CLICKABLE = process.env.SNAPSHOT_CLICKABLE !== '0';
+const SUMMARY = process.env.SNAPSHOT_STDOUT === 'summary';
+const MAX_CONTEXT = 110;
+const TEXT_CHARS = Math.max(0, Math.min(4000, int('SNAPSHOT_TEXT', 0) || 0));
 
-const INTERACTIVE_ROLES = new Set([
-  'button', 'link', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio',
-  'switch', 'slider', 'spinbutton', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
-  'tab', 'option', 'listbox', 'listitem_selectable',
-]);
+function previousSnapshot(cdp) {
+  try {
+    const map = JSON.parse(readFileSync(cdp.resourcesFile, 'utf8'));
+    return JSON.parse(readFileSync(map.resources['page-snapshot'].artifactPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function rootBackendId(cdp) {
+  if (/^[er]\d+$/.test(ROOT)) {
+    const prev = previousSnapshot(cdp);
+    const entry = ROOT.startsWith('e') ? prev?.refs?.[ROOT] : prev?.regions?.[ROOT];
+    if (!entry) throw new Error(`SNAPSHOT_ROOT=${ROOT} not in the last snapshot; run page-snapshot (SNAPSHOT_OUTLINE=1 for regions) first`);
+    return entry.backendDOMNodeId;
+  }
+  const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+  const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: ROOT });
+  if (!nodeId) throw new Error(`SNAPSHOT_ROOT selector ${JSON.stringify(ROOT)} matched nothing`);
+  return (await cdp.send('DOM.describeNode', { nodeId })).node.backendNodeId;
+}
+
+// One page-side pass over the printed refs: inferred names for unnamed controls, link
+// targets, and the row/card text around each ref (list items, table rows, articles, cards).
+const ENRICH_FN = `function(...els) {
+  const ROW = 'tr, li, article, [role=row], [role=listitem], [role=article], [class*=card i], [class*=item i]';
+  const groups = new Map();
+  const text = (el) => (el?.innerText || '').replace(/\\s+/g, ' ').trim();
+  const isItemStart = (el) => /^\\s*\\d+[.)]/.test(text(el));
+  const pathOf = (href) => { try { const u = new URL(href, location.href); return (u.origin === location.origin ? '' : u.host) + u.pathname + u.search; } catch { return ''; } };
+  function hint(el) {
+    const own = text(el);
+    if (own) return own.slice(0, 80);
+    const t = el.getAttribute('title') || el.querySelector('[title]')?.getAttribute('title');
+    if (t) return t;
+    const desc = el.getAttribute('aria-describedby');
+    if (desc) { const d = text(document.getElementById(desc)); if (d) return d; }
+    const img = el.querySelector('img, svg');
+    if (img) {
+      const alt = img.getAttribute('alt') || img.querySelector?.('title')?.textContent;
+      if (alt) return alt;
+      const src = img.getAttribute('src');
+      if (src) return 'img ' + src.split(/[?#]/)[0].split('/').pop();
+    }
+    const cls = [el, ...el.querySelectorAll('*')].map((n) => (typeof n.className === 'string' ? n.className : '')).join(' ').split(/\\s+/).find((c) => c.length > 2);
+    const href = el.getAttribute('href');
+    return [cls, href && '\\u2192 ' + pathOf(href).slice(0, 50)].filter(Boolean).join(' ');
+  }
+  return els.map((el) => {
+    if (!el || el.nodeType !== 1) return null;
+    const row = el.closest(ROW);
+    let key = null;
+    let context = '';
+    if (row && row !== document.body) {
+      // Item row + meta row tables (Hacker News style): fold the following row in.
+      const owner = row.localName === 'tr' && !isItemStart(row) && row.previousElementSibling && isItemStart(row.previousElementSibling) ? row.previousElementSibling : row;
+      if (!groups.has(owner)) {
+        let t = text(owner);
+        const next = owner.nextElementSibling;
+        if (owner.localName === 'tr' && isItemStart(owner) && next && !isItemStart(next)) t += ' \\u00b7 ' + text(next);
+        groups.set(owner, { id: groups.size + 1, t });
+      }
+      const g = groups.get(owner);
+      key = g.id; context = g.t;
+    }
+    const href = el.closest('a[href]')?.getAttribute('href');
+    return { key, context, hint: hint(el), href: href ? pathOf(href).slice(0, 80) : '' };
+  });
+}`;
+
+async function enrich(cdp, nodes) {
+  if (!nodes.length) return [];
+  const objectIds = [];
+  for (const n of nodes) {
+    if (n.frame) { objectIds.push(null); continue; }
+    const r = await cdp.send('DOM.resolveNode', { backendNodeId: n.backendDOMNodeId, objectGroup: 'snapshot' }).catch(() => null);
+    objectIds.push(r?.object?.objectId ?? null);
+  }
+  const anchor = objectIds.find(Boolean);
+  if (!anchor) return [];
+  try {
+    // Iframe elements live in another execution context, so they are passed as null and keep AX names only.
+    const res = await cdp.send('Runtime.callFunctionOn', {
+      objectId: anchor,
+      functionDeclaration: ENRICH_FN,
+      arguments: objectIds.map((objectId) => (objectId ? { objectId } : { value: null })),
+      returnByValue: true,
+    });
+    return res.result?.value ?? [];
+  } catch {
+    return [];
+  } finally {
+    await cdp.send('Runtime.releaseObjectGroup', { objectGroup: 'snapshot' }).catch(() => {});
+  }
+}
 
 export async function run(cdp) {
-  await cdp.send('Accessibility.enable');
-  await cdp.send('DOM.enable');
-
   const ready = await waitForPageReady(cdp);
   if (!ready) console.log('[FINDING] PAGE_NOT_FULLY_LOADED document.readyState never reached "complete" within timeout — snapshot may be incomplete');
 
-  let { nodes } = await cdp.send('Accessibility.getFullAXTree', DEPTH > 0 ? { depth: DEPTH } : {});
-  if (nodes.length < 10) {
-    // Chrome's accessibility tree can lag a tick behind document.readyState; one bounded retry
-    // catches the case reproduced empirically (near-empty tree moments after a fresh navigation).
-    await new Promise((r) => setTimeout(r, 500));
-    const retry = await cdp.send('Accessibility.getFullAXTree', DEPTH > 0 ? { depth: DEPTH } : {});
-    if (retry.nodes.length > nodes.length) {
-      console.log(`[FINDING] AX_TREE_RETRY first capture had ${nodes.length} nodes, retry had ${retry.nodes.length} — using retry`);
-      nodes = retry.nodes;
-    }
-  }
-
-  // getFullAXTree returns nodes in no useful order (shallow footers come before deep
-  // content); walk childIds depth-first so refs read top-to-bottom like the page.
-  const byId = new Map(nodes.map((n) => [n.nodeId, n]));
-  const childIds = new Set(nodes.flatMap((n) => n.childIds ?? []));
-  const ordered = [];
-  const stack = nodes.filter((n) => !childIds.has(n.nodeId)).reverse();
-  const visited = new Set();
-  while (stack.length) {
-    const n = stack.pop();
-    if (!n || visited.has(n.nodeId)) continue;
-    visited.add(n.nodeId);
-    ordered.push(n);
-    for (const id of [...(n.childIds ?? [])].reverse()) stack.push(byId.get(id));
-  }
-  for (const n of nodes) if (!visited.has(n.nodeId)) ordered.push(n);
-
-  const kept = [];
-  const seen = new Set();
-  let duplicatesDropped = 0;
-  for (const node of ordered) {
-    if (node.ignored) continue;
-    const role = node.role?.value ?? '';
-    const name = node.name?.value ?? '';
-    if (!role || !node.backendDOMNodeId) continue;
-    const interactive = INTERACTIVE_ROLES.has(role);
-    const named = Boolean(name && name.trim());
-    if (!interactive && !(named && ['heading', 'img'].includes(role))) continue;
-    const flat = name.trim().replace(/\s+/g, ' ');
-    const trimmedName = flat.length > MAX_NAME ? `${flat.slice(0, MAX_NAME - 1)}…` : flat;
-    // Responsive layouts commonly duplicate whole nav/footer blocks (desktop +
-    // mobile variants) — same role+name, different node. Keep the first
-    // (typically the primary, DOM-earlier one) and drop exact repeats instead
-    // of burning refs/tokens on look-alike entries.
-    if (trimmedName) {
-      const dupKey = `${role}|${trimmedName}`;
-      if (seen.has(dupKey)) { duplicatesDropped++; continue; }
-      seen.add(dupKey);
-    }
-    const level = role === 'heading' ? node.properties?.find((p) => p.name === 'level')?.value?.value : undefined;
-    kept.push({ role, name: trimmedName, fullName: name.trim(), backendDOMNodeId: node.backendDOMNodeId, interactive, level });
-  }
-
-  // Document order; unnamed images add no signal.
-  const useful = kept.filter((n) => n.interactive || n.name);
-  const trimmed = useful.slice(0, MAX_REFS);
-  const truncated = useful.length - trimmed.length;
+  const viewport = VIEWPORT ? (await cdp.send('Page.getLayoutMetrics')).cssVisualViewport : null;
+  const { useful, regions, totalNodes, duplicatesDropped, findings } = await collectRefs(cdp, {
+    rootBackendId: ROOT ? await rootBackendId(cdp) : null, viewport, clickable: CLICKABLE, depth: DEPTH,
+  });
+  for (const f of findings) console.log(`[FINDING] ${f}`);
 
   const refs = {};
-  const lines = [];
-  trimmed.forEach((node, i) => {
-    const ref = `e${i + 1}`;
-    refs[ref] = { backendDOMNodeId: node.backendDOMNodeId, role: node.role, name: node.fullName };
-    const role = node.role === 'heading' ? `h${node.level ?? ''}`.replace(/^h$/, 'heading') : node.role;
-    lines.push(`[${ref}] ${role}${node.name ? ` "${node.name}"` : ''}`);
-  });
+  useful.forEach((n, i) => { refs[`e${i + 1}`] = { backendDOMNodeId: n.backendDOMNodeId, role: n.role, name: n.fullName }; });
+  const regionRefs = {};
+  regions.forEach((r, i) => { regionRefs[`r${i + 1}`] = { backendDOMNodeId: r.backendDOMNodeId, role: r.role, name: r.name }; });
+
+  const pages = Math.max(1, Math.ceil(useful.length / MAX_REFS));
+  const first = (PAGE - 1) * MAX_REFS;
+  const shown = useful.slice(first, first + MAX_REFS);
 
   const artifactPath = join(cdp.outputDir, 'page-snapshot.json');
-  writeFileSync(artifactPath, `${JSON.stringify({ url: cdp.targetInfo.url, refs }, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(artifactPath, `${JSON.stringify({ url: cdp.targetInfo.url, root: ROOT || null, viewport: VIEWPORT, refs, regions: regionRefs }, null, 2)}\n`, { mode: 0o600 });
   cdp.upsertResourceMap?.('page-snapshot', {
     type: 'page-snapshot',
     targetUrl: cdp.targetInfo.url,
-    refCount: trimmed.length,
-    totalAxNodes: nodes.length,
+    refCount: useful.length,
+    totalAxNodes: totalNodes,
     artifactPath,
   });
 
   const title = (await cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }).catch(() => null))?.result?.value ?? '';
-  console.log(`[PAGE] "${String(title).slice(0, 120)}" ${cdp.targetInfo.url}`);
-  console.log(`[METRIC] SNAPSHOT refs=${trimmed.length} totalAxNodes=${nodes.length}${duplicatesDropped ? ` duplicatesDropped=${duplicatesDropped}` : ''}${truncated ? ` truncated=${truncated} (raise SNAPSHOT_MAX)` : ''}`);
-  if (process.env.SNAPSHOT_STDOUT !== 'summary') {
-    for (const line of lines) console.log(`[SNAPSHOT] ${line}`);
+  console.log(`[PAGE] "${clip(String(title), 120)}" ${cdp.targetInfo.url}${ROOT ? ` root=${ROOT}` : ''}${VIEWPORT ? ' viewport' : ''}`);
+  const span = shown.length && !OUTLINE ? ` showing=e${first + 1}-e${first + shown.length}` : '';
+  console.log(`[METRIC] SNAPSHOT refs=${useful.length}${span}${OUTLINE ? '' : ` page=${PAGE}/${pages}`} totalAxNodes=${totalNodes}${duplicatesDropped ? ` duplicatesDropped=${duplicatesDropped}` : ''}`);
+
+  if (OUTLINE) {
+    const items = [];
+    const regionNames = new Set(regions.map((r) => r.name).filter(Boolean));
+    regions.forEach((r, i) => items.push({ at: r.start, order: i, line: `r${i + 1} ${r.role}${r.name ? ` "${r.name}"` : ''} — ${r.end - r.start} refs${r.end > r.start ? ` e${r.start + 1}-e${r.end}` : ''}` }));
+    useful.forEach((n, i) => {
+      if (n.role === 'heading' && (n.level ?? 9) <= 3 && !regionNames.has(n.name)) items.push({ at: i, order: Infinity, line: `  h${n.level ?? ''} "${n.name}" e${i + 1}` });
+    });
+    items.sort((a, b) => a.at - b.at || a.order - b.order);
+    for (const it of items.slice(0, 50)) console.log(`[OUTLINE] ${it.line}`);
+    if (items.length > 50) console.log(`[OUTLINE] … ${items.length - 50} more`);
+    console.log('[REASON] Narrow with SNAPSHOT_ROOT=rN (or a CSS selector), or page with SNAPSHOT_PAGE.');
+  } else if (!SUMMARY) {
+    const extra = CONTEXT || URLS ? await enrich(cdp, shown) : [];
+    const namesByGroup = new Map();
+    shown.forEach((n, i) => { const k = extra[i]?.key; if (k) namesByGroup.set(k, [...(namesByGroup.get(k) ?? []), n.fullName || flat(extra[i]?.hint)]); });
+    let lastKey = null;
+    let lastFrame;
+    shown.forEach((n, i) => {
+      const e = extra[i];
+      if (n.frame !== lastFrame && n.frame) console.log(`[SNAPSHOT] — iframe ${clip(n.frame, 90)}`);
+      lastFrame = n.frame;
+      if (CONTEXT && e?.key && e.key !== lastKey) {
+        const ctx = flat(e.context);
+        // Print context only when it says more than the group's own control names.
+        let residual = ctx;
+        for (const name of namesByGroup.get(e.key) ?? []) if (name) residual = residual.split(name).join(' ');
+        if (residual.replace(/[^\p{L}\p{N}]/gu, '').length >= 8) console.log(`[SNAPSHOT] — ${clip(ctx, MAX_CONTEXT)}`);
+      }
+      lastKey = e?.key ?? null;
+      const role = n.role === 'heading' ? (n.level ? `h${n.level}` : 'heading') : n.role;
+      const label = n.name ? ` "${n.name}"` : CONTEXT && e?.hint ? ` ~"${clip(flat(e.hint), 60)}"` : '';
+      const url = URLS && e?.href && n.role === 'link' ? ` → ${e.href}` : '';
+      console.log(`[SNAPSHOT] [e${first + i + 1}] ${role}${label}${url}`);
+    });
+    if (PAGE < pages) console.log(`[NEXT] SNAPSHOT_PAGE=${PAGE + 1} (${useful.length - first - shown.length} more refs), SNAPSHOT_OUTLINE=1 for regions, or SNAPSHOT_ROOT=<css|rN>`);
   }
   console.log(`[ARTIFACT] PAGE_SNAPSHOT ${artifactPath}`);
 
@@ -129,5 +216,4 @@ export async function run(cdp) {
     console.log(`[TEXT] ${text.slice(0, TEXT_CHARS)}${text.length > TEXT_CHARS ? `… (+${text.length - TEXT_CHARS} chars)` : ''}`);
     console.log(`[ARTIFACT] PAGE_TEXT ${textPath}`);
   }
-  if (process.env.SNAPSHOT_STDOUT !== 'summary') console.log('[REASON] Use a verified ref from this snapshot with dom-operations-check.mjs; confirm current state before acting.');
 }

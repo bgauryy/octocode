@@ -212,10 +212,13 @@ pub fn execute_local_search(
             ));
         }
     }
-    let frozen = query.no_ignore == Some(true);
-    let (mut parsed, from_manifest) = if frozen
-        && let Some(snapshot) = query.snapshot()
-        && let Some(stored) = super::manifest::get(snapshot)
+    // A continuation reuses its page-1 scan instead of walking the tree
+    // again. A stored scan is reused only under the path policy that
+    // produced it; the snapshot comparison below then proves it answers
+    // this query.
+    let policy_key = policy_identity(paths);
+    let (mut parsed, from_manifest) = if let Some(snapshot) = query.snapshot()
+        && let Some(stored) = super::manifest::get(snapshot, &policy_key)
     {
         (stored, true)
     } else {
@@ -259,14 +262,16 @@ pub fn execute_local_search(
                 next: None,
             })?;
     }
-    let result_identity = fingerprint(query, &parsed.files, &parsed.stats);
-    if frozen && !from_manifest {
-        super::manifest::put(result_identity.clone(), parsed.clone());
-    }
-    if !from_manifest
-        && query
-            .snapshot()
-            .is_some_and(|expected| expected != result_identity)
+    let result_identity = fingerprint(query, &validated.canonical, &parsed.files, &parsed.stats);
+    // Kept only when the response will offer a continuation (below).
+    let reusable =
+        (!from_manifest && super::manifest::fits(&parsed).is_some()).then(|| parsed.clone());
+    // A cached scan is checked too: its identity is recomputed from the
+    // submitted query, so a cursor reused with different search semantics
+    // never serves the old query's matches.
+    if query
+        .snapshot()
+        .is_some_and(|expected| expected != result_identity)
     {
         let mut restart = normalized_query(query);
         if let Some(object) = restart.as_object_mut() {
@@ -461,7 +466,10 @@ pub fn execute_local_search(
                 match_skip..match_skip.saturating_add(matches_per as usize),
                 security,
                 view == LocalSearchQueryResultView::MatchOnly,
-            ) {
+                cancel,
+            )
+            .map_err(cancelled)?
+            {
                 unverified_redactions = true;
             }
             for (matched, before) in file.matches.iter().zip(before) {
@@ -489,6 +497,11 @@ pub fn execute_local_search(
     } else {
         None
     };
+    if snapshot.is_some()
+        && let Some(scan) = reusable
+    {
+        super::manifest::put(result_identity.clone(), policy_key, scan);
+    }
     // Leftover rows only count on the files this page shows: another page's
     // files are reached by `nextPage` (which restarts at matchPage 1). List
     // views emit no match rows, so they have none left to page.
@@ -902,54 +915,78 @@ fn strip_clip_markers(line: &str) -> &str {
 /// shown match, sanitize the full source lines the value was cut from; a value
 /// line not literally present in that sanitized text overlapped a redaction and
 /// is replaced (placeholder for spans, the sanitized match line otherwise).
-/// Private-key blocks are detected from the file prefix, not a snippet heuristic.
+/// Private-key blocks are detected from the whole file prefix, streamed once
+/// without retaining it; only the shown matches' neighborhoods are kept.
 ///
-/// Fails closed: when the source cannot be re-read, every shown value is
-/// replaced by [`UNVERIFIED_PLACEHOLDER`] and the function returns `false`.
+/// Fails closed: when the source cannot be re-read, no longer holds a shown
+/// line, or its neighborhood exceeds the retained-byte budget, the value is
+/// replaced by a placeholder and the function returns `Ok(false)`.
+/// Cancellation stops the read and returns the reason.
 pub(super) fn guard_clipped_secrets(
     file: &mut octocode_engine::types::RipgrepFile,
     source: &std::path::Path,
     shown: std::ops::Range<usize>,
     security: &ContentSecurity,
     match_only: bool,
-) -> bool {
+    cancel: &impl CancellationCheck,
+) -> Result<bool, String> {
     let end = shown.end.min(file.matches.len());
     let start = shown.start.min(end);
     let shown = &mut file.matches[start..end];
-    let Some(last_line) = shown
+    // 1-based inclusive source lines each shown value needs re-sanitized.
+    let windows = shown
         .iter()
-        .map(|m| m.line as usize + m.value.lines().count().max(1))
-        .max()
-    else {
-        return true;
+        .map(|m| {
+            let span = m.value.lines().count().max(1);
+            let line = m.line as usize;
+            (line.saturating_sub(span).max(1), line + span)
+        })
+        .collect::<Vec<_>>();
+    let Some(last_line) = windows.iter().map(|&(_, hi)| hi).max() else {
+        return Ok(true);
     };
-    let Ok(lines) = read_leading_lines(source, last_line) else {
-        for matched in shown.iter_mut() {
-            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+    let read = match read_verification_lines(source, &windows, last_line, cancel) {
+        Ok(read) if !read.unclassified => read,
+        Ok(_) | Err(VerifyReadError::Io) => {
+            for matched in shown.iter_mut() {
+                matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+            }
+            return Ok(false);
         }
-        return false;
+        Err(VerifyReadError::Cancelled(reason)) => return Err(reason),
     };
-    let key_ranges = crate::security::private_key_block_line_ranges(&lines.join("\n"));
-    for matched in shown {
-        if !key_ranges.is_empty()
+    let mut verified = true;
+    for (matched, &(lo, hi)) in shown.iter_mut().zip(&windows) {
+        if !read.key_ranges.is_empty()
             && crate::security::match_window_intersects_key_block(
                 matched.line,
                 &matched.value,
-                &key_ranges,
+                &read.key_ranges,
             )
         {
             matched.value = crate::security::key_fragment_placeholder();
             continue;
         }
-        let span = matched.value.lines().count().max(1);
         let line = matched.line as usize;
-        let lo = line.saturating_sub(span).max(1);
-        let hi = (line + span).min(lines.len());
-        if lo > hi || line == 0 || line > lines.len() {
+        if line == 0 {
             continue;
         }
-        let window = lines[lo - 1..hi].join("\n");
-        let sanitized = security.sanitize_text(&window, Some(source));
+        if line > read.lines_read {
+            // The source shrank or was replaced since the search.
+            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+            verified = false;
+            continue;
+        }
+        let hi = hi.min(read.lines_read);
+        let Some(window) = (lo..=hi)
+            .map(|n| read.retained.get(&n).map(String::as_str))
+            .collect::<Option<Vec<_>>>()
+        else {
+            matched.value = OVERSIZED_PLACEHOLDER.to_owned();
+            verified = false;
+            continue;
+        };
+        let sanitized = security.sanitize_text(&window.join("\n"), Some(source));
         if !sanitized.has_secrets {
             continue;
         }
@@ -962,34 +999,176 @@ pub(super) fn guard_clipped_secrets(
                 "[REDACTED]".to_owned()
             } else {
                 security
-                    .sanitize_text(&lines[line - 1], Some(source))
+                    .sanitize_text(window[line - lo], Some(source))
                     .content
             };
         }
     }
-    true
+    Ok(verified)
 }
 
 /// Value shown in place of a match whose source could not be re-read for the
 /// clipped-secret check.
 const UNVERIFIED_PLACEHOLDER: &str = "[REDACTED: source unreadable for secret check]";
+/// Value shown in place of a match whose source neighborhood exceeds
+/// [`MAX_VERIFY_RETAINED_BYTES`].
+const OVERSIZED_PLACEHOLDER: &str = "[REDACTED: source lines too large for secret check]";
+/// Source bytes one file's verification may retain for the shown matches'
+/// neighborhoods; the rest of the prefix is streamed for key-block state only.
+const MAX_VERIFY_RETAINED_BYTES: usize = 16 * 1024 * 1024;
+/// Bytes of a line outside every neighborhood buffered to classify it; a
+/// longer line is consumed in chunks without being stored.
+const MAX_PROBE_LINE_BYTES: usize = 64 * 1024;
+/// Lines (or 1 MiB chunks of one long line) between cancellation checks.
+const VERIFY_CANCEL_EVERY: usize = 4096;
+const VERIFY_CHUNK_BYTES: usize = 1024 * 1024;
 
-/// Up to `limit` leading lines of `source`, without line terminators. Any open
-/// or read failure is an error (a short file just yields fewer lines).
-fn read_leading_lines(source: &std::path::Path, limit: usize) -> std::io::Result<Vec<String>> {
-    use std::io::BufRead;
+enum VerifyReadError {
+    /// The source could not be opened or read.
+    Io,
+    Cancelled(String),
+}
+
+impl From<std::io::Error> for VerifyReadError {
+    fn from(_: std::io::Error) -> Self {
+        Self::Io
+    }
+}
+
+/// One streamed pass over a source prefix for the clipped-secret check.
+struct VerificationLines {
+    /// Private-key block ranges over every line read.
+    key_ranges: Vec<(u32, u32)>,
+    /// Neighborhood lines (1-based) that fit the retained-byte budget.
+    retained: std::collections::BTreeMap<usize, String>,
+    retained_bytes: usize,
+    lines_read: usize,
+    /// A line too long to buffer mentions `PRIVATE KEY`, so key-block state
+    /// is unknown and nothing read from this source can be trusted.
+    unclassified: bool,
+}
+
+/// Stream up to `limit` lines of `source`, tracking private-key blocks over
+/// all of them and keeping only lines inside `windows` (1-based inclusive),
+/// within [`MAX_VERIFY_RETAINED_BYTES`]. Any open or read failure is an error
+/// (a short file just yields fewer lines).
+fn read_verification_lines(
+    source: &std::path::Path,
+    windows: &[(usize, usize)],
+    limit: usize,
+    cancel: &impl CancellationCheck,
+) -> Result<VerificationLines, VerifyReadError> {
     let mut reader = std::io::BufReader::new(std::fs::File::open(source)?);
-    let mut lines: Vec<String> = Vec::new();
+    let mut tracker = crate::security::KeyBlockTracker::default();
+    let mut read = VerificationLines {
+        key_ranges: Vec::new(),
+        retained: std::collections::BTreeMap::new(),
+        retained_bytes: 0,
+        lines_read: 0,
+        unclassified: false,
+    };
     let mut buf = Vec::new();
-    while lines.len() < limit {
+    while read.lines_read < limit {
+        let number = read.lines_read + 1;
+        if number.is_multiple_of(VERIFY_CANCEL_EVERY) {
+            cancel.check().map_err(VerifyReadError::Cancelled)?;
+        }
+        let wanted = windows.iter().any(|&(lo, hi)| lo <= number && number <= hi);
+        let cap = if wanted {
+            MAX_VERIFY_RETAINED_BYTES.saturating_sub(read.retained_bytes)
+        } else {
+            MAX_PROBE_LINE_BYTES
+        };
         buf.clear();
-        if reader.read_until(b'\n', &mut buf)? == 0 {
+        let Some(line) = read_bounded_line(&mut reader, &mut buf, cap, cancel)? else {
+            break;
+        };
+        read.lines_read = number;
+        match line {
+            BoundedLine::Whole => {
+                let text = String::from_utf8_lossy(&buf);
+                let text = text.trim_end_matches(['\n', '\r']);
+                tracker.push(text);
+                if wanted {
+                    read.retained_bytes += text.len();
+                    read.retained.insert(number, text.to_owned());
+                }
+            }
+            BoundedLine::Overflow { mentions_key } => {
+                // Every key boundary contains `PRIVATE KEY`; a long line
+                // without it is an ordinary line for the block state.
+                read.unclassified |= mentions_key;
+                tracker.push("");
+            }
+        }
+    }
+    read.key_ranges = tracker.finish();
+    Ok(read)
+}
+
+enum BoundedLine {
+    /// The whole line (with its terminator) is in the buffer.
+    Whole,
+    /// The line exceeded the cap and was consumed without being kept.
+    Overflow { mentions_key: bool },
+}
+
+/// Read one line into `buf` if it fits `cap` bytes; otherwise consume it in
+/// chunks, noting whether it mentions `PRIVATE KEY`. `None` at end of file.
+fn read_bounded_line(
+    reader: &mut impl std::io::BufRead,
+    buf: &mut Vec<u8>,
+    cap: usize,
+    cancel: &impl CancellationCheck,
+) -> Result<Option<BoundedLine>, VerifyReadError> {
+    const NEEDLE: &[u8] = b"PRIVATE KEY";
+    let mut overflow = false;
+    let mut mentions_key = false;
+    let mut consumed = 0usize;
+    let mut since_check = 0usize;
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
             break;
         }
-        let text = String::from_utf8_lossy(&buf);
-        lines.push(text.trim_end_matches(['\n', '\r']).to_owned());
+        let (take, done) = match chunk.iter().position(|&byte| byte == b'\n') {
+            Some(at) => (at + 1, true),
+            None => (chunk.len(), false),
+        };
+        let part = &chunk[..take];
+        if !overflow && buf.len() + take > cap {
+            overflow = true;
+        }
+        if overflow {
+            // Keep a needle-length tail so a mention split across chunks
+            // is still seen.
+            buf.extend_from_slice(part);
+            mentions_key |= buf.windows(NEEDLE.len()).any(|w| w == NEEDLE);
+            let keep = buf.len().min(NEEDLE.len() - 1);
+            buf.drain(..buf.len() - keep);
+        } else {
+            buf.extend_from_slice(part);
+        }
+        reader.consume(take);
+        consumed += take;
+        since_check += take;
+        if since_check >= VERIFY_CHUNK_BYTES {
+            since_check = 0;
+            cancel.check().map_err(VerifyReadError::Cancelled)?;
+        }
+        if done {
+            break;
+        }
     }
-    Ok(lines)
+    if consumed == 0 {
+        return Ok(None);
+    }
+    Ok(Some(if overflow {
+        buf.clear();
+        BoundedLine::Overflow { mentions_key }
+    } else {
+        BoundedLine::Whole
+    }))
 }
 
 /// Order one clipped file's rows for paging: by lexical hit rank, then
@@ -1398,12 +1577,33 @@ fn build_next(
     }
     (!map.is_empty()).then_some(Value::Object(map))
 }
+fn policy_identity(paths: &PathPolicy) -> String {
+    let roots = paths
+        .allowed_roots()
+        .iter()
+        .map(|root| root.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    hex::encode(Sha256::digest(
+        serde_json::to_vec(&roots).unwrap_or_default(),
+    ))
+}
+
+/// Snapshot identity: the validated root plus every field that changes which
+/// matches are collected or how their values read, with defaults applied,
+/// then the collected result itself. Pagination fields (`page`, `matchPage`,
+/// `pageSize`, `maxMatchesPerFile`) only select from that result and stay
+/// out, so a continuation may change them while keeping its snapshot.
 fn fingerprint(
     q: &LocalSearchQuery,
+    root: &std::path::Path,
     files: &[octocode_engine::types::RipgrepFile],
     stats: &octocode_engine::types::RipgrepStats,
 ) -> String {
     let mut identity = serde_json::Map::new();
+    identity.insert(
+        "defaultExcludes".into(),
+        json!(q.default_excludes.defaults()),
+    );
     identity.insert("searchText".into(), json!(q.search_text));
     identity.insert(
         "mode".into(),
@@ -1502,7 +1702,7 @@ fn fingerprint(
     let mut entries = identity.into_iter().collect::<Vec<_>>();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let query_key = hex::encode(Sha256::digest(
-        serde_json::to_vec(&json!([q.path, entries])).unwrap_or_default(),
+        serde_json::to_vec(&json!([root.to_string_lossy(), entries])).unwrap_or_default(),
     ));
     let file_values = files
         .iter()
@@ -1770,5 +1970,173 @@ mod line_range_tests {
         );
         let scattered = (1..=100).map(|n| n * 10).collect::<Vec<u32>>();
         assert_eq!(line_ranges(&scattered, 3), "10,20,30,+97 more");
+    }
+}
+
+#[cfg(test)]
+mod verification_tests {
+    use super::*;
+    use crate::tools::cancel::NeverCancel;
+
+    fn hit(line: u32, value: &str) -> octocode_engine::types::RipgrepMatch {
+        octocode_engine::types::RipgrepMatch {
+            line,
+            column: 0,
+            value: value.into(),
+            count: None,
+            kind: None,
+            score_hint: None,
+            rank: None,
+            original_chars: None,
+        }
+    }
+
+    fn file_with(
+        matches: Vec<octocode_engine::types::RipgrepMatch>,
+    ) -> octocode_engine::types::RipgrepFile {
+        octocode_engine::types::RipgrepFile {
+            path: "source.txt".into(),
+            match_count: matches.len() as u32,
+            matches,
+        }
+    }
+
+    #[test]
+    fn a_late_hit_retains_only_its_neighborhood_with_exact_coordinates() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let source = dir.path().join("source.txt");
+        let filler = "émoji ✓ filler line that is not near the hit\n".repeat(60_000);
+        std::fs::write(&source, format!("{filler}before\nthe hit ✓\nafter\ntail\n"))
+            .expect("fixture");
+        let hit_line = 60_002;
+        let read = read_verification_lines(
+            &source,
+            &[(hit_line - 1, hit_line + 1)],
+            hit_line + 1,
+            &NeverCancel,
+        )
+        .unwrap_or_else(|_| panic!("readable"));
+        assert_eq!(read.lines_read, hit_line + 1);
+        assert_eq!(read.retained.len(), 3);
+        assert_eq!(read.retained[&hit_line], "the hit ✓");
+        assert!(read.retained_bytes < 64, "{}", read.retained_bytes);
+        assert!(read.key_ranges.is_empty());
+    }
+
+    #[test]
+    fn streamed_key_state_matches_the_whole_file_scan() {
+        let body = "MIIEpQIBAAKCAQEAinteriorKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        for content in [
+            format!(
+                "a\n-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----\nb\n"
+            ),
+            format!("a\n-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n{body}\n"),
+            format!(
+                "{}\n-----BEGIN EC PRIVATE KEY-----\n{body}\r\n-----END EC PRIVATE KEY-----\r\n",
+                "x".repeat(200_000)
+            ),
+        ] {
+            let dir = tempfile::tempdir().expect("fixture");
+            let source = dir.path().join("key.txt");
+            std::fs::write(&source, &content).expect("fixture");
+            let read = read_verification_lines(&source, &[], usize::MAX, &NeverCancel)
+                .unwrap_or_else(|_| panic!("readable"));
+            assert!(read.retained.is_empty());
+            assert!(!read.unclassified);
+            assert_eq!(
+                read.key_ranges,
+                crate::security::private_key_block_line_ranges(&content)
+            );
+        }
+    }
+
+    #[test]
+    fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let source = dir.path().join("source.txt");
+        let giant = format!("{}PRIVATE KEY{}", " ".repeat(200_000), "-".repeat(10));
+        std::fs::write(
+            &source,
+            format!("{giant}\nspacer\nspacer\nspacer\nMIIEpQIBAAKCAQEAinteriorKeyBody\n"),
+        )
+        .expect("fixture");
+        let mut file = file_with(vec![hit(5, "…interiorKeyBo")]);
+        let verified = guard_clipped_secrets(
+            &mut file,
+            &source,
+            0..10,
+            &ContentSecurity::new(),
+            true,
+            &NeverCancel,
+        )
+        .expect("not cancelled");
+        assert!(!verified);
+        assert_eq!(file.matches[0].value, UNVERIFIED_PLACEHOLDER);
+        // The same long line without a key mention is an ordinary line.
+        std::fs::write(
+            &source,
+            format!(
+                "{}\nspacer\nspacer\nspacer\nplain text here\n",
+                " ".repeat(200_000)
+            ),
+        )
+        .expect("fixture");
+        let mut file = file_with(vec![hit(5, "plain text")]);
+        assert!(
+            guard_clipped_secrets(
+                &mut file,
+                &source,
+                0..10,
+                &ContentSecurity::new(),
+                true,
+                &NeverCancel
+            )
+            .expect("not cancelled")
+        );
+        assert_eq!(file.matches[0].value, "plain text");
+    }
+
+    #[test]
+    fn a_neighborhood_over_the_retained_budget_fails_closed() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let source = dir.path().join("source.txt");
+        let giant = "a".repeat(MAX_VERIFY_RETAINED_BYTES + 1);
+        std::fs::write(&source, format!("{giant}\n")).expect("fixture");
+        let mut file = file_with(vec![hit(1, "…aaaa…")]);
+        let verified = guard_clipped_secrets(
+            &mut file,
+            &source,
+            0..10,
+            &ContentSecurity::new(),
+            false,
+            &NeverCancel,
+        )
+        .expect("not cancelled");
+        assert!(!verified);
+        assert_eq!(file.matches[0].value, OVERSIZED_PLACEHOLDER);
+    }
+
+    #[test]
+    fn verification_stops_when_cancelled() {
+        struct Cancelled;
+        impl CancellationCheck for Cancelled {
+            fn check(&self) -> Result<(), String> {
+                Err("Cancelled".into())
+            }
+        }
+        let dir = tempfile::tempdir().expect("fixture");
+        let source = dir.path().join("source.txt");
+        std::fs::write(&source, "line\n".repeat(VERIFY_CANCEL_EVERY * 2)).expect("fixture");
+        let mut file = file_with(vec![hit((VERIFY_CANCEL_EVERY * 2) as u32, "line")]);
+        let reason = guard_clipped_secrets(
+            &mut file,
+            &source,
+            0..10,
+            &ContentSecurity::new(),
+            false,
+            &Cancelled,
+        )
+        .expect_err("cancelled during the stream");
+        assert_eq!(reason, "Cancelled");
     }
 }

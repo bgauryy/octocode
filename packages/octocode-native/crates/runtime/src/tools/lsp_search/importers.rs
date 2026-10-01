@@ -13,11 +13,13 @@
 //! declaration: identity is proven by the server, never guessed from text.
 //! Verified occurrences become extra anchors for the same request.
 
+use super::blocking_cancellable;
 use super::failure::LspFailure;
 use super::inferred_project::{TS_LANGUAGE_IDS, word_pattern};
 use super::recovery::{get_locations, resolve_definition_chain, snippet_identity};
 use super::render::uri_to_path;
 use super::source::SourceCache;
+use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
 use crate::tools::local_search::PolicyFilter;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
@@ -54,6 +56,8 @@ pub(super) struct Importers {
     pub(super) anchors: Vec<Anchor>,
     /// Lexical candidates beyond [`MAX_CANDIDATE_FILES`] were not checked.
     pub(super) capped: bool,
+    /// The lexical candidate scan failed, so no importer was checked.
+    pub(super) failed: bool,
 }
 
 /// True for operations whose answer lists places that point *at* the anchor.
@@ -101,14 +105,16 @@ fn canonical(path: &str) -> String {
 }
 
 /// TS/JS files under `workspace_root` that mention `symbol` as a word,
-/// excluding `skip`, capped at [`MAX_CANDIDATE_FILES`].
+/// excluding `skip`, capped at [`MAX_CANDIDATE_FILES`]. The walk observes
+/// `cancel` while it runs; `None` means the scan itself failed, which is
+/// neither cancellation nor an empty candidate set.
 async fn candidate_files(
     workspace_root: &str,
     symbol: &str,
     skip: &HashSet<String>,
-    sources: &SourceCache<'_>,
+    policy: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> (Vec<String>, bool) {
+) -> Result<Option<(Vec<String>, bool)>, LspFailure> {
     let options = RipgrepSearchOptions {
         path: workspace_root.to_owned(),
         pattern: word_pattern(symbol),
@@ -116,15 +122,14 @@ async fn candidate_files(
         include: Some(TS_JS_GLOBS.iter().map(|glob| (*glob).to_owned()).collect()),
         ..RipgrepSearchOptions::default()
     };
-    let filter = Arc::new(PolicyFilter(sources.policy().clone()));
+    let filter = Arc::new(PolicyFilter(policy.clone()));
     let root = workspace_root.to_owned();
-    let cancelled = cancel.check().is_err();
-    let Ok(Ok(parsed)) = tokio::task::spawn_blocking(move || {
-        search_ripgrep_cancellable(options, filter, &|| cancelled)
+    let Some(Ok(parsed)) = blocking_cancellable(cancel, move |stopped| {
+        search_ripgrep_cancellable(options, filter, stopped)
     })
-    .await
+    .await?
     else {
-        return (Vec::new(), false);
+        return Ok(None);
     };
     let files = parsed
         .files
@@ -141,10 +146,10 @@ async fn candidate_files(
         .filter(|path| !skip.contains(path))
         .collect::<BTreeSet<_>>();
     let capped = files.len() > MAX_CANDIDATE_FILES;
-    (
+    Ok(Some((
         files.into_iter().take(MAX_CANDIDATE_FILES).collect(),
         capped,
-    )
+    )))
 }
 
 /// Ancestors checked above the server's workspace root for a JS monorepo root.
@@ -252,7 +257,9 @@ impl Importers {
             let coverage = payload
                 .entry("coverage")
                 .or_insert_with(|| json!({"scope":"languageServer","exhaustive":false}));
-            coverage["importerScan"] = json!(if self.capped {
+            coverage["importerScan"] = json!(if self.failed {
+                SCAN_FAILED
+            } else if self.capped {
                 SCAN_CAPPED
             } else {
                 SCAN_COMPLETE
@@ -264,6 +271,7 @@ impl Importers {
 
 pub(super) const SCAN_COMPLETE: &str = "complete";
 pub(super) const SCAN_CAPPED: &str = "capped";
+pub(super) const SCAN_FAILED: &str = "failed";
 
 /// Verified importer anchors for `symbol` declared at the request anchor.
 /// `known_files` are files the server already reported; they are skipped.
@@ -299,7 +307,14 @@ pub(super) async fn verified_anchors(
     let mut skip = known_files.clone();
     skip.insert(canonical(anchor_path));
     let scan_root = scan_root(workspace_root, sources.policy());
-    let (files, capped) = candidate_files(&scan_root, symbol, &skip, sources, cancel).await;
+    let Some((files, capped)) =
+        candidate_files(&scan_root, symbol, &skip, sources.policy(), cancel).await?
+    else {
+        return Ok(Importers {
+            failed: true,
+            ..Importers::default()
+        });
+    };
     let mut opened = Vec::new();
     for (index, file) in files.iter().enumerate() {
         cancel.check().map_err(LspFailure::cancelled)?;
@@ -365,7 +380,11 @@ pub(super) async fn verified_anchors(
             }
         }
     }
-    Ok(Importers { anchors, capped })
+    Ok(Importers {
+        anchors,
+        capped,
+        failed: false,
+    })
 }
 
 /// LSP `SymbolKind`s that own call sites: method, constructor, function.
@@ -612,6 +631,7 @@ mod tests {
                 anchor("c", 1, false),
             ],
             capped: false,
+            failed: false,
         };
         let sites = importers
             .call_sites()
@@ -695,6 +715,167 @@ mod tests {
             root.to_string_lossy()
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Cancels once `flag` is set, or once `deadline` passes (as a timeout).
+    struct LiveCancel {
+        flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        deadline: Option<std::time::Instant>,
+    }
+    impl CancellationCheck for LiveCancel {
+        fn check(&self) -> Result<(), String> {
+            if self
+                .deadline
+                .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+            {
+                return Err("Timeout".into());
+            }
+            if self.flag.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("Cancelled".into());
+            }
+            Ok(())
+        }
+    }
+
+    /// A worker that reports when it starts, then runs until its stop
+    /// callback fires (or a safety bound passes), and reports whether it
+    /// stopped because of the callback.
+    fn observed_worker(
+        started: std::sync::mpsc::Sender<()>,
+        finished: std::sync::mpsc::Sender<bool>,
+    ) -> impl FnOnce(&(dyn Fn() -> bool + Sync)) + Send + 'static {
+        move |stopped| {
+            let _ = started.send(());
+            let bound = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !stopped() && std::time::Instant::now() < bound {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let _ = finished.send(stopped());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_running_worker_stops_when_the_request_is_cancelled_after_launch() {
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel = LiveCancel {
+            flag: flag.clone(),
+            deadline: None,
+        };
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let canceller = std::thread::spawn(move || {
+            started_rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("worker started");
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let failure = blocking_cancellable(&cancel, observed_worker(started_tx, finished_tx))
+            .await
+            .expect_err("cancelled after launch");
+        assert_eq!(failure.code, "lsp.cancelled");
+        assert_eq!(failure.message, "Cancelled");
+        canceller.join().expect("canceller");
+        assert!(
+            finished_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("worker terminated"),
+            "the worker must stop through its stop callback"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_deadline_expiring_during_the_scan_stops_the_worker_as_a_timeout() {
+        let cancel = LiveCancel {
+            flag: std::sync::Arc::default(),
+            deadline: Some(std::time::Instant::now() + std::time::Duration::from_millis(150)),
+        };
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let failure = blocking_cancellable(&cancel, observed_worker(started_tx, finished_tx))
+            .await
+            .expect_err("deadline expired");
+        started_rx.try_recv().expect("worker had started");
+        assert_eq!(failure.code, "lsp.cancelled");
+        assert_eq!(failure.message, "Timeout");
+        assert!(
+            finished_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("worker terminated")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dropping_the_request_stops_the_worker() {
+        let (started_tx, _started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let dropped = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            blocking_cancellable(
+                &crate::tools::cancel::NeverCancel,
+                observed_worker(started_tx, finished_tx),
+            ),
+        )
+        .await;
+        assert!(dropped.is_err(), "request future dropped by the timeout");
+        assert!(
+            finished_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("worker terminated")
+        );
+    }
+
+    /// The real importer scan: cancellation observed after the request
+    /// started is a cancellation, never a completed candidate list.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_candidate_scan_reports_cancellation_after_launch() {
+        struct CancelAfterFirst(std::sync::atomic::AtomicUsize);
+        impl CancellationCheck for CancelAfterFirst {
+            fn check(&self) -> Result<(), String> {
+                if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    Ok(())
+                } else {
+                    Err("Cancelled".into())
+                }
+            }
+        }
+        let root = tempfile::tempdir().expect("fixture");
+        for index in 0..200 {
+            std::fs::write(
+                root.path().join(format!("f{index}.ts")),
+                "import { target } from './a';\ntarget();\n",
+            )
+            .expect("fixture file");
+        }
+        let root_str = root.path().to_string_lossy().into_owned();
+        let policy = |workspace: &Path| {
+            crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+                workspace_root: Some(workspace.to_path_buf()),
+                ..Default::default()
+            })
+            .expect("policy")
+        };
+        let failure = candidate_files(
+            &root_str,
+            "target",
+            &HashSet::new(),
+            &policy(root.path()),
+            &CancelAfterFirst(std::sync::atomic::AtomicUsize::new(0)),
+        )
+        .await
+        .expect_err("cancellation is not an empty or complete scan");
+        assert_eq!(failure.code, "lsp.cancelled");
+        let complete = candidate_files(
+            &root_str,
+            "target",
+            &HashSet::new(),
+            &policy(root.path()),
+            &crate::tools::cancel::NeverCancel,
+        )
+        .await
+        .expect("scan")
+        .expect("scan succeeded");
+        assert_eq!(complete.0.len(), MAX_CANDIDATE_FILES);
+        assert!(complete.1, "more candidates than the cap");
     }
 
     #[test]

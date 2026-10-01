@@ -772,6 +772,8 @@ fn should_use_search_for_prs(q: &GhSearchHistoryQuery) -> bool {
         || q.base().is_some()
         || q.merged_at().is_some()
         || q.state().as_deref() == Some("merged")
+        // The pulls list cannot filter on repository archive state.
+        || q.archived().is_some()
 }
 /// An issue row: `updatedAt` only when the rows are sorted by it; labels
 /// only when present.
@@ -1130,6 +1132,29 @@ mod tests {
         assert!(built.contains("author:dependabot[bot]"), "{built}");
     }
 
+    /// `archived` means the same with or without keywords: only search
+    /// filters on repository archive state, so it always routes there.
+    #[test]
+    fn archived_pull_request_filter_always_routes_to_search() {
+        let parse = |extra: &str| -> GhSearchHistoryQuery {
+            serde_json::from_str(&format!(
+                r#"{{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b"{extra}}}"#
+            ))
+            .expect("GitHub history search test data should be valid")
+        };
+        assert!(!should_use_search_for_prs(&parse("")));
+        for extra in [
+            r#","archived":true"#,
+            r#","archived":false"#,
+            r#","archived":true,"keywords":["README"]"#,
+        ] {
+            let query = parse(extra);
+            assert!(should_use_search_for_prs(&query), "{extra}");
+            let built = build_query(&query).expect("query");
+            assert!(built.contains("archived:"), "{extra}: {built}");
+        }
+    }
+
     #[test]
     fn quotes_multiword_history_keywords() {
         let q: GhSearchHistoryQuery = serde_json::from_str(
@@ -1354,6 +1379,48 @@ mod tests {
         assert!(built(twice).is_err());
         let mut issue = json!({"operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"r","qualifiers":"review:approved"});
         assert!(normalize_row(&mut issue).is_err());
+    }
+
+    /// The published schema admits exactly the negated qualifiers native
+    /// runs (a pull request's `-is:draft`); every other negation fails
+    /// contract preparation, before any provider work.
+    #[test]
+    fn schema_negation_matches_native_execution() {
+        let row = |operation: &str, qualifiers: &str| {
+            json!({"operation":operation,"goal":"g","reasoning":"r","owner":"o","repo":"r",
+                "qualifiers":qualifiers})
+        };
+        let mut prepared =
+            crate::contracts::validate_query("ghSearchHistory", row("pullRequest", "-is:draft"))
+                .expect("-is:draft is published");
+        normalize_row(&mut prepared).expect("native runs -is:draft");
+        assert_eq!(prepared["draft"], false);
+        for (operation, qualifiers, message) in [
+            (
+                "pullRequest",
+                "label:bug -label:wontfix",
+                "\"-label:wontfix\": negation is not supported",
+            ),
+            ("pullRequest", "-is:open", "\"-is:open\": negation"),
+            ("issue", "-label:bug", "\"-label:bug\": negation"),
+            ("issue", "-is:draft", "\"-is:draft\": negation"),
+            (
+                "issue",
+                r#"label:"good first issue" repo:x/y"#,
+                "\"repo:x/y\" is not an allowed key:value filter",
+            ),
+        ] {
+            let error =
+                crate::contracts::validate_query("ghSearchHistory", row(operation, qualifiers))
+                    .expect_err(qualifiers);
+            assert!(
+                error
+                    .issues
+                    .iter()
+                    .any(|issue| issue.message.contains(message)),
+                "{operation} {qualifiers}: {error:?}"
+            );
+        }
     }
 
     #[test]

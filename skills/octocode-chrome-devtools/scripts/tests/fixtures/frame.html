@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Frame</title></head>
+<body style="margin:4px;font:13px sans-serif">
+  <label>Card number <input id="card" oninput="parent.mark('card', this.value)"></label>
+  <button type="button" id="pay" onclick="parent.mark('paid', String(event.isTrusted))">Pay now</button>
+</body></html>

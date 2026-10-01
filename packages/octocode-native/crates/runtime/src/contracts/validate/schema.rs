@@ -307,7 +307,7 @@ fn validate_string(
             return Err(issue(
                 "schema.pattern",
                 path.to_vec(),
-                pattern_message(string, path),
+                pattern_message(string, path, &regex),
             ));
         }
     }
@@ -338,8 +338,23 @@ fn compiled_pattern(pattern: &str) -> Result<Regex, String> {
 }
 
 /// A blank value fails the non-blank patterns (`\S`) the briefs and paths
-/// use; name the fix instead of the regex.
-fn pattern_message(value: &str, path: &[String]) -> String {
+/// use, and a search `qualifiers` string fails on one term: name the fix
+/// instead of the regex.
+fn pattern_message(value: &str, path: &[String], regex: &Regex) -> String {
+    if path.last().map(String::as_str) == Some("qualifiers")
+        && let Some(term) = super::qualifiers::qualifier_terms(value)
+            .into_iter()
+            .find(|term| !regex.is_match(&quoted_term(term)))
+    {
+        return match term.strip_prefix('-') {
+            Some(positive) if regex.is_match(&quoted_term(positive)) => format!(
+                "\"{term}\": negation is not supported for this filter; drop the leading -."
+            ),
+            _ => format!(
+                "\"{term}\" is not an allowed key:value filter; put free text in keywords and scope in owner/repo."
+            ),
+        };
+    }
     if !value.trim().is_empty() {
         return "String does not match required pattern".into();
     }
@@ -348,6 +363,14 @@ fn pattern_message(value: &str, path: &[String]) -> String {
         Some("goal") => format!("is empty; give one line on what to find or decide {BRIEF}"),
         Some("reasoning") => format!("is empty; give one line on why this query {BRIEF}"),
         _ => "is empty; give non-blank text.".into(),
+    }
+}
+
+/// A split qualifier term as it was written: a value with spaces is quoted.
+fn quoted_term(term: &str) -> String {
+    match term.split_once(':') {
+        Some((key, value)) if value.contains(char::is_whitespace) => format!("{key}:\"{value}\""),
+        _ => term.to_owned(),
     }
 }
 

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Actions fixture</title>
+<style>
+  body { font: 14px sans-serif; margin: 16px; }
+  .card { cursor: pointer; border: 1px solid #999; padding: 8px; width: 200px; margin: 6px 0; }
+  .menu .items { display: none; }
+  .menu:hover .items { display: block; }
+  #drag { width: 60px; height: 30px; background: #ccd; cursor: grab; touch-action: none; }
+  #zone, #zone5 { width: 140px; height: 50px; border: 2px dashed #888; margin: 6px 0; }
+  #src5 { width: 60px; height: 30px; background: #dcc; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Actions</h1>
+  <form action="/done" method="get">
+    <label>Name <input id="name" name="q"></label>
+    <label>Fruit <select id="fruit"><option value="a">Apple</option><option value="b">Banana</option></select></label>
+    <label><input type="checkbox" id="agree"> Agree</label>
+  </form>
+  <div class="card" id="card1" onclick="mark('card', '1')">Open card</div>
+  <div class="card" id="card2"><span>Listener card</span></div>
+  <div class="card" id="card3"><a href="#c3">Linked card</a></div>
+  <nav class="menu" aria-label="More"><button type="button">More</button><div class="items"><a href="#hidden">Hidden item</a></div></nav>
+  <button type="button" id="later">Load later</button>
+  <button type="button" id="dbl">Double me</button>
+  <label>Upload <input type="file" id="file" style="opacity:0;width:1px;height:1px"></label>
+  <div id="drag" role="button" aria-label="Drag handle">Drag</div>
+  <div id="zone" aria-label="Drop zone" role="region">Zone</div>
+  <div id="src5" draggable="true" role="button" aria-label="HTML5 source">HTML5</div>
+  <div id="zone5" role="region" aria-label="HTML5 zone">Zone5</div>
+  <iframe src="/frame.html" title="Payment" width="320" height="90"></iframe>
+  <output id="out"></output>
+</main>
+<script>
+  // Every effect shows up as "key:value" text in #out (asserted with DOM_ACTION=wait).
+  const out = document.getElementById('out');
+  function mark(key, value) {
+    out.dataset[key] = value;
+    out.textContent = Object.entries(out.dataset).map(([k, v]) => k + ':' + v).join(' ');
+  }
+  document.getElementById('card2').addEventListener('click', () => mark('card2', '1'));
+  document.getElementById('later').addEventListener('click', () => {
+    setTimeout(() => { const p = document.createElement('p'); p.textContent = 'Loaded!'; document.querySelector('main').appendChild(p); }, 900);
+  });
+  document.getElementById('dbl').addEventListener('dblclick', (e) => mark('dbl', String(e.isTrusted)));
+  document.getElementById('file').addEventListener('change', (e) => mark('file', e.target.files[0]?.name ?? ''));
+  const drag = document.getElementById('drag');
+  let dragging = false;
+  drag.addEventListener('pointerdown', () => { dragging = true; });
+  document.addEventListener('pointerup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    mark('dropped', hit?.closest('#zone') ? 'zone' : 'miss');
+  });
+  const src5 = document.getElementById('src5');
+  src5.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', 'payload'));
+  const zone5 = document.getElementById('zone5');
+  zone5.addEventListener('dragover', (e) => e.preventDefault());
+  zone5.addEventListener('drop', (e) => { e.preventDefault(); mark('html5', e.dataTransfer.getData('text/plain')); });
+</script>
+</body>
+</html>

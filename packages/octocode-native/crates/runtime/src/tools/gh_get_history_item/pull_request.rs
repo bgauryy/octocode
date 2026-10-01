@@ -6,8 +6,9 @@ use super::continuations::{
 };
 use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
 use super::graphql::{
-    GraphqlCollection, GraphqlPr, graphql_complete_collection_eligible, graphql_pull_request,
-    map_graphql_comments, map_graphql_commits, map_graphql_files, map_graphql_reviews,
+    GraphqlCollection, GraphqlOutcome, GraphqlPr, graphql_complete_collection_eligible,
+    graphql_pull_request, map_graphql_comments, map_graphql_commits, map_graphql_files,
+    map_graphql_reviews,
 };
 use super::pr_sections::{shape_pr_comments, shape_pr_commits, shape_pr_reviews};
 use super::util::{
@@ -20,7 +21,7 @@ use super::window::{
 };
 use super::{HistoryItemRequest, fetch, validation};
 use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, RequestContext,
+    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
 };
 use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
@@ -93,13 +94,25 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
     let wants = content_wants(query);
-    let graphql = if graphql_complete_collection_eligible(query) {
-        graphql_pull_request(transport, query, context, &wants)
-            .await
-            .ok()
-            .flatten()
+    // REST serves whatever GraphQL could not; a failed fast path keeps its
+    // reason, and a cancelled or expired request stops here.
+    let (graphql, graphql_fallback) = if graphql_complete_collection_eligible(query) {
+        match graphql_pull_request(transport, query, context, &wants).await {
+            Ok(GraphqlOutcome::Served(pr)) => (Some(*pr), None),
+            Ok(GraphqlOutcome::Unavailable) => (None, None),
+            Ok(GraphqlOutcome::Failed(reason)) => (None, Some(reason)),
+            Err(error)
+                if matches!(
+                    error.kind,
+                    ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
+                ) =>
+            {
+                return Err(error);
+            }
+            Err(error) => (None, Some(error.message.to_string())),
+        }
     } else {
-        None
+        (None, None)
     };
     let number = query
         .number()
@@ -438,6 +451,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     }
     if !query.debug() {
         trim_content_pagination(&mut out);
+    } else if let Some(reason) = graphql_fallback {
+        out["graphqlFallback"] = json!(reason);
     }
     Ok(out)
 }

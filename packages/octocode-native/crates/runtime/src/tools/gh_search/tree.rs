@@ -97,48 +97,24 @@ pub(super) async fn execute<
     // an error (like ghGetFileContent), never a silent default-branch
     // listing, and every page of one listing reads the same tree.
     let reference = branch.as_deref();
-    let resolve = async {
-        match reference {
-            Some(branch) => {
-                let sha = provider
-                    .resolve_reference(owner, repo, Some(branch), false, context)
-                    .await
-                    .map_err(|error| missing_ref(error, owner, repo, branch))?;
-                Ok::<_, ProviderError>((branch.to_owned(), sha))
-            }
-            None => {
-                let (metadata, sha) = tokio::try_join!(
-                    transport.repository_metadata(owner, repo, context),
-                    provider.resolve_reference(owner, repo, None, false, context),
-                )?;
-                Ok((metadata.default_branch, sha))
-            }
+    // The recursive tree is fetched once, by the resolved commit SHA: a tree
+    // fetched by ref name reports its tree-object SHA, which cannot prove it
+    // belongs to the resolved commit.
+    let (resolved_branch, commit_sha) = match reference {
+        Some(branch) => {
+            let sha = provider
+                .resolve_reference(owner, repo, Some(branch), false, context)
+                .await
+                .map_err(|error| missing_ref(error, owner, repo, branch))?;
+            (branch.to_owned(), sha)
         }
-    };
-    // A recursive listing on an unresolved ref fetches the tree by ref name
-    // while the ref resolves (one round trip instead of two). The tree is
-    // used only when it reports the resolved commit; otherwise the walk
-    // refetches it by SHA, as a sequential listing would.
-    let overlap = depth > 1
-        && provider
-            .memoized_reference(owner, repo, reference, context)
-            .await
-            .is_none();
-    let ((resolved_branch, commit_sha), prefetched) = if overlap {
-        let request = TreeRequest {
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-            reference: reference.unwrap_or("HEAD").to_owned(),
-            recursive: true,
-        };
-        let (resolved, tree) = tokio::join!(resolve, transport.get_tree(&request, context));
-        let resolved = resolved?;
-        let tree = tree
-            .ok()
-            .filter(|tree| tree.sha.eq_ignore_ascii_case(&resolved.1) && !tree.truncated);
-        (resolved, tree)
-    } else {
-        (resolve.await?, None)
+        None => {
+            let (metadata, sha) = tokio::try_join!(
+                transport.repository_metadata(owner, repo, context),
+                provider.resolve_reference(owner, repo, None, false, context),
+            )?;
+            (metadata.default_branch, sha)
+        }
     };
     let mut traversal = traverse(
         provider,
@@ -147,7 +123,6 @@ pub(super) async fn execute<
         &commit_sha,
         &clean_path,
         depth,
-        prefetched,
         context,
     )
     .await?;
@@ -179,8 +154,7 @@ pub(super) async fn execute<
         .cloned()
         .collect::<Vec<_>>();
     let has_more = current_page < total_pages;
-    let mut structure = build_structure(&page_entries, &clean_path);
-    filter_structure(&mut structure);
+    let structure = build_structure(&page_entries, &clean_path);
     let total_files = structure
         .iter()
         .map(|row| {
@@ -432,16 +406,10 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
     branch: &str,
     root: &str,
     max_depth: usize,
-    prefetched: Option<crate::providers::github::TreeResponse>,
     context: &RequestContext,
 ) -> Result<Traversal, ProviderError> {
     if max_depth > 1 {
         let resource = format!("git-tree:{owner}/{repo}:{branch}");
-        if let Some(tree) = prefetched {
-            root_is_directory(&tree, root)?;
-            cache_tree(provider, context, resource, branch, &tree).await;
-            return Ok(traversal_from_git_tree(tree, root, max_depth));
-        }
         if let Ok(partition) = provider.transport.cache_partition(context, None).await
             && let Some(cached) = provider.cache.get(&partition, &resource).await
             && let Ok(tree) =
@@ -678,7 +646,16 @@ fn traversal_from_git_tree(
             "tree" => EntryKind::Dir,
             _ => continue,
         };
-        let name = relative.rsplit('/').next().unwrap_or(&relative);
+        // Beneath an ignored directory nothing is listed, sized, or
+        // materialized, as the Contents walk never descends into one; only
+        // the ignored entry itself is counted.
+        let (ancestors, name) = relative.rsplit_once('/').unwrap_or(("", &relative));
+        if ancestors
+            .split('/')
+            .any(|part| ignored_entry(part, EntryKind::Dir))
+        {
+            continue;
+        }
         if ignored_entry(name, kind) {
             *traversal.omitted.entry(name.to_owned()).or_default() += 1;
             continue;
@@ -772,17 +749,6 @@ fn build_structure(entries: &[TreeEntry], root: &str) -> Vec<Value> {
     rows
 }
 
-fn filter_structure(rows: &mut Vec<Value>) {
-    rows.retain(|row| {
-        let Some(dir) = row.get("dir").and_then(Value::as_str) else {
-            return false;
-        };
-        dir == "."
-            || !dir
-                .split('/')
-                .any(|part| ignored_entry(part, EntryKind::Dir))
-    });
-}
 fn relative(path: &str, root: &str) -> String {
     if root.is_empty() {
         path.to_owned()

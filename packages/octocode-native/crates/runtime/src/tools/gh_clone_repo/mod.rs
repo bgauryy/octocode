@@ -570,9 +570,11 @@ fn result(
 
 /// `next.exploreClone`: list the checkout (the sparse subtree when one was
 /// requested) with structureSearch, the local entry into localSearch,
-/// astSearch, and lspSearch on it.
+/// astSearch, and lspSearch on it. A single checked-out file is read with
+/// localFetch instead: structureSearch lists directories only.
 fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json::Value {
-    // One sparse path lists that subtree; several list the checkout root.
+    use crate::tools::id::ToolId;
+    // One sparse path explores that path; several explore the checkout root.
     let root = match sparse_paths {
         Some([path]) => clone_dir.join(path),
         _ => clone_dir.to_path_buf(),
@@ -582,14 +584,19 @@ fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json
         "path".into(),
         serde_json::Value::String(root.to_string_lossy().into_owned()),
     );
-    crate::contracts::stamp_schema_defaults(
-        crate::tools::id::ToolId::StructureSearch,
-        Some("tree"),
-        &mut query,
-        &["operation", "maxDepth", "page", "pageSize", "debug"],
-    );
+    let tool = if root.is_file() {
+        ToolId::LocalFetch
+    } else {
+        crate::contracts::stamp_schema_defaults(
+            ToolId::StructureSearch,
+            Some("tree"),
+            &mut query,
+            &["operation", "maxDepth", "page", "pageSize", "debug"],
+        );
+        ToolId::StructureSearch
+    };
     serde_json::json!({"exploreClone": {
-        "tool": crate::tools::id::ToolId::StructureSearch.as_str(),
+        "tool": tool.as_str(),
         "query": query,
         "confidence": "exact"
     }})

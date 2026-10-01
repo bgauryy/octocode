@@ -213,6 +213,29 @@ pub(super) async fn cancellable<F: Future>(
     }
 }
 
+/// Run blocking `work` on a worker whose stop callback follows `cancel`
+/// live: the request keeps polling `cancel` (as [`cancellable`] does) while
+/// the worker runs, and once it fails, or the request future is dropped, the
+/// callback returns true so the worker stops at its next check. `Ok(None)`
+/// means the worker itself failed rather than produced a result.
+pub(super) async fn blocking_cancellable<T: Send + 'static>(
+    cancel: &dyn CancellationCheck,
+    work: impl FnOnce(&(dyn Fn() -> bool + Sync)) -> T + Send + 'static,
+) -> Result<Option<T>, LspFailure> {
+    struct StopOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for StopOnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let _stop_worker = StopOnDrop(std::sync::Arc::clone(&stop));
+    let worker = tokio::task::spawn_blocking(move || {
+        work(&|| stop.load(std::sync::atomic::Ordering::Relaxed))
+    });
+    Ok(cancellable(cancel, worker).await?.ok())
+}
+
 pub async fn execute(
     query: Value,
     cancel: &dyn CancellationCheck,

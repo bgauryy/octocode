@@ -151,25 +151,47 @@ pub(crate) fn private_key_block_line_ranges(content: &str) -> Vec<(u32, u32)> {
     if !content.contains("PRIVATE KEY") {
         return Vec::new();
     }
-    let mut ranges = Vec::new();
-    let mut start: Option<u32> = None;
-    let mut last = 0u32;
-    for (i, line) in content.lines().enumerate() {
-        let n = (i + 1) as u32;
-        last = n;
-        if start.is_none() && is_private_key_begin(line) {
-            start = Some(n);
+    let mut tracker = KeyBlockTracker::default();
+    for line in content.lines() {
+        tracker.push(line);
+    }
+    tracker.finish()
+}
+
+/// [`private_key_block_line_ranges`] fed one line at a time, so a caller can
+/// stream a source without retaining it. Lines are pushed in order without
+/// terminators; [`KeyBlockTracker::finish`] closes an unterminated block at
+/// the last pushed line.
+#[derive(Default)]
+pub(crate) struct KeyBlockTracker {
+    ranges: Vec<(u32, u32)>,
+    start: Option<u32>,
+    last: u32,
+}
+
+impl KeyBlockTracker {
+    pub(crate) fn push(&mut self, line: &str) {
+        self.last = self.last.saturating_add(1);
+        let n = self.last;
+        if !line.contains("PRIVATE KEY") {
+            return;
+        }
+        if self.start.is_none() && is_private_key_begin(line) {
+            self.start = Some(n);
         }
         if is_private_key_end(line)
-            && let Some(s) = start.take()
+            && let Some(s) = self.start.take()
         {
-            ranges.push((s, n));
+            self.ranges.push((s, n));
         }
     }
-    if let Some(s) = start.take() {
-        ranges.push((s, last.max(s)));
+
+    pub(crate) fn finish(mut self) -> Vec<(u32, u32)> {
+        if let Some(s) = self.start.take() {
+            self.ranges.push((s, self.last.max(s)));
+        }
+        self.ranges
     }
-    ranges
 }
 
 /// True when a search match's rendered window (its primary `line` plus the

@@ -23,10 +23,9 @@ Load when choosing what to capture or do. Pick one primary intent; a full audit 
 
 ## Automate
 
-- `page-snapshot` → `DOM_REF=eN` on `dom-operations-check`; prefer refs over guessed CSS. It checks visibility, disabled state, stability, and cover, fills through the native value setter, and prints `[ACTION]`/`[CODE]`.
+- `page-snapshot` → `DOM_REF=eN` on `dom-operations-check`; prefer refs over guessed CSS. Long page: `SNAPSHOT_OUTLINE=1`, then `SNAPSHOT_ROOT=rN`. Input is trusted by default; `fill` replaces text, `type` sends keystrokes (key handlers, autocomplete), `press DOM_KEY=Enter` submits. Read `[VERIFY]`: `MISMATCH` or `NO_VISIBLE_EFFECT` means the step did not land.
 - Follow-up steps on the same tab need `--no-reload`. A known multi-step sequence fits one `run(cdp)`.
 - One meaningful mutation per step; confirm with a targeted check, not a new full snapshot. Listeners miss past events, so re-read current state.
-- Trusted input against behavioral anti-bot: `human-input.mjs` (`buildHumanClickSequence`, `buildTypingEvents`, `runEventSequence(cdp, events)`).
 - **WebMCP** (only when named): fresh Chrome 150+ with `--enableFeatures WebMCP`, then `WEBMCP_ACTION=list|invoke`. `WEBMCP_NO_TOOLS` is common; fall back to DOM. Mutating tools fall under the mutation gate.
 - Broad public crawls go to `octocode-scraping`; CDP validates its graph actions and returns URLs/data to that corpus.
 

@@ -265,17 +265,20 @@ pub(super) async fn resolve_lines<
 
 /// Shape file rows: resolved files list numbered `lines` instead of index
 /// fragments; fragment `matchIndices` stay only under `debug`; a repo-scoped
-/// page names owner/repo once. Returns a line-range read of the top resolved
-/// hit.
+/// page names owner/repo once. Returns the top hit's read: a line range of
+/// the top resolved hit, else `fragment_read` kept inside the verified
+/// source scope.
 pub(super) fn shape_files(
     value: &mut Value,
     items: &mut [Value],
     query: &GhSearchCodeQuery,
     resolution: Option<Resolution>,
+    fragment_read: Option<Value>,
 ) -> Option<Value> {
     if query.concise == Some(true) {
         return None;
     }
+    let fragment_read = scoped_fragment_read(fragment_read, query, resolution.as_ref());
     let reference = requested_ref(query);
     if query.repo.is_some() {
         value["owner"] = json!(query.owner.as_str());
@@ -312,7 +315,13 @@ pub(super) fn shape_files(
                         row.insert("hitCount".into(), json!(total));
                     }
                     if top.is_none() {
-                        top = Some(line_read(query, row, *first, *last, *line_count));
+                        top = Some(line_read(
+                            query,
+                            row,
+                            (*first, *last),
+                            *line_count,
+                            &resolution.sha,
+                        ));
                     }
                 }
                 super::lines::FileHits::Missing if resolution.reference.is_some() => {
@@ -339,7 +348,31 @@ pub(super) fn shape_files(
             }
         }
     }
-    top.flatten()
+    top.flatten().or(fragment_read)
+}
+
+/// The index-fragment read of the top file, kept inside the verified source
+/// scope: pinned to the resolved commit, dropped when the file is absent
+/// there, and naming the requested ref when nothing was resolved. It never
+/// silently reads the default branch for a requested ref.
+fn scoped_fragment_read(
+    read: Option<Value>,
+    query: &GhSearchCodeQuery,
+    resolution: Option<&Resolution>,
+) -> Option<Value> {
+    let mut read = read?;
+    let branch = match resolution {
+        Some(resolution) => match resolution.hits.first() {
+            Some(super::lines::FileHits::Missing) => return None,
+            _ => resolution.sha.as_str(),
+        },
+        None => match requested_ref(query) {
+            Some(reference) => reference,
+            None => return Some(read),
+        },
+    };
+    read["query"]["branch"] = json!(branch);
+    Some(read)
 }
 
 /// ghGetFileContent read of a resolved file's first hit (5 lines before it),
@@ -347,9 +380,9 @@ pub(super) fn shape_files(
 fn line_read(
     query: &GhSearchCodeQuery,
     row: &serde_json::Map<String, Value>,
-    first: u32,
-    last: u32,
+    (first, last): (u32, u32),
     line_count: usize,
+    sha: &str,
 ) -> Option<Value> {
     let path = row.get("path")?.as_str()?;
     let repo = query.repo.as_deref()?;
@@ -363,17 +396,17 @@ fn line_read(
         Some(crate::content::FileType::Code) if !crate::content::is_test_path(path) => "medium",
         _ => "low",
     };
-    let mut read = json!({
+    let read = json!({
         "owner": query.owner.as_str(),
         "repo": repo.as_str(),
         "path": path,
         "startLine": start,
         "endLine": end,
+        // The commit the lines were read at: a branch push cannot shift
+        // the window before the read runs.
+        "branch": sha,
         "reasoning": "Read the top code hit's lines.",
     });
-    if let Some(reference) = requested_ref(query) {
-        read["branch"] = json!(reference);
-    }
     Some(json!({
         "tool": ToolId::GhGetFileContent.as_str(),
         "confidence": confidence,

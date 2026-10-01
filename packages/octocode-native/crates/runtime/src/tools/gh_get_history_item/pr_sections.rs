@@ -9,7 +9,11 @@ use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
 use crate::tools::result::remove_nulls;
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use serde_json::{Map, Value, json};
+
+/// Commit-detail requests in flight at once for `commits.includeFiles`.
+const COMMIT_DETAIL_CONCURRENCY: usize = 4;
 
 pub(super) fn shape_pr_comments(
     row: &mut Value,
@@ -96,7 +100,12 @@ pub(super) fn shape_pr_reviews(
         let (body, body_page) =
             window_body(&raw_body, query.char_offset(), query, &mut first_body_page);
         let mut item = json!({
-            "id": review["id"].to_string().trim_matches('"'),
+            // A review without an identity has none: never the text "null".
+            "id": match &review["id"] {
+                Value::Number(id) => Some(id.to_string()),
+                Value::String(id) if !id.is_empty() => Some(id.clone()),
+                _ => None,
+            },
             "user": str_at(&review,"/user/login").unwrap_or("unknown"),
             "state": string(review.get("state")),
             "body": (!body.is_empty()).then_some(body),
@@ -133,35 +142,46 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
         query.commit_page(),
         Some(query.collection_page_size()),
     );
-    let mut shaped = Vec::new();
-    for item in slice {
-        let sha = string(item.get("sha"));
-        let mut commit = json!({
-            "sha":sha,
-            "message":str_at(&item,"/commit/message").unwrap_or(""),
-            "author":str_at(&item,"/commit/author/name").unwrap_or("unknown"),
-            "date":str_at(&item,"/commit/author/date").unwrap_or("")
-        });
-        if include_files {
-            let (detail, more) = fetch(
-                transport,
-                &["repos", query.owner(), query.repo(), "commits", &sha],
-                &[("per_page", "100".into()), ("page", "1".into())],
-                context,
-            )
-            .await?;
-            let files = array(detail.get("files").cloned().unwrap_or(json!([])));
-            let (files, files_page) =
-                paginate_window(files, 0, !more, Some(1), Some(query.collection_page_size()));
-            let (files, cursor) = shape_files(files, true, query);
-            let mut files_page = commit_files_pagination(files_page);
-            attach_patch_cursor(&mut files_page, cursor);
-            commit["files"] = files;
-            commit["filesPagination"] = files_page;
-            attach_diff_continuations(&mut commit, query, ItemOperation::Commit, Some(&sha), true);
-        }
-        shaped.push(commit);
-    }
+    // Each commit's files are one detail request: a few run at once, in
+    // page order, through the transport's shared admission and deadline.
+    let shaped: Vec<Value> = futures_util::stream::iter(slice)
+        .map(|item| async move {
+            let sha = string(item.get("sha"));
+            let mut commit = json!({
+                "sha":sha,
+                "message":str_at(&item,"/commit/message").unwrap_or(""),
+                "author":str_at(&item,"/commit/author/name").unwrap_or("unknown"),
+                "date":str_at(&item,"/commit/author/date").unwrap_or("")
+            });
+            if include_files {
+                let (detail, more) = fetch(
+                    transport,
+                    &["repos", query.owner(), query.repo(), "commits", &sha],
+                    &[("per_page", "100".into()), ("page", "1".into())],
+                    context,
+                )
+                .await?;
+                let files = array(detail.get("files").cloned().unwrap_or(json!([])));
+                let (files, files_page) =
+                    paginate_window(files, 0, !more, Some(1), Some(query.collection_page_size()));
+                let (files, cursor) = shape_files(files, true, query);
+                let mut files_page = commit_files_pagination(files_page);
+                attach_patch_cursor(&mut files_page, cursor);
+                commit["files"] = files;
+                commit["filesPagination"] = files_page;
+                attach_diff_continuations(
+                    &mut commit,
+                    query,
+                    ItemOperation::Commit,
+                    Some(&sha),
+                    true,
+                );
+            }
+            Ok::<_, ProviderError>(commit)
+        })
+        .buffered(COMMIT_DETAIL_CONCURRENCY)
+        .try_collect()
+        .await?;
     row["commits"] = Value::Array(shaped);
     pagination.insert("commits".into(), page);
     Ok(())

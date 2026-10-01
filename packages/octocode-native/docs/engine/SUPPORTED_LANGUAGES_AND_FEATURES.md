@@ -50,6 +50,19 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | Workspace name lookup | `lspSearch workspaceSymbol` | Supply `uri` in a mixed-language workspace to select the server |
 | Compiler or language-server findings | `lspSearch diagnostic` | Requires a server; reports its diagnostics rather than native grammar support |
 
+### Search and rewrite matchers
+
+`astSearch match` runs Octocode's own matcher (`crates/engine/src/structural/octo/`); `astRewrite` runs embedded ast-grep. Both read ast-grep pattern syntax over the same grammar registry, and `crates/engine/src/structural/parity_tests.rs` pins where they agree. Shared: single and multi metavariables (separators included in `$$$` captures), repeated captures, an empty `$$$` beside punctuation (`f($$$A, x)` matches `f(x)`), candidate trivia (comments, trailing commas), `kind`, `regex`, `has`/`inside` (direct parent/children by default, any depth with `stopBy: end`), `all`/`any`/`not`, and UTF-16 columns. Differences:
+
+- `astSearch` rule YAML accepts only `kind`, `pattern`, `regex`, `has`, `inside`, `all`, `any`, `not`, and `stopBy: end`; `constraints`, `follows`, `precedes`, and other ast-grep keys are rejected with the supported list.
+- A statement pattern ending in `;` matches the expression anywhere in `astSearch` (span without `;`); ast-grep selects only that statement, `;` included. Omit the `;` when a search result set feeds a rewrite.
+- `$K: $V` selects object pairs in `astSearch`; ast-grep parses it as a labeled statement.
+- A bare C call pattern (`foo($X)`) gets statement context in `astSearch`; ast-grep parses it as a declaration and selects nothing. Use `foo($X);` or a statement-level pattern in C rewrites.
+- A pattern with several top-level nodes (`a(); b()`) is rejected by both.
+- Rewrite captures can include ast-grep's internal `secondary` node from relational rules.
+
+A search result never authorizes an apply: only an `astRewrite` preview's selection, snapshot, and hashes do.
+
 The default release build registers exactly **28 extensions across 11 language families**. CUDA (`.cu`/`.cuh`) is an optional grammar (`tree-sitter-cuda`) excluded from the default build to save ~6.8 MiB of binary size; its native capabilities appear only in builds that re-enable the feature, though `.cu`/`.cuh` still route to `clangd` for LSP. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
 
 ### CUDA opt-in and cost
