@@ -57,17 +57,80 @@ fn continuation(q: Value) -> Value {
     json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":q,"confidence":"exact"})
 }
 
+/// A first-page menu read in the flat spelling.
+fn menu_read(mut q: Value) -> Value {
+    flatten_selectors(&mut q);
+    continuation(q)
+}
+
+/// Rewrite a pull-request query's `content` into the flat `include`/`files`
+/// spelling when it says the same thing (no ranges, bot or per-commit-file
+/// options, and exact selected paths only). Both spellings validate.
+pub(super) fn flatten_selectors(query: &mut Value) {
+    let Some(fields) = query.as_object_mut() else {
+        return;
+    };
+    if fields.get("operation").and_then(Value::as_str) != Some("pullRequest")
+        || fields.contains_key("fileFilter")
+    {
+        return;
+    }
+    let Some(Value::Object(content)) = fields.get("content").cloned() else {
+        return;
+    };
+    let mut include = Vec::new();
+    let mut files = None;
+    for (key, value) in &content {
+        match (key.as_str(), value) {
+            ("body", Value::Bool(true)) => include.push("body"),
+            ("changedFiles", Value::Bool(true)) => include.push("files"),
+            ("reviews", Value::Bool(true)) => include.push("reviews"),
+            ("body" | "changedFiles" | "reviews", Value::Bool(false)) => {}
+            ("comments", comments)
+                if comments == &json!({"discussion":true,"reviewInline":true}) =>
+            {
+                include.push("comments");
+            }
+            ("commits", commits) if commits == &json!({}) => include.push("commits"),
+            ("patches", patches) => match patches.get("mode").and_then(Value::as_str) {
+                Some("all") if patches.as_object().is_some_and(|p| p.len() == 1) => {
+                    include.push("patches");
+                }
+                Some("selected")
+                    if patches.get("ranges").is_none()
+                        && patches.get("files").and_then(Value::as_array).is_some_and(
+                            |paths| {
+                                !paths.is_empty()
+                                    && paths.iter().all(|path| {
+                                        path.as_str().is_some_and(|path| {
+                                            !path.contains(['*', '?', '[', '{'])
+                                        })
+                                    })
+                            },
+                        ) =>
+                {
+                    include.push("patches");
+                    files = patches.get("files").cloned();
+                }
+                _ => return,
+            },
+            _ => return,
+        }
+    }
+    fields.remove("content");
+    if !include.is_empty() {
+        fields.insert("include".into(), json!(include));
+    }
+    if let Some(files) = files {
+        fields.insert("files".into(), files);
+    }
+}
+
 /// Body length (chars) the metadata row's `bodyPreview` shows verbatim.
 pub(super) const BODY_PREVIEW_CHARS: usize = 500;
 /// A diff at most this many changed lines reads in one all-patches call, so a
 /// separate file-list-only fetch would only repeat its file list.
 const SMALL_DIFF_LINES: u64 = 100;
-/// Above this many changed files every-patch reads cost one call per file
-/// page and patch window; review starts from a literal search of the patches
-/// (`matchString` with `matchContext: 0`, a literal only the caller knows, so
-/// never offered as a placeholder continuation) or the file inventory.
-pub(super) const LARGE_PR_FILES: u64 = 100;
-
 /// Unfiltered inventories up to this many files keep `getAllPatches` beside
 /// the selected-patch pick: every patch is still a bounded read.
 pub(super) const INVENTORY_ALL_PATCHES_FILES: u64 = 30;
@@ -95,21 +158,22 @@ fn fresh_pr_query(query: &HistoryItemRequest) -> Value {
     target
 }
 
-/// Per-row menu of first-page fetches for content the call did not request.
+/// Per-row menu of first-page fetches for content the call did not request:
+/// at most four entries (`getChangedFiles`, `reviewPatches`, `getDiscussion`,
+/// `getMergeCommit`; an inventory read may add `getAllPatches`).
 ///
-/// `raw` is the provider PR object. An entry is emitted only when it can
-/// return something the row does not already hold: no `getBody` when the body
-/// is empty or fully shown by `bodyPreview`; no file entries for a PR without
-/// changed files; no `getChangedFiles` when `getAllPatches` on a small diff
-/// returns the same file list plus patches; no `getSelectedPatches` when the
-/// PR has one changed file or a small diff, where `getAllPatches` returns the
-/// same patch (or a cheap superset) in one call; no `getComments` when the
-/// provider counts zero discussion and zero inline comments.
+/// `raw` is the provider PR object; `review` is the inventory's
+/// [`super::files::review_selection`] (empty before files were read). An
+/// entry is emitted only when it can return something the row does not
+/// already hold: the body rides `getChangedFiles` when `bodyPreview` does not
+/// show it whole; a small diff reads every patch (`reviewPatches` mode all)
+/// instead of a separate file list; `getDiscussion` reads comments and
+/// reviews together, without comments when the provider counts none.
 pub(super) fn pr_next_menu(
     query: &HistoryItemRequest,
     content: Option<&Map<String, Value>>,
     patch_mode: &str,
-    patch_target: Option<&str>,
+    review: &[String],
     raw: &Value,
 ) -> Value {
     let count = |key: &str| raw.get(key).and_then(Value::as_u64);
@@ -119,52 +183,76 @@ pub(super) fn pr_next_menu(
         .map(|body| body.chars().count());
     let body_in_preview = body_chars.is_some_and(|chars| chars <= BODY_PREVIEW_CHARS)
         || raw.get("body").is_some_and(Value::is_null);
+    let want_body = !content_flag(content, "body") && !body_in_preview;
     let changed_files = count("changed_files");
     let has_files = changed_files != Some(0);
     let small_diff = matches!(
         (count("additions"), count("deletions")),
         (Some(additions), Some(deletions)) if additions + deletions <= SMALL_DIFF_LINES
     );
+    let small_pr =
+        small_diff && changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES);
     let no_comments = count("comments") == Some(0) && count("review_comments") == Some(0);
-    // Start from the base public query so contract-required fields (pageSize,
-    // minify) are present, then drop the current content selection and every
-    // per-surface cursor: each menu entry is a fresh first-page fetch.
+    // Each menu entry is a fresh first-page fetch: the base public query
+    // without the current content selection or any per-surface cursor.
     let target = fresh_pr_query(query);
     let mut next = Map::new();
-    let call = |content: Value| continuation(merge(target.clone(), json!({"content":content})));
-    if !content_flag(content, "body") && !body_in_preview {
+    let call = |content: Value| menu_read(merge(target.clone(), json!({"content":content})));
+    let with_body = |mut content: Value| {
+        if want_body {
+            content["body"] = json!(true);
+        }
+        content
+    };
+    let files_read = content_flag(content, "changedFiles") || patch_mode != "none";
+    let mut body_offered = false;
+    if !files_read && has_files && !small_pr {
+        next.insert(
+            "getChangedFiles".into(),
+            call(with_body(json!({"changedFiles":true}))),
+        );
+        body_offered = true;
+    }
+    if patch_mode == "none" && has_files {
+        let covers_all = changed_files.is_some_and(|files| review.len() as u64 >= files);
+        if !review.is_empty() && !covers_all {
+            // The query is exact; which files answer the question is a
+            // ranking guess (source files by churn, packed to one budget).
+            let mut selected = call(json!({"patches":{"mode":"selected","files":review}}));
+            selected["confidence"] = json!("high");
+            next.insert("reviewPatches".into(), selected);
+            if changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES) {
+                next.insert(
+                    "getAllPatches".into(),
+                    call(json!({"patches":{"mode":"all"}})),
+                );
+            }
+        } else if small_pr || covers_all {
+            let patches = json!({"patches":{"mode":"all"}});
+            let patches = if body_offered {
+                patches
+            } else {
+                with_body(patches)
+            };
+            body_offered = true;
+            next.insert("reviewPatches".into(), call(patches));
+        }
+    }
+    if want_body && !body_offered && !files_read {
         next.insert("getBody".into(), call(json!({"body":true})));
     }
-    if !content_flag(content, "changedFiles") && patch_mode == "none" && has_files && !small_diff {
-        next.insert("getChangedFiles".into(), call(json!({"changedFiles":true})));
-    }
-    let single_file = changed_files == Some(1);
-    if patch_mode == "none" && has_files {
-        if let Some(path) = patch_target.filter(|_| !single_file && !small_diff) {
-            // The query is exact; which file answers the question is a
-            // ranking guess.
-            let mut selected = call(json!({"patches":{"mode":"selected","files":[path]}}));
-            selected["confidence"] = json!("high");
-            next.insert("getSelectedPatches".into(), selected);
-        }
-        if changed_files.is_none_or(|files| files <= LARGE_PR_FILES) {
-            next.insert(
-                "getAllPatches".into(),
-                call(json!({"patches":{"mode":"all"}})),
-            );
-        }
-    }
+    let mut discussion = Map::new();
     if content.and_then(|v| v.get("comments")).is_none() && !no_comments {
-        next.insert(
-            "getComments".into(),
-            call(json!({"comments":{"discussion":true,"reviewInline":true}})),
+        discussion.insert(
+            "comments".into(),
+            json!({"discussion":true,"reviewInline":true}),
         );
     }
     if !content_flag(content, "reviews") {
-        next.insert("getReviews".into(), call(json!({"reviews":true})));
+        discussion.insert("reviews".into(), json!(true));
     }
-    if content.and_then(|v| v.get("commits")).is_none() {
-        next.insert("getCommits".into(), call(json!({"commits":{}})));
+    if !discussion.is_empty() {
+        next.insert("getDiscussion".into(), call(Value::Object(discussion)));
     }
     if raw.get("merged_at").is_some_and(|v| !v.is_null())
         && let Some(sha) = raw
@@ -293,33 +381,57 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
     }
 }
 
-/// `next.readFullPatches`: the whole patches of files a `matchString` view
-/// narrowed to their matching hunks (rows carrying `fullPatchChars`). An
-/// explicit `matchContext` asked for the narrowed view itself, so it gets
-/// no offer; `fullPatchChars` still says more exists.
+/// `next.readFullPatches` (few files) or `next.widenContext` (many): the
+/// follow-up for files a `matchString` view narrowed to their hit lines
+/// (rows marked `fullPatchChars`, kept on rows only with `debug`). An
+/// explicit `matchContext` asked for the narrowed view itself: no offer.
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
-    let narrowed = out
-        .pointer("/pullRequests/0/changedFiles")
-        .and_then(Value::as_array)
+    let mut narrowed = Vec::new();
+    for file in out
+        .pointer_mut("/pullRequests/0/changedFiles")
+        .and_then(Value::as_array_mut)
         .into_iter()
         .flatten()
-        .filter(|file| file.get("fullPatchChars").is_some())
-        .filter_map(|file| file.get("path").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+    {
+        let Some(fields) = file.as_object_mut() else {
+            continue;
+        };
+        // The marker selects the continuation; rows carry it only in debug.
+        let marked = if q.debug() {
+            fields.contains_key("fullPatchChars")
+        } else {
+            fields.remove("fullPatchChars").is_some()
+        };
+        if marked && let Some(path) = fields.get("path").and_then(Value::as_str) {
+            narrowed.push(path.to_owned());
+        }
+    }
     if narrowed.is_empty() || q.match_context().is_some() {
         return;
     }
     let mut nq = base_public_query(q, ItemOperation::PullRequest);
-    for key in ["matchString", "charOffset", "charLength", "filePage"] {
+    for key in ["charOffset", "charLength", "filePage"] {
         remove_key(&mut nq, key);
     }
-    nq["content"] = json!({"patches":{"mode":"selected","files":narrowed}});
     if !out.get("next").is_some_and(Value::is_object) {
         out["next"] = json!({});
     }
+    if narrowed.len() > READ_FULL_PATCH_FILES {
+        // Many narrowed files: widen the hit context instead of re-reading
+        // every whole patch.
+        nq["matchContext"] = json!(WIDEN_MATCH_CONTEXT);
+        out["next"]["widenContext"] = continuation(nq);
+        return;
+    }
+    remove_key(&mut nq, "matchString");
+    nq["content"] = json!({"patches":{"mode":"selected","files":narrowed}});
     out["next"]["readFullPatches"] = continuation(nq);
 }
+
+/// Narrowed files up to which `next.readFullPatches` re-reads whole patches;
+/// beyond it `next.widenContext` asks for [`WIDEN_MATCH_CONTEXT`] lines.
+const READ_FULL_PATCH_FILES: usize = 5;
+const WIDEN_MATCH_CONTEXT: u64 = 3;
 
 /// Narrow a patch char-window continuation to the patch surface and to the
 /// files whose window has more; completed files are not re-emitted.
@@ -488,6 +600,9 @@ pub(super) fn attach_diff_continuations(
     } else {
         base_public_query(q, operation)
     };
+    if !q.file_scope.is_empty() && !with_why {
+        base["files"] = json!(q.file_scope);
+    }
     remove_nulls(&mut base);
     let make = |query: Value, why: &str| {
         if with_why {
@@ -754,6 +869,27 @@ mod tests {
         assert!(out.get("next").is_none(), "{out}");
     }
 
+    /// S4/S5: many narrowed files get `widenContext` (matchContext 3), not a
+    /// whole-patch re-read; the marker never reaches default rows.
+    #[test]
+    fn many_narrowed_files_widen_context_instead_of_full_patches() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "matchString":"miri"
+        }))
+        .expect("match query");
+        let rows = (0..6)
+            .map(|i| json!({"path":format!("src/{i}.rs"),"patch":"+miri","fullPatchChars":90}))
+            .collect::<Vec<_>>();
+        let mut out = json!({"type":"pullRequests","pullRequests":[{"changedFiles":rows}]});
+        attach_full_patch_continuation(&mut out, &query);
+        let widen = &out["next"]["widenContext"]["query"];
+        assert_eq!(widen["matchContext"], 3, "{out}");
+        assert_eq!(widen["matchString"], "miri", "{out}");
+        assert!(out["next"].get("readFullPatches").is_none(), "{out}");
+        assert!(!out.to_string().contains("fullPatchChars"), "{out}");
+    }
+
     #[test]
     fn merged_pull_requests_link_their_merge_commit_and_open_ones_do_not() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
@@ -761,7 +897,7 @@ mod tests {
         }))
         .expect("pr query");
         let merged = json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc"});
-        let menu = pr_next_menu(&query, None, "none", None, &merged);
+        let menu = pr_next_menu(&query, None, "none", &[], &merged);
         assert_eq!(
             menu["getMergeCommit"]["query"],
             json!({"operation":"commit","owner":"o","repo":"r","ref":"facc6fc"})
@@ -769,7 +905,7 @@ mod tests {
         // An open PR's merge_commit_sha is GitHub's test merge, not a real commit.
         let open = json!({"merged_at":null,"merge_commit_sha":"deadbee"});
         assert!(
-            pr_next_menu(&query, None, "none", None, &open)
+            pr_next_menu(&query, None, "none", &[], &open)
                 .get("getMergeCommit")
                 .is_none()
         );
@@ -785,12 +921,14 @@ mod tests {
         .expect("query");
         let content_value = query.content_value();
         let content = content_value.as_ref().and_then(Value::as_object);
-        let menu = pr_next_menu(&query, content, "none", Some("src/a.rs"), &json!({}));
-        let reviews = &menu["getReviews"]["query"];
+        let menu = pr_next_menu(&query, content, "none", &["src/a.rs".into()], &json!({}));
+        let reviews = &menu["getDiscussion"]["query"];
         // pageSize has no contract default; an omitted one stays omitted.
         assert!(reviews.get("pageSize").is_none(), "{reviews}");
         assert_eq!(reviews["minify"], "standard");
-        assert_eq!(reviews["content"], json!({"reviews":true}));
+        // Menu reads use the flat spelling.
+        assert_eq!(reviews["include"], json!(["comments", "reviews"]));
+        assert!(reviews.get("content").is_none(), "{reviews}");
         for key in ["charOffset", "commentPage"] {
             assert!(reviews.get(key).is_none(), "{key} leaked: {reviews}");
         }
@@ -810,78 +948,85 @@ mod tests {
                 .map(|m| m.keys().cloned().collect::<Vec<_>>())
                 .unwrap_or_default()
         };
-        // Empty body, one small file, comments present: body and the list-only
-        // file read are redundant with bodyPreview / getAllPatches.
+        // Empty body, one small file, comments present: every patch reads in
+        // one call, so no separate file list.
         let small = json!({"body":"","changed_files":1,"additions":6,"deletions":1,"comments":3});
+        let menu = pr_next_menu(&query, None, "none", &[], &small);
+        assert_eq!(names(&menu), ["reviewPatches", "getDiscussion"]);
         assert_eq!(
-            names(&pr_next_menu(&query, None, "none", None, &small)),
-            ["getAllPatches", "getComments", "getReviews", "getCommits"]
+            menu["reviewPatches"]["query"]["include"],
+            json!(["patches"])
         );
-        // A body longer than the preview and a large diff keep both reads.
+        // A body longer than the preview rides the file list of a large diff.
         let large = json!({"body":"x".repeat(BODY_PREVIEW_CHARS + 1),"changed_files":40,
-            "additions":900,"deletions":50,"comments":0});
+            "additions":900,"deletions":50,"comments":0,"review_comments":0});
+        let menu = pr_next_menu(&query, None, "none", &[], &large);
+        assert_eq!(names(&menu), ["getChangedFiles", "getDiscussion"]);
         assert_eq!(
-            names(&pr_next_menu(&query, None, "none", None, &large)),
-            [
-                "getBody",
-                "getChangedFiles",
-                "getAllPatches",
-                "getComments",
-                "getReviews",
-                "getCommits"
-            ]
+            menu["getChangedFiles"]["query"]["include"],
+            json!(["files", "body"])
         );
-        // No changed files and provably no comments: nothing to fetch there.
-        let empty = json!({"body":null,"changed_files":0,"comments":0,"review_comments":0});
+        // Provably no comments: the discussion read asks for reviews only.
         assert_eq!(
-            names(&pr_next_menu(&query, None, "none", None, &empty)),
-            ["getReviews", "getCommits"]
+            menu["getDiscussion"]["query"]["include"],
+            json!(["reviews"])
+        );
+        // No changed files and a long body: the body read stands alone.
+        let empty = json!({"body":"y".repeat(BODY_PREVIEW_CHARS + 1),"changed_files":0,
+            "comments":0,"review_comments":0});
+        assert_eq!(
+            names(&pr_next_menu(&query, None, "none", &[], &empty)),
+            ["getBody", "getDiscussion"]
         );
     }
 
+    /// S6/S7: a summary menu holds at most four entries; an inventory read
+    /// turns its review pick into `reviewPatches` over several files.
     #[test]
-    fn large_pr_menu_routes_to_the_inventory_not_every_patch() {
+    fn summary_menu_is_four_entries_and_inventory_reviews_many_files() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
         }))
         .expect("query");
-        let large = json!({"body":"","changed_files":656,"additions":282_700,"deletions":284_842});
-        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &large);
-        assert!(menu.get("getAllPatches").is_none(), "{menu}");
-        assert!(menu.get("getChangedFiles").is_some(), "{menu}");
+        let merged = json!({"body":"x".repeat(900),"changed_files":656,"additions":282_700,
+            "deletions":284_842,"comments":5,"merged_at":"2026-01-01T00:00:00Z","merge_commit_sha":"abc"});
+        let menu = pr_next_menu(&query, None, "none", &[], &merged);
+        let keys = menu
+            .as_object()
+            .map(|m| m.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
         assert_eq!(
-            menu["getSelectedPatches"]["confidence"], "high",
-            "a ranked file pick is not exact: {menu}"
+            keys,
+            ["getChangedFiles", "getDiscussion", "getMergeCommit"],
+            "{menu}"
         );
-        // D3: the literal search of every patch needs the caller's literal,
-        // so it is never an executable placeholder continuation.
-        assert!(menu.get("findInPatches").is_none(), "{menu}");
         assert!(!menu.to_string().contains("<literal"), "{menu}");
-        let medium = json!({"body":"","changed_files":100,"additions":900,"deletions":10});
-        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &medium);
+        let review = vec!["src/a.rs".to_owned(), "src/b.rs".to_owned()];
+        let inventory = json!({"changed_files":30,"additions":900,"deletions":10});
+        let content = json!({"changedFiles":true});
+        let menu = pr_next_menu(&query, content.as_object(), "none", &review, &inventory);
+        assert_eq!(
+            menu["reviewPatches"]["query"]["include"],
+            json!(["patches"])
+        );
+        assert_eq!(
+            menu["reviewPatches"]["query"]["files"],
+            json!(["src/a.rs", "src/b.rs"])
+        );
+        assert_eq!(menu["reviewPatches"]["confidence"], "high");
         assert!(menu.get("getAllPatches").is_some(), "{menu}");
-        assert!(menu.get("findInPatches").is_none(), "{menu}");
-    }
-
-    #[test]
-    fn pr_next_menu_drops_selected_patches_equivalent_to_all_patches() {
-        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
-        }))
-        .expect("query");
-        // One changed file: the selected patch of that file is the whole diff.
-        let one_file = json!({"body":"","changed_files":1,"additions":400,"deletions":10});
-        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &one_file);
-        assert!(menu.get("getSelectedPatches").is_none(), "{menu}");
-        assert!(menu.get("getAllPatches").is_some(), "{menu}");
-        // Small diff: all patches read in one cheap call.
-        let small = json!({"body":"","changed_files":5,"additions":10,"deletions":10});
-        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &small);
-        assert!(menu.get("getSelectedPatches").is_none(), "{menu}");
-        // Large multi-file diff keeps the narrow read.
-        let large = json!({"body":"","changed_files":30,"additions":900,"deletions":10});
-        let menu = pr_next_menu(&query, None, "none", Some("src/a.rs"), &large);
-        assert!(menu.get("getSelectedPatches").is_some(), "{menu}");
+        // A pick covering every changed file is the every-patch read.
+        let two = json!({"body":"","changed_files":2,"additions":900,"deletions":10});
+        let menu = pr_next_menu(&query, content.as_object(), "none", &review, &two);
+        assert_eq!(
+            menu["reviewPatches"]["query"]["include"],
+            json!(["patches"]),
+            "{menu}"
+        );
+        assert!(
+            menu["reviewPatches"]["query"].get("files").is_none(),
+            "{menu}"
+        );
     }
 
     #[test]

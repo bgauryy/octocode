@@ -612,6 +612,117 @@ mod tests {
         serde_json::to_value(&result).expect("serialize")
     }
 
+    /// At most 50 hits are all shown on one page with no paging metadata; a
+    /// larger result keeps 10 rows per file, and a caller cap always wins.
+    #[test]
+    fn a_small_result_shows_every_hit_without_paging() {
+        let small = "needle\n".repeat(13);
+        let body = search_fixture(
+            &[("a.txt", &small)],
+            ls_query(serde_json::json!({"searchText": "needle"}), None),
+        );
+        let file = &body["files"][0];
+        assert_eq!(file["matches"].as_array().map(Vec::len), Some(13), "{body}");
+        assert!(file.get("pagination").is_none(), "{body}");
+        assert!(body.get("pagination").is_none(), "{body}");
+        assert!(body["next"].get("nextMatchPage").is_none(), "{body}");
+        let many_files: Vec<(String, String)> = (0..25)
+            .map(|n| (format!("f{n:02}.txt"), "needle\n".to_owned()))
+            .collect();
+        let refs: Vec<(&str, &str)> = many_files
+            .iter()
+            .map(|(name, body)| (name.as_str(), body.as_str()))
+            .collect();
+        let spread = search_fixture(
+            &refs,
+            ls_query(serde_json::json!({"searchText": "needle"}), None),
+        );
+        assert_eq!(
+            spread["files"].as_array().map(Vec::len),
+            Some(25),
+            "all files on one page"
+        );
+        assert!(spread.get("pagination").is_none(), "{spread}");
+        let large = "needle\n".repeat(60);
+        let body = search_fixture(
+            &[("a.txt", &large)],
+            ls_query(serde_json::json!({"searchText": "needle"}), None),
+        );
+        assert_eq!(
+            body["files"][0]["matches"].as_array().map(Vec::len),
+            Some(10)
+        );
+        assert!(body["next"]["nextMatchPage"].is_object(), "{body}");
+        let capped = search_fixture(
+            &[("a.txt", &small)],
+            ls_query(
+                serde_json::json!({"searchText": "needle", "maxMatchesPerFile": 10}),
+                None,
+            ),
+        );
+        assert_eq!(
+            capped["files"][0]["matches"].as_array().map(Vec::len),
+            Some(10)
+        );
+    }
+
+    /// A small, complete result hands off one localFetch read of its top
+    /// file's hits (matchString, ±6 lines) so the next call reads instead of
+    /// re-searching; wide or already-contextual results do not.
+    #[test]
+    fn a_small_complete_result_hands_off_a_read_of_its_top_file() {
+        let body = search_fixture(
+            &[("src/a.py", "x = 1\ndef needle():\n    needle()\n")],
+            ls_query(serde_json::json!({"searchText": "needle"}), None),
+        );
+        let read = &body["next"]["read"];
+        assert_eq!(read["tool"], "localFetch", "{body}");
+        let query = &read["query"];
+        assert!(
+            query["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("src/a.py")),
+            "{body}"
+        );
+        assert_eq!(query["matchString"], "needle");
+        assert_eq!(query["contextLines"], 6);
+        let mut runnable = query.clone();
+        runnable["goal"] = serde_json::json!("g");
+        runnable["reasoning"] = serde_json::json!("r");
+        crate::contracts::validate_query("localFetch", runnable).expect("valid localFetch read");
+        let regex = search_fixture(
+            &[("a.py", "needle_a\nneedle_b\n")],
+            ls_query(serde_json::json!({"searchText": "needle_(a|b)"}), None),
+        );
+        assert_eq!(
+            regex["next"]["read"]["query"]["matchStringIsRegex"], true,
+            "{regex}"
+        );
+        let wide = search_fixture(
+            &[
+                ("a.py", "needle\n"),
+                ("b.py", "needle\n"),
+                ("c.py", "needle\n"),
+                ("d.py", "needle\n"),
+            ],
+            ls_query(serde_json::json!({"searchText": "needle"}), None),
+        );
+        assert!(wide["next"].get("read").is_none(), "{wide}");
+        let context = search_fixture(
+            &[("a.py", "x\nneedle\ny\n")],
+            ls_query(
+                serde_json::json!({"searchText": "needle", "contextLines": 1}),
+                None,
+            ),
+        );
+        assert!(
+            context
+                .get("next")
+                .is_none_or(|next| next.get("read").is_none()),
+            "{context}"
+        );
+    }
+
     fn all_values(body: &serde_json::Value) -> String {
         body["files"]
             .as_array()
@@ -972,8 +1083,14 @@ mod tests {
     #[test]
     fn default_paginated_view_is_lean_and_detailed_keeps_context() {
         let file = numbered(30, &(1..=12).collect::<Vec<_>>());
+        // 62 hits: above the show-everything threshold (50).
         let many: Vec<(String, String)> = (0..25)
-            .map(|i| (format!("f{i:02}.txt"), "line 1 needle\n".to_owned()))
+            .map(|i| {
+                (
+                    format!("f{i:02}.txt"),
+                    "line 1 needle\nline 2 needle\n".to_owned(),
+                )
+            })
             .collect();
         let mut fixtures: Vec<(&str, &str)> = vec![("a.txt", file.as_str())];
         fixtures.extend(many.iter().map(|(p, c)| (p.as_str(), c.as_str())));
@@ -999,7 +1116,7 @@ mod tests {
         );
         assert_eq!(
             detailed["files"][0]["matches"][0]["value"],
-            "line 17\nline 18\nline 19\nline 20 needle\nline 21\nline 22\nline 23"
+            "17\tline 17\n18\tline 18\n19\tline 19\n20\tline 20 needle\n21\tline 21\n22\tline 22\n23\tline 23"
         );
     }
 
@@ -1035,9 +1152,9 @@ mod tests {
         let expected: String = (3..=14)
             .map(|n| {
                 if [5, 7, 12].contains(&n) {
-                    format!("line {n} needle")
+                    format!("{n}\tline {n} needle")
                 } else {
-                    format!("line {n}")
+                    format!("{n}\tline {n}")
                 }
             })
             .collect::<Vec<_>>()
@@ -1047,7 +1164,7 @@ mod tests {
         assert!(matches[1].get("matchLines").is_none(), "{body}");
         assert_eq!(
             matches[1]["value"],
-            "line 23\nline 24\nline 25 needle\nline 26\nline 27"
+            "23\tline 23\n24\tline 24\n25\tline 25 needle\n26\tline 26\n27\tline 27"
         );
         // Counts stay per matched line.
         assert_eq!(body["stats"]["matchedLines"], 4);
@@ -1065,9 +1182,12 @@ mod tests {
         );
         let matches = body["files"][0]["matches"].as_array().expect("matches");
         assert_eq!(matches.len(), 2, "{body}");
-        assert_eq!(matches[0]["value"], "line 1 needle\nline 2 needle\nline 3");
+        assert_eq!(
+            matches[0]["value"],
+            "1\tline 1 needle\n2\tline 2 needle\n3\tline 3"
+        );
         assert_eq!(matches[0]["matchLines"], serde_json::json!([1, 2]));
-        assert_eq!(matches[1]["value"], "line 5\nline 6 needle");
+        assert_eq!(matches[1]["value"], "5\tline 5\n6\tline 6 needle");
         // matchOnly never merges: it carries spans, not windows.
         let body = search_fixture(
             &[("a.txt", &file)],

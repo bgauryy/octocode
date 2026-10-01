@@ -14,6 +14,7 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
         let full = query.get("fullContent") == Some(&Value::Bool(true));
         let matched = query.get("matchString").is_some();
         let ranged = query.get("startLine").is_some() || query.get("endLine").is_some();
+        let multi = query.get("ranges").is_some();
         let mut add = |condition: bool, rule: &str, field: &str, message: &str| {
             if condition {
                 issues.extend(
@@ -27,6 +28,18 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
             }
         };
         if extraction {
+            add(
+                multi && (full || matched || ranged),
+                "content.extraction-mode",
+                "ranges",
+                "Choose ranges or fullContent/matchString/startLine.",
+            );
+            add(
+                query.get("block") == Some(&Value::Bool(true)) && !(matched || ranged || multi),
+                "content.block-selector",
+                "block",
+                "block widens startLine/endLine, ranges, or matchString; set one.",
+            );
             add(
                 full && matched,
                 "content.extraction-mode",
@@ -83,10 +96,10 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
             );
             add(
                 query.get("minify").and_then(Value::as_str) == Some("symbols")
-                    && (matched || ranged),
+                    && (matched || ranged || multi),
                 "content.symbol-selector",
                 "minify",
-                "minify:\"symbols\" cannot accompany matchString or startLine/endLine. Read the outline, then select source lines.",
+                "minify:\"symbols\" cannot accompany matchString, startLine/endLine, or ranges. Read the outline, then select source lines.",
             );
             add(
                 !matched
@@ -96,6 +109,38 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
                 "matchString",
                 "Match options require matchString.",
             );
+        }
+        if extraction {
+            for (position, range) in query
+                .get("ranges")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                let reversed = range
+                    .as_str()
+                    .and_then(|range| range.split_once('-'))
+                    .and_then(|(start, end)| {
+                        Some((start.parse::<u64>().ok()?, end.parse::<u64>().ok()?))
+                    })
+                    .is_some_and(|(start, end)| end < start);
+                if reversed {
+                    issues.extend(
+                        issue(
+                            "content.range-order",
+                            vec![
+                                "queries".into(),
+                                index.to_string(),
+                                "ranges".into(),
+                                position.to_string(),
+                            ],
+                            "Set each range as start-end with end >= start.",
+                        )
+                        .issues,
+                    );
+                }
+            }
         }
     }
     if issues.is_empty() {

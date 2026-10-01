@@ -64,7 +64,16 @@ pub fn inherit_clasify_briefs(structured: &mut Value, input: &Value) {
             .find(|query| id.is_some() && query.get("id") == id.as_ref())
             .or_else(|| queries.get(position));
         if let Some(query) = query {
+            // next.clasify reads inherit the matrix brief when replayed, so
+            // their nested queries do not repeat it.
+            let resume = row
+                .get_mut("next")
+                .and_then(Value::as_object_mut)
+                .and_then(|next| next.remove("clasify"));
             brief_walk(row, &brief_of(query));
+            if let Some(resume) = resume {
+                row["next"]["clasify"] = resume;
+            }
         }
     }
 }

@@ -197,3 +197,99 @@ fn node_server_starts_under_the_default_address_space_cap() {
     });
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A real provider answers the first definition with an alias location, then
+/// fails the follow-up. Useful locations survive, but identity stays partial.
+#[test]
+fn nested_definition_failure_keeps_location_with_partial_provenance() {
+    use super::ops::Operation;
+    use super::source::{SourceCache, snippet_policy};
+    use crate::policy::path::{PathPolicy, PathPolicyConfig};
+    use crate::tools::cancel::NeverCancel;
+    use serde_json::json;
+    assert!(
+        node_available(),
+        "Node is required for the real LSP fixture"
+    );
+    for fail in [true, false] {
+        let (root, script) = fixture(if fail {
+            "definition-error"
+        } else {
+            "definition-ok"
+        });
+        std::fs::write(root.join("b.ts"), "const b = 1;\n").expect("alias source");
+        let server = FAKE_SERVER
+            .replace("hoverProvider: true", "definitionProvider: true")
+            .replace(
+                "  } else if (msg.method === 'textDocument/hover') {\n    process.exit(3);",
+                &format!(r#"  }} else if (msg.method === 'textDocument/definition') {{
+    if (msg.params.textDocument.uri.endsWith('/a.ts')) {{
+      send({{jsonrpc:'2.0',id:msg.id,result:{{uri:msg.params.textDocument.uri.replace('/a.ts','/b.ts'),range:{{start:{{line:0,character:6}},end:{{line:0,character:7}}}}}}}});
+    }} else if ({fail}) {{
+      send({{jsonrpc:'2.0',id:msg.id,error:{{code:-32603,message:'injected follow-up failure'}}}});
+    }} else {{
+      send({{jsonrpc:'2.0',id:msg.id,result:[]}});
+    }}"#),
+            );
+        std::fs::write(&script, server).expect("definition fixture server");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("path policy");
+        let path = root.join("a.ts").to_string_lossy().into_owned();
+        let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
+        let query = serde_json::from_value(json!({
+            "operation":"definition", "goal":"test", "reasoning":"test",
+            "uri":uri, "position":{"line":0,"character":6}
+        }))
+        .expect("query");
+        tokio::runtime::Runtime::new().expect("rt").block_on(async {
+            let client = NativeLspClient::new(config(&root, &script, None));
+            client.start().await.expect("server starts");
+            let mut sources = SourceCache::new(&paths);
+            let policy = snippet_policy(&paths);
+            let row = Operation {
+                client: &client,
+                query: &query,
+                sources: &mut sources,
+                snippet_policy: &policy,
+                cancel: &NeverCancel,
+                path: &path,
+                workspace_root: root.to_str().expect("root"),
+                root_only: false,
+                line: 0,
+                character: 6,
+                language_id: Some("typescript"),
+            }
+            .run()
+            .await
+            .expect("definition row retains earlier evidence");
+            let text = row.to_string();
+            assert!(text.contains("b.ts"), "{row}");
+            if fail {
+                assert_eq!(row["isPartial"], true, "{row}");
+                assert!(
+                    row["partialReasons"]
+                        .as_array()
+                        .expect("reasons")
+                        .contains(&json!("definitionHopFailed")),
+                    "{row}"
+                );
+                assert!(text.contains("injected follow-up failure"), "{row}");
+                assert!(text.contains("not verified terminal identity"), "{row}");
+                assert_eq!(row["next"]["retry"]["tool"], "lspSearch");
+            } else {
+                assert!(
+                    !row["partialReasons"]
+                        .as_array()
+                        .is_some_and(|reasons| reasons.contains(&json!("definitionHopFailed"))),
+                    "{row}"
+                );
+                assert!(!text.contains("injected follow-up failure"), "{row}");
+            }
+            client.stop().await.expect("fixture server closed");
+        });
+        std::fs::remove_dir_all(root).expect("fixture removed");
+    }
+}

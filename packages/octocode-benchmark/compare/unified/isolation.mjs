@@ -128,7 +128,7 @@ export async function solverBoundary({ cwd, corpus, repoRoot, mcp = false, stats
   const sandboxProfile = verifySandbox(cwd, corpus);
   if (!oauthToken && !process.env.ANTHROPIC_API_KEY) throw new Error('Claude authentication must be supplied by evaluator outside isolated solver home.');
   const secret = randomBytes(24).toString('hex');
-  const traffic = { modelConnects: [], rejectedConnects: 0, githubGetRequests: 0, githubRejectedWrites: 0, mcpRequests: 0 };
+  const traffic = { modelConnects: [], rejectedConnects: 0, githubGetRequests: 0, githubRejectedWrites: 0, githubForwardedAttempts: 0, githubCompletedResponses: 0, githubUpstreamFailures: 0, githubResponseStatuses: {}, githubAttempts: [], mcpRequests: 0 };
   const nativeCalls = [];
   if (mcp && !statsHome) throw new Error('isolated evaluator statsHome required for native MCP');
   let upstream, github, gateway;
@@ -142,10 +142,18 @@ export async function solverBoundary({ cwd, corpus, repoRoot, mcp = false, stats
       const url = new URL(req.url, 'https://api.github.com');
       url.pathname = url.pathname.replace(/^\/api\/v3(?=\/|$)/, '');
       if (url.origin !== 'https://api.github.com' || url.pathname.startsWith('//')) { res.writeHead(400); res.end(); return; }
+      const attempt = { method: req.method, startedAt: new Date().toISOString(), status: null, outcome: 'pending' };
+      traffic.githubForwardedAttempts++; traffic.githubAttempts.push(attempt);
       try {
         const response = await githubFetch(url, { method: req.method, redirect: 'error', signal: AbortSignal.timeout(60000), headers: { Accept: req.headers.accept ?? 'application/vnd.github+json', 'User-Agent': 'octocode-benchmark-readonly', ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}) } });
-        res.writeHead(response.status, { 'content-type': response.headers.get('content-type') ?? 'application/json' }); res.end(Buffer.from(await response.arrayBuffer()));
-      } catch { res.writeHead(502); res.end('GitHub gateway upstream failed'); }
+        attempt.status = response.status;
+        traffic.githubCompletedResponses++;
+        traffic.githubResponseStatuses[response.status] = (traffic.githubResponseStatuses[response.status] ?? 0) + 1;
+        const body = Buffer.from(await response.arrayBuffer());
+        attempt.outcome = 'response';
+        res.writeHead(response.status, { 'content-type': response.headers.get('content-type') ?? 'application/json' }); res.end(body);
+      } catch { attempt.outcome = 'upstream-failure'; traffic.githubUpstreamFailures++; res.writeHead(502); res.end('GitHub gateway upstream failed'); }
+      finally { attempt.completedAt = new Date().toISOString(); }
     });
     const socketPath = path.join(fs.realpathSync(cwd), 'github.sock');
     await new Promise((resolve, reject) => { github.once('error', reject); github.listen(socketPath, resolve); });
@@ -198,6 +206,7 @@ export async function solverBoundary({ cwd, corpus, repoRoot, mcp = false, stats
       traffic: () => structuredClone(traffic),
       nativeCalls: () => structuredClone(nativeCalls),
       providerStats: () => { try { return JSON.parse(fs.readFileSync(path.join(statsHome, 'stats.json'), 'utf8')).stats?.clasify ?? null; } catch { return null; } },
+      githubStats: () => { try { return JSON.parse(fs.readFileSync(path.join(statsHome, 'stats.json'), 'utf8')).stats?.github ?? null; } catch { return null; } },
       close };
   } catch (error) { await close(); throw error; }
 }

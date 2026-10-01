@@ -51,6 +51,7 @@ const rows = questions.map((q) => {
       provisionalUsage: t.provisional_usage, usageReconciliation: { provisional: t.usage_gaps, modelUsage: t.model_usage_gaps },
       classificationProvider: r.classificationProvider ?? null, providerUsageStatus: r.providerUsageStatus,
       classificationAccounting: r.classificationAccounting ?? null,
+      gatewayTraffic: r.gatewayTraffic ?? null, nativeGithubUsage: r.nativeGithubUsage ?? null, networkAccounting: r.networkAccounting ?? null,
       nativeCalls: r.nativeCalls ?? [], rowErrors: r.rowErrorCount ?? 0, nativeRowErrors: r.nativeRowErrorCount ?? 0,
       reflection: r.reflection ? { cost_usd: r.reflection.cost_usd, costVerified: r.reflection.costVerified, tokens: r.reflection.tokens } : null,
       firstRequestContext: t.first_request_context,

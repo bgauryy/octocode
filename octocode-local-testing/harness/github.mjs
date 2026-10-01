@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, inventoryRows, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, checks, collect, inventoryRows, rowData, sourceView, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('github');
 const client = await startServer();
@@ -62,11 +62,12 @@ for (const r of Object.values(pinned)) {
     const w = fileRow(whole);
     check(`${r.dir}/${file}: totalLines and sourceBytes match git`, w?.totalLines === lines.length && w?.sourceBytes === Buffer.byteLength(text), `tool ${w?.totalLines}L/${w?.sourceBytes}B vs git ${lines.length}L/${Buffer.byteLength(text)}B`);
     if (!w?.isPartial) {
-      check(`${r.dir}/${file}: fullContent is byte-identical`, w?.content === text || w?.content === text.replace(/\n$/, ''), firstDiff(w?.content ?? '', text));
+      const whole = sourceView(w).text;
+      check(`${r.dir}/${file}: fullContent is byte-identical`, whole === text || whole === text.replace(/\n$/, ''), firstDiff(whole, text));
       stats.bytesCompared += Buffer.byteLength(text);
     } else {
       // Oversize fullContent returns page 1 inline (exact source) plus a continuation.
-      const firstLines = (w.content ?? '').replace(/\n$/, '');
+      const firstLines = sourceView(w).text.replace(/\n$/, '');
       const inline = firstLines.length > 0 && text.startsWith(firstLines) && (w.partialReasons ?? []).length > 0 && !!w.next;
       check(`${r.dir}/${file}: oversize fullContent returns an exact first page and a continuation`, inline, JSON.stringify({ partialReasons: w.partialReasons, bytes: firstLines.length, next: Object.keys(w.next ?? {}) }));
     }
@@ -78,8 +79,9 @@ for (const r of Object.values(pinned)) {
       const end = Math.min(lines.length, next + 1499);
       const out = await call('ghGetFileContent', { ...base, startLine: next, endLine: end });
       const row = fileRow(out);
-      const ranges = row?.sourceLineRanges ?? [];
-      const got = (row?.content ?? '').replace(/\n$/, '');
+      const view = sourceView(row);
+      const ranges = view.ranges;
+      const got = view.text.replace(/\n$/, '');
       const want = ranges.map(g => lines.slice(g.start - 1, g.end).join('\n')).join('\n');
       if (!ranges.length || got !== want) { mismatch = `window ${next}-${end}: ${firstDiff(got, want)}`; break; }
       covered += ranges.reduce((n, g) => n + g.end - g.start + 1, 0);
@@ -96,7 +98,7 @@ for (const r of Object.values(pinned)) {
   for (let i = 0; i < 12; i++) { const s = 1 + Math.floor(((i * 7919) % 997) / 997 * (lines.length - 40)); picks.push([s, s + (i % 5) * 9]); }
   for (const [s, e] of picks) {
     const row = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, branch: r.sha, path: file, startLine: s, endLine: e }));
-    const got = (row?.content ?? '').replace(/\n$/, '');
+    const got = sourceView(row).text.replace(/\n$/, '');
     if (got !== lines.slice(s - 1, e).join('\n')) bad.push(`${s}-${e}`);
     stats.rangesCompared += 1;
   }
@@ -105,9 +107,10 @@ for (const r of Object.values(pinned)) {
   const needle = { rust: 'pub fn try_', c: 'serverCron', python: 'def _', go: 'func (db *DB)', typescript: 'export function is' }[r.dir];
   const m = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, branch: r.sha, path: file, matchString: needle, matchStringCaseSensitive: true, contextLines: 0 }));
   const hitLines = lines.map((l, i) => l.includes(needle) ? i + 1 : 0).filter(Boolean);
-  const ranges = m?.sourceLineRanges ?? [];
+  const mView = sourceView(m);
+  const ranges = mView.ranges;
   const inRanges = hitLines.filter(n => ranges.some(g => g.start <= n && n <= g.end));
-  const blocks = (m?.content ?? '').replace(/\n$/, '').split(/\n?\.\.\. \[lines \d+-\d+ omitted\] \.\.\.\n?/);
+  const blocks = mView.text.replace(/\n$/, '').split(/\n?\.\.\. \[lines \d+-\d+ omitted\] \.\.\.\n?/);
   const exact = ranges.length === blocks.length && ranges.every((g, i) => blocks[i] === lines.slice(g.start - 1, g.end).join('\n'));
   check(`${r.dir}: matchString "${needle}" covers every literal hit (${hitLines.length}) with exact windows`, inRanges.length === hitLines.length && exact || (m?.isPartial && exact && inRanges.length > 0), `hits=${hitLines.length} covered=${inRanges.length} ranges=${ranges.length} blocks=${blocks.length} partial=${!!m?.isPartial}`);
 }
@@ -212,7 +215,8 @@ for (const r of Object.values(pinned)) {
   const out = await search({ operation: 'repositories', owner: 'tokio-rs', stars: '>3000', pageSize: 10 });
   const shared = out.sc?.shared ?? {};
   const rows = (rowData(out)?.repositories ?? []).map(row => ({ ...shared, ...row }));
-  check('repositories: owner and stars filters hold on every row', rows.length > 0 && rows.every(x => x.owner === 'tokio-rs' && x.stars > 3000), rows.map(x => `${x.owner}/${x.repo}:${x.stars}`).join(','));
+  // Rows name the repository as `owner/name`.
+  check('repositories: owner and stars filters hold on every row', rows.length > 0 && rows.every(x => x.repo?.split('/')[0] === 'tokio-rs' && x.stars > 3000), rows.map(x => `${x.repo}:${x.stars}`).join(','));
   const lang = await search({ operation: 'repositories', keywords: ['async runtime'], language: 'rust', stars: '>1000', pageSize: 10 });
   const langRows = (rowData(lang)?.repositories ?? []).map(row => ({ ...(lang.sc?.shared ?? {}), ...row }));
   check('repositories: language filter holds on every row', langRows.length > 0 && langRows.every(x => /rust/i.test(x.language ?? '')), langRows.map(x => `${x.repo}:${x.language}`).join(','));
@@ -227,18 +231,20 @@ for (const r of Object.values(pinned)) {
   const commit = rowData(await call('ghGetHistoryItem', { operation: 'commit', owner: r.owner, repo: r.repo, ref: r.sha, debug: true }));
   check('commit: message equals git', (commit?.message ?? '').trim() === git(r.dir, 'log', '-1', '--format=%B').trim(), commit?.message?.slice(0, 80));
   check('commit: author name/email and parents equal git', commit?.author?.name === git(r.dir, 'log', '-1', '--format=%an').trim() && commit?.author?.email === git(r.dir, 'log', '-1', '--format=%ae').trim() && JSON.stringify(commit?.parents) === JSON.stringify([parent]), JSON.stringify({ a: commit?.author, p: commit?.parents }));
-  const files = commit?.files ?? [];
-  check('commit: changed files and +/- counts equal git numstat', files.length === numstat.length && numstat.every(n => files.some(f => f.filename === n.f && f.additions === n.a && f.deletions === n.d)), JSON.stringify(files) + ' vs ' + JSON.stringify(numstat));
+  // Commit file rows: `path` + `stat` ("M +3 -1"), like PR patch rows.
+  const fileRow = f => { const [, a, d] = (f?.stat ?? '').match(/\+(\d+) -(\d+)/) ?? []; return { path: f?.path ?? f?.filename, additions: a === undefined ? f?.additions : +a, deletions: d === undefined ? f?.deletions : +d }; };
+  const files = (commit?.files ?? []).map(fileRow);
+  check('commit: changed files and +/- counts equal git numstat', files.length === numstat.length && numstat.every(n => files.some(f => f.path === n.f && f.additions === n.a && f.deletions === n.d)), JSON.stringify(files) + ' vs ' + JSON.stringify(numstat));
   const withDiff = rowData(await call('ghGetHistoryItem', { operation: 'commit', owner: r.owner, repo: r.repo, ref: r.sha, includeDiff: true }));
   const patchOk = numstat.every(n => {
-    const f = (withDiff?.files ?? []).find(x => x.filename === n.f);
+    const f = (withDiff?.files ?? []).find(x => fileRow(x).path === n.f);
     const gitPatch = git(r.dir, 'diff', parent, 'HEAD', '--', n.f).split('\n').filter(l => /^[+-](?![+-])/.test(l));
     const toolPatch = (f?.patch ?? '').split('\n').filter(l => /^[+-](?![+-])/.test(l));
     return f && JSON.stringify(toolPatch) === JSON.stringify(gitPatch);
   });
   check('commit includeDiff: +/- lines equal git diff', patchOk);
   const compare = rowData(await call('ghGetHistoryItem', { operation: 'compare', owner: r.owner, repo: r.repo, base: parent, head: r.sha }));
-  const cmpFiles = collect(compare, o => typeof o.filename === 'string' || (typeof o.path === 'string' && ('additions' in o))).map(f => f.filename ?? f.path);
+  const cmpFiles = (compare?.files ?? []).map(f => fileRow(f).path);
   check('compare parent...HEAD: same files as the commit', cmpFiles.length === numstat.length && numstat.every(n => cmpFiles.includes(n.f)), cmpFiles.join(','));
   const prNumber = +(git(r.dir, 'log', '-1', '--format=%s').match(/#(\d+)\)/)?.[1] ?? 0);
   if (prNumber) {
@@ -266,7 +272,7 @@ for (const r of Object.values(pinned)) {
   let pathOk = 0, pathRows = collect(touched, o => typeof o.sha === 'string').slice(0, 3);
   for (const row of pathRows) {
     const c = rowData(await call('ghGetHistoryItem', { operation: 'commit', owner: r.owner, repo: r.repo, ref: row.sha }));
-    if ((c?.files ?? []).some(f => f.filename === 'tokio/src/signal/registry.rs')) pathOk += 1;
+    if ((c?.files ?? []).some(f => fileRow(f).path === 'tokio/src/signal/registry.rs')) pathOk += 1;
   }
   check('commit search path filter: every commit touches the path', pathRows.length > 0 && pathOk === pathRows.length, `${pathOk}/${pathRows.length}`);
   const ranged = rowData(await call('ghSearchHistory', { operation: 'commit', owner: r.owner, repo: r.repo, since: '2026-09-01', until: '2026-09-20', pageSize: 10 }));
@@ -322,7 +328,7 @@ for (const r of Object.values(pinned)) {
     const strict = !!top && lines.slice(top.startLine - 1, top.endLine).some(l => t.re.test(l));
     const verify = top ? await call('ghGetFileContent', { owner: r.owner, repo: r.repo, branch: r.sha, path: t.file, startLine: top.startLine, endLine: top.endLine }) : null;
     host += verify?.bytes ?? 0;
-    const verified = !!verify && (fileRow(verify)?.content ?? '').split('\n').some(l => t.re.test(l));
+    const verified = !!verify && sourceView(fileRow(verify)).text.split('\n').some(l => t.re.test(l));
     rows.push({ file: `${r.repo}/${path.basename(t.file)}`, KB: Math.round(bytes / 1024), calls, window: top ? `${top.startLine}-${top.endLine}` : '-', exists: top?.exists, strict, verified, hostKB: (host / 1024).toFixed(1), saving: `${Math.round(100 - 100 * host / bytes)}%` });
     check(`clasify GitHub ${r.repo}/${path.basename(t.file)}: rank-1 window shows the declaration, verified by a remote read`, strict && verified, `top=${JSON.stringify(top)}`);
     check(`clasify GitHub ${r.repo}/${path.basename(t.file)}: receipts carry owner/repo/path and the pinned ref`, sources.length > 0 && sources.every(s => s.path === `${r.owner}/${r.repo}/${t.file}` && s.ref === r.sha), `paths=${[...paths]} refs=${[...refs].map(x => x.slice(0, 8))}`);

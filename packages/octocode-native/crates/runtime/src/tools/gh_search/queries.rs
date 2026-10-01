@@ -180,7 +180,27 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
     if let Some(visibility) = visibility {
         push(&mut parts, "is", Some(&visibility.to_string()));
     }
+    if let Some(qualifiers) = query.qualifiers.as_deref() {
+        push_qualifiers(&mut parts, qualifiers);
+    }
     parts.join(" ").trim().into()
+}
+
+/// `qualifiers`: space-separated `key:value` filters (the contract allowlists
+/// the keys). Each is re-emitted through the same range/date normalization
+/// as the dedicated fields, so a value can never start a new term.
+fn push_qualifiers(parts: &mut Vec<String>, qualifiers: &str) {
+    for term in qualifiers.split_whitespace() {
+        let Some((key, value)) = term.split_once(':') else {
+            continue;
+        };
+        if key == "is" {
+            push(parts, key, Some(value));
+        } else {
+            let value = range_value(value, matches!(key, "created" | "pushed"));
+            push(parts, key, Some(&value));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -271,6 +291,31 @@ mod tests {
             ))
             .is_ok()
         );
+    }
+
+    #[test]
+    fn qualifiers_append_normalized_filters_and_match_the_old_fields() {
+        let with_qualifiers = repositories(&parse(serde_json::json!({
+            "goal": "test", "reasoning":"test","keywords":["http client"],
+            "qualifiers":"forks:>50  size:<5000 created:>2020-01-01 is:public"
+        })));
+        let with_fields = repositories(&parse(serde_json::json!({
+            "goal": "test", "reasoning":"test","keywords":["http client"],
+            "forks":">50","size":"<5000","created":">2020-01-01","visibility":"public"
+        })));
+        for term in [
+            "forks:>50",
+            "size:<5000",
+            "created:>2020-01-01",
+            "is:public",
+        ] {
+            assert!(with_qualifiers.contains(term), "{with_qualifiers}");
+            assert!(with_fields.contains(term), "{with_fields}");
+        }
+        let relative = repositories(&parse(serde_json::json!({
+            "goal": "test", "reasoning":"test","keywords":["x"],"qualifiers":"pushed:30d"
+        })));
+        assert!(relative.contains("pushed:>="), "{relative}");
     }
 
     #[test]

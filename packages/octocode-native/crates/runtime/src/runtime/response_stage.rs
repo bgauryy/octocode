@@ -55,6 +55,9 @@ pub(super) fn finish(
         Err(error) => return Ok(Err(error)),
     }
     let all_failed = response_all_failed(&structured);
+    // Hosts show agents this JSON: source reads carry their line numbers in
+    // `content` itself (C5), and both text encodings render from it.
+    super::numbered::number_read_rows(tool, &mut structured);
     // Continuations replay through validation, which restores defaults;
     // emit only the fields that change the replay.
     super::continuations::compact_continuations(&mut structured);
@@ -317,6 +320,32 @@ mod tests {
         assert!(next.get("debug").is_none(), "{next}");
         assert!(cli.content.is_empty() && !mcp.content.is_empty());
         assert!(!cli.all_failed);
+    }
+
+    /// C5: hosts show agents structuredContent, so source reads carry their
+    /// line numbers there on both surfaces; text renders the same numbers.
+    #[test]
+    fn source_reads_carry_line_numbers_in_structured_content() {
+        let row = json!({"index":0,"data":{"path":"a.txt","content":"one\ntwo\n","totalLines":9,
+            "sourceLineRanges":[{"start":4,"end":5}]}});
+        for mcp in [false, true] {
+            let outcome = stage("localFetch", json!({"results":[row.clone()]}), mcp);
+            let data = &outcome.structured_content["results"][0]["data"];
+            assert_eq!(data["content"], "4\tone\n5\ttwo\n", "{data}");
+            assert!(data.get("sourceLineRanges").is_none(), "{data}");
+            if mcp {
+                let text = serde_json::to_string(&outcome.content).expect("text");
+                assert!(text.contains(r"4\tone\n5\ttwo"), "{text}");
+            }
+        }
+        let gh = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":[
+            {"path":"a.py","content":"x\n","totalLines":3,"commitSha":"abc",
+             "sourceLineRanges":[{"start":2,"end":2}]}]}}]});
+        let outcome = stage("ghGetFileContent", gh, false);
+        assert_eq!(
+            outcome.structured_content["results"][0]["data"]["files"][0]["content"],
+            "2\tx\n"
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@ Load when gathering or verifying repository facts before or after writing. Why: 
 
 ## Checklist
 
-1. Orient on root and `docs/` (structure + find files).
+1. Orient on the project root and `<workspace>/docs/` (structure + find files).
 2. Inventory README, CONTRIBUTING, AGENTS.md, ADRs, SECURITY, CI, manifests.
 3. Collect commands only from manifests/Makefiles/CI.
 4. Locate behavior by module/path search — entrypoints, config keys, public contracts.

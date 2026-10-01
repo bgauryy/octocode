@@ -69,15 +69,16 @@ struct PrepareContext<'a> {
     analyzer: &'a StagedAnalyzer,
 }
 
-pub use crate::contracts::tool_types::{ArPostconditionsItem, AstRewriteQuery};
+pub use crate::contracts::tool_types::{
+    ArPostconditionsItem, AstRewriteQuery, AstRewriteQueryPattern, AstRewriteQueryRule,
+};
 
 /// Binds `$field` from either rule kind of `$query`.
 macro_rules! either_kind {
     ($query:expr, $field:ident => $value:expr) => {
         match $query {
-            AstRewriteQuery::Pattern { $field, .. } | AstRewriteQuery::Rule { $field, .. } => {
-                $value
-            }
+            AstRewriteQuery::Pattern(AstRewriteQueryPattern { $field, .. })
+            | AstRewriteQuery::Rule(AstRewriteQueryRule { $field, .. }) => $value,
         }
     };
 }
@@ -91,26 +92,27 @@ fn usize_of(value: std::num::NonZeroU64) -> usize {
 impl AstRewriteQuery {
     pub fn rule_kind(&self) -> &'static str {
         match self {
-            Self::Pattern { .. } => "pattern",
-            Self::Rule { .. } => "rule",
+            Self::Pattern(_) => "pattern",
+            Self::Rule(_) => "rule",
         }
     }
     pub fn path(&self) -> &str {
         either_kind!(self, path => path.as_str())
     }
-    pub fn lang_type(&self) -> &str {
-        either_kind!(self, lang_type => lang_type.as_str())
+    /// The requested parser; `None` asks the runtime to infer it.
+    pub fn lang_type(&self) -> Option<&str> {
+        either_kind!(self, lang_type => lang_type.as_ref().map(|language| language.as_str()))
     }
     pub fn pattern(&self) -> Option<&str> {
         match self {
-            Self::Pattern { pattern, .. } => Some(pattern.as_str()),
-            Self::Rule { .. } => None,
+            Self::Pattern(query) => Some(query.pattern.as_str()),
+            Self::Rule(_) => None,
         }
     }
     pub fn rewrite(&self) -> Option<&str> {
         match self {
-            Self::Pattern { rewrite, .. } => Some(rewrite),
-            Self::Rule { .. } => None,
+            Self::Pattern(query) => Some(query.rewrite.as_str()),
+            Self::Rule(_) => None,
         }
     }
     pub fn default_excludes(&self) -> bool {
@@ -176,19 +178,64 @@ pub struct RewriteRequest {
     /// ast-grep rule JSON (`rule`, `constraints`, `utils`, `transform`, `fix`)
     /// is forwarded from it verbatim: typify models those record fields as
     /// `HashMap`s, whose iteration order would make the rule config and the
-    /// preview snapshot digest nondeterministic.
+    /// preview snapshot digest nondeterministic. A YAML-string `rule` is
+    /// parsed into the same object here, so both shapes preview identically.
     row: Value,
+    /// Parser inferred when `langType` is omitted (set before any scan).
+    inferred_lang: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for RewriteRequest {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let row = Value::deserialize(deserializer)?;
+        let mut row = Value::deserialize(deserializer)?;
         let query = serde_json::from_value(row.clone()).map_err(serde::de::Error::custom)?;
-        Ok(Self { query, row })
+        if let Some(Value::String(text)) = row.get("rule") {
+            row["rule"] = rule_from_yaml(text).map_err(serde::de::Error::custom)?;
+        }
+        Ok(Self {
+            query,
+            row,
+            inferred_lang: None,
+        })
     }
 }
 
+/// Rule-file metadata a pasted ast-grep rule document may carry; none of it
+/// affects matching (`langType` selects the parser).
+const RULE_FILE_METADATA: &[&str] = &[
+    "id", "language", "severity", "message", "note", "url", "metadata",
+];
+
+/// A YAML rule string as the equivalent rule object: a bare rule, or a rule
+/// file whose `rule:` is used (its metadata keys are ignored).
+fn rule_from_yaml(text: &str) -> Result<Value, String> {
+    let value: Value =
+        serde_yaml_ng::from_str(text).map_err(|error| format!("invalid rule YAML: {error}"))?;
+    let Some(object) = value.as_object() else {
+        return Err("rule YAML must be a mapping of ast-grep rule keys".to_owned());
+    };
+    let Some(rule) = object.get("rule") else {
+        return Ok(value);
+    };
+    if let Some(key) = object
+        .keys()
+        .find(|key| *key != "rule" && !RULE_FILE_METADATA.contains(&key.as_str()))
+    {
+        return Err(format!(
+            "rule file key `{key}` is not read from the rule string; pass it as its own astRewrite field"
+        ));
+    }
+    Ok(rule.clone())
+}
+
 impl RewriteRequest {
+    /// The parser this request runs with: `langType`, else the inferred one.
+    pub fn lang(&self) -> &str {
+        self.query
+            .lang_type()
+            .or(self.inferred_lang.as_deref())
+            .unwrap_or_default()
+    }
     fn rule_field(&self, key: &str) -> Option<&Value> {
         (self.query.rule_kind() == "rule")
             .then(|| self.row.get(key))
@@ -382,7 +429,7 @@ pub fn execute_ast_rewrite_with_options(
 }
 
 fn execute(
-    query: RewriteRequest,
+    mut query: RewriteRequest,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancellation: &dyn CancellationCheck,
@@ -422,6 +469,15 @@ fn execute(
             "ast.rewrite.root_invalid",
             "The requested rewrite path must be a file or directory.",
         ));
+    }
+    if query.lang_type().is_none() {
+        query.inferred_lang = Some(infer_language(
+            &query,
+            &root,
+            metadata.is_dir(),
+            paths,
+            cancellation,
+        )?);
     }
     let boundary = if metadata.is_dir() {
         root.clone()
@@ -524,7 +580,11 @@ fn execute(
 }
 
 fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
-    if query.path().trim().is_empty() || query.lang_type().trim().is_empty() {
+    if query.path().trim().is_empty()
+        || query
+            .lang_type()
+            .is_some_and(|language| language.trim().is_empty())
+    {
         return Err(RewriteError::new(
             "ast.rewrite.input.invalid",
             "path and langType must not be blank.",
@@ -574,6 +634,66 @@ fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
         }
     }
     Ok(())
+}
+
+/// The parser for a query without `langType`: a file's extension, or the one
+/// grammar that both occurs under a directory and compiles the rule.
+fn infer_language(
+    query: &RewriteRequest,
+    root: &Path,
+    directory: bool,
+    paths: &PathPolicy,
+    cancellation: &dyn CancellationCheck,
+) -> Result<String, RewriteError> {
+    let required = |message: String| RewriteError::new("ast.rewrite.language_required", message);
+    let candidates = if directory {
+        let prune = crate::policy::prune::PruneMode::SyntaxVisible
+            .directories(&[], query.default_excludes());
+        crate::tools::ast_search::present_grammars(
+            root,
+            &prune,
+            false,
+            false,
+            query.max_files(),
+            &|path| {
+                cancellation.check()?;
+                Ok(paths.permits_discovery(path))
+            },
+        )
+        .map_err(required)?
+        .into_keys()
+        .collect::<Vec<_>>()
+    } else {
+        let extension = root
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        octocode_engine::portable::grammar_capabilities()
+            .into_iter()
+            .filter(|capability| capability.structural_search)
+            .find(|capability| capability.extensions.contains(&extension))
+            .map(|capability| vec![crate::tools::ast_search::grammar_selector(&capability)])
+            .unwrap_or_default()
+    };
+    let compiles = candidates
+        .into_iter()
+        .filter(|language| {
+            let mut probe = query.clone();
+            probe.inferred_lang = Some(language.clone());
+            octocode_engine::structural::compile_rewrite(rule_config(&probe)).is_ok()
+        })
+        .collect::<Vec<_>>();
+    match compiles.as_slice() {
+        [language] => Ok(language.clone()),
+        [] => Err(required(
+            "No supported grammar under path compiles this rule; set langType.".to_owned(),
+        )),
+        several => Err(required(format!(
+            "Several grammars under path compile this rule ({}); set langType to one of them.",
+            several.join(", ")
+        ))),
+    }
 }
 
 fn embedded_engine_receipt() -> ExecutableReceipt {
@@ -892,7 +1012,7 @@ fn prepare(
 fn rule_config(query: &RewriteRequest) -> Value {
     let mut config = Map::new();
     config.insert("id".to_owned(), json!("octocode-inline-rewrite"));
-    config.insert("language".to_owned(), json!(query.lang_type()));
+    config.insert("language".to_owned(), json!(query.lang()));
     config.insert("severity".to_owned(), json!("warning"));
     config.insert(
         "message".to_owned(),
@@ -1076,19 +1196,31 @@ fn select(
     let Some(selected) = query.selected_match_ids() else {
         return Ok((files.to_vec(), matches.to_vec()));
     };
-    let selected = selected.into_iter().collect::<BTreeSet<_>>();
-    let known = matches
-        .iter()
-        .map(|matched| matched.id.clone())
-        .collect::<BTreeSet<_>>();
-    let unknown = selected.difference(&known).cloned().collect::<Vec<_>>();
-    if !unknown.is_empty() {
+    // Each selector is a full id or a unique prefix (preview rows show 16
+    // hex digits); one naming no match, or several, is rejected.
+    let mut unknown = Vec::new();
+    let mut ambiguous = Vec::new();
+    let mut resolved = BTreeSet::new();
+    for prefix in selected {
+        let mut hits = matches
+            .iter()
+            .filter(|matched| matched.id.starts_with(&prefix));
+        match (hits.next(), hits.next()) {
+            (Some(matched), None) => {
+                resolved.insert(matched.id.clone());
+            }
+            (None, _) => unknown.push(prefix),
+            (Some(_), Some(_)) => ambiguous.push(prefix),
+        }
+    }
+    if !unknown.is_empty() || !ambiguous.is_empty() {
         return Err(RewriteError::new(
             "ast.rewrite.selection_invalid",
-            "selectedMatchIds contains IDs that are not part of this snapshot.",
+            "selectedMatchIds must each name exactly one match of this snapshot; use more hex digits for an ambiguous prefix.",
         )
-        .detail(json!({"unknown":unknown})));
+        .detail(json!({"unknown":unknown,"ambiguous":ambiguous})));
     }
+    let selected = resolved;
     let mut selected_files = Vec::new();
     let mut selected_matches = Vec::new();
     let mut total_patch_bytes = 0usize;
@@ -1293,7 +1425,7 @@ fn snapshot(
                 "capabilityDigest":executable.capability_digest
             },
             "root":root,
-            "langType":query.lang_type(),
+            "langType":query.lang(),
             "ruleSpec":rule_spec,
             "include":query.include().as_deref().unwrap_or(&[]),
             "exclude":query.exclude().as_deref().unwrap_or(&[]),
@@ -1874,7 +2006,7 @@ mod tests {
         apply["apply"] = json!(true);
         apply["snapshot"] = first["snapshot"].clone();
         // Preview reports boundary-relative `path` values; apply must accept
-        // them back verbatim (absolutePath keys work too).
+        // them back verbatim (absolute keys work too).
         apply["expectedHashes"] = json!({
             first["files"][0]["path"].as_str().expect("path"):
                 first["files"][0]["beforeHash"].clone()
@@ -1912,8 +2044,9 @@ mod tests {
         let mut apply = query(&root);
         apply["apply"] = json!(true);
         apply["snapshot"] = preview["snapshot"].clone();
+        let absolute = root.join(preview["files"][0]["path"].as_str().expect("path"));
         apply["expectedHashes"] = json!({
-            preview["files"][0]["absolutePath"].as_str().expect("path"):
+            absolute.to_string_lossy():
                 preview["files"][0]["beforeHash"].clone()
         });
         assert_eq!(
@@ -1962,9 +2095,11 @@ mod tests {
         let mut apply = preview_query;
         apply["apply"] = json!(true);
         apply["snapshot"] = preview["snapshot"].clone();
+        // Preview rows carry a 16-hex id prefix; apply accepts it.
         apply["selectedMatchIds"] = json!([preview["matches"][0]["id"]]);
+        let absolute = root.join(preview["files"][0]["path"].as_str().expect("path"));
         apply["expectedHashes"] = json!({
-            preview["files"][0]["absolutePath"].as_str().expect("path"):
+            absolute.to_string_lossy():
                 preview["files"][0]["beforeHash"].clone()
         });
         apply["postconditions"] = json!([{"kind":"remainingMatches","equals":0}]);
@@ -2015,10 +2150,18 @@ mod tests {
         let first_files = first["files"].as_array().expect("files");
         assert_eq!(first_files.len(), 1, "page 1 touches only a.ts: {first}");
         assert_eq!(first_files[0]["path"], "a.ts");
+        // Match rows locate a hunk: a 16-hex id prefix, path and line; the
+        // patch already shows the text and its replacement.
         let matched = &first["matches"][0];
-        assert_eq!(matched["range"]["start"]["line"], 1, "{matched}");
-        assert_eq!(first["matches"][1]["range"]["start"]["line"], 2);
-        assert!(matched.get("byteRange").is_none(), "{matched}");
+        assert_eq!(matched["line"], 1, "{matched}");
+        assert_eq!(first["matches"][1]["line"], 2);
+        assert_eq!(matched["id"].as_str().map(str::len), Some(16), "{matched}");
+        for dropped in ["range", "byteRange", "text", "replacement", "captures"] {
+            assert!(matched.get(dropped).is_none(), "{dropped}: {matched}");
+        }
+        for dropped in ["afterHash", "patchBytes", "absolutePath"] {
+            assert!(first_files[0].get(dropped).is_none(), "{dropped}: {first}");
+        }
         // The executable/isolation receipts are debug-only diagnostics.
         assert!(first.get("executable").is_none(), "{first}");
         assert!(first.get("isolation").is_none(), "{first}");
@@ -2104,7 +2247,7 @@ mod tests {
         assert!(!first_patch.contains("newCall(2)"), "{first}");
         assert_eq!(first_file["matchCount"], 2, "{first}");
         assert_eq!(first_file["patchMatchCount"], 1, "{first}");
-        assert_eq!(first_file["patchBytes"], first_patch.len(), "{first}");
+        assert!(first_file.get("patchBytes").is_none(), "{first}");
 
         let second = rewrite_row(
             first["next"]["nextPage"]["query"].clone(),
@@ -2123,7 +2266,7 @@ mod tests {
         assert!(!second_patch.contains("newCall(1)"), "{second}");
         assert!(second_file.get("patchOnPage").is_none(), "{second}");
         assert_eq!(second_file["beforeHash"], first_file["beforeHash"]);
-        assert_eq!(second_file["afterHash"], first_file["afterHash"]);
+        assert!(second_file.get("afterHash").is_none(), "{second}");
         // The guarded apply still covers the whole file.
         let apply = &second["next"]["apply"]["query"];
         assert_eq!(apply["expectedHashes"]["a.ts"], first_file["beforeHash"]);
@@ -2140,6 +2283,122 @@ mod tests {
             "const first = oldCall(1);\nconst second = oldCall(2);\n",
             "preview must never write"
         );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn debug_preview_keeps_full_match_and_file_rows() {
+        let (root, policy, security) = fixture();
+        let mut preview_query = query(&root);
+        preview_query["debug"] = json!(true);
+        let preview = rewrite_row(
+            preview_query,
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        let matched = &preview["matches"][0];
+        assert_eq!(matched["id"].as_str().map(str::len), Some(64), "{matched}");
+        assert_eq!(matched["range"]["start"]["line"], 1, "{matched}");
+        assert_eq!(matched["text"], "oldCall(1)", "{matched}");
+        assert_eq!(matched["replacement"], "newCall(1)", "{matched}");
+        let file = &preview["files"][0];
+        for kept in ["afterHash", "patchBytes", "absolutePath"] {
+            assert!(file.get(kept).is_some(), "{kept}: {preview}");
+        }
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn selected_match_id_prefixes_must_name_exactly_one_match() {
+        let (root, policy, security) = fixture();
+        let mut preview_query = query(&root);
+        preview_query["pageSize"] = json!(100);
+        let preview = rewrite_row(
+            preview_query.clone(),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        let options = AstRewriteRuntimeOptions {
+            allow_apply: true,
+            ..Default::default()
+        };
+        let mut apply = preview["next"]["apply"]["query"].clone();
+        let short = preview["matches"][1]["id"].as_str().expect("id")[..12].to_owned();
+        apply["selectedMatchIds"] = json!(["f".repeat(16)]);
+        let unknown = rewrite_row(apply.clone(), &policy, &security, &Active, &options);
+        assert_eq!(
+            unknown["errorCode"], "ast.rewrite.selection_invalid",
+            "{unknown}"
+        );
+        apply["selectedMatchIds"] = json!([short]);
+        let applied = rewrite_row(apply, &policy, &security, &Active, &options);
+        assert_eq!(applied["transaction"]["committed"], true, "{applied}");
+        assert_eq!(
+            fs::read_to_string(root.join("a.ts")).expect("read"),
+            "const first = oldCall(1);\nconst second = newCall(2);\n"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn yaml_rule_and_inferred_language_preview_like_the_explicit_object_rule() {
+        let (root, policy, security) = fixture();
+        let explicit = rewrite_row(
+            json!({"path":root,"langType":"typescript","ruleKind":"rule","goal":"test","reasoning":"test",
+                "rule":{"pattern":"oldCall($A)"},"fix":"newCall($A)","pageSize":10}),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        for row in [
+            json!({"path":root,"goal":"test","reasoning":"test","rule":"pattern: oldCall($A)","fix":"newCall($A)","pageSize":10}),
+            json!({"path":root,"goal":"test","reasoning":"test",
+                "rule":"id: rename\nlanguage: typescript\nrule:\n  pattern: oldCall($A)\n","fix":"newCall($A)","pageSize":10}),
+        ] {
+            let inferred = rewrite_row(row, &policy, &security, &Active, &Default::default());
+            assert_eq!(inferred["files"], explicit["files"], "{inferred}");
+            assert_eq!(inferred["snapshot"], explicit["snapshot"], "{inferred}");
+            assert_eq!(
+                inferred["next"]["apply"]["query"]["langType"], "typescript",
+                "{inferred}"
+            );
+            assert_eq!(
+                inferred["next"]["apply"]["query"]["ruleKind"], "rule",
+                "{inferred}"
+            );
+        }
+        let foreign = serde_json::from_value::<RewriteRequest>(
+            json!({"path":root,"goal":"test","reasoning":"test","rule":"rule:\n  pattern: oldCall($A)\nfix: x\n","fix":"newCall($A)"}),
+        )
+        .expect_err("a rule-file fix inside the rule string is not read");
+        assert!(
+            foreign.to_string().contains("rule file key `fix`"),
+            "{foreign}"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn directory_with_several_grammars_requires_lang_type() {
+        let (root, policy, security) = fixture();
+        fs::write(root.join("b.rs"), "fn b() { oldCall(3); }\n").expect("rust file");
+        let mixed = rewrite_row(
+            json!({"path":root,"goal":"test","reasoning":"test","pattern":"oldCall($A)","rewrite":"newCall($A)"}),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        assert_eq!(
+            mixed["errorCode"], "ast.rewrite.language_required",
+            "{mixed}"
+        );
+        assert!(mixed.to_string().contains("typescript"), "{mixed}");
         fs::remove_dir_all(root).expect("cleanup");
     }
 

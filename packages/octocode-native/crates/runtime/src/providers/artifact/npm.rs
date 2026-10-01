@@ -1,7 +1,9 @@
-use super::http::{DnsPin, RegistryClient};
+use super::http::{DnsPin, NPM_INSTALL_JSON, RegistryClient};
 use super::util::{
-    commit_sha, encode_component, endpoint, object_for, required, safe_url, string, total,
+    commit_sha, date_from_millis, encode_component, endpoint, object_for, required, safe_url,
+    string, total,
 };
+use super::versions::{VersionSpec, nearest, npm_resolve};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
     ArtifactType, ResolvedNpmRegistry,
@@ -18,8 +20,8 @@ pub(crate) async fn npm(
     allow_private_registry: bool,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let dns_pin = validate_registry(query, registry, allow_private_registry)?;
-    if let Some(name) = query.package_name() {
-        exact(name, registry, client, dns_pin).await
+    if let Some(name) = query.bare_package_name() {
+        exact(name, query.version(), registry, client, dns_pin).await
     } else {
         search(query, state, registry, client, dns_pin).await
     }
@@ -183,23 +185,43 @@ pub(crate) fn split_npm_coordinate(package_name: &str) -> (&str, Option<&str>) {
 }
 
 async fn exact(
-    package_name: &str,
+    name: &str,
+    version: Option<&str>,
     registry: &ResolvedNpmRegistry,
     client: &RegistryClient<'_>,
     dns_pin: Option<DnsPin>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    let (name, version) = split_npm_coordinate(package_name);
     let encoded = if let Some(scoped) = name.strip_prefix('@') {
         format!("@{}", encode_component(scoped))
     } else {
         encode_component(name)
     };
-    let spec = version.unwrap_or("latest");
+    // Exact versions and tags are one manifest request; a range resolves
+    // against the abbreviated packument first, as `npm install` would.
+    let spec = match version.map(VersionSpec::parse) {
+        None => "latest".to_owned(),
+        Some(VersionSpec::Exact(version) | VersionSpec::Tag(version)) => version,
+        Some(VersionSpec::Range(range)) => {
+            let Some(packument) = packument(&encoded, registry, client, dns_pin.clone()).await?
+            else {
+                return Ok(not_found_page(registry));
+            };
+            let (versions, latest) = published_versions(&packument);
+            match npm_resolve(
+                &range,
+                versions.iter().map(String::as_str),
+                latest.as_deref(),
+            ) {
+                Some(resolved) => resolved,
+                None => return Err(version_not_found(name, &range, &versions)),
+            }
+        }
+    };
     // Percent-encode the version/spec as its own path segment so ranges or
-    // tags (e.g. "^1.0.0") cannot alter the request path.
+    // tags cannot alter the request path.
     let request_url = registry_url(
         &registry.base,
-        &format!("{encoded}/{}", encode_component(spec)),
+        &format!("{encoded}/{}", encode_component(&spec)),
     )?;
     let response = client
         .json_with_dns_pin(
@@ -207,17 +229,22 @@ async fn exact(
             request_url,
             true,
             registry.authorization.clone(),
-            dns_pin,
+            dns_pin.clone(),
         )
         .await?;
     let Some(response) = response else {
-        let mut page = ArtifactProviderPage::empty(Some(0));
-        page.registry = Some(trim_registry(&registry.base));
-        return Ok(page);
+        // The package may exist without this version or tag: say which.
+        if version.is_some()
+            && let Some(packument) = packument(&encoded, registry, client, dns_pin).await?
+        {
+            let (versions, _) = published_versions(&packument);
+            return Err(version_not_found(name, &spec, &versions));
+        }
+        return Ok(not_found_page(registry));
     };
     let row = object_for(&response, ArtifactType::Npm)?;
-    let name = required(row.get("name"), ArtifactType::Npm)?;
-    if name != package_name && name != split_npm_coordinate(package_name).0 {
+    let returned = required(row.get("name"), ArtifactType::Npm)?;
+    if returned != name {
         return Err(ArtifactError::new(
             "provider_error",
             "npm registry returned a different package name.",
@@ -226,14 +253,13 @@ async fn exact(
     let version = required(row.get("version"), ArtifactType::Npm)?;
     let mut artifact = ArtifactItem::new(
         ArtifactType::Npm,
-        name.clone(),
+        returned.clone(),
         format!(
             "{}/{}",
             trim_registry(&registry.base),
-            encode_component(&name)
+            encode_component(&returned)
         ),
     );
-    artifact.version = Some(version);
     artifact.description = string(row.get("description"));
     artifact.license = match row.get("license") {
         Some(Value::Object(value)) => string(value.get("type")),
@@ -257,6 +283,14 @@ async fn exact(
         }
         _ => {}
     }
+    release_facts(&mut artifact, row);
+    if let Some(attested) =
+        attested_commit(&artifact, &version, row, registry, client, dns_pin).await
+    {
+        artifact.source_ref = Some(attested);
+        artifact.source_attested = true;
+    }
+    artifact.version = Some(version);
     Ok(ArtifactProviderPage {
         artifacts: vec![artifact],
         next_state: None,
@@ -264,6 +298,175 @@ async fn exact(
         terminal_limit: None,
         registry: Some(trim_registry(&registry.base)),
     })
+}
+
+fn not_found_page(registry: &ResolvedNpmRegistry) -> ArtifactProviderPage {
+    let mut page = ArtifactProviderPage::empty(Some(0));
+    page.registry = Some(trim_registry(&registry.base));
+    page
+}
+
+/// The abbreviated packument (versions and dist-tags only); `None` when the
+/// package does not exist.
+async fn packument(
+    encoded: &str,
+    registry: &ResolvedNpmRegistry,
+    client: &RegistryClient<'_>,
+    dns_pin: Option<DnsPin>,
+) -> Result<Option<Value>, ArtifactError> {
+    client
+        .json_as(
+            ArtifactType::Npm,
+            registry_url(&registry.base, encoded)?,
+            true,
+            registry.authorization.clone(),
+            dns_pin,
+            NPM_INSTALL_JSON,
+        )
+        .await
+}
+
+fn published_versions(packument: &Value) -> (Vec<String>, Option<String>) {
+    let versions = packument
+        .get("versions")
+        .and_then(Value::as_object)
+        .map(|versions| versions.keys().cloned().collect())
+        .unwrap_or_default();
+    let latest = string(packument.pointer("/dist-tags/latest"));
+    (versions, latest)
+}
+
+/// A known package without the requested version: typed, with the nearest
+/// published versions as the recovery.
+pub(crate) fn version_not_found(name: &str, requested: &str, versions: &[String]) -> ArtifactError {
+    let close = nearest(requested, versions.iter().map(String::as_str));
+    let error = ArtifactError::new(
+        "versionNotFound",
+        format!("{name} has no published version matching \"{requested}\""),
+    )
+    .with_status(404);
+    if close.is_empty() {
+        error.with_hint("Omit version for the latest release.")
+    } else {
+        error.with_hint(format!("Nearest published: {}.", close.join(", ")))
+    }
+}
+
+/// Release facts the version manifest already carries.
+fn release_facts(artifact: &mut ArtifactItem, row: &serde_json::Map<String, Value>) {
+    let count = |field: &str| {
+        row.get(field)
+            .and_then(Value::as_object)
+            .map(|deps| deps.len())
+    };
+    artifact.dependencies = count("dependencies").or(Some(0));
+    artifact.peer_dependencies = count("peerDependencies").filter(|count| *count > 0);
+    artifact.deprecated = string(row.get("deprecated"));
+    artifact.engines = string(row.get("engines").and_then(|engines| engines.get("node")));
+    artifact.published_at = published_at(row);
+}
+
+/// npm's version manifest has no publish time, but its upload record does:
+/// `_npmOperationalInternal.tmp` is `tmp/<name>_<version>_<epoch-ms>_<rand>`,
+/// stamped at publish (the packument `time` field agrees to the second).
+fn published_at(row: &serde_json::Map<String, Value>) -> Option<String> {
+    let tmp = row.get("_npmOperationalInternal")?.get("tmp")?.as_str()?;
+    tmp.rsplit('_')
+        .find(|part| part.len() == 13 && part.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|millis| millis.parse::<i64>().ok())
+        .map(date_from_millis)
+}
+
+/// The source commit of an npm provenance attestation, accepted only when the
+/// attestation binds this exact tarball (subject digest = `dist.integrity`)
+/// and its source repository is the manifest's repository. The registry
+/// verifies the Sigstore bundle at publish; this does not re-verify
+/// signatures. Any failure leaves the unverified `gitHead` lead.
+async fn attested_commit(
+    artifact: &ArtifactItem,
+    version: &str,
+    row: &serde_json::Map<String, Value>,
+    registry: &ResolvedNpmRegistry,
+    client: &RegistryClient<'_>,
+    dns_pin: Option<DnsPin>,
+) -> Option<String> {
+    let dist = row.get("dist")?;
+    let url = Url::parse(dist.pointer("/attestations/url")?.as_str()?).ok()?;
+    // Never follow an attestation URL off the registry host.
+    if url.host_str() != registry.base.host_str() || url.scheme() != registry.base.scheme() {
+        return None;
+    }
+    let integrity = dist.get("integrity")?.as_str()?;
+    let bundle = client
+        .json_with_dns_pin(
+            ArtifactType::Npm,
+            url,
+            true,
+            registry.authorization.clone(),
+            dns_pin,
+        )
+        .await
+        .ok()??;
+    provenance_commit(
+        &bundle,
+        &artifact.name,
+        version,
+        integrity,
+        artifact.repository.as_deref()?,
+    )
+}
+
+pub(crate) fn provenance_commit(
+    bundle: &Value,
+    name: &str,
+    version: &str,
+    integrity: &str,
+    repository: &str,
+) -> Option<String> {
+    use base64::Engine as _;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let tarball_sha512 = hex::encode(engine.decode(integrity.strip_prefix("sha512-")?).ok()?);
+    let purl = format!("pkg:npm/{}@{version}", name.replacen('@', "%40", 1));
+    let same_repo = |uri: &str| {
+        let uri = uri.strip_prefix("git+").unwrap_or(uri);
+        let uri = uri.split_once('@').map_or(uri, |(repo, _)| repo);
+        normalize_repository(uri).is_some_and(|uri| {
+            uri.trim_end_matches('/')
+                .eq_ignore_ascii_case(repository.trim_end_matches('/'))
+        })
+    };
+    bundle
+        .get("attestations")?
+        .as_array()?
+        .iter()
+        .filter(|attestation| {
+            attestation.get("predicateType").and_then(Value::as_str)
+                == Some("https://slsa.dev/provenance/v1")
+        })
+        .find_map(|attestation| {
+            let payload = attestation
+                .pointer("/bundle/dsseEnvelope/payload")?
+                .as_str()?;
+            let statement: Value = serde_json::from_slice(&engine.decode(payload).ok()?).ok()?;
+            let bound = statement.get("subject")?.as_array()?.iter().any(|subject| {
+                subject.get("name").and_then(Value::as_str) == Some(purl.as_str())
+                    && subject
+                        .pointer("/digest/sha512")
+                        .and_then(Value::as_str)
+                        .is_some_and(|digest| digest.eq_ignore_ascii_case(&tarball_sha512))
+            });
+            if !bound {
+                return None;
+            }
+            let source = statement
+                .pointer("/predicate/buildDefinition/resolvedDependencies")?
+                .as_array()?
+                .first()?;
+            if !same_repo(source.get("uri")?.as_str()?) {
+                return None;
+            }
+            commit_sha(source.pointer("/digest/gitCommit")).filter(|sha| sha.len() == 40)
+        })
 }
 
 async fn search(
@@ -329,6 +532,7 @@ async fn search(
             ),
         );
         artifact.version = string(package.get("version")).filter(|value| value != "unknown");
+        artifact.downloads_monthly = entry.pointer("/downloads/monthly").and_then(Value::as_u64);
         artifact.description = string(package.get("description"));
         artifact.license = string(package.get("license"));
         if let Some(Value::Object(links)) = package.get("links") {
@@ -470,6 +674,233 @@ mod tests {
             ("git@github.com:a/b.git", "https://github.com/a/b"),
         ] {
             assert_eq!(normalize_repository(input).as_deref(), Some(expected));
+        }
+    }
+
+    use super::super::http::{
+        ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse, RegistryClient,
+    };
+    use crate::providers::RequestBudget;
+    use base64::Engine as _;
+    use serde_json::{Value, json};
+
+    /// Answers by URL path and Accept type; anything else is a 404.
+    struct RouteHttp {
+        routes: Vec<(&'static str, &'static str, Value)>,
+        seen: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl ArtifactHttp for RouteHttp {
+        fn get<'a>(
+            &'a self,
+            req: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            let path = req.url.path().to_owned();
+            self.seen
+                .lock()
+                .expect("seen")
+                .push(format!("{} {path}", req.accept));
+            let found = self
+                .routes
+                .iter()
+                .find(|(route, accept, _)| *route == path && *accept == req.accept)
+                .map(|(_, _, body)| serde_json::to_vec(body).expect("body"));
+            Box::pin(async move {
+                Ok(match found {
+                    Some(body) => ArtifactHttpResponse { status: 200, body },
+                    None => ArtifactHttpResponse {
+                        status: 404,
+                        body: b"{}".to_vec(),
+                    },
+                })
+            })
+        }
+    }
+
+    const JSON: &str = "application/json";
+    const INSTALL: &str = super::NPM_INSTALL_JSON;
+    const COMMIT: &str = "59bbc03e10c636b9eb3c393dfeb552819774ec21";
+    const TARBALL: &[u8] = b"zod tarball bytes";
+
+    fn sha512(bytes: &[u8]) -> Vec<u8> {
+        use sha2::Digest as _;
+        sha2::Sha512::digest(bytes).to_vec()
+    }
+
+    fn manifest(version: &str, attested: bool) -> Value {
+        let integrity = format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode(sha512(TARBALL))
+        );
+        let mut dist = json!({"integrity": integrity});
+        if attested {
+            dist["attestations"] = json!({
+                "url": format!("https://registry.npmjs.org/-/npm/v1/attestations/zod@{version}"),
+                "provenance": {"predicateType": "https://slsa.dev/provenance/v1"}
+            });
+        }
+        json!({
+            "name": "zod", "version": version, "license": "MIT",
+            "description": "schemas", "homepage": "https://github.com/colinhacks/zod#readme",
+            "repository": {"type": "git", "url": "git+https://github.com/colinhacks/zod.git"},
+            "gitHead": "aaaaaaa1",
+            "dependencies": {}, "peerDependencies": {"typescript": "*"},
+            "engines": {"node": ">=18"},
+            "deprecated": (version == "3.22.0").then_some("Use 3.22.4"),
+            "_npmOperationalInternal": {"tmp": format!("tmp/zod_{version}_1789341914484_0.59")},
+            "dist": dist
+        })
+    }
+
+    fn bundle(version: &str, repo: &str, digest: &[u8]) -> Value {
+        let statement = json!({
+            "subject": [{"name": format!("pkg:npm/zod@{version}"), "digest": {"sha512": hex::encode(digest)}}],
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "predicate": {"buildDefinition": {"resolvedDependencies": [
+                {"uri": format!("git+{repo}@refs/heads/main"), "digest": {"gitCommit": COMMIT}}
+            ]}}
+        });
+        let payload = base64::engine::general_purpose::STANDARD
+            .encode(serde_json::to_vec(&statement).expect("statement"));
+        json!({"attestations": [
+            {"predicateType": "https://github.com/npm/attestation/tree/main/specs/publish/v0.1", "bundle": {}},
+            {"predicateType": "https://slsa.dev/provenance/v1", "bundle": {"dsseEnvelope": {"payload": payload}}}
+        ]})
+    }
+
+    async fn lookup(
+        http: &RouteHttp,
+        fields: Value,
+    ) -> Result<super::ArtifactProviderPage, super::ArtifactError> {
+        let budget = RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
+        let client = RegistryClient {
+            http,
+            budget: &budget,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        let mut query = json!({"type": "npm"});
+        for (key, value) in fields.as_object().expect("fields") {
+            query[key] = value.clone();
+        }
+        let query = artifact_query(query, None);
+        super::npm(
+            &query,
+            &Default::default(),
+            &npm_registry("https://registry.npmjs.org/"),
+            &client,
+            false,
+        )
+        .await
+    }
+
+    fn routes(extra: Vec<(&'static str, &'static str, Value)>) -> RouteHttp {
+        let mut routes = vec![
+            (
+                "/zod",
+                INSTALL,
+                json!({"name":"zod","dist-tags":{"latest":"4.6.5"},
+                "versions":{"3.22.0":{},"3.25.76":{},"4.6.5":{}}}),
+            ),
+            ("/zod/3.25.76", JSON, manifest("3.25.76", false)),
+            ("/zod/3.22.0", JSON, manifest("3.22.0", false)),
+        ];
+        routes.extend(extra);
+        RouteHttp {
+            routes,
+            seen: std::sync::Mutex::new(vec![]),
+        }
+    }
+
+    #[tokio::test]
+    async fn npm_versions_resolve_exact_range_tag_and_coordinate() {
+        let http = routes(vec![("/zod/latest", JSON, manifest("4.6.5", false))]);
+        let range = lookup(&http, json!({"packageName": "zod", "version": "^3"}))
+            .await
+            .expect("range");
+        let item = &range.artifacts[0];
+        assert_eq!(item.version.as_deref(), Some("3.25.76"));
+        assert_eq!(item.published_at.as_deref(), Some("2026-09-13"));
+        assert_eq!(item.dependencies, Some(0));
+        assert_eq!(item.peer_dependencies, Some(1));
+        assert_eq!(item.engines.as_deref(), Some(">=18"));
+        let coordinate = lookup(&http, json!({"packageName": "zod@3.22.0"}))
+            .await
+            .expect("coordinate");
+        assert_eq!(coordinate.artifacts[0].version.as_deref(), Some("3.22.0"));
+        assert_eq!(
+            coordinate.artifacts[0].deprecated.as_deref(),
+            Some("Use 3.22.4")
+        );
+        let tag = lookup(&http, json!({"packageName": "zod", "version": "latest"}))
+            .await
+            .expect("tag");
+        assert_eq!(tag.artifacts[0].version.as_deref(), Some("4.6.5"));
+        let missing = lookup(&http, json!({"packageName": "zod", "version": "3.22.9"}))
+            .await
+            .expect_err("missing version");
+        assert_eq!(missing.code, "versionNotFound");
+        assert_eq!(missing.status, Some(404));
+        assert!(missing.hints[0].contains("3.22.0"), "{missing:?}");
+        let unmatched = lookup(&http, json!({"packageName": "zod", "version": "^9"}))
+            .await
+            .expect_err("no match");
+        assert_eq!(unmatched.code, "versionNotFound");
+        let seen = http.seen.lock().expect("seen").clone();
+        assert_eq!(
+            seen[..2],
+            [format!("{INSTALL} /zod"), format!("{JSON} /zod/3.25.76")],
+            "a range reads the abbreviated packument, then one manifest"
+        );
+    }
+
+    #[tokio::test]
+    async fn npm_provenance_pins_the_attested_commit_only_when_bound() {
+        let good = routes(vec![
+            ("/zod/4.6.5", JSON, manifest("4.6.5", true)),
+            (
+                "/-/npm/v1/attestations/zod@4.6.5",
+                JSON,
+                bundle(
+                    "4.6.5",
+                    "https://github.com/colinhacks/zod",
+                    &sha512(TARBALL),
+                ),
+            ),
+        ]);
+        let page = lookup(&good, json!({"packageName": "zod", "version": "4.6.5"}))
+            .await
+            .expect("attested");
+        let item = &page.artifacts[0];
+        assert_eq!(item.source_ref.as_deref(), Some(COMMIT));
+        assert!(item.source_attested);
+
+        for (repo, digest) in [
+            ("https://github.com/evil/zod", sha512(TARBALL)),
+            (
+                "https://github.com/colinhacks/zod",
+                sha512(b"other tarball"),
+            ),
+        ] {
+            let spoofed = routes(vec![
+                ("/zod/4.6.5", JSON, manifest("4.6.5", true)),
+                (
+                    "/-/npm/v1/attestations/zod@4.6.5",
+                    JSON,
+                    bundle("4.6.5", repo, &digest),
+                ),
+            ]);
+            let page = lookup(&spoofed, json!({"packageName": "zod", "version": "4.6.5"}))
+                .await
+                .expect("unbound attestation");
+            let item = &page.artifacts[0];
+            assert!(!item.source_attested, "{repo}");
+            assert_eq!(
+                item.source_ref.as_deref(),
+                Some("aaaaaaa1"),
+                "gitHead lead stays"
+            );
         }
     }
 

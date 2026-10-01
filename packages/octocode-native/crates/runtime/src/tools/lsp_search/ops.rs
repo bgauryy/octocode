@@ -50,7 +50,7 @@ impl Operation<'_, '_> {
         let query = self.query;
         match query.operation().as_str() {
             "definition" => {
-                let found = resolve_definition_chain(
+                let (found, warnings) = resolve_definition_chain(
                     self.client,
                     self.sources,
                     self.snippet_policy,
@@ -60,9 +60,13 @@ impl Operation<'_, '_> {
                     self.character,
                 )
                 .await?;
-                Ok(self
+                let mut row = self
                     .locations("definition", "definitionProvider", found)
-                    .await)
+                    .await;
+                if !warnings.is_empty() {
+                    super::failure::mark_partial(&mut row, query, "definitionHopFailed", &warnings);
+                }
+                Ok(row)
             }
             "references" => {
                 let include_declaration = query.include_declaration().unwrap_or(true);

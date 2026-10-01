@@ -79,7 +79,10 @@ autoresearch.*
 
 devScripts
 
-.agents
+.agents/*
+!.agents/plugins/
+.agents/plugins/*
+!.agents/plugins/marketplace.json
 output
 __pycache__
 releases/**

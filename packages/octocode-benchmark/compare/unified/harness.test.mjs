@@ -189,12 +189,30 @@ test('actual sandbox: evaluator/corpus/network denial, real gh GET, implicit POS
     fs.writeFileSync(path.join(corpus, 'source.txt'), 'public-source');
     const nativeReadOnly = await childRun('/usr/bin/sandbox-exec', ['-p', nativeSandboxPolicy([corpus]), process.execPath, '-e', `const fs=require('fs');if(fs.readFileSync(${JSON.stringify(path.join(corpus, 'source.txt'))},'utf8')!=='public-source')process.exit(5);try{fs.writeFileSync(${JSON.stringify(path.join(corpus, 'source.txt'))},'wrong');process.exit(6)}catch{}`], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     assert.equal(nativeReadOnly.code, 0, nativeReadOnly.stderr);
-    boundary = await solverBoundary({ cwd, corpus: [corpus], repoRoot: process.cwd(), oauthToken: 'synthetic', githubToken: 'evaluator-private', githubFetch: async (url, options) => { forwarded++; assert.equal(options.method, 'GET'); assert.equal(options.headers.Authorization, 'Bearer evaluator-private'); return new Response(JSON.stringify({ path: url.pathname }), { status: 200 }); } });
+    boundary = await solverBoundary({ cwd, corpus: [corpus], repoRoot: process.cwd(), oauthToken: 'synthetic', githubToken: 'evaluator-private', githubFetch: async (url, options) => { forwarded++; assert.ok(['GET', 'HEAD'].includes(options.method)); assert.equal(options.headers.Authorization, 'Bearer evaluator-private'); if (url.pathname === '/broken') throw new Error('evaluator-private'); return new Response(JSON.stringify({ path: url.pathname }), { status: url.pathname === '/failure' ? 500 : 200 }); } });
     assert.equal(boundary.env.GH_TOKEN, 'local-readonly-gateway');
     const get = await childRun('/usr/bin/sandbox-exec', ['-f', boundary.sandboxProfile, 'gh', 'api', 'user'], { cwd, env: boundary.env });
     assert.equal(get.code, 0, get.stderr); assert.equal(JSON.parse(get.stdout).path, '/user');
+    const head = await childRun('/usr/bin/sandbox-exec', ['-f', boundary.sandboxProfile, 'gh', 'api', '-X', 'HEAD', 'user'], { cwd, env: boundary.env });
+    assert.equal(head.code, 0, head.stderr);
+    for (const endpoint of ['failure', 'broken']) {
+      const failed = await childRun('/usr/bin/sandbox-exec', ['-f', boundary.sandboxProfile, 'gh', 'api', endpoint], { cwd, env: boundary.env });
+      assert.equal(failed.code, 1);
+    }
     const post = await childRun('/usr/bin/sandbox-exec', ['-f', boundary.sandboxProfile, 'gh', 'api', 'repos/example/test/issues', '-f', 'title=forbidden'], { cwd, env: boundary.env });
-    assert.equal(post.code, 1); assert.match(post.stderr, /405/); assert.equal(forwarded, 1);
+    assert.equal(post.code, 1); assert.match(post.stderr, /405/); assert.equal(forwarded, 4);
+    const traffic = boundary.traffic();
+    assert.equal(traffic.githubForwardedAttempts, 4, 'HTTP attempts are distinct from tool invocations');
+    assert.equal(traffic.githubCompletedResponses, 3);
+    assert.equal(traffic.githubUpstreamFailures, 1);
+    assert.equal(traffic.githubRejectedWrites, 1);
+    assert.deepEqual(traffic.githubResponseStatuses, { 200: 2, 500: 1 });
+    assert.deepEqual(traffic.githubAttempts.map(a => [a.method, a.status, a.outcome]), [['GET', 200, 'response'], ['HEAD', 200, 'response'], ['GET', 500, 'response'], ['GET', null, 'upstream-failure']]);
+    assert.ok(traffic.githubAttempts.every(a => a.startedAt && a.completedAt));
+    assert.doesNotMatch(JSON.stringify(traffic), /evaluator-private/);
+    traffic.githubForwardedAttempts = 99;
+    assert.equal(boundary.traffic().githubForwardedAttempts, 4, 'snapshots cannot mutate live counters');
+    assert.equal(boundary.githubStats(), null, 'missing native provider counters remain unknown');
     const privateDir = path.join(cwd, 'octocode-benchmark'); fs.mkdirSync(privateDir); const privateFile = path.join(privateDir, 'prior-answer'); fs.writeFileSync(privateFile, 'private');
     const denied = await childRun('/usr/bin/sandbox-exec', ['-f', boundary.sandboxProfile, process.execPath, '-e', `try{require('fs').readFileSync(${JSON.stringify(privateFile)});process.exit(9)}catch{process.exit(0)}`], { cwd, env: boundary.env });
     assert.equal(denied.code, 0);

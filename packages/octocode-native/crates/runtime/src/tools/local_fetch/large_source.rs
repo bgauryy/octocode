@@ -209,6 +209,7 @@ fn line_chunk_query(q: &LocalFetchQuery, offset: usize) -> LocalFetchQuery {
     query.context_bytes = None;
     query.start_line = None;
     query.end_line = None;
+    query.clear_block_selectors();
     query.chunk_type = Some(ChunkType::Lines);
     query.offset = if offset == 0 {
         None
@@ -239,11 +240,30 @@ pub(super) fn fetch_window(
     cancel: &impl CancellationCheck,
     regex: &impl RegexMatch,
 ) -> LocalFetchResult {
-    if let Some(needle) = q.match_string() {
+    let needles = q.match_strings();
+    if !needles.is_empty() {
+        let is_regex = q.match_string_is_regex == Some(true);
+        // A list matches any entry: one alternation for localSearch.
+        let (needle, is_regex) = match needles.as_slice() {
+            [one] => ((*one).to_owned(), is_regex),
+            many => (
+                many.iter()
+                    .map(|n| {
+                        if is_regex {
+                            (*n).to_owned()
+                        } else {
+                            ::regex::escape(n)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("|"),
+                true,
+            ),
+        };
         let mut search = serde_json::json!({
             "path": q.path.to_string(),
             "searchText": needle,
-            "regex": if q.match_string_is_regex == Some(true) { "rust" } else { "literal" },
+            "regex": if is_regex { "rust" } else { "literal" },
         });
         if q.match_string_case_sensitive == Some(true) {
             search["caseMode"] = serde_json::json!("sensitive");
@@ -269,11 +289,13 @@ pub(super) fn fetch_window(
     if q.full_content == Some(true)
         || q.minify_mode() != MinifyMode::None
         || q.chunk_type == Some(ChunkType::Bytes)
+        || q.has_ranges()
+        || q.block()
     {
         return unsupported(
             q,
             len,
-            "fullContent, minify, and byte chunks need the whole file. Read line windows with startLine/endLine or line chunks.",
+            "fullContent, minify, ranges, block, and byte chunks need the whole file. Read line windows with startLine/endLine or line chunks.",
             NextCalls {
                 r#continue: None,
                 read_bounded_lines: Some(continuation(

@@ -193,6 +193,235 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
     }))
 }
 
+/// Line hits for the top files of a repo-scoped `match:"file"` page, read at
+/// the requested `branch` or the default-branch HEAD.
+pub(super) struct Resolution {
+    sha: String,
+    reference: Option<String>,
+    hits: Vec<super::lines::FileHits>,
+}
+
+/// The ref hits are verified at; `None` is the default branch.
+fn requested_ref(query: &GhSearchCodeQuery) -> Option<&str> {
+    query
+        .branch
+        .as_deref()
+        .map(|branch| branch.trim())
+        .filter(|branch| !branch.is_empty())
+}
+
+pub(super) async fn resolve_lines<
+    R: CredentialResolver,
+    C: crate::providers::github::ConditionalCache,
+>(
+    provider: &crate::providers::github::GitHubProvider<R, C>,
+    query: &GhSearchCodeQuery,
+    items: &[Value],
+    context: &RequestContext,
+    security: &impl ContentScan,
+) -> Result<Option<Resolution>, ProviderError> {
+    let Some(repo) = query.repo.as_deref() else {
+        return Ok(None);
+    };
+    if query.match_ != GhSearchCodeQueryMatch::File
+        || query.concise == Some(true)
+        || items.is_empty()
+    {
+        return Ok(None);
+    }
+    let reference = requested_ref(query);
+    let sha = match super::lines::resolve_commit(provider, &query.owner, repo, reference, context)
+        .await
+    {
+        Ok(sha) => sha,
+        Err(error) if error.kind == ProviderErrorKind::Cancelled => return Err(error),
+        // A named ref that does not resolve is the caller's mistake: never
+        // fall back to default-branch lines labeled as that ref.
+        Err(error) if reference.is_some() => return Err(error),
+        Err(_) => return Ok(None),
+    };
+    let paths = items
+        .iter()
+        .take(super::lines::MAX_RESOLVED_FILES)
+        .filter_map(|row| row.get("path").and_then(Value::as_str).map(str::to_owned))
+        .collect::<Vec<_>>();
+    let hits = super::lines::resolve_files(
+        provider,
+        &query.owner,
+        repo,
+        &sha,
+        &paths,
+        &query.keywords,
+        context,
+        security,
+    )
+    .await?;
+    Ok(Some(Resolution {
+        sha,
+        reference: reference.map(str::to_owned),
+        hits,
+    }))
+}
+
+/// Shape file rows: resolved files list numbered `lines` instead of index
+/// fragments; fragment `matchIndices` stay only under `debug`; a repo-scoped
+/// page names owner/repo once. Returns a line-range read of the top resolved
+/// hit.
+pub(super) fn shape_files(
+    value: &mut Value,
+    items: &mut [Value],
+    query: &GhSearchCodeQuery,
+    resolution: Option<Resolution>,
+) -> Option<Value> {
+    if query.concise == Some(true) {
+        return None;
+    }
+    let reference = requested_ref(query);
+    if query.repo.is_some() {
+        value["owner"] = json!(query.owner.as_str());
+        value["repo"] = json!(query.repo.as_deref().map(|repo| repo.as_str()));
+    }
+    if reference.is_some() {
+        // Candidates come from the default-branch index; only `lines` were
+        // read at the requested ref.
+        value["indexRef"] = json!("defaultBranch");
+    }
+    let mut top = None;
+    if let Some(resolution) = &resolution {
+        value["commitSha"] = json!(resolution.sha);
+        if let Some(reference) = &resolution.reference {
+            value["ref"] = json!(reference);
+        }
+        for (row, hits) in items.iter_mut().zip(&resolution.hits) {
+            let Some(row) = row.as_object_mut() else {
+                continue;
+            };
+            match hits {
+                super::lines::FileHits::Lines {
+                    lines,
+                    first,
+                    last,
+                    total,
+                    line_count,
+                } => {
+                    if !query.debug {
+                        row.shift_remove("matches");
+                    }
+                    row.insert("lines".into(), json!(lines));
+                    if *total > lines.len() {
+                        row.insert("hitCount".into(), json!(total));
+                    }
+                    if top.is_none() {
+                        top = Some(line_read(query, row, *first, *last, *line_count));
+                    }
+                }
+                super::lines::FileHits::Missing if resolution.reference.is_some() => {
+                    // The default-branch snippet is not this ref's content.
+                    row.shift_remove("matches");
+                    row.insert("atRef".into(), json!(false));
+                }
+                _ => {
+                    row.insert("lineResolved".into(), json!(false));
+                }
+            }
+        }
+    }
+    for row in items.iter_mut().filter_map(Value::as_object_mut) {
+        if query.repo.is_some() {
+            row.shift_remove("owner");
+            row.shift_remove("repo");
+        }
+        if !query.debug
+            && let Some(matches) = row.get_mut("matches").and_then(Value::as_array_mut)
+        {
+            for matched in matches.iter_mut().filter_map(Value::as_object_mut) {
+                matched.shift_remove("matchIndices");
+            }
+        }
+    }
+    top.flatten()
+}
+
+/// ghGetFileContent read of a resolved file's first hit (5 lines before it),
+/// widened to its last hit when that is close.
+fn line_read(
+    query: &GhSearchCodeQuery,
+    row: &serde_json::Map<String, Value>,
+    first: u32,
+    last: u32,
+    line_count: usize,
+) -> Option<Value> {
+    let path = row.get("path")?.as_str()?;
+    let repo = query.repo.as_deref()?;
+    let start = first.saturating_sub(5).max(1);
+    let mut end = first.saturating_add(17);
+    if last.saturating_sub(first) <= 40 {
+        end = end.max(last.saturating_add(3));
+    }
+    let end = end.min(u32::try_from(line_count).unwrap_or(u32::MAX).max(start));
+    let confidence = match crate::content::classify_file_type(path) {
+        Some(crate::content::FileType::Code) if !crate::content::is_test_path(path) => "medium",
+        _ => "low",
+    };
+    let mut read = json!({
+        "owner": query.owner.as_str(),
+        "repo": repo.as_str(),
+        "path": path,
+        "startLine": start,
+        "endLine": end,
+        "reasoning": "Read the top code hit's lines.",
+    });
+    if let Some(reference) = requested_ref(query) {
+        read["branch"] = json!(reference);
+    }
+    Some(json!({
+        "tool": ToolId::GhGetFileContent.as_str(),
+        "confidence": confidence,
+        "why": "Read the top hit's lines in context.",
+        "query": read,
+    }))
+}
+
+/// The cause of an empty code search: the index scope (default branch),
+/// path matching, qualifiers, or owner-wide scope.
+pub(super) fn empty_hint(query: &GhSearchCodeQuery) -> String {
+    if let Some(reference) = requested_ref(query) {
+        return format!(
+            "Code search indexes only the default branch; `{reference}` was not searched. Read it with ghGetFileContent."
+        );
+    }
+    if query.match_ == GhSearchCodeQueryMatch::Path {
+        return "No path contains every keyword; use fewer keywords, or match:\"file\" for contents."
+            .into();
+    }
+    let qualifiers = [
+        ("path", query.path.is_some()),
+        ("extension", query.extension.is_some()),
+        ("filename", query.filename.is_some()),
+        ("language", query.language.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, set)| set.then_some(name))
+    .collect::<Vec<_>>();
+    if !qualifiers.is_empty() {
+        return format!(
+            "No indexed match with {}; drop a qualifier or a keyword to broaden.",
+            qualifiers.join("/")
+        );
+    }
+    match query.repo.as_deref() {
+        Some(repo) => format!(
+            "No indexed match in {}/{}; try fewer or shorter keywords.",
+            query.owner.as_str(),
+            repo.as_str()
+        ),
+        None => format!(
+            "No indexed match in any {} repository; check spelling, or set repo.",
+            query.owner.as_str()
+        ),
+    }
+}
+
 pub(super) fn files(
     items: &[CodeSearchItem],
     query: &GhSearchCodeQuery,

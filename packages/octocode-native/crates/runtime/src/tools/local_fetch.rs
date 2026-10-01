@@ -1,3 +1,4 @@
+mod block;
 mod executor;
 mod extraction;
 mod large_source;
@@ -705,6 +706,160 @@ mod tests {
                 .next
                 .and_then(|next| next.read_bounded_lines)
                 .is_some()
+        );
+    }
+
+    /// A query built from wire JSON (fields the test does not name default).
+    fn qj(path: &Path, fields: serde_json::Value) -> LocalFetchQuery {
+        let mut query = serde_json::json!({"path": path.to_string_lossy(), "goal": "test", "reasoning": "test"});
+        for (key, value) in fields.as_object().expect("object") {
+            query[key] = value.clone();
+        }
+        serde_json::from_value(query).expect("localFetch query")
+    }
+
+    #[test]
+    fn ranges_read_several_windows_in_one_row() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(&p, numbered(30)).expect("fixture");
+        let paths = Paths(t.0.clone());
+        // Unordered, overlapping, and past-the-end ranges merge and clamp.
+        let req = qj(
+            &p,
+            serde_json::json!({"ranges": ["20-21", "2-3", "3-4", "29-40"]}),
+        );
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        assert_eq!(r.error, None, "{r:?}");
+        assert_eq!(
+            r.content.as_deref(),
+            Some(
+                "l2\nl3\nl4\n... [lines 5-19 omitted] ...\nl20\nl21\n... [lines 22-28 omitted] ...\nl29\nl30\n"
+            )
+        );
+        assert_eq!(
+            r.source_line_ranges,
+            vec![
+                LineRange { start: 2, end: 4 },
+                LineRange { start: 20, end: 21 },
+                LineRange { start: 29, end: 30 }
+            ]
+        );
+        assert!(
+            r.warnings.iter().any(|w| w.contains("29-40")),
+            "{:?}",
+            r.warnings
+        );
+        // Old startLine/endLine reads are unchanged.
+        let old = qj(&p, serde_json::json!({"startLine": 2, "endLine": 3}));
+        assert_eq!(
+            execute_local_fetch(&old, &paths, &Safe, &NeverCancel)
+                .content
+                .as_deref(),
+            Some("l2\nl3\n")
+        );
+        // Ranges wholly past the end are an error, not an empty success.
+        let past = qj(&p, serde_json::json!({"ranges": ["40-41"]}));
+        assert!(
+            execute_local_fetch(&past, &paths, &Safe, &NeverCancel)
+                .error
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn block_reads_through_the_enclosing_declaration() {
+        let t = Temp::new();
+        let p = t.0.join("m.py");
+        fs::write(
+            &p,
+            "import os\n\ndef first(a):\n    x = 1\n    return a\n\n\ndef second(b):\n    if b:\n        return 1\n    return 2\n",
+        )
+        .expect("fixture");
+        let paths = Paths(t.0.clone());
+        let ranged = qj(
+            &p,
+            serde_json::json!({"startLine": 8, "endLine": 9, "block": true}),
+        );
+        let r = execute_local_fetch(&ranged, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange { start: 8, end: 11 }],
+            "{r:?}"
+        );
+        let matched = qj(
+            &p,
+            serde_json::json!({"matchString": ["return a", "return 1"], "contextLines": 0, "block": true}),
+        );
+        let r = execute_local_fetch(&matched, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![
+                LineRange { start: 3, end: 5 },
+                LineRange { start: 8, end: 11 }
+            ],
+            "{r:?}"
+        );
+        assert_eq!(r.matched_lines, vec![5, 10]);
+    }
+
+    #[test]
+    fn a_match_list_is_a_grep_map_of_every_literal() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(
+            &p,
+            numbered(12)
+                .replace("l4\n", "def a|b\n")
+                .replace("l9\n", "x.y\n"),
+        )
+        .expect("fixture");
+        let paths = Paths(t.0.clone());
+        // Literal entries are literal: `|` and `.` are not regex syntax.
+        let req = qj(
+            &p,
+            serde_json::json!({"matchString": ["a|b", "x.y", "absent"], "contextLines": 0}),
+        );
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.content.as_deref(),
+            Some("def a|b\n... [lines 5-8 omitted] ...\nx.y\n")
+        );
+        assert_eq!(r.matched_lines, vec![4, 9]);
+        let one = qj(
+            &p,
+            serde_json::json!({"matchString": "x.y", "contextLines": 0}),
+        );
+        assert_eq!(
+            execute_local_fetch(&one, &paths, &Safe, &NeverCancel).matched_lines,
+            vec![9]
+        );
+    }
+
+    #[test]
+    fn context_lines_over_the_maximum_clamp_with_a_warning() {
+        let t = Temp::new();
+        let p = t.0.join("a.txt");
+        fs::write(&p, numbered(300).replace("l150\n", "hit\n")).expect("fixture");
+        let paths = Paths(t.0.clone());
+        let req = qj(
+            &p,
+            serde_json::json!({"matchString": "hit", "contextLines": 120}),
+        );
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange {
+                start: 50,
+                end: 250
+            }]
+        );
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.contains("contextLines 120 clamped to 100")),
+            "{:?}",
+            r.warnings
         );
     }
 

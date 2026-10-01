@@ -61,7 +61,8 @@ for (const c of CASES) {
   if (view) {
     check(`${c.type}: repository provenance is explicit`, viewHint.source?.scope === 'defaultBranch' && viewHint.source?.verification === 'unverified', JSON.stringify(viewHint.source));
     const release = data?.next?.viewReleaseSource;
-    if (release) check(`${c.type}: release lead is explicitly unverified`, release.source?.scope === 'release' && release.source?.verification === 'unverified', JSON.stringify(release.source));
+    // npm provenance (an attestation bound to this tarball and repository) upgrades the release lead.
+    if (release) check(`${c.type}: release lead states its verification`, release.source?.scope === 'release' && ['unverified', 'provenance'].includes(release.source?.verification), JSON.stringify(release.source));
     // Replay the continuation verbatim (tool + query, followUp included).
     const tree = await raw(viewHint.tool, viewHint.query);
     check(`${c.type} ${c.name}: next.viewRepo opens the repository`, !tree.isError && (rowData(tree)?.structure ?? []).length > 0, tree.text.slice(0, 120));

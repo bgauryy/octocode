@@ -1404,11 +1404,12 @@ mod tests {
                 .all(|variant| variant.contains("type") || variant.contains("error")),
             "{history:?}"
         );
+        // A clone row requires its checkout, not the caller's own owner/repo.
         let clone = contract_data_variants(ToolId::GhCloneRepo);
         assert!(
             clone
                 .iter()
-                .any(|variant| variant.contains("owner") && variant.contains("repo")),
+                .any(|variant| variant.contains("location") && variant.contains("totalSize")),
             "{clone:?}"
         );
         let row = minimized(
@@ -1421,9 +1422,10 @@ mod tests {
         let clone_row = minimized(
             ToolId::GhCloneRepo,
             json!({"owner":"o","repo":"r"}),
-            json!({"owner":"o","repo":"r","totalSize":1,"location":{"localPath":"/x"}}),
+            json!({"totalSize":1,"location":{"localPath":"/x"}}),
         );
-        assert_eq!(clone_row["data"]["owner"], "o", "{clone_row}");
+        assert_eq!(clone_row["data"]["location"]["localPath"], "/x", "{clone_row}");
+        assert_eq!(clone_row["data"]["totalSize"], 1, "{clone_row}");
     }
 
     fn minimized(tool: ToolId, query: Value, data: Value) -> Value {

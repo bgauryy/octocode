@@ -93,9 +93,15 @@ impl InventoryFilter {
         let paths = filter
             .paths
             .iter()
+            .flat_map(|paths| paths.iter())
             .map(|pattern| PathPattern::parse(pattern))
             .collect::<Result<Vec<_>, _>>()?;
-        let status = filter.status.iter().map(ToString::to_string).collect();
+        let status = filter
+            .status
+            .iter()
+            .flat_map(|status| status.iter())
+            .map(ToString::to_string)
+            .collect();
         let min_changes = filter
             .min_changes
             .map(|n| usize::try_from(n.get()).unwrap_or(usize::MAX));
@@ -143,6 +149,11 @@ const INVENTORY_ROW_CHARS: usize = 60;
 /// patches keeps provider-sized pages.
 pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize {
     match (query.page_size(), patches) {
+        // A literal search returns every hit file of the PR on one page:
+        // hits are bounded by matches (and the patch window), not by files.
+        (None, true) if query.match_string().is_some() => {
+            super::window::MAX_FILE_BATCHES * MAX_COLLECTION_PAGE
+        }
         (_, true) => query.collection_page_size(),
         (Some(size), false) => size.clamp(1, max_inventory_page()),
         (None, false) => (auto_page(query.auto_page_chars) / INVENTORY_ROW_CHARS)
@@ -273,8 +284,8 @@ pub(super) fn patch_selection(selector: Option<&Map<String, Value>>) -> (Vec<Str
 pub(super) struct ShapedFiles {
     /// A selected path matched no changed file and the provider has no more.
     pub(super) no_selected_match: bool,
-    /// The page's most reviewable file (the `getSelectedPatches` pick).
-    pub(super) patch_target: Option<String>,
+    /// The page's review pick (`next.reviewPatches`).
+    pub(super) review: Vec<String>,
     /// In-scope text files a `matchString` could not search because GitHub
     /// sent no patch for them, as compact `!reason path` rows.
     pub(super) unsearched: Vec<String>,
@@ -302,19 +313,55 @@ fn review_tier(path: &str) -> u8 {
     }
 }
 
-/// The page's file whose patch best answers "what changed": the most
-/// reviewable tier, then the most changed lines, then page order.
-fn patch_target(files: &[Value]) -> Option<String> {
-    files
+/// Estimated rendered patch chars per changed line (diff marker, text,
+/// newline), and per file header, for packing a review into one budget.
+const REVIEW_LINE_CHARS: usize = 45;
+const REVIEW_FILE_CHARS: usize = 80;
+/// Files one review read names at most: one provider-sized patch page.
+const MAX_REVIEW_FILES: usize = 30;
+
+/// `next.reviewPatches`: the files whose patches answer "what changed" —
+/// source files first (then other non-test, non-doc files), most changed
+/// lines first — packed into one call's patch budget. Tests, docs,
+/// changesets, lockfiles and generated output are left to the inventory.
+/// Always names at least the top file when one qualifies.
+pub(super) fn review_selection(files: &[Value], budget: usize) -> Vec<String> {
+    let mut ranked = files
         .iter()
         .enumerate()
         .filter_map(|(index, file)| {
             let path = str_at(file, "/filename")?;
+            let binary = path.rsplit_once('.').is_some_and(|(_, ext)| {
+                BINARY_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
+            });
+            let tier = if binary { 3 } else { review_tier(path) };
             let changed = usize_at(file, "/additions") + usize_at(file, "/deletions");
-            Some(((review_tier(path), std::cmp::Reverse(changed), index), path))
+            (tier == 0 || tier == 2).then_some((
+                (tier, std::cmp::Reverse(changed), index),
+                path,
+                changed,
+            ))
         })
-        .min_by_key(|(rank, _)| *rank)
-        .map(|(_, path)| path.to_owned())
+        .collect::<Vec<_>>();
+    ranked.sort_by_key(|(rank, _, _)| *rank);
+    // Files that fit one call's budget come first (packed, most changed
+    // first), so the first read delivers whole patches; the rest follow in
+    // rank order and arrive through `continuePatch`.
+    let mut used = 0usize;
+    let mut packed = Vec::new();
+    let mut rest = Vec::new();
+    for (_, path, changed) in ranked {
+        let cost = changed.saturating_mul(REVIEW_LINE_CHARS) + REVIEW_FILE_CHARS;
+        if used + cost <= budget {
+            used += cost;
+            packed.push(path.to_owned());
+        } else {
+            rest.push(path.to_owned());
+        }
+    }
+    packed.extend(rest);
+    packed.truncate(MAX_REVIEW_FILES);
+    packed
 }
 
 /// Shape a pull request's changed-file page into `row`: compact inventory
@@ -358,7 +405,7 @@ pub(super) fn shape_pr_files(
         .collect::<Vec<_>>();
     let per_page = file_page_size(query, patch_mode != "none");
     let (slice, page) = state.paginate(filtered, query.file_page(), Some(per_page));
-    let patch_target = patch_target(&slice);
+    let review = review_selection(&slice, patch_window(None, query.auto_page_chars, 1));
     let slice = slice
         .into_iter()
         .map(|mut file| {
@@ -394,7 +441,7 @@ pub(super) fn shape_pr_files(
         pagination.insert("changedFiles".into(), page);
         return ShapedFiles {
             no_selected_match: false,
-            patch_target,
+            review,
             unsearched,
             first_unsearched,
         };
@@ -403,15 +450,7 @@ pub(super) fn shape_pr_files(
         .rows
         .into_iter()
         .map(|mut shaped| {
-            if let Some(fields) = shaped.as_object_mut() {
-                if let Some(name) = fields.remove("filename") {
-                    fields.insert("path".into(), name);
-                }
-                // A rename's origin path (PR rows use the `path` vocabulary).
-                if let Some(previous) = fields.remove("previousFilename") {
-                    fields.insert("previousPath".into(), previous);
-                }
-            }
+            compact_file_header(&mut shaped);
             shaped
         })
         .collect::<Vec<_>>();
@@ -421,18 +460,56 @@ pub(super) fn shape_pr_files(
     // One continuation covers the page's patch stream; it lists every
     // unfinished file (the cut one plus those not yet started).
     if patch_mode != "none"
-        && let Some(cursor) = shaped_cursor(row.get("changedFiles"))
+        && let Some(cursor) = patches.cursor
     {
-        let mut patch_page = cursor;
+        // The cut file's own window when it started on this page; else
+        // the next file starts the continuation stream.
+        let mut patch_page = shaped_cursor(row.get("changedFiles"))
+            .unwrap_or_else(|| json!({"hasMore":true,"nextCharOffset":cursor}));
         patch_page["files"] = json!(patches.unfinished);
         pagination.insert("patches".into(), patch_page);
     }
     pagination.insert("changedFiles".into(), page);
     ShapedFiles {
         no_selected_match: selection_requested && !selected_path_matched && state.exhausted,
-        patch_target,
+        review,
         unsearched,
         first_unsearched,
+    }
+}
+
+/// One compact patch-row header: `path` plus the inventory's `M +3 -1`
+/// change `stat` (and `previousPath` for a rename), replacing the separate
+/// `filename`/`status`/`additions`/`deletions` fields.
+pub(super) fn compact_file_header(row: &mut Value) {
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let count = |fields: &Map<String, Value>, key: &str| {
+        fields.get(key).and_then(Value::as_u64).unwrap_or(0)
+    };
+    let stat = format!(
+        "{} +{} -{}",
+        status_code(fields.get("status").and_then(Value::as_str).unwrap_or("")),
+        count(fields, "additions"),
+        count(fields, "deletions")
+    );
+    let rest = std::mem::take(fields);
+    fields.insert(
+        "path".into(),
+        rest.get("filename").cloned().unwrap_or_default(),
+    );
+    fields.insert("stat".into(), json!(stat));
+    for (key, value) in rest {
+        match key.as_str() {
+            "filename" | "status" | "additions" | "deletions" => {}
+            "previousFilename" => {
+                fields.insert("previousPath".into(), value);
+            }
+            _ => {
+                fields.insert(key, value);
+            }
+        }
     }
 }
 
@@ -486,8 +563,10 @@ fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
     }
 }
 
-/// Diff lines kept around each `matchString` hit when `matchContext` is omitted.
-const MATCH_CONTEXT_LINES: usize = 3;
+/// Diff lines kept around each `matchString` hit when `matchContext` is
+/// omitted: only the hit lines (context was over half the bytes of a literal
+/// search); `next.widenContext` and `next.readFullPatches` widen it.
+const MATCH_CONTEXT_LINES: usize = 0;
 /// A `matchString` view clips diff lines longer than this (generated or
 /// minified text) to the characters around each hit.
 const MATCH_LINE_CHARS: usize = 400;
@@ -777,7 +856,14 @@ pub(super) fn shape_patch_page(
         .collect::<Vec<_>>();
     let total = lengths.iter().sum::<usize>();
     let offset = query.char_offset().unwrap_or(0).min(total);
-    let end = (offset + patch_window(query.char_length(), query.auto_page_chars)).min(total);
+    let window = match (needle(query), query.char_length()) {
+        // A literal search returns many short hit runs: their row headers
+        // are small, so the hits may fill the page share without the fixed
+        // metadata reserve.
+        (Some(_), None) => literal_patch_window(query.auto_page_chars, query.patch_rows),
+        _ => patch_window(query.char_length(), query.auto_page_chars, query.patch_rows),
+    };
+    let end = (offset + window).min(total);
     let first_window = offset == 0;
     // Stream start of every file, and of the first file not fully delivered.
     let starts = lengths
@@ -832,14 +918,15 @@ pub(super) fn shape_patch_page(
                 if local_end < len {
                     unfinished.push(str_at(file, "/filename").unwrap_or("").to_owned());
                 }
-                // Files not reached yet are listed on the first window only.
-                if !started && !is_cursor && !first_window {
+                // Files not reached yet ride the continuation (`unfinished`),
+                // not empty placeholder rows.
+                if !started {
                     continue;
                 }
                 if let Some(full) = narrowed[i] {
                     row["fullPatchChars"] = json!(full);
                 }
-                if started || is_cursor {
+                {
                     let text = view
                         .chars()
                         .skip(local_start)
@@ -887,7 +974,10 @@ pub(super) fn shape_files(
     include_patch: bool,
     query: &HistoryItemRequest,
 ) -> (Value, Option<usize>) {
-    let page = shape_patch_page(files, include_patch, query, PatchCursor::Page);
+    let mut page = shape_patch_page(files, include_patch, query, PatchCursor::Page);
+    for row in &mut page.rows {
+        compact_file_header(row);
+    }
     (Value::Array(page.rows), page.cursor)
 }
 
@@ -919,7 +1009,21 @@ fn auto_page(auto_page: Option<usize>) -> usize {
         .unwrap_or(FALLBACK_AUTO_PAGE)
 }
 
-fn patch_window(char_length: Option<usize>, auto_page_chars: Option<usize>) -> usize {
+/// The default window of a `matchString` view: the page share without the
+/// fixed reserve, split across the call's patch rows.
+fn literal_patch_window(auto_page_chars: Option<usize>, rows: usize) -> usize {
+    let page = auto_page(auto_page_chars);
+    let (num, den) = PATCH_DEFAULT_SHARE;
+    let share = (page * num / den).max(1);
+    (share / rows.max(1)).max(MIN_SHARED_PATCH_WINDOW.min(share))
+}
+
+/// Smallest default window a row gets when several rows share the budget.
+const MIN_SHARED_PATCH_WINDOW: usize = 2_000;
+
+/// The patch window of one row. The default window is one call's budget:
+/// `rows` patch-reading rows of the same call split it evenly.
+fn patch_window(char_length: Option<usize>, auto_page_chars: Option<usize>, rows: usize) -> usize {
     if let Some(length) = char_length {
         let max = crate::contracts::query_schema_max(
             crate::tools::id::ToolId::GhGetHistoryItem,
@@ -930,34 +1034,55 @@ fn patch_window(char_length: Option<usize>, auto_page_chars: Option<usize>) -> u
     }
     let page = auto_page(auto_page_chars);
     let (num, den) = PATCH_DEFAULT_SHARE;
-    (page * num / den)
+    let call_budget = (page * num / den)
         .min(page.saturating_sub(PATCH_DEFAULT_RESERVE))
         .max(page * 2 / 5)
-        .max(1)
+        .max(1);
+    let rows = rows.max(1);
+    if rows == 1 {
+        return call_budget;
+    }
+    (call_budget / rows).max(MIN_SHARED_PATCH_WINDOW.min(call_budget))
 }
 
-/// Whether a file (or its pre-rename path) sits at or under `path`.
-pub(super) fn in_path_scope(file: &Value, path: Option<&str>) -> bool {
-    path.is_none_or(|path| {
+/// A commit or comparison file scope: the `path` prefix and the `files`
+/// paths/globs (any-of). A rename matches by its new or previous path.
+pub(super) struct PathScope(Vec<PathPattern>);
+
+impl PathScope {
+    pub(super) fn from_query(query: &HistoryItemRequest) -> Result<Option<Self>, String> {
+        let mut patterns = query
+            .path()
+            .map(|path| PathPattern::Scope(path.to_owned()))
+            .into_iter()
+            .collect::<Vec<_>>();
+        for pattern in &query.file_scope {
+            patterns.push(
+                PathPattern::parse(pattern)
+                    .map_err(|error| error.replace("fileFilter.paths", "files"))?,
+            );
+        }
+        Ok((!patterns.is_empty()).then_some(Self(patterns)))
+    }
+
+    pub(super) fn matches(&self, file: &Value) -> bool {
         let name = str_at(file, "/filename").unwrap_or("");
-        let previous = str_at(file, "/previous_filename").unwrap_or("");
-        name == path
-            || previous == path
-            || name.starts_with(
-                if path.ends_with('/') {
-                    path.to_owned()
-                } else {
-                    format!("{path}/")
-                }
-                .as_str(),
-            )
-    })
+        let previous = str_at(file, "/previous_filename");
+        self.0.iter().any(|pattern| {
+            pattern.matches(name) || previous.is_some_and(|previous| pattern.matches(previous))
+        })
+    }
 }
 
-pub(super) fn scope_files(files: Vec<Value>, path: Option<&str>) -> Vec<Value> {
+/// Whether a file sits in the optional scope.
+pub(super) fn in_path_scope(file: &Value, scope: Option<&PathScope>) -> bool {
+    scope.is_none_or(|scope| scope.matches(file))
+}
+
+pub(super) fn scope_files(files: Vec<Value>, scope: Option<&PathScope>) -> Vec<Value> {
     files
         .into_iter()
-        .filter(|file| in_path_scope(file, path))
+        .filter(|file| in_path_scope(file, scope))
         .collect()
 }
 
@@ -1046,15 +1171,14 @@ mod tests {
             assert_eq!(row["patch"].as_str().map(str::len), Some(300), "{row}");
             assert!(row.get("patchPagination").is_none(), "{row}");
         }
-        let window_chars = patch_window(None, None);
+        let window_chars = patch_window(None, None, 1);
         let big = &first.rows[3];
         assert_eq!(big["patchPagination"]["charOffset"], 0);
         assert_eq!(big["patchPagination"]["charLength"], window_chars - 900);
         assert_eq!(big["patchPagination"]["nextCharOffset"], window_chars - 900);
         assert_eq!(first.cursor, Some(window_chars));
-        // The rest of the page is listed (metadata only) on the first window.
-        assert_eq!(first.rows.len(), 30);
-        assert!(first.rows[4].get("patch").is_none());
+        // Files not reached yet ride the continuation, not placeholder rows.
+        assert_eq!(first.rows.len(), 4);
         assert_eq!(first.unfinished.len(), 27);
 
         let second = shape_patch_page(
@@ -1084,7 +1208,7 @@ mod tests {
     fn single_file_and_three_hundred_file_commits_stay_lossless() {
         let one = vec![file("only.rs", &"x".repeat(20_000))];
         let (calls, patches, _) = follow_commit_page(&one, None);
-        assert_eq!(calls, 20_000usize.div_ceil(patch_window(None, None)));
+        assert_eq!(calls, 20_000usize.div_ceil(patch_window(None, None, 1)));
         assert_eq!(patches["only.rs"], "x".repeat(20_000));
 
         let many = (0..300)
@@ -1188,10 +1312,12 @@ mod tests {
                         .push_str(text);
                 }
             }
-            let Some(next) = shaped_cursor(Some(&Value::Array(page.rows))) else {
+            // The page cursor continues the narrowed selection (no placeholder
+            // row carries it when the next file has not started).
+            let Some(next) = page.cursor else {
                 break;
             };
-            offset = next["nextCharOffset"].as_u64().unwrap_or(0) as usize;
+            offset = next;
             selection.retain(|f| {
                 page.unfinished
                     .iter()
@@ -1319,10 +1445,20 @@ mod tests {
     /// patch reads in three calls at the default 50k page, not thirteen.
     #[test]
     fn patch_window_is_one_budget_for_the_whole_page() {
-        assert_eq!(patch_window(None, None), 15_000);
-        assert_eq!(patch_window(Some(2), None), 2);
-        assert_eq!(patch_window(None, Some(50_000)), 40_000);
-        assert_eq!(100_071usize.div_ceil(patch_window(None, Some(50_000))), 3);
+        assert_eq!(patch_window(None, None, 1), 15_000);
+        assert_eq!(patch_window(Some(2), None, 1), 2);
+        assert_eq!(patch_window(None, Some(50_000), 1), 40_000);
+        assert_eq!(
+            100_071usize.div_ceil(patch_window(None, Some(50_000), 1)),
+            3
+        );
+        // S3: rows of one call split the budget (G01: 2 rows → 8,000 each);
+        // an explicit charLength still wins; a share never drops below 2,000.
+        assert_eq!(patch_window(None, None, 2), 7_500);
+        assert_eq!(patch_window(None, Some(20_000), 2), 7_500);
+        assert_eq!(patch_window(Some(9_000), None, 2), 9_000);
+        assert_eq!(patch_window(None, None, 50), 2_000);
+        assert_eq!(patch_window(None, Some(1_000), 5), 400);
     }
 
     /// D1: an explicit `charLength` sizes the patch window up to the contract
@@ -1336,10 +1472,10 @@ mod tests {
             "charLength",
         );
         assert_eq!(max, 100_000);
-        assert_eq!(patch_window(Some(80_000), Some(20_000)), 80_000);
-        assert_eq!(patch_window(Some(50_000), None), 50_000);
-        assert_eq!(patch_window(Some(100_000), Some(50_000)), 100_000);
-        assert_eq!(patch_window(Some(150_000), Some(1_000)), max);
+        assert_eq!(patch_window(Some(80_000), Some(20_000), 1), 80_000);
+        assert_eq!(patch_window(Some(50_000), None, 1), 50_000);
+        assert_eq!(patch_window(Some(100_000), Some(50_000), 1), 100_000);
+        assert_eq!(patch_window(Some(150_000), Some(1_000), 1), max);
         let patch = "+x\n".repeat(30_000);
         let mut query = window(json!({"charLength":80_000}));
         query.auto_page_chars = Some(20_000);
@@ -1432,7 +1568,7 @@ mod tests {
                 "b".repeat(150)
             )
         );
-        let query = patch_request(json!({"matchString":"NEEDLE"}));
+        let query = patch_request(json!({"matchString":"NEEDLE","matchContext":3}));
         let page = shape_patch_page(
             vec![file("src/a.rs", &patch)],
             true,
@@ -1441,6 +1577,139 @@ mod tests {
         );
         assert_eq!(page.rows[0]["patch"], view);
         assert_eq!(page.rows[0]["fullPatchChars"], patch.chars().count());
+    }
+
+    /// S4: `matchString` keeps only the hit lines by default (matchContext
+    /// 0) and pages every hit file of the PR at once, not 30 per call.
+    #[test]
+    fn match_string_defaults_to_hit_lines_and_one_page_of_hit_files() {
+        let patch = "@@ -1,3 +1,3 @@\n a\n-old miri\n+new miri\n b\n";
+        let query = patch_request(json!({"matchString":"miri"}));
+        assert_eq!(
+            history_patch_view(patch, &query),
+            "@@ -2,1 +2,1 @@\n-old miri\n+new miri\n"
+        );
+        assert_eq!(
+            file_page_size(&query, true),
+            super::super::window::MAX_FILE_BATCHES * MAX_COLLECTION_PAGE
+        );
+        let explicit = patch_request(json!({"matchString":"miri","pageSize":5}));
+        assert_eq!(file_page_size(&explicit, true), 5);
+    }
+
+    /// S5: a patch page emits only rows that carry patch text (or say why a
+    /// file has none); files not reached yet ride the continuation, not
+    /// empty placeholder rows. PR rows carry one compact `stat`.
+    #[test]
+    fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
+        let files = vec![
+            json!({"filename":"a.rs","status":"modified","additions":2,"deletions":1,"patch":"A".repeat(10)}),
+            json!({"filename":"b.rs","status":"added","additions":9,"deletions":0,"patch":"B".repeat(10)}),
+            json!({"filename":"c.rs","status":"modified","additions":1,"deletions":1,"patch":"C".repeat(10)}),
+        ];
+        let page = shape_patch_page(
+            files.clone(),
+            true,
+            &patch_request(json!({"charOffset":0,"charLength":10})),
+            PatchCursor::FirstUnfinished,
+        );
+        assert_eq!(page.rows.len(), 1, "{:?}", page.rows);
+        assert_eq!(page.unfinished, ["b.rs", "c.rs"]);
+        assert_eq!(page.cursor, Some(0));
+        let mut row = json!({});
+        let mut pagination = Map::new();
+        shape_pr_files(
+            &mut row,
+            &mut pagination,
+            files,
+            WindowState::COMPLETE,
+            &patch_request(json!({"charOffset":0,"charLength":15})),
+            None,
+            "all",
+            None,
+        );
+        assert_eq!(
+            row["changedFiles"],
+            json!([
+                {"path":"a.rs","stat":"M +2 -1","patch":"AAAAAAAAAA"},
+                {"path":"b.rs","stat":"A +9 -0","patch":"BBBBB",
+                 "patchPagination":{"charOffset":0,"charLength":5,"totalChars":10,"hasMore":true,"nextCharOffset":5}}
+            ])
+        );
+        assert_eq!(pagination["patches"]["nextCharOffset"], 5);
+        assert_eq!(pagination["patches"]["files"], json!(["b.rs", "c.rs"]));
+    }
+
+    /// S7 (G02): the review pick names every source file by churn within
+    /// one budget, skipping tests, docs and lockfiles.
+    #[test]
+    fn review_selection_packs_source_files_by_churn() {
+        let f =
+            |name: &str, changed: u64| json!({"filename":name,"additions":changed,"deletions":0});
+        let files = vec![
+            f(".changeset/x.md", 8),
+            f("pydantic/json_schema.py", 40),
+            f("tests/test_counter.py", 400),
+            f("pydantic/_known_annotated_metadata.py", 12),
+            f("pydantic/fields.py", 90),
+            f("uv.lock", 900),
+            f("pyproject.toml", 2),
+            f("docs/img/diagram.png", 0),
+        ];
+        assert_eq!(
+            review_selection(&files, 15_000),
+            [
+                "pydantic/fields.py",
+                "pydantic/json_schema.py",
+                "pydantic/_known_annotated_metadata.py",
+                "pyproject.toml"
+            ]
+        );
+        // A tight budget leads with the files that fit whole; the larger
+        // ones follow (read through continuePatch), never dropped.
+        assert_eq!(
+            review_selection(&files, 2_000),
+            [
+                "pydantic/json_schema.py",
+                "pydantic/fields.py",
+                "pydantic/_known_annotated_metadata.py",
+                "pyproject.toml"
+            ]
+        );
+        assert!(review_selection(&[f("tests/a_test.py", 3)], 15_000).is_empty());
+        // A literal search fills the page share without the metadata reserve.
+        assert_eq!(literal_patch_window(None, 1), 16_000);
+        assert_eq!(literal_patch_window(Some(20_000), 2), 8_000);
+    }
+
+    /// S5/S8: commit rows use the PR header (`path` + `stat`), and a
+    /// commit's `files` scope takes paths and globs like a PR's.
+    #[test]
+    fn commit_rows_are_compact_and_files_scope_them() {
+        let (rows, _) = shape_files(
+            vec![
+                json!({"filename":"src/a.rs","status":"added","additions":3,"deletions":0,"patch":"+a"}),
+            ],
+            true,
+            &window(json!({})),
+        );
+        assert_eq!(
+            rows,
+            json!([{"path":"src/a.rs","stat":"A +3 -0","patch":"+a"}])
+        );
+        let scoped = HistoryItemRequest::from_row(json!({
+            "operation":"commit","goal":"g","reasoning":"r","owner":"o","repo":"r",
+            "ref":"abc","files":["*.md","src/"]
+        }))
+        .expect("commit files");
+        let scope = PathScope::from_query(&scoped)
+            .expect("valid")
+            .expect("scope");
+        let names = ["src/a.rs", "README.md", "lib/b.rs"]
+            .into_iter()
+            .filter(|name| scope.matches(&json!({"filename": name})))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["src/a.rs", "README.md"]);
     }
 
     fn inventory_request(fields: Value) -> HistoryItemRequest {
@@ -1599,7 +1868,7 @@ mod tests {
     /// so a page of patches still fits one automatic response page.
     #[test]
     fn patch_window_derives_from_the_effective_auto_page() {
-        assert_eq!(patch_window(None, Some(1_000)), 400);
+        assert_eq!(patch_window(None, Some(1_000), 1), 400);
         let mut query = patch_request(json!({"charOffset":0}));
         query.auto_page_chars = Some(1_000);
         let patch = "+x\n".repeat(2_000);

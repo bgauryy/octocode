@@ -80,8 +80,9 @@ pub fn page(content: &str, q: &LocalFetchQuery) -> Result<Page, String> {
             let lines = records(content);
             let out_of_range = offset > 0 && offset >= lines.len();
             let offset = offset.min(lines.len());
-            let selected =
-                q.match_string.is_some() || (q.start_line().is_some() && q.end_line().is_some());
+            let selected = q.match_string.is_some()
+                || q.has_ranges()
+                || (q.start_line().is_some() && q.end_line().is_some());
             let requested_limit = q.chunk_size().unwrap_or(if selected {
                 lines.len().clamp(1, 50_000)
             } else {

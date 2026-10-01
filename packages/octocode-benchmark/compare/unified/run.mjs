@@ -131,6 +131,7 @@ async function session({ dir, prompt, worker, label, turns = maxTurns, timeout =
   fs.mkdirSync(dir, { recursive: true });
   const cwd = freshCwd(label);
   let boundary;
+  let completed;
   try {
     const hasMcp = Object.keys(worker.profile.mcpServers ?? {}).length > 0;
     boundary = await solverBoundary({ cwd, corpus, repoRoot: REPO_ROOT, mcp: hasMcp, statsHome: path.join(dir, 'native-home'), ...credentials });
@@ -153,8 +154,13 @@ async function session({ dir, prompt, worker, label, turns = maxTurns, timeout =
       reflection = { text: rm.answer, tokens: accounting.tokens, cost_usd: accounting.cost_usd, costVerified: accounting.costVerified, accounting, toolCallsAttempted: rm.toolCalls.length, valid: r.exitCode === 0 && !r.signal && !r.timedOut && !rm.isError && rm.resultSubtype === 'success' && accounting.verified && rm.toolCalls.length === 0 };
       fs.writeFileSync(path.join(dir, 'reflection.md'), rm.answer ?? '');
     }
-    return { res, m, started, reflection, classificationProvider: boundary.providerStats(), nativeCalls: boundary.nativeCalls() };
-  } finally { await boundary?.close(); fs.rmSync(cwd, { recursive: true, force: true }); }
+    completed = { res, m, started, reflection };
+  } finally {
+    await boundary?.close();
+    if (completed) Object.assign(completed, { classificationProvider: boundary.providerStats(), nativeCalls: boundary.nativeCalls(), gatewayTraffic: boundary.traffic(), nativeGithubUsage: boundary.githubStats() });
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+  return completed;
 }
 
 function summarize({ q, worker, res, m, started, prompt }) {
@@ -191,11 +197,14 @@ async function runOne(q, worker, mcpPath) {
   const recordPath = path.join(dir, 'run.json');
   if (fs.existsSync(recordPath)) return readJson(recordPath);
   const prompt = buildPrompt(q);
-  const { res, m, started, reflection, classificationProvider, nativeCalls } = await session({ dir, prompt, worker, mcpPath, label: `${q.id}-${worker.id}`, reflect: true });
+  const { res, m, started, reflection, classificationProvider, nativeCalls, gatewayTraffic, nativeGithubUsage } = await session({ dir, prompt, worker, mcpPath, label: `${q.id}-${worker.id}`, reflect: true });
   const record = summarize({ q, worker, res, m, started, prompt });
   record.reflection = reflection;
   record.classificationProvider = classificationProvider;
   record.nativeCalls = nativeCalls;
+  record.gatewayTraffic = gatewayTraffic;
+  record.nativeGithubUsage = nativeGithubUsage;
+  record.networkAccounting = { scope: 'isolated session including tools-disabled reflection', gateway: 'forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained', nativeGithub: nativeGithubUsage ? 'observed native session aggregate; retain its completeness flag' : 'unknown; native aggregate absent', model: 'CONNECT tunnels, not physical model HTTP requests' };
   record.nativeRowErrorCount = nativeCalls.reduce((sum, c) => sum + c.rowErrors.length, 0);
   record.rowErrorCount = Math.max(record.rowErrorCount, record.nativeRowErrorCount);
   const classifierIds = new Set(m.toolCalls.filter(c => /clasify$/.test(c.name)).map(c => c.id));
@@ -245,9 +254,10 @@ async function runProbe(worker, name, mcpPath) {
   const record = await recordedProbe({ recordPath, worker: worker.id, probe: name, secrets: [...Object.values(credentials), ...Object.entries(process.env).filter(([key]) => /TOKEN|SECRET|PASSWORD|API_KEY/.test(key)).map(([, value]) => value)] }, async () => {
     if (fs.existsSync(recordPath)) return readJson(recordPath);
     const { prompt, turns } = PROBES[name];
-    const { res, m, started, nativeCalls, classificationProvider } = await session({ dir, prompt, worker, mcpPath, label: `probe-${name}-${worker.id}`, turns, timeout: 5 * 60_000 });
+    const { res, m, started, nativeCalls, classificationProvider, gatewayTraffic, nativeGithubUsage } = await session({ dir, prompt, worker, mcpPath, label: `probe-${name}-${worker.id}`, turns, timeout: 5 * 60_000 });
     const record = summarize({ q: null, worker, res, m, started, prompt });
     record.nativeCalls = nativeCalls; record.classificationProvider = classificationProvider;
+    record.gatewayTraffic = gatewayTraffic; record.nativeGithubUsage = nativeGithubUsage;
     record.nativeRowErrorCount = nativeCalls.reduce((sum, c) => sum + c.rowErrors.length, 0);
     record.probe = name;
     if (name === 'isolation') {

@@ -10,6 +10,7 @@ use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
     RequestContext,
 };
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
 
@@ -52,7 +53,17 @@ pub(super) async fn issue<R: CredentialResolver>(
         .ok_or_else(|| validation("number is required"))?
         .to_string();
     let issue_path = ["repos", query.owner(), query.repo(), "issues", &number];
-    let (raw, _) = fetch(transport, &issue_path, &[], context).await?;
+    // The closing PRs load beside the issue on its first window only.
+    let first_window = query.comment_page().unwrap_or(1) <= 1
+        && query.char_offset().is_none_or(|offset| offset == 0);
+    let (fetched, closed_by) = tokio::join!(fetch(transport, &issue_path, &[], context), async {
+        if first_window {
+            closing_pull_requests(transport, query, context).await
+        } else {
+            None
+        }
+    });
+    let (raw, _) = fetched?;
     if raw.get("pull_request").is_some_and(|v| !v.is_null()) {
         return Err(validation(&format!(
             "Issue #{number} is a pull request; use ghGetHistoryItem operation:\"pullRequest\" with number:{number}."
@@ -129,7 +140,87 @@ pub(super) async fn issue<R: CredentialResolver>(
     if !pagination.is_empty() {
         row["contentPagination"] = Value::Object(pagination);
     }
+    let closed = raw.get("state").and_then(Value::as_str) == Some("closed");
+    if let Some(prs) = closed_by.as_ref().filter(|prs| !prs.is_empty()) {
+        row["closedBy"] = json!(prs);
+    }
     let mut out = json!({"type":"issues","owner":query.owner(),"repo":query.repo(),"issues":[row],"totalCount":1});
     promote_issue_continuations(&mut out, query);
+    if first_window {
+        attach_fix_pr(&mut out, query, closed_by.as_deref(), closed);
+    }
     Ok(out)
+}
+
+/// The pull requests whose merge closes (or closed) the issue, merged first:
+/// `{number, state, mergedAt?}`. `None` when GraphQL is unavailable or
+/// failed (the caller falls back to search); empty when none are linked.
+async fn closing_pull_requests<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+) -> Option<Vec<Value>> {
+    if !transport.graphql_enabled || !transport.graphql_available(context).await {
+        return None;
+    }
+    let document = "query($owner:String!,$repo:String!,$number:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:10,includeClosedPrs:true){ nodes{ number state mergedAt } } } } }";
+    let variables = json!({"owner":query.owner(),"repo":query.repo(),"number":query.number()?});
+    let page = transport
+        .execute_graphql(document, variables, context)
+        .await
+        .ok()?;
+    let nodes = page
+        .data
+        .as_ref()?
+        .pointer("/repository/issue/closedByPullRequestsReferences/nodes")?
+        .as_array()?;
+    Some(map_closing_pull_requests(nodes))
+}
+
+fn map_closing_pull_requests(nodes: &[Value]) -> Vec<Value> {
+    let mut prs = nodes
+        .iter()
+        .filter_map(|node| {
+            let number = node.get("number").and_then(Value::as_u64)?;
+            let mut pr = json!({
+                "number": number,
+                "state": str_at(node, "/state").unwrap_or("closed").to_ascii_lowercase(),
+                "mergedAt": node.get("mergedAt").filter(|v| !v.is_null()),
+            });
+            remove_nulls(&mut pr);
+            Some(pr)
+        })
+        .collect::<Vec<_>>();
+    // Stable: merged first, otherwise GitHub's order.
+    prs.sort_by_key(|pr| pr.get("mergedAt").is_none());
+    prs
+}
+
+/// `next.readFixPr` reads the first linked (merged-first) pull request;
+/// with no link information a closed issue offers the keyword search hop.
+fn attach_fix_pr(
+    out: &mut Value,
+    query: &HistoryItemRequest,
+    closed_by: Option<&[Value]>,
+    closed: bool,
+) {
+    let next = match closed_by.and_then(<[Value]>::first) {
+        Some(pr) => (
+            "readFixPr",
+            json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":"high","query":{
+                "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
+                "number":pr["number"],"include":["body","files"]}}),
+        ),
+        None if closed && closed_by.is_none() => (
+            "findFixPr",
+            json!({"tool":ToolId::GhSearchHistory.as_str(),"confidence":"medium","query":{
+                "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
+                "keywords":[query.number().unwrap_or_default().to_string()]}}),
+        ),
+        None => return,
+    };
+    if !out.get("next").is_some_and(Value::is_object) {
+        out["next"] = json!({});
+    }
+    out["next"][next.0] = next.1;
 }

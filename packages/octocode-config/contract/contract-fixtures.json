@@ -9,24 +9,23 @@
       "resources": [
         {
           "id": "guide",
-          "context": {
-            "tool": "localFetch",
-            "query": {
-              "path": "/ABS/repo/docs/guide.md",
-              "fullContent": true,
-              "reasoning": "Capture the unread guide for source localization."
-            }
-          }
+          "tool": "localFetch",
+          "query": {
+            "path": "/ABS/repo/docs/guide.md"
+          },
+          "prefilter": [
+            "retry"
+          ]
         }
       ],
       "questions": [
         {
-          "questionType": "locate",
-          "target": "What condition requires a retry?"
+          "type": "locate",
+          "ask": "What condition requires a retry?"
         },
         {
-          "questionType": "locate",
-          "target": "When must retry stop?"
+          "type": "locate",
+          "ask": "When must retry stop?"
         }
       ]
     },
@@ -38,25 +37,24 @@
       "resources": [
         {
           "id": "guide",
-          "context": {
-            "tool": "localFetch",
-            "query": {
-              "reasoning": "Capture the unread guide for source localization.",
-              "path": "/ABS/repo/docs/guide.md",
-              "fullContent": true
-            }
+          "tool": "localFetch",
+          "query": {
+            "path": "/ABS/repo/docs/guide.md"
           },
-          "maxChars": 80000
+          "maxChars": 80000,
+          "prefilter": [
+            "retry"
+          ]
         }
       ],
       "questions": [
         {
-          "questionType": "locate",
-          "target": "What condition requires a retry?"
+          "type": "locate",
+          "ask": "What condition requires a retry?"
         },
         {
-          "questionType": "locate",
-          "target": "When must retry stop?"
+          "type": "locate",
+          "ask": "When must retry stop?"
         }
       ]
     }
@@ -71,22 +69,23 @@
       "resources": [
         {
           "id": "axios-core",
-          "context": {
-            "tool": "ghGetFileContent",
-            "query": {
-              "owner": "axios",
-              "repo": "axios",
-              "path": "lib/core/Axios.js",
-              "reasoning": "Screen this candidate without a host body read.",
-              "fullContent": true
-            }
+          "tool": "ghGetFileContent",
+          "query": {
+            "owner": "axios",
+            "repo": "axios",
+            "path": "lib/core/Axios.js",
+            "fullContent": true
           }
         }
       ],
       "questions": [
         {
-          "type": "noul",
-          "instructions": "Could this content contribute a concrete fact, constraint, or counterexample about request interceptor order?"
+          "type": "relevant",
+          "ask": "What is the request interceptor execution order?"
+        },
+        {
+          "type": "sufficient",
+          "ask": "What is the request interceptor execution order?"
         }
       ]
     },
@@ -98,23 +97,24 @@
       "resources": [
         {
           "id": "axios-core",
-          "context": {
-            "tool": "ghGetFileContent",
-            "query": {
-              "reasoning": "Screen this candidate without a host body read.",
-              "owner": "axios",
-              "repo": "axios",
-              "path": "lib/core/Axios.js",
-              "fullContent": true
-            }
+          "tool": "ghGetFileContent",
+          "query": {
+            "owner": "axios",
+            "repo": "axios",
+            "path": "lib/core/Axios.js",
+            "fullContent": true
           },
           "maxChars": 80000
         }
       ],
       "questions": [
         {
-          "type": "noul",
-          "instructions": "Could this content contribute a concrete fact, constraint, or counterexample about request interceptor order?"
+          "type": "relevant",
+          "ask": "What is the request interceptor execution order?"
+        },
+        {
+          "type": "sufficient",
+          "ask": "What is the request interceptor execution order?"
         }
       ]
     }
@@ -129,26 +129,22 @@
       "resources": [
         {
           "id": "search-results",
-          "context": {
-            "tool": "localSearch",
-            "query": {
-              "reasoning": "Find candidate implementations.",
-              "path": "/ABS/repo/src",
-              "searchText": "registerHandler",
-              "pageSize": 5
-            },
-            "candidateEvidence": "fileChunks"
+          "tool": "localSearch",
+          "query": {
+            "path": "/ABS/repo/src",
+            "searchText": "registerHandler",
+            "pageSize": 5
           }
         }
       ],
       "questions": [
         {
-          "questionType": "contribution",
-          "target": "Where is handler registration implemented?"
+          "type": "locate",
+          "ask": "Where is handler registration implemented?"
         },
         {
-          "type": "noul",
-          "instructions": "Is this chunk test code or a test fixture rather than the production implementation?"
+          "type": "yesno",
+          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
         }
       ]
     },
@@ -160,27 +156,23 @@
       "resources": [
         {
           "id": "search-results",
-          "context": {
-            "tool": "localSearch",
-            "query": {
-              "reasoning": "Find candidate implementations.",
-              "path": "/ABS/repo/src",
-              "searchText": "registerHandler",
-              "pageSize": 5
-            },
-            "candidateEvidence": "fileChunks"
+          "tool": "localSearch",
+          "query": {
+            "path": "/ABS/repo/src",
+            "searchText": "registerHandler",
+            "pageSize": 5
           },
           "maxChars": 80000
         }
       ],
       "questions": [
         {
-          "questionType": "contribution",
-          "target": "Where is handler registration implemented?"
+          "type": "locate",
+          "ask": "Where is handler registration implemented?"
         },
         {
-          "type": "noul",
-          "instructions": "Is this chunk test code or a test fixture rather than the production implementation?"
+          "type": "yesno",
+          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
         }
       ]
     }
@@ -195,25 +187,23 @@
       "resources": [
         {
           "id": "draft",
-          "context": {
-            "value": {
-              "draft": {
-                "claim": "An abort signal guarantees that a queued task will never start."
-              },
-              "evidence": [
-                "API section: an abort signal can remove a task while it is waiting.",
-                "API section: a task that has already started continues after abort."
-              ],
-              "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
-            }
+          "value": {
+            "draft": {
+              "claim": "An abort signal guarantees that a queued task will never start."
+            },
+            "evidence": [
+              "API section: an abort signal can remove a task while it is waiting.",
+              "API section: a task that has already started continues after abort."
+            ],
+            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
           }
         }
       ],
       "questions": [
         {
           "type": "choice",
-          "instructions": "Classify how the supplied evidence bears on this exact claim.",
-          "criteria": {
+          "ask": "Classify how the supplied evidence bears on this exact claim.",
+          "labels": {
             "supported": "Evidence covers the complete claim.",
             "contradicted": "Evidence conflicts with the claim.",
             "conflicting": "Evidence supports and conflicts with the claim.",
@@ -230,26 +220,270 @@
       "resources": [
         {
           "id": "draft",
-          "context": {
-            "value": {
-              "draft": {
-                "claim": "An abort signal guarantees that a queued task will never start."
-              },
-              "evidence": [
-                "API section: an abort signal can remove a task while it is waiting.",
-                "API section: a task that has already started continues after abort."
-              ],
-              "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
-            }
+          "value": {
+            "draft": {
+              "claim": "An abort signal guarantees that a queued task will never start."
+            },
+            "evidence": [
+              "API section: an abort signal can remove a task while it is waiting.",
+              "API section: a task that has already started continues after abort."
+            ],
+            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
+          }
+        }
+      ],
+      "questions": [
+        {
+          "type": "choice",
+          "ask": "Classify how the supplied evidence bears on this exact claim.",
+          "labels": {
+            "supported": "Evidence covers the complete claim.",
+            "contradicted": "Evidence conflicts with the claim.",
+            "conflicting": "Evidence supports and conflicts with the claim.",
+            "insufficient": "A deciding branch or check is missing."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.curated-5",
+    "tool": "clasify",
+    "input": {
+      "goal": "Files that state the retry condition and when retry must stop.",
+      "reasoning": "Find the deciding source span before the host reads this documentation file.",
+      "id": "docs-location",
+      "resources": [
+        {
+          "id": "guide",
+          "tool": "localFetch",
+          "query": {
+            "path": "/ABS/repo/docs/guide.md"
+          },
+          "prefilter": [
+            "retry"
+          ]
+        }
+      ],
+      "questions": [
+        {
+          "type": "locate",
+          "ask": "What condition requires a retry?"
+        },
+        {
+          "type": "locate",
+          "ask": "When must retry stop?"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "docs-location",
+      "reasoning": "Find the deciding source span before the host reads this documentation file.",
+      "goal": "Files that state the retry condition and when retry must stop.",
+      "resources": [
+        {
+          "id": "guide",
+          "tool": "localFetch",
+          "query": {
+            "path": "/ABS/repo/docs/guide.md"
+          },
+          "maxChars": 80000,
+          "prefilter": [
+            "retry"
+          ]
+        }
+      ],
+      "questions": [
+        {
+          "type": "locate",
+          "ask": "What condition requires a retry?"
+        },
+        {
+          "type": "locate",
+          "ask": "When must retry stop?"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.curated-6",
+    "tool": "clasify",
+    "input": {
+      "goal": "Files that decide request interceptor order.",
+      "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
+      "id": "interceptor-candidate",
+      "resources": [
+        {
+          "id": "axios-core",
+          "tool": "ghGetFileContent",
+          "query": {
+            "owner": "axios",
+            "repo": "axios",
+            "path": "lib/core/Axios.js",
+            "fullContent": true
+          }
+        }
+      ],
+      "questions": [
+        {
+          "type": "relevant",
+          "ask": "What is the request interceptor execution order?"
+        },
+        {
+          "type": "sufficient",
+          "ask": "What is the request interceptor execution order?"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "interceptor-candidate",
+      "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
+      "goal": "Files that decide request interceptor order.",
+      "resources": [
+        {
+          "id": "axios-core",
+          "tool": "ghGetFileContent",
+          "query": {
+            "owner": "axios",
+            "repo": "axios",
+            "path": "lib/core/Axios.js",
+            "fullContent": true
           },
           "maxChars": 80000
         }
       ],
       "questions": [
         {
+          "type": "relevant",
+          "ask": "What is the request interceptor execution order?"
+        },
+        {
+          "type": "sufficient",
+          "ask": "What is the request interceptor execution order?"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.curated-7",
+    "tool": "clasify",
+    "input": {
+      "goal": "Files that implement handler registration.",
+      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+      "id": "local-candidates",
+      "resources": [
+        {
+          "id": "search-results",
+          "tool": "localSearch",
+          "query": {
+            "path": "/ABS/repo/src",
+            "searchText": "registerHandler",
+            "pageSize": 5
+          }
+        }
+      ],
+      "questions": [
+        {
+          "type": "locate",
+          "ask": "Where is handler registration implemented?"
+        },
+        {
+          "type": "yesno",
+          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "local-candidates",
+      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+      "goal": "Files that implement handler registration.",
+      "resources": [
+        {
+          "id": "search-results",
+          "tool": "localSearch",
+          "query": {
+            "path": "/ABS/repo/src",
+            "searchText": "registerHandler",
+            "pageSize": 5
+          },
+          "maxChars": 80000
+        }
+      ],
+      "questions": [
+        {
+          "type": "locate",
+          "ask": "Where is handler registration implemented?"
+        },
+        {
+          "type": "yesno",
+          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.curated-8",
+    "tool": "clasify",
+    "input": {
+      "goal": "Evidence that decides whether the guarantee holds.",
+      "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
+      "id": "draft-evidence-review",
+      "resources": [
+        {
+          "id": "draft",
+          "value": {
+            "draft": {
+              "claim": "An abort signal guarantees that a queued task will never start."
+            },
+            "evidence": [
+              "API section: an abort signal can remove a task while it is waiting.",
+              "API section: a task that has already started continues after abort."
+            ],
+            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
+          }
+        }
+      ],
+      "questions": [
+        {
           "type": "choice",
-          "instructions": "Classify how the supplied evidence bears on this exact claim.",
-          "criteria": {
+          "ask": "Classify how the supplied evidence bears on this exact claim.",
+          "labels": {
+            "supported": "Evidence covers the complete claim.",
+            "contradicted": "Evidence conflicts with the claim.",
+            "conflicting": "Evidence supports and conflicts with the claim.",
+            "insufficient": "A deciding branch or check is missing."
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "id": "draft-evidence-review",
+      "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
+      "goal": "Evidence that decides whether the guarantee holds.",
+      "resources": [
+        {
+          "id": "draft",
+          "value": {
+            "draft": {
+              "claim": "An abort signal guarantees that a queued task will never start."
+            },
+            "evidence": [
+              "API section: an abort signal can remove a task while it is waiting.",
+              "API section: a task that has already started continues after abort."
+            ],
+            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
+          }
+        }
+      ],
+      "questions": [
+        {
+          "type": "choice",
+          "ask": "Classify how the supplied evidence bears on this exact claim.",
+          "labels": {
             "supported": "Evidence covers the complete claim.",
             "contradicted": "Evidence conflicts with the claim.",
             "conflicting": "Evidence supports and conflicts with the claim.",
@@ -290,6 +524,56 @@
     }
   },
   {
+    "id": "ghSearchRepo.curated-2",
+    "tool": "ghSearchRepo",
+    "input": {
+      "goal": "Show the owner inventory; follow provider continuation result.",
+      "reasoning": "Use ghSearchRepo for the owner inventory; follow provider continuation example.",
+      "owner": "octocat",
+      "pageSize": 5
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the owner inventory; follow provider continuation result.",
+          "reasoning": "Use ghSearchRepo for the owner inventory; follow provider continuation example.",
+          "debug": false,
+          "owner": "octocat",
+          "sort": "best-match",
+          "page": 1,
+          "pageSize": 5
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghSearchRepo.curated-3",
+    "tool": "ghSearchRepo",
+    "input": {
+      "goal": "Show the archived repositories only result.",
+      "reasoning": "Use ghSearchRepo for the archived repositories only example.",
+      "owner": "octocat",
+      "archived": true,
+      "pageSize": 5
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the archived repositories only result.",
+          "reasoning": "Use ghSearchRepo for the archived repositories only example.",
+          "debug": false,
+          "owner": "octocat",
+          "sort": "best-match",
+          "page": 1,
+          "archived": true,
+          "pageSize": 5
+        }
+      ]
+    }
+  },
+  {
     "id": "ghSearchCode.curated-1",
     "tool": "ghSearchCode",
     "input": {
@@ -322,6 +606,35 @@
     }
   },
   {
+    "id": "ghSearchCode.curated-2",
+    "tool": "ghSearchCode",
+    "input": {
+      "goal": "Show the filename candidates; verify exact returned path result.",
+      "reasoning": "Use ghSearchCode for the filename candidates; verify exact returned path example.",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "filename": "package.json",
+      "match": "path",
+      "pageSize": 5
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the filename candidates; verify exact returned path result.",
+          "reasoning": "Use ghSearchCode for the filename candidates; verify exact returned path example.",
+          "debug": false,
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "filename": "package.json",
+          "match": "path",
+          "page": 1,
+          "pageSize": 5
+        }
+      ]
+    }
+  },
+  {
     "id": "ghStructure.curated-1",
     "tool": "ghStructure",
     "input": {
@@ -345,7 +658,7 @@
           "maxDepth": 2,
           "page": 1,
           "metadataPage": 1,
-          "pageSize": 100
+          "pageSize": 300
         }
       ]
     }
@@ -561,6 +874,39 @@
     "id": "ghSearchHistory.curated-4",
     "tool": "ghSearchHistory",
     "input": {
+      "goal": "Show the commit-message search on the default branch result.",
+      "reasoning": "Use ghSearchHistory for the commit-message search on the default branch example.",
+      "operation": "commit",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "keywords": [
+        "schema"
+      ],
+      "pageSize": 5
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the commit-message search on the default branch result.",
+          "reasoning": "Use ghSearchHistory for the commit-message search on the default branch example.",
+          "debug": false,
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "keywords": [
+            "schema"
+          ],
+          "pageSize": 5,
+          "page": 1,
+          "operation": "commit"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghSearchHistory.curated-5",
+    "tool": "ghSearchHistory",
+    "input": {
       "goal": "Show the pullRequest result.",
       "reasoning": "Use ghSearchHistory for the pullRequest variant.",
       "operation": "pullRequest",
@@ -586,7 +932,7 @@
     }
   },
   {
-    "id": "ghSearchHistory.curated-5",
+    "id": "ghSearchHistory.curated-6",
     "tool": "ghSearchHistory",
     "input": {
       "goal": "Show the issue result.",
@@ -612,7 +958,7 @@
     }
   },
   {
-    "id": "ghSearchHistory.curated-6",
+    "id": "ghSearchHistory.curated-7",
     "tool": "ghSearchHistory",
     "input": {
       "goal": "Show the commit result.",
@@ -1081,6 +1427,50 @@
     }
   },
   {
+    "id": "artifactSearch.curated-4",
+    "tool": "artifactSearch",
+    "input": {
+      "goal": "Show the Maven group:artifact coordinate result.",
+      "reasoning": "Use artifactSearch for the Maven group:artifact coordinate example.",
+      "type": "maven",
+      "packageName": "com.google.guava:guava"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the Maven group:artifact coordinate result.",
+          "reasoning": "Use artifactSearch for the Maven group:artifact coordinate example.",
+          "debug": false,
+          "type": "maven",
+          "packageName": "com.google.guava:guava"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifactSearch.curated-5",
+    "tool": "artifactSearch",
+    "input": {
+      "goal": "Show the Go module path result.",
+      "reasoning": "Use artifactSearch for the Go module path example.",
+      "type": "go",
+      "packageName": "github.com/gin-gonic/gin"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the Go module path result.",
+          "reasoning": "Use artifactSearch for the Go module path example.",
+          "debug": false,
+          "type": "go",
+          "packageName": "github.com/gin-gonic/gin"
+        }
+      ]
+    }
+  },
+  {
     "id": "ghCloneRepo.curated-1",
     "tool": "ghCloneRepo",
     "input": {
@@ -1147,7 +1537,6 @@
           "searchText": "buildDirectToolCommandPatterns",
           "path": "/ABS/repo/src",
           "caseMode": "smart",
-          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -1162,6 +1551,39 @@
   },
   {
     "id": "localSearch.curated-2",
+    "tool": "localSearch",
+    "input": {
+      "goal": "Show the punctuation-rich literal (no regex escaping) result.",
+      "reasoning": "Use localSearch for the punctuation-rich literal (no regex escaping) example.",
+      "path": "/ABS/repo/src",
+      "searchText": "handler.call($value)",
+      "regex": "literal",
+      "pageSize": 5
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the punctuation-rich literal (no regex escaping) result.",
+          "reasoning": "Use localSearch for the punctuation-rich literal (no regex escaping) example.",
+          "debug": false,
+          "searchText": "handler.call($value)",
+          "path": "/ABS/repo/src",
+          "caseMode": "smart",
+          "multiline": "off",
+          "sort": "relevance",
+          "matchPage": 1,
+          "page": 1,
+          "regex": "literal",
+          "pageSize": 5,
+          "unique": "off",
+          "resultView": "paginated"
+        }
+      ]
+    }
+  },
+  {
+    "id": "localSearch.curated-3",
     "tool": "localSearch",
     "input": {
       "goal": "Show the lexical result.",
@@ -1179,7 +1601,6 @@
           "searchText": "toolSchemas",
           "path": ".",
           "caseMode": "smart",
-          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -1242,7 +1663,7 @@
             "package.json"
           ],
           "detail": "basic",
-          "sort": "modified",
+          "sort": "path",
           "page": 1,
           "pageSize": 100
         }
@@ -1251,6 +1672,36 @@
   },
   {
     "id": "structureSearch.curated-3",
+    "tool": "structureSearch",
+    "input": {
+      "goal": "Show the inspect ignored layout explicitly; sensitive paths remain withheld result.",
+      "reasoning": "Use structureSearch for the inspect ignored layout explicitly; sensitive paths remain withheld example.",
+      "operation": "tree",
+      "path": "/ABS/repo",
+      "maxDepth": 1,
+      "noIgnore": true,
+      "hidden": true
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the inspect ignored layout explicitly; sensitive paths remain withheld result.",
+          "reasoning": "Use structureSearch for the inspect ignored layout explicitly; sensitive paths remain withheld example.",
+          "debug": false,
+          "operation": "tree",
+          "path": "/ABS/repo",
+          "maxDepth": 1,
+          "hidden": true,
+          "noIgnore": true,
+          "page": 1,
+          "pageSize": 100
+        }
+      ]
+    }
+  },
+  {
+    "id": "structureSearch.curated-4",
     "tool": "structureSearch",
     "input": {
       "goal": "Show the tree result.",
@@ -1276,7 +1727,7 @@
     }
   },
   {
-    "id": "structureSearch.curated-4",
+    "id": "structureSearch.curated-5",
     "tool": "structureSearch",
     "input": {
       "goal": "Show the files result.",
@@ -1300,7 +1751,7 @@
             "*.ts"
           ],
           "detail": "basic",
-          "sort": "modified",
+          "sort": "path",
           "page": 1,
           "pageSize": 100
         }
@@ -1329,7 +1780,7 @@
           "name": "buildDirectToolCommandPatterns",
           "maxFiles": 2000,
           "page": 1,
-          "pageSize": 100
+          "pageSize": 500
         }
       ]
     }
@@ -1388,13 +1839,47 @@
           "path": "/ABS/repo/src/index.ts",
           "maxFiles": 2000,
           "page": 1,
-          "pageSize": 100
+          "pageSize": 500
         }
       ]
     }
   },
   {
     "id": "astSearch.curated-4",
+    "tool": "astSearch",
+    "input": {
+      "goal": "Show the structural rule with an identifier capture result.",
+      "reasoning": "Use astSearch for the structural rule with an identifier capture example.",
+      "operation": "match",
+      "path": "/ABS/repo/src",
+      "langType": "typescript",
+      "rule": "pattern: console.log($VALUE)"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Show the structural rule with an identifier capture result.",
+          "reasoning": "Use astSearch for the structural rule with an identifier capture example.",
+          "debug": false,
+          "path": "/ABS/repo/src",
+          "matchContentLength": 500,
+          "langType": "typescript",
+          "matchPage": 1,
+          "page": 1,
+          "operation": "match",
+          "sort": "path",
+          "maxMatchesPerFile": 100,
+          "maxFiles": 2000,
+          "resultView": "content",
+          "pageSize": 20,
+          "rule": "pattern: console.log($VALUE)"
+        }
+      ]
+    }
+  },
+  {
+    "id": "astSearch.curated-5",
     "tool": "astSearch",
     "input": {
       "goal": "Show the match result.",
@@ -1428,7 +1913,7 @@
     }
   },
   {
-    "id": "astSearch.curated-5",
+    "id": "astSearch.curated-6",
     "tool": "astSearch",
     "input": {
       "goal": "Show the syntaxTree result.",
@@ -1454,7 +1939,7 @@
     }
   },
   {
-    "id": "astSearch.curated-6",
+    "id": "astSearch.curated-7",
     "tool": "astSearch",
     "input": {
       "goal": "Show the symbols result.",
@@ -1473,7 +1958,7 @@
           "path": ".",
           "maxFiles": 2000,
           "page": 1,
-          "pageSize": 100
+          "pageSize": 500
         }
       ]
     }
@@ -2508,6 +2993,156 @@
     "accepted": false
   },
   {
+    "id": "local-fetch.ranges",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.ranges fixture.",
+      "reasoning": "Exercise the local-fetch.ranges native parity fixture.",
+      "path": "/fixture/a.ts",
+      "ranges": [
+        "3-5",
+        "9-12"
+      ],
+      "block": true
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Exercise the local-fetch.ranges fixture.",
+          "reasoning": "Exercise the local-fetch.ranges native parity fixture.",
+          "debug": false,
+          "path": "/fixture/a.ts",
+          "ranges": [
+            "3-5",
+            "9-12"
+          ],
+          "block": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.ranges-exclusive",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.ranges-exclusive fixture.",
+      "reasoning": "Exercise the local-fetch.ranges-exclusive native parity fixture.",
+      "path": "/fixture/a.ts",
+      "ranges": [
+        "3-5"
+      ],
+      "startLine": 1,
+      "endLine": 2
+    },
+    "accepted": false
+  },
+  {
+    "id": "local-fetch.ranges-order",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.ranges-order fixture.",
+      "reasoning": "Exercise the local-fetch.ranges-order native parity fixture.",
+      "path": "/fixture/a.ts",
+      "ranges": [
+        "5-3"
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "local-fetch.ranges-shape",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.ranges-shape fixture.",
+      "reasoning": "Exercise the local-fetch.ranges-shape native parity fixture.",
+      "path": "/fixture/a.ts",
+      "ranges": [
+        "3:5"
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "local-fetch.block-alone",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.block-alone fixture.",
+      "reasoning": "Exercise the local-fetch.block-alone native parity fixture.",
+      "path": "/fixture/a.ts",
+      "block": true
+    },
+    "accepted": false
+  },
+  {
+    "id": "local-fetch.match-list",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.match-list fixture.",
+      "reasoning": "Exercise the local-fetch.match-list native parity fixture.",
+      "path": "/fixture/a.ts",
+      "matchString": [
+        "a",
+        "b"
+      ],
+      "contextLines": 0
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Exercise the local-fetch.match-list fixture.",
+          "reasoning": "Exercise the local-fetch.match-list native parity fixture.",
+          "debug": false,
+          "path": "/fixture/a.ts",
+          "matchString": [
+            "a",
+            "b"
+          ],
+          "contextLines": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.context-clamp",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.context-clamp fixture.",
+      "reasoning": "Exercise the local-fetch.context-clamp native parity fixture.",
+      "path": "/fixture/a.ts",
+      "matchString": "a",
+      "contextLines": 120
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Exercise the local-fetch.context-clamp fixture.",
+          "reasoning": "Exercise the local-fetch.context-clamp native parity fixture.",
+          "debug": false,
+          "path": "/fixture/a.ts",
+          "matchString": "a",
+          "contextLines": 120
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.symbol-ranges",
+    "tool": "localFetch",
+    "input": {
+      "goal": "Exercise the local-fetch.symbol-ranges fixture.",
+      "reasoning": "Exercise the local-fetch.symbol-ranges native parity fixture.",
+      "path": "/fixture/a.ts",
+      "minify": "symbols",
+      "ranges": [
+        "1-2"
+      ]
+    },
+    "accepted": false
+  },
+  {
     "id": "local-fetch.unknown",
     "tool": "localFetch",
     "input": {
@@ -2699,6 +3334,44 @@
     "accepted": false
   },
   {
+    "id": "artifact.exact-version",
+    "tool": "artifactSearch",
+    "input": {
+      "goal": "Exercise the artifact.exact-version fixture.",
+      "reasoning": "Exercise the artifact.exact-version native parity fixture.",
+      "type": "npm",
+      "packageName": "zod",
+      "version": "^3"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Exercise the artifact.exact-version fixture.",
+          "reasoning": "Exercise the artifact.exact-version native parity fixture.",
+          "debug": false,
+          "type": "npm",
+          "packageName": "zod",
+          "version": "^3"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.discovery-version",
+    "tool": "artifactSearch",
+    "input": {
+      "goal": "Exercise the artifact.discovery-version fixture.",
+      "reasoning": "Exercise the artifact.discovery-version native parity fixture.",
+      "type": "crates",
+      "keywords": [
+        "x"
+      ],
+      "version": "1"
+    },
+    "accepted": false
+  },
+  {
     "id": "local-search.public-match-window",
     "tool": "localSearch",
     "input": {
@@ -2719,7 +3392,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2753,7 +3425,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2786,7 +3457,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2818,7 +3488,6 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
-          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "traversal",
           "matchPage": 1,
@@ -2847,6 +3516,19 @@
       "goal": "Exercise the gh-search-repo.no-constraint fixture.",
       "reasoning": "Exercise the gh-search-repo.no-constraint native parity fixture.",
       "page": 2
+    },
+    "accepted": false
+  },
+  {
+    "id": "gh-search-repo.qualifier-scope",
+    "tool": "ghSearchRepo",
+    "input": {
+      "goal": "Exercise the gh-search-repo.qualifier-scope fixture.",
+      "reasoning": "Exercise the gh-search-repo.qualifier-scope native parity fixture.",
+      "keywords": [
+        "x"
+      ],
+      "qualifiers": "repo:evil/x"
     },
     "accepted": false
   },

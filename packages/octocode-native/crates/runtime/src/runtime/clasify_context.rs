@@ -797,9 +797,11 @@ fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
             "getBody"
                 | "getChangedFiles"
                 | "getSelectedPatches"
+                | "reviewPatches"
                 | "getAllPatches"
                 | "getComments"
                 | "getReviews"
+                | "getDiscussion"
                 | "getCommits"
         )
         && query.as_object().is_some_and(|query| {

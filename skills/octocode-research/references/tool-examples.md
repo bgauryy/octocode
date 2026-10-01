@@ -1,50 +1,21 @@
 # Tool examples
 
-Load when translating a question into a raw query. These are input templates, not a required sequence. Inspect the live schema before an unfamiliar call. Replace `/ABS/repo`, file paths, symbol lines, refs, and numbers with observed identities; paths in `astTopology` queries are relative to its `path` root; `astTopology` and `astRewrite` require `OCTOCODE_BETA=1`. Every tool requires nonblank `reasoning`. When an example includes `<why>`, replace it with one sentence tying the call to the current goal.
-
-Each JSON item contains a public tool and its query. Pass `query` as the direct
-JSON argument to that tool; wrap independent rows in `{ "queries": [...] }`.
-Select the smallest example that answers the question.
+Load when a query shape is non-obvious. `scheme <tool>` lists every variant with a runnable example; these cover the shapes agents most often get wrong. Replace paths, lines, refs, and numbers with observed values.
 
 ```json
 [
-  {"tool":"localSearch","query":{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/src","searchText":"withDataCache","pageSize":10}},
-  {"tool":"astSearch","query":{"goal":"<what to find>","reasoning":"<why>","operation":"match","path":"/ABS/repo/src","pattern":"withDataCache($$$ARGS)","langType":"typescript","resultView":"files"}},
-  {"tool":"structureSearch","query":{"goal":"<what to find>","reasoning":"<why>","operation":"files","path":"/ABS/repo","names":["README.md"],"limit":20}},
-  {"tool":"structureSearch","query":{"goal":"<what to find>","reasoning":"<why>","operation":"tree","path":"/ABS/repo/src","maxDepth":1}},
-  {"tool":"localFetch","query":{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/src/example.ts","startLine":1,"endLine":30,"minify":"none"}},
-  {"tool":"localFetch","query":{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/README.md","minify":"symbols"}},
-  {"tool":"localFetch","query":{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/README.md","fullContent":true}},
-  {"tool":"astSearch","query":{"goal":"<what to find>","reasoning":"<why>","operation":"symbols","path":"/ABS/repo/src/example.ts","name":"example"}},
-  {"tool":"astSearch","query":{"goal":"<what to find>","reasoning":"<why>","operation":"syntaxTree","path":"/ABS/repo/src/example.ts","nodeLimit":100}},
-  {"tool":"localFetch","query":{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/src/example.ts","matchString":"example","contextBytes":256,"chunkType":"bytes","offset":0,"chunkSize":1024}},
-  {"tool":"lspSearch","query":{"goal":"<what to find>","reasoning":"<why>","uri":"/ABS/repo/src/example.ts","operation":"references","symbolName":"example","lineHint":10,"includeDeclaration":false,"pageSize":10}},
-  {"tool":"astTopology","query":{"goal":"<what to find>","reasoning":"<why>","analysis":"dependents","path":"/ABS/repo","file":"src/example.ts","depth":1}},
-  {"tool":"astTopology","query":{"goal":"<what to find>","reasoning":"<why>","analysis":"reachability","path":"/ABS/repo","entrypoints":["src/index.ts"],"includeTests":false}},
-  {"tool":"astRewrite","query":{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/src","langType":"typescript","pattern":"console.log($A)","rewrite":"logger.info($A)","ruleKind":"pattern"}},
-  {"tool":"ghSearchRepo","query":{"goal":"<what to find>","reasoning":"<why>","keywords":["octokit"],"language":"TypeScript","pageSize":5}},
-  {"tool":"ghSearchCode","query":{"goal":"<what to find>","reasoning":"<why>","owner":"octokit","repo":"octokit.js","keywords":["Octokit"],"pageSize":5}},
-  {"tool":"ghStructure","query":{"goal":"<what to find>","reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"src","pageSize":5}},
-  {"tool":"ghGetFileContent","query":{"goal":"<what to find>","reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"src/octokit.ts","branch":"main","matchString":"Octokit","contextBytes":256,"chunkType":"bytes","offset":0,"chunkSize":1024}},
-  {"tool":"ghGetFileContent","query":{"goal":"<what to find>","reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"README.md","branch":"main","minify":"symbols"}},
-  {"tool":"ghGetFileContent","query":{"goal":"<what to find>","reasoning":"<why>","owner":"octokit","repo":"octokit.js","path":"README.md","branch":"main","fullContent":true}},
-  {"tool":"ghSearchHistory","query":{"goal":"<what to find>","reasoning":"<why>","operation":"commit","owner":"octokit","repo":"octokit.js","path":"src/octokit.ts","pageSize":5}},
-  {"tool":"ghGetHistoryItem","query":{"goal":"<what to find>","reasoning":"<why>","operation":"pullRequest","owner":"octokit","repo":"octokit.js","number":2961,"content":{"changedFiles":true}}},
-  {"tool":"ghGetHistoryItem","query":{"goal":"<what to find>","reasoning":"<why>","operation":"issue","owner":"octokit","repo":"octokit.js","number":2968,"content":{"body":true},"charLength":200}},
-  {"tool":"ghGetHistoryItem","query":{"goal":"<what to find>","reasoning":"<why>","operation":"commit","owner":"octokit","repo":"octokit.js","ref":"main","includeDiff":true}},
-  {"tool":"ghGetHistoryItem","query":{"goal":"<what to find>","reasoning":"<why>","operation":"compare","owner":"octokit","repo":"octokit.js","base":"v4.0.0","head":"v5.0.0","pageSize":5}},
-  {"tool":"ghCloneRepo","query":{"goal":"<what to find>","reasoning":"<why>","owner":"octokit","repo":"octokit.js","branch":"main","sparsePath":"src"}},
-  {"tool":"artifactSearch","query":{"goal":"<what to find>","reasoning":"<why>","type":"npm","packageName":"@octokit/rest"}},
-  {"tool":"artifactSearch","query":{"goal":"<what to find>","reasoning":"<why>","type":"npm","keywords":["octokit"],"pageSize":2}},
-  {"tool":"artifactSearch","query":{"goal":"<what to find>","reasoning":"<why>","type":"pypi","packageName":"requests"}},
-  {"tool":"artifactSearch","query":{"goal":"<what to find>","reasoning":"<why>","type":"crates","keywords":["async","runtime"]}}
+  {"tool":"localSearch","query":{"goal":"<what>","reasoning":"<why>","path":"/ABS/repo/src","searchText":"withDataCache","resultView":"files"}},
+  {"tool":"structureSearch","query":{"goal":"<what>","reasoning":"<why>","operation":"files","path":"/ABS/repo","names":["*.config.*"]}},
+  {"tool":"localFetch","query":{"goal":"<what>","reasoning":"<why>","path":"/ABS/repo/src/example.ts","matchString":"example","block":true}},
+  {"tool":"lspSearch","query":{"goal":"<what>","reasoning":"<why>","uri":"/ABS/repo/src/example.ts","operation":"references","symbolName":"example","lineHint":10,"includeDeclaration":false}},
+  {"tool":"astTopology","query":{"goal":"<what>","reasoning":"<why>","analysis":"reachability","path":"/ABS/repo","entrypoints":["src/index.ts"]}},
+  {"tool":"ghGetHistoryItem","query":{"goal":"<what>","reasoning":"<why>","operation":"pullRequest","owner":"octokit","repo":"octokit.js","number":2961,"matchString":"Octokit","files":["src/"]}},
+  {"tool":"ghGetHistoryItem","query":{"goal":"<what>","reasoning":"<why>","operation":"compare","owner":"octokit","repo":"octokit.js","base":"v4.0.0","head":"v5.0.0"}},
+  {"tool":"ghCloneRepo","query":{"goal":"<what>","reasoning":"<why>","owner":"octokit","repo":"octokit.js","branch":"main","sparsePath":"src"}},
+  {"tool":"clasify","query":{"goal":"<what>","reasoning":"<next read depends on>","resources":[{"tool":"ghGetFileContent","query":{"goal":"Find redirect conditions.","reasoning":"Locate before reading.","owner":"psf","repo":"requests","path":"src/requests/sessions.py","branch":"v2.32.3","fullContent":true},"prefilter":["Authorization"]}],"questions":[{"id":"auth","type":"locate","ask":"The condition for removing authorization on a cross-host redirect."}]}}
 ]
 ```
 
-`astRewrite` is CLI-only (`octocode astRewrite`) and previews by default. Inspect its exact patch and retain every returned `beforeHash`; apply only with `apply:true`, the complete `expectedHashes` map, and the explicit mutation gate enabled.
+`astTopology` paths are relative to its `path`. `astRewrite` previews by default; apply only with `apply:true` and the full `expectedHashes`. A sparse clone proves nothing about omitted files.
 
-`localSearch` takes `searchText` and has no `operation`; choose `regex:"literal"`, `"rust"`, or `"pcre2"`. `localFetch` also accepts `{path:"/ABS/repo/src/example.ts"}` with no selector; omitted `minify` is exact content. For LSP, anchored operations use either `symbolName` plus 1-based `lineHint` or a 0-based UTF-16 `position`; `documentSymbols`/`diagnostic` use only `uri`, and `workspaceSymbol` uses `symbolName` plus `uri` or `workspaceRoot`. Inspect `lsp.source` because native fallback evidence is syntactic. Local line numbers and symbols above are placeholders, not claimed evidence. Search or read them before an anchored LSP call. GitHub examples use public identities but their live content can change; record the returned ref and fetch date. Clone needs persistent local storage and git. Do not use the sparse clone as proof about omitted files.
-
-For continuation, copy the returned `tool` and `query`; do not construct page, match, diagnostic, body, or diff offsets from these examples. Examples demonstrate shape; runtime evidence and completeness still control conclusions.
-
-Next: apply `references/workflow-local.md` or `references/workflow-external.md` to interpret results; use `references/octocode.md` for transport and errors.
+Next: run the call and return to the route that sent you; unfamiliar fields → `scheme <tool>`.

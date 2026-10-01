@@ -301,18 +301,13 @@ fn validate_string(
     })?;
     check_size(schema, string.chars().count(), path)?;
     if let Some(pattern) = schema.get("pattern").and_then(Value::as_str) {
-        let regex = Regex::new(pattern).map_err(|error| {
-            issue(
-                "schema.unsupported-pattern",
-                path.to_vec(),
-                error.to_string(),
-            )
-        })?;
+        let regex = compiled_pattern(pattern)
+            .map_err(|error| issue("schema.unsupported-pattern", path.to_vec(), error))?;
         if !regex.is_match(string) {
             return Err(issue(
                 "schema.pattern",
                 path.to_vec(),
-                "String does not match required pattern",
+                pattern_message(string, path),
             ));
         }
     }
@@ -320,6 +315,48 @@ fn validate_string(
         return Err(issue("schema.uri", path.to_vec(), "Expected a valid URI"));
     }
     Ok(())
+}
+
+/// Compiled schema patterns, keyed by source. Patterns come from the embedded
+/// contract (a small fixed set), so the cache stays bounded; `Regex` clones
+/// share one compiled program.
+type PatternCache = std::collections::HashMap<String, Result<Regex, String>>;
+
+fn pattern_cache() -> &'static std::sync::Mutex<PatternCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<PatternCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+fn compiled_pattern(pattern: &str) -> Result<Regex, String> {
+    let mut cache = pattern_cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    cache
+        .entry(pattern.to_owned())
+        .or_insert_with(|| Regex::new(pattern).map_err(|error| error.to_string()))
+        .clone()
+}
+
+#[cfg(test)]
+fn pattern_cached(pattern: &str) -> bool {
+    pattern_cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains_key(pattern)
+}
+
+/// A blank value fails the non-blank patterns (`\S`) the briefs and paths
+/// use; name the fix instead of the regex.
+fn pattern_message(value: &str, path: &[String]) -> String {
+    if !value.trim().is_empty() {
+        return "String does not match required pattern".into();
+    }
+    const BRIEF: &str = "(goal and reasoning are required on every query).";
+    match path.last().map(String::as_str) {
+        Some("goal") => format!("is empty; give one line on what to find or decide {BRIEF}"),
+        Some("reasoning") => format!("is empty; give one line on why this query {BRIEF}"),
+        _ => "is empty; give non-blank text.".into(),
+    }
 }
 
 fn validate_number(
@@ -469,5 +506,20 @@ mod tests {
         ] {
             assert!(validate_schema(&schema, &schema, &mut value, &mut vec![]).is_err());
         }
+    }
+
+    /// Contract patterns are a fixed set; compiling one per validated string
+    /// cost ~150 ms per response that carries continuations (each one is
+    /// validated against every tool's query schema).
+    #[test]
+    fn schema_patterns_compile_once_per_process() {
+        let pattern = "^cache-probe-[a-z]{3}$";
+        let schema = json!({"type":"string","pattern":pattern});
+        for value in ["cache-probe-abc", "cache-probe-xyz", "nope"] {
+            let _ = validate_schema(&schema, &schema, &mut json!(value), &mut vec![]);
+        }
+        assert!(super::pattern_cached(pattern));
+        let mut bad = json!("cache-probe-ab");
+        assert!(validate_schema(&schema, &schema, &mut bad, &mut vec![]).is_err());
     }
 }

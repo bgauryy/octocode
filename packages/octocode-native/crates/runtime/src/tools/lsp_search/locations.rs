@@ -88,6 +88,12 @@ pub(super) async fn locations(
     // groupByFile summarizes per file INSTEAD of returning every location, so
     // the page unit becomes a file summary.
     let grouped = query.group_by_file() == Some(true);
+    // A long reference list without an explicit row form pages locations as
+    // usual but prints each page as compact `line:col text` rows per file.
+    let compact = kind == "references"
+        && query.group_by_file().is_none()
+        && query.context_lines().is_none()
+        && locations.len() > COMPACT_REFERENCES_OVER;
     let entries = if grouped {
         group_by_file(&locations)
     } else {
@@ -97,6 +103,8 @@ pub(super) async fn locations(
     pagination["snapshot"] = json!(snapshot);
     let mut payload = if grouped {
         json!({ "kind": kind, "byFile": page })
+    } else if compact {
+        json!({ "kind": kind, "byFile": compact_rows_by_file(&page) })
     } else {
         // Context lines are read for this page only, not the whole set.
         let mut page = page;
@@ -355,6 +363,85 @@ fn location_sort_key(location: &Value) -> (String, u64, u64, u64, u64) {
         point("/range/end/line"),
         point("/range/end/character"),
     )
+}
+
+/// References beyond this count print as compact per-file rows by default.
+pub(super) const COMPACT_REFERENCES_OVER: usize = 20;
+
+/// One page of locations as `{path, refs: ["line:col text"]}` per file, in
+/// page order. `line:col` is the one-based start (UTF-16 column, as in
+/// `displayRange`); a range spanning lines prints `start-end:col`. The text is
+/// the first trimmed line of the location's content. Rows recovered outside
+/// the server's own answer are listed by label under `recovered`, and
+/// declaration rows under `definitionLines`. Paths stay absolute so the
+/// envelope relativizes them like every other path.
+pub(super) fn compact_rows_by_file(page: &[Value]) -> Vec<Value> {
+    let mut files: Vec<(String, serde_json::Map<String, Value>)> = Vec::new();
+    for location in page {
+        let path = location
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(uri_to_path)
+            .unwrap_or_else(|| "unknown".to_owned());
+        let point = |pointer: &str| location.pointer(pointer).and_then(Value::as_u64);
+        let start = point("/range/start/line").unwrap_or(0) + 1;
+        let end = point("/range/end/line").map_or(start, |end| end + 1);
+        let column = point("/range/start/character").unwrap_or(0) + 1;
+        let lines = if end > start {
+            format!("{start}-{end}")
+        } else {
+            start.to_string()
+        };
+        let text = location
+            .get("content")
+            .and_then(Value::as_str)
+            .and_then(|content| content.lines().next())
+            .map(str::trim)
+            .unwrap_or_default();
+        let row = if text.is_empty() {
+            format!("{lines}:{column}")
+        } else {
+            format!("{lines}:{column} {text}")
+        };
+        let index = match files.iter().position(|(seen, _)| *seen == path) {
+            Some(index) => index,
+            None => {
+                let mut entry = serde_json::Map::new();
+                entry.insert("path".into(), json!(path));
+                entry.insert("refs".into(), json!([]));
+                files.push((path, entry));
+                files.len() - 1
+            }
+        };
+        let entry = &mut files[index].1;
+        if let Some(refs) = entry.get_mut("refs").and_then(Value::as_array_mut) {
+            refs.push(json!(row));
+        }
+        if let Some(label) = location.get("source").and_then(Value::as_str)
+            && let Some(recovered) = entry
+                .entry("recovered")
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+            && let Some(lines) = recovered
+                .entry(label)
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+        {
+            lines.push(json!(start));
+        }
+        if location.get("isDefinition").and_then(Value::as_bool) == Some(true)
+            && let Some(lines) = entry
+                .entry("definitionLines")
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+        {
+            lines.push(json!(start));
+        }
+    }
+    files
+        .into_iter()
+        .map(|(_, entry)| Value::Object(entry))
+        .collect()
 }
 
 /// Per-file summaries `{path, references, lines}` in path order, with `path`

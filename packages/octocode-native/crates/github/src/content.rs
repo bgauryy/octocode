@@ -370,6 +370,30 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         Ok(sha)
     }
 
+    /// The SHA [`Self::resolve_reference`] would return from its memo (or a
+    /// full SHA as given), without a network call; `None` when resolving
+    /// needs one. Callers use it to decide whether to overlap the resolve
+    /// with other requests.
+    pub async fn memoized_reference(
+        &self,
+        owner: &str,
+        repo: &str,
+        reference: Option<&str>,
+        context: &RequestContext,
+    ) -> Option<String> {
+        if let Some(reference) = reference
+            && is_full_sha(reference)
+        {
+            return Some(reference.to_ascii_lowercase());
+        }
+        let partition = self.transport.cache_partition(context, None).await.ok()?;
+        let key = ref_memo_key(owner, repo, reference.unwrap_or("HEAD"));
+        self.cache
+            .get(&partition, &key)
+            .await
+            .and_then(|value| fresh_ref_memo(&value))
+    }
+
     async fn fetch_via_directory_and_blob(
         &self,
         request: &ContentRequest,

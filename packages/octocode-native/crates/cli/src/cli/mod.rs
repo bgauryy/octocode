@@ -807,7 +807,15 @@ fn clasify_failure_exit(
             codes.push(code.to_owned());
         }
         for resource in query["resources"].as_array().into_iter().flatten() {
-            for page in resource["pages"].as_array().into_iter().flatten() {
+            // A compact resource with one plain page carries its `error` or
+            // `answers` itself; it then has no `pages`.
+            let own = std::iter::once(resource).filter(|resource| resource.get("pages").is_none());
+            for page in resource["pages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .chain(own)
+            {
                 if let Some(code) = page.pointer("/error/code").and_then(Value::as_str) {
                     codes.push(code.to_owned());
                 }
@@ -944,6 +952,19 @@ mod tests {
             Some(3)
         );
         assert_eq!(clasify_failure_exit(&missing, None), Some(5));
+        // Compact output: a single failed page is stated on the resource.
+        let compact = |code: &str| {
+            json!({"queries":[{"queryId":"q","resources":[{"resourceId":"x","coverage":"error",
+                "answers":{"q":{"error":{"code":code,"message":"m"}}}}]}]})
+        };
+        assert_eq!(
+            clasify_failure_exit(&compact("classificationProviderError"), None),
+            Some(5)
+        );
+        assert_eq!(
+            clasify_failure_exit(&compact("pathNotFound"), None),
+            Some(3)
+        );
         assert_eq!(clasify_failure_exit(&failed("pathNotFound"), None), Some(3));
         assert_eq!(
             clasify_failure_exit(&failed("rateLimited"), Some(FailureKind::RateLimited)),

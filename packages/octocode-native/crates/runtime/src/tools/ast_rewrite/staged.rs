@@ -48,11 +48,8 @@ impl StagedAnalyzer {
         let config = rule_config(query);
         let compiled = compile_rewrite(config.clone()).map_err(engine_error)?;
         Ok(Self {
-            compiled: RefCell::new(HashMap::from([(
-                query.lang_type().to_owned(),
-                Some(compiled),
-            )])),
-            selector: query.lang_type().to_owned(),
+            compiled: RefCell::new(HashMap::from([(query.lang().to_owned(), Some(compiled))])),
+            selector: query.lang().to_owned(),
             config,
         })
     }

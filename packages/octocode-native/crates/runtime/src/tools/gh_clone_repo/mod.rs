@@ -17,7 +17,52 @@ const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const DEFAULT_MAX_CACHE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_MAX_CLONES: usize = 50;
 
-pub use crate::contracts::tool_types::GhCloneRepoQuery;
+pub use crate::contracts::tool_types::{GhCloneRepoQuery, GhCloneRepoQuerySparsePath};
+
+/// The requested sparse checkout: repo-relative paths in request order,
+/// duplicates removed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Sparse {
+    paths: Vec<String>,
+}
+
+impl Sparse {
+    fn of(query: &GhCloneRepoQuery) -> Option<Self> {
+        let mut paths = Vec::<String>::new();
+        match query.sparse_path.as_ref()? {
+            GhCloneRepoQuerySparsePath::String(path) => paths.push(path.clone()),
+            GhCloneRepoQuerySparsePath::Array(values) => {
+                for path in values {
+                    if !paths.contains(path) {
+                        paths.push(path.clone());
+                    }
+                }
+            }
+        }
+        Some(Self { paths })
+    }
+
+    pub(crate) fn paths(&self) -> &[String] {
+        &self.paths
+    }
+
+    /// Cache identity: one path keys as itself (the layout before multi-path
+    /// sparse, so existing entries stay valid); several key as their sorted,
+    /// newline-joined set, so request order does not split the cache.
+    pub(crate) fn key(&self) -> String {
+        if let [path] = self.paths.as_slice() {
+            return path.clone();
+        }
+        let mut sorted = self.paths.clone();
+        sorted.sort();
+        sorted.join("\n")
+    }
+}
+
+/// Commits of history to fetch; 1 is a shallow checkout.
+fn history_depth(query: &GhCloneRepoQuery) -> u64 {
+    query.depth.map_or(1, std::num::NonZeroU64::get)
+}
 
 #[derive(Clone, Debug)]
 pub struct CloneConfig {
@@ -64,23 +109,37 @@ pub struct CloneContext<'a> {
     pub git: &'a dyn GitRunner,
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+/// Where the checkout lives and what it holds. `verified`/`complete` are
+/// stated only when false; owner/repo are the caller's own input.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloneLocation {
     pub kind: &'static str,
     pub local_path: String,
-    pub source: &'static str,
     pub cached: bool,
     pub commit_sha: String,
+    #[serde(skip_serializing_if = "is_true")]
     pub verified: bool,
+    #[serde(skip_serializing_if = "is_true")]
     pub complete: bool,
     pub resolved_branch: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_path: Option<String>,
-    /// When a served cache hit was cloned; its commit may lag the branch.
+    /// Multi-path sparse checkouts name every requested path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_paths: Option<Vec<String>>,
+    /// History depth when more than the shallow single commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth: Option<u64>,
+    /// When the checkout was cloned; a cache hit's commit may lag the branch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloned_at: Option<String>,
-    /// When a served cache hit stops being reused (`forceRefresh` re-clones now).
+    /// When the checkout stops being reused (`forceRefresh` re-clones now).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
 }
@@ -88,8 +147,6 @@ pub struct CloneLocation {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloneResult {
-    pub owner: String,
-    pub repo: String,
     pub total_size: u64,
     pub location: CloneLocation,
     /// Continuations into the local tools on the checkout.
@@ -145,23 +202,18 @@ pub fn execute_clone(
         ));
     }
     validate_query(query)?;
-    let branch = query
-        .branch
-        .as_deref()
-        .or(context.resolved_default_branch)
-        .ok_or_else(|| {
-            CloneError::new(
-                "clone.defaultBranchUnavailable",
-                "The repository default branch was not resolved before clone execution.",
-            )
-        })?
-        .to_owned();
-    if branch.trim().is_empty() {
+    if let Some(branch) = query.branch.as_deref()
+        && branch.trim().is_empty()
+    {
         return Err(CloneError::new(
             "clone.input.invalid",
             "branch must not be empty",
         ));
     }
+    let sparse = Sparse::of(query);
+    let sparse_key = sparse.as_ref().map(Sparse::key);
+    let depth = history_depth(query);
+    let force_refresh = query.force_refresh.unwrap_or(false);
     let repository_url = repository_url(context.endpoint, &query.owner, &query.repo)?;
     // Existing homes and homes below an allowed workspace must pass the
     // ordinary policy check. The one exception is an explicitly configured
@@ -190,49 +242,139 @@ pub fn execute_clone(
             format!("Could not initialize the configured clone cache home: {error}"),
         )
     })?;
-    let clone_dir = cache::clone_dir(
-        &context.config.cache_home,
-        &query.owner,
-        &query.repo,
-        &branch,
-        query.sparse_path.as_deref(),
-        &repository_url,
-    );
-    context
-        .path_policy
-        .validate_output(&clone_dir)
-        .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
-    context.git.assert_available(&control(context))?;
-    let _lock = cache::CloneLock::acquire(&clone_dir, context)?;
-    if !query.force_refresh.unwrap_or(false)
-        && let Some(meta) = cache::valid_clone(&clone_dir, context.config.cache_ttl)
-        && meta.source == "clone"
-        && meta.matches(
+    let target = |branch: &str| -> Result<PathBuf, CloneError> {
+        let clone_dir = cache::clone_dir(
+            &context.config.cache_home,
             &query.owner,
             &query.repo,
-            &branch,
-            query.sparse_path.as_deref(),
-        )
-        && let Ok(commit_sha) = git::read_head(context, &clone_dir)
-        && (!is_commit(&branch) || commit_sha == branch.to_ascii_lowercase())
-        // A modified cache no longer holds the fetched revision: re-clone it.
-        && git::is_clean(context, &clone_dir).unwrap_or(false)
-    {
+            branch,
+            sparse_key.as_deref(),
+            depth,
+            &repository_url,
+        );
         context
             .path_policy
-            .validate(&clone_dir)
+            .validate_output(&clone_dir)
             .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
-        let age = cache::CacheAge::of(&meta, context.config.cache_ttl);
-        return result(
-            query,
+        Ok(clone_dir)
+    };
+    // The default branch comes from the caller, else from the alias a
+    // default-branch clone recorded: a hit needs no GitHub API call.
+    let known_branch = query
+        .branch
+        .clone()
+        .or_else(|| context.resolved_default_branch.map(str::to_owned))
+        .or_else(|| {
+            (!force_refresh)
+                .then(|| {
+                    cache::default_branch_alias(
+                        &context.config.cache_home,
+                        &query.owner,
+                        &query.repo,
+                        &repository_url,
+                        context.config.cache_ttl,
+                    )
+                })
+                .flatten()
+        });
+    context.git.assert_available(&control(context))?;
+    if let Some(branch) = known_branch.as_deref() {
+        let clone_dir = target(branch)?;
+        let _lock = cache::CloneLock::acquire(&clone_dir, context)?;
+        let identity = cache::Identity {
+            owner: &query.owner,
+            repo: &query.repo,
             branch,
-            &clone_dir,
-            commit_sha,
-            meta.verified,
-            Some(age),
-        );
+            sparse_key: sparse_key.as_deref(),
+            depth,
+        };
+        if !force_refresh && let Some(hit) = cache_hit(context, &clone_dir, &identity)? {
+            return result(sparse.as_ref(), depth, branch, &clone_dir, hit);
+        }
+        if query.branch.is_some() || context.resolved_default_branch.is_some() {
+            return fresh_clone(
+                query,
+                context,
+                &repository_url,
+                sparse.as_ref(),
+                depth,
+                Some(branch),
+                &target,
+                Some(clone_dir.as_path()),
+            );
+        }
     }
+    // Unknown (or stale-aliased) default branch: let git resolve the remote
+    // HEAD. One lock serializes concurrent default-branch clones; "HEAD" is
+    // never a branch name, so it cannot collide with a branch cache entry.
+    let pending = target("HEAD")?;
+    let _lock = cache::CloneLock::acquire(&pending, context)?;
+    fresh_clone(
+        query,
+        context,
+        &repository_url,
+        sparse.as_ref(),
+        depth,
+        None,
+        &target,
+        None,
+    )
+}
 
+/// A served cache hit: commit and age of a clean checkout that still matches
+/// the requested identity.
+struct CacheHit {
+    commit_sha: String,
+    verified: bool,
+    age: Option<cache::CacheAge>,
+}
+
+fn cache_hit(
+    context: &CloneContext<'_>,
+    clone_dir: &Path,
+    identity: &cache::Identity<'_>,
+) -> Result<Option<CacheHit>, CloneError> {
+    let Some(meta) = cache::valid_clone(clone_dir, context.config.cache_ttl) else {
+        return Ok(None);
+    };
+    if meta.source != "clone" || !meta.matches(identity) {
+        return Ok(None);
+    }
+    let Ok(commit_sha) = git::read_head(context, clone_dir) else {
+        return Ok(None);
+    };
+    if is_commit(identity.branch) && commit_sha != identity.branch.to_ascii_lowercase() {
+        return Ok(None);
+    }
+    // A modified cache no longer holds the fetched revision: re-clone it.
+    if !git::is_clean(context, clone_dir).unwrap_or(false) {
+        return Ok(None);
+    }
+    context
+        .path_policy
+        .validate(clone_dir)
+        .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
+    Ok(Some(CacheHit {
+        commit_sha,
+        verified: meta.verified,
+        age: cache::CacheAge::of(&meta, context.config.cache_ttl),
+    }))
+}
+
+/// Check out into a stage, verify it, and publish it. `branch` is `None` for
+/// a default-branch clone: git resolves the remote HEAD and the branch it
+/// checked out names the cache entry (and the default-branch alias).
+#[allow(clippy::too_many_arguments)]
+fn fresh_clone(
+    query: &GhCloneRepoQuery,
+    context: &CloneContext<'_>,
+    repository_url: &str,
+    sparse: Option<&Sparse>,
+    depth: u64,
+    branch: Option<&str>,
+    target: &dyn Fn(&str) -> Result<PathBuf, CloneError>,
+    locked_dir: Option<&Path>,
+) -> Result<CloneResult, CloneError> {
     cache::cleanup_stale_artifacts(&context.config.cache_home);
     cache::evict(
         &context.config.cache_home,
@@ -241,55 +383,83 @@ pub fn execute_clone(
         context.config.max_clone_count,
         None,
     );
-    let stage = cache::stage_dir(&context.config.cache_home, &clone_dir)?;
+    let stage_key = match locked_dir {
+        Some(dir) => dir.to_path_buf(),
+        None => target("HEAD")?,
+    };
+    let stage = cache::stage_dir(&context.config.cache_home, &stage_key)?;
+    let sparse_paths = sparse.map(Sparse::paths);
     let checkout = (|| {
-        git::checkout(
-            context,
-            &repository_url,
-            &branch,
-            query.sparse_path.as_deref(),
-            &stage,
-        )?;
-        if let Some(sparse_path) = query.sparse_path.as_deref()
-            && !stage.join(sparse_path).exists()
-        {
-            return Err(CloneError::new(
-                "clone.sparsePath.notFound",
-                format!(
-                    "sparsePath \"{sparse_path}\" does not exist in {}/{}@{branch} — nothing was checked out for it. Verify the path with ghStructure, then retry with the correct sparsePath (or omit it for a full clone).",
-                    query.owner, query.repo
-                ),
-            ));
+        git::checkout(context, repository_url, branch, sparse_paths, depth, &stage)?;
+        if let Some(paths) = sparse_paths {
+            let missing = paths
+                .iter()
+                .filter(|path| !stage.join(path).exists())
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            if !missing.is_empty() {
+                return Err(sparse_not_found(query, branch, &missing));
+            }
         }
+        let resolved = match branch {
+            Some(branch) => branch.to_owned(),
+            None => git::current_branch(context, &stage)?,
+        };
         let commit_sha = git::read_head(context, &stage)?;
-        if is_commit(&branch) && commit_sha != branch.to_ascii_lowercase() {
+        if is_commit(&resolved) && commit_sha != resolved.to_ascii_lowercase() {
             return Err(CloneError::new(
                 "clone.commit.mismatch",
-                format!("Checkout HEAD {commit_sha} does not match requested commit {branch}."),
+                format!("Checkout HEAD {commit_sha} does not match requested commit {resolved}."),
             ));
         }
+        Ok((resolved, commit_sha))
+    })();
+    let (resolved, commit_sha) = match checkout {
+        Ok(value) => value,
+        Err(error) => {
+            discard_stage(context, &stage);
+            return Err(error);
+        }
+    };
+    let publish = (|| {
+        let clone_dir = match locked_dir {
+            Some(dir) => dir.to_path_buf(),
+            None => target(&resolved)?,
+        };
+        // A default-branch clone learns its entry only now; take that
+        // entry's lock before replacing it.
+        let _lock = match locked_dir {
+            Some(_) => None,
+            None => Some(cache::CloneLock::acquire(&clone_dir, context)?),
+        };
         let meta = cache::CacheMeta::new(
-            &query.owner,
-            &query.repo,
-            &branch,
-            query.sparse_path.as_deref(),
+            &cache::Identity {
+                owner: &query.owner,
+                repo: &query.repo,
+                branch: &resolved,
+                sparse_key: sparse.map(Sparse::key).as_deref(),
+                depth,
+            },
             &commit_sha,
             context.config.cache_ttl,
         );
         cache::write_meta(&stage, &meta)?;
         cache::promote(&context.config.cache_home, &stage, &clone_dir)?;
-        Ok(commit_sha)
+        if branch.is_none() {
+            cache::write_default_branch_alias(
+                &context.config.cache_home,
+                &query.owner,
+                &query.repo,
+                repository_url,
+                &resolved,
+            );
+        }
+        Ok::<_, CloneError>((clone_dir, meta))
     })();
-    let commit_sha = match checkout {
+    let (clone_dir, meta) = match publish {
         Ok(value) => value,
         Err(error) => {
-            crate::cache::evictions::log_eviction(
-                &context.config.cache_home,
-                "failed-checkout-stage",
-                &stage,
-                0,
-            );
-            cache::remove_dir(&stage);
+            discard_stage(context, &stage);
             return Err(error);
         }
     };
@@ -297,7 +467,21 @@ pub fn execute_clone(
         .path_policy
         .validate(&clone_dir)
         .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
-    let result = result(query, branch, &clone_dir, commit_sha, true, None)?;
+    let result = result(
+        sparse,
+        depth,
+        &resolved,
+        &clone_dir,
+        CacheHit {
+            commit_sha,
+            verified: true,
+            age: cache::CacheAge::of(&meta, context.config.cache_ttl),
+        },
+    )
+    .map(|mut result| {
+        result.location.cached = false;
+        result
+    })?;
     cache::evict(
         &context.config.cache_home,
         context.config.cache_ttl,
@@ -308,41 +492,76 @@ pub fn execute_clone(
     Ok(result)
 }
 
-/// `cache` is `Some` for a served cache hit (with its age when the persisted
-/// timestamps parse), `None` for a fresh checkout.
-fn result(
+fn discard_stage(context: &CloneContext<'_>, stage: &Path) {
+    crate::cache::evictions::log_eviction(
+        &context.config.cache_home,
+        "failed-checkout-stage",
+        stage,
+        0,
+    );
+    cache::remove_dir(stage);
+}
+
+/// Requested sparse paths absent at the checked-out revision: a not-found
+/// input, named per path, with the recovery as its one hint.
+fn sparse_not_found(
     query: &GhCloneRepoQuery,
-    branch: String,
+    branch: Option<&str>,
+    missing: &[&str],
+) -> CloneError {
+    let at = branch.map_or_else(String::new, |branch| format!("@{branch}"));
+    let paths = missing
+        .iter()
+        .map(|path| format!("\"{path}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    CloneError {
+        hints: vec![
+            "Verify the path with ghStructure, or omit sparsePath for a full clone.".into(),
+        ],
+        ..CloneError::new(
+            "clone.sparsePath.notFound",
+            format!(
+                "sparsePath {paths} not found in {}/{}{at}; nothing was checked out for it.",
+                query.owner, query.repo
+            ),
+        )
+    }
+}
+
+/// One clone row: a fresh checkout or a served cache hit (`cached`).
+fn result(
+    sparse: Option<&Sparse>,
+    depth: u64,
+    branch: &str,
     clone_dir: &Path,
-    commit_sha: String,
-    verified: bool,
-    cache: Option<Option<cache::CacheAge>>,
+    hit: CacheHit,
 ) -> Result<CloneResult, CloneError> {
     let local_path = clone_dir.to_string_lossy().into_owned();
     let total_size = cache::checked_out_size(clone_dir);
-    let cached = cache.is_some();
-    let (cloned_at, expires_at) = cache.flatten().map_or((None, None), |age| {
+    let (cloned_at, expires_at) = hit.age.map_or((None, None), |age| {
         (Some(age.cloned_at), Some(age.expires_at))
     });
+    let paths = sparse.map(Sparse::paths);
     Ok(CloneResult {
-        owner: query.owner.to_string(),
-        repo: query.repo.to_string(),
         total_size,
-        next: explore_next(clone_dir, query.sparse_path.as_deref()),
+        next: explore_next(clone_dir, paths),
         location: CloneLocation {
-            kind: if query.sparse_path.is_some() {
-                "tree"
-            } else {
-                "repo"
-            },
-            local_path: local_path.clone(),
-            source: "clone",
-            cached,
-            commit_sha,
-            verified,
+            kind: if sparse.is_some() { "tree" } else { "repo" },
+            local_path,
+            cached: true,
+            commit_sha: hit.commit_sha,
+            verified: hit.verified,
             complete: true,
-            resolved_branch: branch,
-            requested_path: query.sparse_path.clone(),
+            resolved_branch: branch.to_owned(),
+            requested_path: paths.and_then(|paths| match paths {
+                [path] => Some(path.clone()),
+                _ => None,
+            }),
+            requested_paths: paths
+                .filter(|paths| paths.len() > 1)
+                .map(<[String]>::to_vec),
+            depth: (depth > 1).then_some(depth),
             cloned_at,
             expires_at,
         },
@@ -352,8 +571,12 @@ fn result(
 /// `next.exploreClone`: list the checkout (the sparse subtree when one was
 /// requested) with structureSearch, the local entry into localSearch,
 /// astSearch, and lspSearch on it.
-fn explore_next(clone_dir: &Path, sparse_path: Option<&str>) -> serde_json::Value {
-    let root = sparse_path.map_or_else(|| clone_dir.to_path_buf(), |path| clone_dir.join(path));
+fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json::Value {
+    // One sparse path lists that subtree; several list the checkout root.
+    let root = match sparse_paths {
+        Some([path]) => clone_dir.join(path),
+        _ => clone_dir.to_path_buf(),
+    };
     let mut query = serde_json::Map::new();
     query.insert(
         "path".into(),
@@ -389,7 +612,17 @@ pub(crate) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError>
             ));
         }
     }
-    if let Some(path) = query.sparse_path.as_deref() {
+    let sparse = Sparse::of(query);
+    if sparse
+        .as_ref()
+        .is_some_and(|sparse| sparse.paths.is_empty())
+    {
+        return Err(CloneError::new(
+            "clone.input.invalid",
+            "sparsePath must name at least one path",
+        ));
+    }
+    for path in sparse.as_ref().map_or(&[][..], Sparse::paths) {
         let value = Path::new(path);
         if path.trim().is_empty()
             || path.contains('\\')

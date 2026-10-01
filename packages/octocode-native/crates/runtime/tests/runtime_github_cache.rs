@@ -44,7 +44,7 @@ async fn github_cache_survives_runtime_close_until_explicitly_cleared() {
         .await
         .unwrap();
     assert_eq!(row_status(&outcome), "success");
-    assert_eq!(row_data(&outcome)["files"][0]["content"], "source body\n");
+    assert_eq!(row_data(&outcome)["files"][0]["content"], "1\tsource body\n");
     let requests = server.received_requests().await.unwrap();
     let contents: Vec<_> = requests
         .iter()
@@ -129,7 +129,7 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
     let second = workspace.runtime(&settings);
     let outcome = call(&second, "ghGetFileContent", query).await.unwrap();
     assert_eq!(row_status(&outcome), "success");
-    assert_eq!(row_data(&outcome)["files"][0]["content"], "mem-only body\n");
+    assert_eq!(row_data(&outcome)["files"][0]["content"], "1\tmem-only body\n");
     // Verify neither request sent If-None-Match (no cached ETag from disk).
     let requests = server.received_requests().await.unwrap();
     let content_requests: Vec<_> = requests

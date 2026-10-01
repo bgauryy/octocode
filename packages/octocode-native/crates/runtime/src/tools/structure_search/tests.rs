@@ -134,8 +134,7 @@ fn line_sort_and_full_counts_work_above_two_thousand_entries() {
     assert!(
         out["files"][0]["path"]
             .as_str()
-            .expect("path")
-            .ends_with("/largest.rs"),
+            .is_some_and(|path| path.ends_with("/largest.rs")),
         "{out}"
     );
     assert_eq!(out["files"][0]["lineCount"], 7, "{out}");
@@ -545,12 +544,12 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
         paths.sort();
         paths
     };
-    let base = root.0.file_name().unwrap().to_string_lossy().into_owned();
     let out = run(
         &root.0,
         json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"names":["package.json","*.node"]}),
     )
     .expect("files");
+    let base = root.0.file_name().unwrap().to_string_lossy().into_owned();
     assert_eq!(
         paths(&out),
         [
@@ -614,15 +613,13 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
     assert!(
         files["hints"]
             .as_array()
-            .is_some_and(|hints| hints
-                .iter()
-                .any(|hint| hint.as_str().is_some_and(
-                    |hint| hint.contains(".gitignore") && hint.contains("defaultExcludes")
-                ))),
+            .is_some_and(|hints| hints.iter().any(|hint| hint
+                .as_str()
+                .is_some_and(|hint| hint.contains(".gitignore") && hint.contains("noIgnore")))),
         "{files}"
     );
     let retry = &files["next"]["includeIgnored"];
-    assert_eq!(retry["query"]["defaultExcludes"], false, "{files}");
+    assert_eq!(retry["query"]["noIgnore"], true, "{files}");
     let found = run(&root.0, retry["query"].clone()).expect("retry");
     assert_eq!(found["files"].as_array().map(Vec::len), Some(1), "{found}");
 }
@@ -682,5 +679,124 @@ fn tree_summary_counts_gitignored_entries_it_left_out() {
             .unwrap_or_default()
             .contains(".gitignore"),
         "{all}"
+    );
+}
+
+/// A path-ordered listing is the walk order, so the walk stops once the
+/// requested limit is filled instead of scanning the whole tree.
+#[test]
+fn path_sorted_listing_stops_walking_at_the_limit() {
+    let root = Fixture::new();
+    for dir in ["a", "a-b", "b"] {
+        std::fs::create_dir_all(root.0.join(dir)).expect("dir");
+        for n in 0..10 {
+            std::fs::write(root.0.join(format!("{dir}/f{n}.go")), "x\n").expect("file");
+        }
+    }
+    let listing = |limit: Option<u32>| {
+        let mut query = json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"extensions":["go"],"sort":"path"});
+        if let Some(limit) = limit {
+            query["limit"] = json!(limit);
+        }
+        run(&root.0, query).expect("files")
+    };
+    let full = listing(None);
+    let prefix = format!("{}/", root.0.file_name().unwrap().to_string_lossy());
+    let names = |out: &Value| {
+        out["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .map(|row| {
+                let path = row["path"].as_str().expect("path");
+                path.strip_prefix(&prefix).unwrap_or(path).to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    let all = names(&full);
+    assert_eq!(all.len(), 30);
+    // Walk order: a directory's contents follow it (`a/…` before `a-b/…`).
+    assert_eq!(all[9], "a/f9.go");
+    assert_eq!(all[10], "a-b/f0.go");
+    assert!(full.get("truncated").is_none(), "{full}");
+    let cut = listing(Some(3));
+    assert_eq!(names(&cut), all[..3], "{cut}");
+    assert_eq!(cut["truncated"], true);
+    assert_eq!(cut["partialReasons"], json!(["limit"]));
+    // The walk stopped early: the total is a lower bound, not a count.
+    assert!(cut.get("totalAvailable").is_none(), "{cut}");
+    assert_eq!(cut["atLeast"], 4, "{cut}");
+    assert!(cut.get("terminalLimit").is_none(), "{cut}");
+    assert_eq!(cut["next"]["expandLimit"]["query"]["limit"], 6, "{cut}");
+}
+
+/// `tree` takes the same name filter as `files`; `files` takes `noIgnore`
+/// like `tree` (gitignore only, unlike defaultExcludes:false).
+#[test]
+fn tree_filters_names_and_files_lists_ignored_entries_on_request() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "gen.rs\n").expect("gitignore");
+    std::fs::write(root.0.join("a_test.rs"), "x\n").expect("a");
+    std::fs::write(root.0.join("lib.rs"), "x\n").expect("lib");
+    std::fs::write(root.0.join("gen.rs"), "x\n").expect("gen");
+    let tree = run(
+        &root.0,
+        json!({"operation":"tree","goal":"t","reasoning":"t","path":root.0,"names":["*_test.rs"]}),
+    )
+    .expect("tree");
+    assert_eq!(tree["entries"], json!(["a_test.rs (2B)"]), "{tree}");
+    let prefix = format!("{}/", root.0.file_name().unwrap().to_string_lossy());
+    let files = |extra: Value| {
+        let mut query = json!({"operation":"files","goal":"t","reasoning":"t","path":root.0,"extensions":["rs"]});
+        query
+            .as_object_mut()
+            .expect("query")
+            .extend(extra.as_object().expect("extra").clone());
+        let out = run(&root.0, query).expect("files");
+        out["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .map(|row| {
+                let path = row["path"].as_str().expect("path");
+                path.strip_prefix(&prefix).unwrap_or(path).to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(files(json!({})), ["a_test.rs", "lib.rs"]);
+    assert_eq!(
+        files(json!({"noIgnore":true})),
+        ["a_test.rs", "gen.rs", "lib.rs"]
+    );
+}
+
+/// With no sort, files are listed in path (git ls-files) order.
+#[test]
+fn files_default_to_path_order() {
+    let root = Fixture::new();
+    for name in ["b.rs", "a.rs", "c.rs"] {
+        std::fs::write(root.0.join(name), "x\n").expect("file");
+    }
+    let out = run(
+        &root.0,
+        json!({"operation":"files","goal":"t","reasoning":"t","path":root.0,"entryType":"f"}),
+    )
+    .expect("files");
+    let base = root.0.file_name().unwrap().to_string_lossy().into_owned();
+    let paths = out["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .map(|row| row["path"].as_str().expect("path").to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        [
+            format!("{base}/a.rs"),
+            format!("{base}/b.rs"),
+            format!("{base}/c.rs")
+        ],
+        "{out}"
     );
 }

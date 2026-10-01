@@ -2,7 +2,29 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use crate::contracts::tool_types::{ChunkType, LocalFetchQuery, MinifyMode};
+pub use crate::contracts::tool_types::{ChunkType, LocalFetchQuery, MatchString, MinifyMode};
+
+/// A single literal `matchString` (tests and continuations build one).
+impl std::str::FromStr for MatchString {
+    type Err = <crate::contracts::tool_types::MatchStringString as std::str::FromStr>::Err;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        value.parse().map(MatchString::String)
+    }
+}
+
+impl MatchString {
+    /// The searched text as one line: a list joins its entries with ` | `.
+    pub fn display(&self) -> String {
+        match self {
+            MatchString::String(one) => one.to_string(),
+            MatchString::Array(list) => list
+                .iter()
+                .map(|one| one.as_str())
+                .collect::<Vec<_>>()
+                .join(" | "),
+        }
+    }
+}
 
 /// The engine works in `usize`; the wire contract (generated from the core
 /// Zod schema) owns the field set and its JSON integer types.
@@ -13,8 +35,17 @@ impl LocalFetchQuery {
     pub fn end_line(&self) -> Option<usize> {
         self.end_line.map(|n| usize_of(n.get()))
     }
+    /// Context lines per match, clamped to [`MAX_CONTEXT_LINES`]: a larger
+    /// request reads the maximum instead of failing the call.
     pub fn context_lines(&self) -> Option<usize> {
-        self.context_lines.map(usize_of_signed)
+        self.context_lines
+            .map(|n| usize_of_signed(n).min(MAX_CONTEXT_LINES))
+    }
+    /// The requested context when it exceeded the maximum.
+    pub fn context_lines_clamped_from(&self) -> Option<usize> {
+        self.context_lines
+            .map(usize_of_signed)
+            .filter(|n| *n > MAX_CONTEXT_LINES)
     }
     pub fn context_bytes(&self) -> Option<usize> {
         self.context_bytes.map(usize_of_signed)
@@ -25,8 +56,40 @@ impl LocalFetchQuery {
     pub fn chunk_size(&self) -> Option<usize> {
         self.chunk_size.map(|n| usize_of(n.get()))
     }
-    pub fn match_string(&self) -> Option<&str> {
-        self.match_string.as_deref().map(String::as_str)
+    /// Every `matchString` entry (a list matches any of them).
+    pub fn match_strings(&self) -> Vec<&str> {
+        match &self.match_string {
+            None => Vec::new(),
+            Some(MatchString::String(one)) => vec![one.as_str()],
+            Some(MatchString::Array(list)) => list.iter().map(|one| one.as_str()).collect(),
+        }
+    }
+    /// `ranges` parsed into 1-based inclusive line ranges, in request order.
+    /// The contract admits only `start-end` digits, so a malformed entry
+    /// (unreachable after validation) is skipped.
+    pub fn line_ranges(&self) -> Vec<LineRange> {
+        self.ranges
+            .iter()
+            .filter_map(|range| {
+                let (start, end) = range.split_once('-')?;
+                Some(LineRange {
+                    start: start.parse().ok()?,
+                    end: end.parse().ok()?,
+                })
+            })
+            .collect()
+    }
+    pub fn has_ranges(&self) -> bool {
+        !self.ranges.is_empty()
+    }
+    /// `block:true`: widen windows to the enclosing declaration.
+    pub fn block(&self) -> bool {
+        self.block == Some(true)
+    }
+    /// Drop the multi-window selectors (`ranges`, `block`) from a derived query.
+    pub fn clear_block_selectors(&mut self) {
+        self.ranges = Vec::new();
+        self.block = None;
     }
     pub fn path(&self) -> &str {
         self.path.as_str()
@@ -43,6 +106,9 @@ fn usize_of(value: u64) -> usize {
 fn usize_of_signed(value: i64) -> usize {
     usize::try_from(value).unwrap_or(0)
 }
+
+/// Largest `contextLines` applied around a match.
+pub const MAX_CONTEXT_LINES: usize = 100;
 
 /// Default line-page request. The 16 KiB page budget, not a line count,
 /// bounds each page, so short-line files are not split into many tiny calls.

@@ -44,7 +44,7 @@ const cases = [
     forbidden: [/fallback branch changes what was researched/i] },
   { name: 'history operations keep distinct identities', file: 'references/workflow-external.md',
     required: [/pullRequest[^\n]*issue[^\n]*number/, /commit[^\n]*ref/, /compare[^\n]*base[^\n]*head/, /omit[^\n]*keywords[^\n]*(?:path|branch)/i] },
-  { name: 'materialization respects scoped completeness and storage', file: 'references/workflow-combination.md',
+  { name: 'materialization respects scoped completeness and storage', file: 'references/workflow-external.md',
     required: [/complete[^\n]*(?:relative|requested scope)/i, /OCTOCODE_STORAGE_MODE/, /ENABLE_CLONE/, /shallow[^\n]*history/i],
     forbidden: [/complete:false/, /3rd\+|third read|3\+ remote reads/i] },
   { name: 'transport and continuation semantics', file: 'references/octocode.md',
@@ -66,17 +66,17 @@ const cases = [
       /before the host reads a large known file/,
       /saved scrape text, browser snapshots/,
       /flat `questions:/,
-      /unread `context:\{tool,query\}`/,
+      /unread file as a flat `\{tool,query\}` resource/,
       /Skip literals, small exact reads/,
       /No automatic Scout → Judge chain/,
       /Hints do not establish source facts or global absence/,
       /verification reads and extra turns/,
       /If unavailable, use targeted direct reads/,
     ],
-    forbidden: [/No current research workflow meets both gates/, /questions:\[\{id,question\}\]/, /context --compact/] },
+    forbidden: [/No current research workflow meets both gates/, /questions:\[\{id,question\}\]/, /questionType:"locate",target/, /context --compact/] },
   { name: 'primary sources and untrusted content', file: 'references/workflow-external.md',
     required: [/primary[^\n]*(?:documentation|docs)/i, /untrusted[^\n]*(?:instructions|data)/i] },
-  { name: 'one owner for adaptive routing', file: 'references/workflows.md',
+  { name: 'one owner for adaptive routing', file: 'references/algorithm.md',
     required: [/surface[^\n]*task/i, /skip[^\n]*(?:irrelevant|redundant|known)/i],
     forbidden: [/take exactly one/, /routes don't nest/, /graph for file topology → LSP/] },
 ];
@@ -99,7 +99,7 @@ if (args.includes('--self-test')) {
     ['unread routing', 'before the host reads a large known file'],
     ['artifact workflow', 'saved scrape text, browser snapshots'],
     ['flat contract', 'flat `questions:'],
-    ['unread context', 'unread `context:{tool,query}`'],
+    ['unread resource', 'unread file as a flat `{tool,query}` resource'],
     ['exact-check bypass', 'Skip literals, small exact reads'],
     ['proof boundary', 'Hints do not establish source facts or global absence'],
     ['complete cost accounting', 'verification reads and extra turns'],
@@ -204,7 +204,7 @@ function resolveCli() {
     const [cmd, pre] = cli.endsWith('.js') ? [process.execPath, [cli]] : [cli, []];
     try {
       execFileSync(cmd, [...pre, 'scheme', '--compact'], { stdio: 'pipe', timeout: 20000 });
-      return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'scheme', tool, '--compact'], {
+      return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'scheme', tool, '--view', 'query', '--compact'], {
         stdio: 'pipe', timeout: 20000, env: { ...process.env, OCTOCODE_BETA: '1' },
       }).toString()).querySchema;
     } catch (error) {

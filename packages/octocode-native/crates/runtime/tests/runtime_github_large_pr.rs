@@ -188,17 +188,24 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     ] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
-    for dropped in ["labels", "bodyPreview", "updatedAt", "targetBranch"] {
+    for dropped in ["bodyPreview", "updatedAt", "sourceBranch"] {
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
+    }
+    // Merge state and labels ride the first page of every read.
+    for kept in ["mergedAt", "closedAt", "targetBranch", "labels"] {
+        assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     let menu = row["next"].as_object().expect("next");
     // 250 files: no every-patch read, and no placeholder literal search
     // (only the caller knows the literal).
     assert_eq!(
         menu.keys().collect::<Vec<_>>(),
-        ["getSelectedPatches", "getMergeCommit"],
+        ["reviewPatches", "getMergeCommit"],
         "{row}"
     );
+    // The review read names up to one patch page of source files.
+    let review = &menu["reviewPatches"]["query"]["files"];
+    assert_eq!(review.as_array().map(Vec::len), Some(30), "{row}");
     // An omitted pageSize reads the whole 250-file inventory in one page.
     let page = row.get("contentPagination").cloned().unwrap_or_default();
     assert!(page.get("changedFiles").is_none(), "{page}");
@@ -216,9 +223,9 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     assert_eq!(rows, 250, "{row}");
 }
 
-/// D2: the selected-patch pick is the most reviewable, most changed source
-/// file (not the alphabetically first changeset), labelled as a ranking
-/// guess; a small PR keeps the every-patch read beside it.
+/// D2/S7: the review pick is every source file, most changed first (not the
+/// changeset, not the tests), labelled as a ranking guess; a small PR keeps
+/// the every-patch read beside it.
 #[tokio::test]
 async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
     let server = MockServer::start().await;
@@ -242,15 +249,19 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
     )
     .await;
     let menu = &data["pullRequests"][0]["next"];
-    let selected = &menu["getSelectedPatches"];
+    let selected = &menu["reviewPatches"];
     assert_eq!(
-        selected["query"]["content"]["patches"]["files"],
-        json!(["src/server/webStandardStreamableHttp.ts"]),
+        selected["query"]["files"],
+        json!([
+            "src/server/webStandardStreamableHttp.ts",
+            "src/server/sseKeepAlive.ts"
+        ]),
         "{menu}"
     );
     assert_eq!(selected["confidence"], "high", "{menu}");
     assert_eq!(
-        menu["getAllPatches"]["query"]["content"]["patches"]["mode"], "all",
+        menu["getAllPatches"]["query"]["include"],
+        json!(["patches"]),
         "{menu}"
     );
     assert!(data.get("hints").is_none(), "{data}");
@@ -405,13 +416,13 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     ] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
+    for kept in ["mergedAt", "closedAt", "targetBranch"] {
+        assert!(row.get(kept).is_some(), "{kept} missing: {row}");
+    }
     for dropped in [
         "labels",
-        "targetBranch",
         "sourceBranch",
         "updatedAt",
-        "closedAt",
-        "mergedAt",
         "commentsCount",
         "additions",
         "deletions",
@@ -515,12 +526,11 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     let files = &data["pullRequests"][0]["changedFiles"];
     assert_eq!(files.as_array().map(Vec::len), Some(1), "{data}");
     let patch = files[0]["patch"].as_str().expect("patch");
-    assert!(
-        patch.starts_with("@@ -198,7 +198,7 @@\n line 198\n"),
-        "{patch}"
-    );
+    // S4: hit lines only by default (matchContext 0).
+    assert_eq!(patch, "@@ -201,1 +201,1 @@\n-old esbuild\n+new esbuild\n");
     assert!(patch.len() < 200, "{patch}");
-    assert_eq!(files[0]["fullPatchChars"], big.chars().count());
+    // The narrowed-view marker selects the continuation; rows omit it.
+    assert!(files[0].get("fullPatchChars").is_none(), "{data}");
     // A patch read carries the identity it re-proves (number, state, the
     // head it read) and no follow-up menu; the metadata read names the PR.
     let row = &data["pullRequests"][0];
@@ -529,14 +539,13 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         "mergeCommitSha",
         "additions",
         "deletions",
-        "labels",
         "title",
         "author",
         "createdAt",
     ] {
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
     }
-    for kept in ["number", "state", "sourceSha"] {
+    for kept in ["number", "state", "sourceSha", "mergedAt", "targetBranch"] {
         assert!(row.get(kept).is_some(), "{kept} dropped: {row}");
     }
     // Without a patch row the read proves nothing about files: it keeps the
@@ -646,4 +655,244 @@ async fn match_string_lists_the_patchless_files_it_could_not_search() {
     assert_eq!(read["query"]["branch"], SHA, "{data}");
     assert_eq!(read["query"]["matchString"], "import", "{data}");
     assert_eq!(read["query"]["path"], "src/module.ts", "{data}");
+}
+
+/// S1 (G01): a merged PR's merge state rides every PR row, whatever the
+/// content selection: summary, body + inventory, inventory, patch read and a
+/// later file page all carry `mergedAt`/`closedAt`/`targetBranch`; the first
+/// page also keeps the labels.
+#[tokio::test]
+async fn merged_pr_rows_keep_merge_state_on_every_read() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 250).await;
+    let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
+    batches[0][0] = rest_file("src/hit.rs", Some("@@ -1 +1 @@\n-a\n+needle"), 1, 1);
+    mount_file_batches(&server, batches, Duration::ZERO).await;
+    for (label, query, first_page) in [
+        ("summary", json!({"debug": false}), true),
+        (
+            "body+inventory",
+            json!({"content": {"body": true, "changedFiles": true}, "debug": false}),
+            true,
+        ),
+        (
+            "inventory",
+            json!({"content": {"changedFiles": true}, "debug": false}),
+            true,
+        ),
+        (
+            "patches",
+            json!({"content": {"patches": {"mode": "selected", "files": ["src/hit.rs"]}},
+                   "minify": "none", "debug": false}),
+            true,
+        ),
+        (
+            "matchString",
+            json!({"matchString": "needle", "debug": false}),
+            true,
+        ),
+        (
+            "later page",
+            json!({"content": {"changedFiles": true}, "pageSize": 100, "filePage": 2,
+                   "debug": false}),
+            false,
+        ),
+    ] {
+        let data = run(&server, query).await;
+        let row = &data["pullRequests"][0];
+        assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
+        assert_eq!(row["closedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
+        assert_eq!(row["targetBranch"], "main", "{label}: {row}");
+        assert_eq!(row["state"], "merged", "{label}: {row}");
+        if first_page {
+            assert_eq!(row["labels"], json!(["refactor"]), "{label}: {row}");
+        }
+    }
+}
+
+/// S3 (G01): rows of one call share one patch budget, so two large patch
+/// reads fit one response page instead of spilling into response
+/// pagination; each row keeps its own exact `continuePatch`.
+#[tokio::test]
+async fn patch_rows_in_one_call_share_one_budget() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 2).await;
+    let big = |tag: &str| {
+        format!(
+            "@@ -1,9000 +1,9000 @@\n{}",
+            format!("+{tag} line\n").repeat(3_000)
+        )
+    };
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("pyproject.toml", Some(&big("a")), 3_000, 0),
+            rest_file("src/_runtime.py", Some(&big("b")), 3_000, 0),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let row = |file: &str| {
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 9,
+               "goal": "g", "reasoning": "r", "minify": "none",
+               "content": {"patches": {"mode": "selected", "files": [file]}}})
+    };
+    let outcome = runtime
+        .execute(
+            "test-1".into(),
+            "ghGetHistoryItem".into(),
+            json!({"queries": [row("pyproject.toml"), row("src/_runtime.py")]}),
+        )
+        .await
+        .expect("two patch rows");
+    let content = &outcome.structured_content;
+    assert!(
+        content.get("responsePagination").is_none(),
+        "two rows overflowed the page: {}",
+        content
+            .get("responsePagination")
+            .cloned()
+            .unwrap_or_default()
+    );
+    for index in 0..2 {
+        let data = &content["results"][index]["data"];
+        let file = &data["pullRequests"][0]["changedFiles"][0];
+        let taken = file["patchPagination"]["charLength"].as_u64().unwrap_or(0);
+        // Half the default window each (one budget), not a whole window each.
+        assert!((4_000..=20_000).contains(&taken), "row {index}: {taken}");
+        assert!(
+            data["next"]["continuePatch"].is_object(),
+            "row {index}: {data}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// S4 (G10): a literal search covers every changed file in one call (not 30
+/// files a page) and returns hit lines only, so its bytes track the hits.
+#[tokio::test]
+async fn match_string_covers_every_file_page_in_one_call() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 136).await;
+    let hit = |i: usize| {
+        rest_file(
+            &format!("tests/t{i}.rs"),
+            Some(&format!(
+                "@@ -1,5 +1,5 @@\n a\n b\n-#![cfg(not(miri))]\n+#![cfg(not(miri))] // {i}\n c\n d\n"
+            )),
+            1,
+            1,
+        )
+    };
+    let mut first = numbered(1, 100);
+    for (slot, i) in (0..18).map(|i| (i * 5, i)) {
+        first[slot] = hit(i);
+    }
+    let second = (18..36).map(hit).collect::<Vec<_>>();
+    mount_file_batches(&server, vec![first, second], Duration::ZERO).await;
+    let data = run(&server, json!({"matchString": "miri", "debug": false})).await;
+    let files = data["pullRequests"][0]["changedFiles"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(files.len(), 36, "{data}");
+    for file in &files {
+        let patch = file["patch"].as_str().unwrap_or("");
+        assert!(!patch.contains("\n a\n"), "context leaked: {patch}");
+        assert!(
+            file.get("status").is_none() && file["stat"] == "M +1 -1",
+            "{file}"
+        );
+    }
+    assert!(
+        data.get("next")
+            .and_then(|n| n.get("nextChangedFilesPage"))
+            .is_none(),
+        "{data}"
+    );
+}
+
+/// A8: the flat `include`/`files` read and the nested `content`/`fileFilter`
+/// read it aliases return the same rows through the full runtime.
+#[tokio::test]
+async fn flat_and_nested_read_shapes_return_identical_rows() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 3).await;
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/a.rs", Some("@@ -1 +1 @@\n-a\n+needle"), 1, 1),
+            rest_file("docs/b.md", Some("@@ -1 +1 @@\n-a\n+b"), 1, 1),
+            rest_file("src/c.rs", Some("@@ -1 +1 @@\n-a\n+c"), 1, 1),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let flat = run(
+        &server,
+        json!({"include": ["body", "patches"], "files": ["src/**"], "minify": "none", "debug": false}),
+    )
+    .await;
+    let nested = run(
+        &server,
+        json!({"content": {"body": true, "patches": {"mode": "all"}},
+               "fileFilter": {"paths": ["src/**"]}, "minify": "none", "debug": false}),
+    )
+    .await;
+    assert_eq!(
+        flat["pullRequests"][0]["changedFiles"],
+        nested["pullRequests"][0]["changedFiles"]
+    );
+    assert_eq!(
+        flat["pullRequests"][0]["body"],
+        nested["pullRequests"][0]["body"]
+    );
+    let paths = flat["pullRequests"][0]["changedFiles"]
+        .as_array()
+        .map(|files| {
+            files
+                .iter()
+                .filter_map(|f| f["path"].as_str())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    assert_eq!(paths, ["src/a.rs", "src/c.rs"], "{flat}");
+}
+
+/// A `files` scope that matches no changed file says so (G01 re-asked with a
+/// wrong path and got a silent empty row).
+#[tokio::test]
+async fn files_scope_matching_nothing_is_an_empty_row_with_a_hint() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 1).await;
+    mount_file_batches(
+        &server,
+        vec![vec![rest_file(
+            "fastapi/telemetry/_runtime.py",
+            Some("@@ -1 +1 @@\n+a"),
+            1,
+            0,
+        )]],
+        Duration::ZERO,
+    )
+    .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 9,
+               "include": ["patches"], "files": ["fastapi/_runtime.py"], "debug": false}),
+    )
+    .await
+    .expect("read");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "noSelectedFilesMatched", "{data}");
+    assert!(
+        data["hints"][0].as_str().unwrap_or("").contains("include"),
+        "{data}"
+    );
+    runtime.close().await;
 }

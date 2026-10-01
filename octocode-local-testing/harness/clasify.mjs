@@ -23,6 +23,33 @@ function groundTruth(dir, file, regex) {
   return index < 0 ? null : { file: full, line: index + 1 };
 }
 
+/** A locate row in one shape: compact `{lines, exists, p}` or the debug row. */
+const row = r => r && (r.lines ? { ...r, startLine: r.lines[0], endLine: r.lines[1], probability: r.p } : r);
+/** Ranked locate rows of one question in a query result (server order). */
+const bestRows = (q, id) => (q?.best?.[id] ?? []).map(row);
+/** A page's answer to question `id`: compact bare value or the debug object. */
+const pageExists = (p, id) => (typeof p.answers?.[id] === 'number' ? p.answers[id] : p.answers?.[id]?.exists ?? 0);
+/** Resource-level or single-page answer of a judged supplied value. */
+const answerOf = (resource, id) => {
+  const answer = resource?.answers?.[id] ?? resource?.pages?.[0]?.answers?.[id];
+  return typeof answer === 'object' && answer !== null ? answer.noul ?? answer : answer;
+};
+/** Native `EXISTS_TIE_BAND` (clasify_locate.rs): 0 ships strict exists, then p. */
+const EXISTS_TIE_BAND = 0;
+/** The server's band order: exists within the band of a band's top tie; p ranks inside. */
+function bandOrdered(rows) {
+  const sorted = [...rows].sort((a, b) => b.exists - a.exists || b.probability - a.probability);
+  const out = [];
+  for (let i = 0; i < sorted.length;) {
+    const floor = sorted[i].exists - EXISTS_TIE_BAND - 1e-9;
+    let j = i;
+    while (j < sorted.length && sorted[j].exists >= floor) j += 1;
+    out.push(...sorted.slice(i, j).sort((a, b) => b.probability - a.probability || b.exists - a.exists));
+    i = j;
+  }
+  return out;
+}
+
 /** Run a matrix, following next.clasify; returns every page and total bytes. */
 async function locateAll(matrix, stopWhen) {
   let request = matrix;
@@ -30,19 +57,20 @@ async function locateAll(matrix, stopWhen) {
   const bests = [];
   let bytes = 0;
   let calls = 0;
-  let last;
+  let last, final;
   while (request && calls < MAX_CALLS) {
     calls += 1;
     last = await raw('clasify', { queries: [request] });
     bytes += last.bytes;
     const q = last.sc?.queries?.[0] ?? last.sc?.results?.[0]?.data?.queries?.[0];
-    for (const resource of q?.resources ?? []) for (const page of resource.pages ?? []) pages.push({ resource: resource.resourceId, ...page });
+    for (const resource of q?.resources ?? []) for (const page of resource.pages ?? []) pages.push({ resource: resource.resourceId, path: page.path ?? page.source?.path ?? resource.path, ...page });
     if (q?.best) bests.push(q.best);
+    final = q;
     if (last.isError || !q) break;
     if (stopWhen?.(pages)) break;
     request = q.next?.clasify;
   }
-  return { pages, bests, bytes, calls, last };
+  return { pages, bests, bytes, calls, last, final };
 }
 
 const LOCATE = [
@@ -74,21 +102,18 @@ for (const t of LOCATE) {
   const started = Date.now();
   const run = await locateAll({
     goal: GOAL, reasoning: 'Locate one implementation before reading a large file.',
-    resources: [{ id: 'file', context: { tool: 'localFetch', query: { reasoning: 'unread large file', path: truth.file, fullContent: true } } }],
-    questions: [{ id: 't', questionType: 'locate', target: t.target }],
+    resources: [{ id: 'file', tool: 'localFetch', query: { path: truth.file } }],
+    questions: [{ id: 't', type: 'locate', ask: t.target }],
   });
-  // Every returned window (a page may carry a near-tie runner-up), ranked the
-  // way the server's `best` ranks them: exists, then probability.
-  const ranked = run.pages
-    .flatMap(p => (p.answers?.t?.matches ?? []).map(m => ({ answer: { exists: p.answers.t.exists, matches: [m] } })))
-    .sort((a, b) => b.answer.exists - a.answer.exists || b.answer.matches[0].probability - a.answer.matches[0].probability);
+  // The final call's best is the file-wide ranking (carry merges every call).
+  const ranked = bestRows(run.final, 't').map(r => ({ answer: { exists: r.exists, matches: [r] } }));
   const best = ranked[0];
   const window = best?.answer.matches[0];
   // Strict: the rank-1 window itself shows a declaration line (overloads count).
   const declRe = new RegExp(t.regex);
   const fileLines = fs.readFileSync(truth.file, 'utf8').split('\n');
   const strict = !!window && fileLines.slice(window.startLine - 1, window.endLine).some(line => declRe.test(line));
-  const runnerUps = run.pages.filter(p => (p.answers?.t?.matches ?? []).length > 1).length;
+  const runnerUps = run.pages.filter(p => (p.answers?.t?.matches ?? []).length > 1).length || '-';
   const truthText = fs.readFileSync(truth.file, 'utf8').split('\n')[truth.line - 1].trim().slice(0, 40);
   // The skill's read step: batch the top windows (≤5 ranges); here the top 3.
   let verifyBytes = 0;
@@ -130,19 +155,17 @@ let prefilterQuality;
 {
   const truth = groundTruth('typescript', 'tsc/testdata/fixtures/compiler/checker.ts', 'function isTypeAssignableTo\\(');
   const matrix = {
-    goal: GOAL, reasoning: 'prefilter', resources: [{ id: 'f', prefilter: ['assignable'], context: { tool: 'localFetch', query: { reasoning: 'unread', path: truth.file, fullContent: true } } }],
-    questions: [{ id: 't', questionType: 'locate', target: 'The function that checks whether a source type is assignable to a target type.' }],
+    goal: GOAL, reasoning: 'prefilter', resources: [{ id: 'f', prefilter: ['assignable'], tool: 'localFetch', query: { path: truth.file } }],
+    questions: [{ id: 't', type: 'locate', ask: 'The function that checks whether a source type is assignable to a target type.' }],
   };
   const out = await raw('clasify', { queries: [matrix] });
   const q = out.sc?.queries?.[0];
-  const windows = (q?.resources?.[0]?.pages ?? []).flatMap(p => (p.answers?.t?.matches ?? []).map(m => ({ exists: p.answers.t.exists, ...m })))
-    .sort((a, b) => b.exists - a.exists || b.probability - a.probability);
-  const top = windows[0];
+  const top = bestRows(q, 't')[0];
   const lines = fs.readFileSync(truth.file, 'utf8').split('\n');
   const strict = !!top && lines.slice(top.startLine - 1, top.endLine).some(l => /function isTypeAssignableTo\(/.test(l));
   prefilterQuality = { firstPageRankOneDeclaration: strict, firstPageComplete: !q?.next, firstPageBytes: out.bytes };
   let current = q, last = out, calls = 1, workflowBytes = out.bytes;
-  const rankedDeclaration = row => row?.best?.t?.[0];
+  const rankedDeclaration = q => bestRows(q, 't')[0];
   const containsDeclaration = row => {
     const window = rankedDeclaration(row);
     return !!window && lines.slice(window.startLine - 1, window.endLine).some(l => /function isTypeAssignableTo\(/.test(l));
@@ -152,7 +175,8 @@ let prefilterQuality;
     workflowBytes += last.bytes; calls += 1;
     current = last.sc?.queries?.[0];
   }
-  const read = rankedDeclaration(current)?.next?.read;
+  // next.read is the exact read of the top best window.
+  const read = current?.next?.read ?? current?.best?.t?.[0]?.next?.read;
   let verified = false;
   if (containsDeclaration(current) && read?.tool === 'localFetch') {
     const verification = await raw(read.tool, { queries: [read.query] });
@@ -171,7 +195,7 @@ let prefilterQuality;
     questions: [{ id: 't', questionType: 'locate', target: 'The periodic timer function that runs background housekeeping tasks many times per second.' }] };
   let last, calls = 0;
   while (request && calls < 20) { calls++; const out = await raw('clasify', { queries: [request] }); last = out.sc?.queries?.[0]; request = last?.next?.clasify; }
-  const top = last?.best?.t?.[0];
+  const top = bestRows(last, 't')[0];
   check('carry: the final call\'s best[0] is the file-wide answer', calls > 1 && !!top && top.startLine <= truth.line && truth.line <= top.endLine, `calls=${calls} top=${JSON.stringify(top)} truth=${truth.line}`);
 }
 
@@ -180,11 +204,14 @@ let prefilterQuality;
   const truth = groundTruth('c', 'src/server.c', '^int serverCron\\(');
   const run = await locateAll({
     goal: GOAL, reasoning: 'server ranking',
-    resources: [{ id: 'file', context: { tool: 'localFetch', query: { reasoning: 'unread', path: truth.file, fullContent: true } } }],
-    questions: [{ id: 't', questionType: 'locate', target: 'The periodic timer function that runs background housekeeping tasks many times per second.' }],
+    resources: [{ id: 'file', tool: 'localFetch', query: { path: truth.file } }],
+    questions: [{ id: 't', type: 'locate', ask: 'The periodic timer function that runs background housekeeping tasks many times per second.' }],
   }, pages => pages.length >= 4);
   const rows = run.bests.flatMap(b => b.t ?? []);
-  const ordered = rows.length >= 2 && run.bests.every(b => (b.t ?? []).every((r, i, a) => i === 0 || a[i - 1].exists > r.exists || (a[i - 1].exists === r.exists && a[i - 1].probability >= r.probability)));
+  const ordered = rows.length >= 2 && run.bests.every(b => {
+    const shown = (b.t ?? []).map(row);
+    return JSON.stringify(bandOrdered(shown)) === JSON.stringify(shown);
+  });
   check('best: multi-page calls rank windows by exists, then probability', ordered, JSON.stringify(run.bests[0]?.t?.slice(0, 3)));
   const hinted = await raw('clasify', { queries: [{ goal: GOAL, reasoning: 'hint', resources: [{ context: { tool: 'localFetch', query: { reasoning: 'x', path: truth.file, startLine: 1, endLine: 40 } } }], questions: [{ id: 'h', questionType: 'locate', target: 'Where is serverCron defined?' }] }] });
   const q = hinted.sc?.queries?.[0];
@@ -205,13 +232,13 @@ let prefilterQuality;
   const clusters = [...buckets].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([b]) => ({ startLine: b * 600 + 1, endLine: b * 600 + 600 }));
   const run = await locateAll({
     goal: GOAL, reasoning: 'Locate within the densest candidate regions of a huge file.',
-    resources: clusters.map((c, i) => ({ id: `r${i}`, context: { tool: 'localFetch', query: { reasoning: 'bounded section', path: truth.file, ...c } } })),
-    questions: [{ id: 't', questionType: 'locate', target: 'The function that checks whether a source type is assignable to a target type.' }],
+    resources: clusters.map((c, i) => ({ id: `r${i}`, tool: 'localFetch', query: { path: truth.file, ...c } })),
+    questions: [{ id: 't', type: 'locate', ask: 'The function that checks whether a source type is assignable to a target type.' }],
   });
-  const ranked = run.pages.filter(p => p.answers?.t?.matches?.length).sort((a, b) => b.answers.t.exists - a.answers.t.exists || b.answers.t.matches[0].probability - a.answers.t.matches[0].probability);
-  const found = ranked.slice(0, 3).findIndex(p => truth.line >= p.answers.t.matches[0].startLine - 3 && truth.line <= p.answers.t.matches[0].endLine + 3);
+  const ranked = bestRows(run.final, 't');
+  const found = ranked.slice(0, 3).findIndex(w => truth.line >= w.startLine - 3 && truth.line <= w.endLine + 3);
   const hostBytes = search.bytes + run.bytes;
-  check(`huge file (3MB checker.ts): search → bounded clusters → locate finds line ${truth.line} (rank ${found + 1})`, found >= 0, `clusters=${JSON.stringify(clusters)} top=${JSON.stringify(ranked[0]?.answers.t)}`);
+  check(`huge file (3MB checker.ts): search → bounded clusters → locate finds line ${truth.line} (rank ${found + 1})`, found >= 0, `clusters=${JSON.stringify(clusters)} top=${JSON.stringify(ranked[0])}`);
   check('huge file: narrowed flow stays under 1% of a full read', hostBytes < fs.statSync(truth.file).size * 0.01, `${hostBytes}B`);
 }
 
@@ -220,10 +247,10 @@ let prefilterQuality;
   const truth = groundTruth('c', 'src/server.c', '^int serverCron\\(');
   const run = await locateAll({
     goal: GOAL, reasoning: 'Absent target stays unresolved.',
-    resources: [{ id: 'file', context: { tool: 'localFetch', query: { reasoning: 'unread', path: truth.file, fullContent: true } } }],
-    questions: [{ id: 't', questionType: 'locate', target: 'The function that parses a YAML configuration file into nested dictionaries.' }],
+    resources: [{ id: 'file', tool: 'localFetch', query: { path: truth.file } }],
+    questions: [{ id: 't', type: 'locate', ask: 'The function that parses a YAML configuration file into nested dictionaries.' }],
   });
-  const maxExists = Math.max(...run.pages.map(p => p.answers?.t?.exists ?? 0));
+  const maxExists = Math.max(...run.pages.map(p => pageExists(p, 't')));
   check('absent target: every page exists < 0.5', maxExists < 0.5, `max exists=${maxExists} over ${run.pages.length} pages`);
 }
 
@@ -233,13 +260,13 @@ let prefilterQuality;
   const proc = groundTruth('c', 'src/server.c', '^int processCommand\\(');
   const run = await locateAll({
     goal: GOAL, reasoning: 'Two independent facts from one capture.',
-    resources: [{ id: 'file', context: { tool: 'localFetch', query: { reasoning: 'unread', path: cron.file, fullContent: true } } }],
+    resources: [{ id: 'file', tool: 'localFetch', query: { path: cron.file } }],
     questions: [
-      { id: 'cron', questionType: 'locate', target: 'The periodic timer function that runs background housekeeping tasks many times per second.' },
-      { id: 'proc', questionType: 'locate', target: 'The function that validates a client command and decides whether to execute or queue it.' },
+      { id: 'cron', type: 'locate', ask: 'The periodic timer function that runs background housekeeping tasks many times per second.' },
+      { id: 'proc', type: 'locate', ask: 'The function that validates a client command and decides whether to execute or queue it.' },
     ],
   });
-  const bestFor = id => run.pages.map(p => ({ a: p.answers?.[id] })).filter(p => p.a?.matches?.length).sort((x, y) => y.a.exists - x.a.exists || y.a.matches[0].probability - x.a.matches[0].probability)[0]?.a.matches[0];
+  const bestFor = id => bestRows(run.final, id)[0];
   // A window counts when it lies within the target function (declaration to
   // its closing brace): the answer passage may be inside the body.
   const lines = fs.readFileSync(cron.file, 'utf8').split('\n');
@@ -254,11 +281,12 @@ let prefilterQuality;
   if (fs.existsSync(root)) {
     const out = await raw('clasify', { queries: [{
       goal: GOAL, reasoning: 'Choose the file to read among search hits.',
-      resources: [{ id: 'hits', context: { tool: 'localSearch', query: { reasoning: 'candidate files', path: root, searchText: 'func (sched *Scheduler)', regex: 'literal', resultView: 'files', pageSize: 20 } } }],
-      questions: [{ id: 'core', type: 'noul', instructions: 'Is this file the implementation of scheduling one pod (the main per-pod scheduling cycle)?' }],
+      resources: [{ id: 'hits', tool: 'localSearch', query: { path: root, searchText: 'func (sched *Scheduler)', regex: 'literal', resultView: 'files', pageSize: 20 } }],
+      questions: [{ id: 'core', type: 'yesno', ask: 'Is this file the implementation of scheduling one pod (the main per-pod scheduling cycle)?' }],
     }] });
     const q = out.sc?.queries?.[0];
-    const ranked = (q?.resources?.[0]?.pages ?? []).map(p => ({ path: p.source?.path ?? '', p: p.answers?.core?.noul ?? p.answers?.core })).sort((a, b) => b.p - a.p);
+    const hits = q?.resources?.[0];
+    const ranked = (hits?.pages ?? []).map(p => ({ path: p.path ?? p.source?.path ?? hits?.path ?? '', p: p.answers?.core?.noul ?? p.answers?.core })).sort((a, b) => b.p - a.p);
     check('scout: schedule_one.go ranks first among search hits', ranked[0]?.path.endsWith('schedule_one.go'), ranked.slice(0, 3).map(r => `${path.basename(r.path)}=${r.p}`).join(', '));
   }
 }
@@ -273,13 +301,13 @@ let prefilterQuality;
   ];
   const out = await raw('clasify', { queries: [{
     goal: GOAL, reasoning: 'Held-state calibration.',
-    resources: cases.map((c, i) => ({ id: `c${i}`, context: { value: c.value } })),
-    questions: cases.map((c, i) => ({ id: `q${i}`, type: 'noul', instructions: c.q })),
+    resources: cases.map((c, i) => ({ id: `c${i}`, value: c.value })),
+    questions: cases.map((c, i) => ({ id: `q${i}`, type: 'yesno', ask: c.q })),
   }] });
   const resources = out.sc?.queries?.[0]?.resources ?? [];
   let correct = 0;
   cases.forEach((c, i) => {
-    const p = resources.find(r => r.resourceId === `c${i}`)?.pages?.[0]?.answers?.[`q${i}`]?.noul;
+    const p = answerOf(resources.find(r => r.resourceId === `c${i}`), `q${i}`);
     if (typeof p === 'number' && (c.yes ? p >= 0.8 : p <= 0.2)) correct += 1;
   });
   check(`judge: ${correct}/${cases.length} held snippets answered decisively and correctly`, correct === cases.length, out.text.slice(0, 200));

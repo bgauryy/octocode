@@ -6,6 +6,7 @@ mod nuget;
 mod registries;
 mod types;
 mod util;
+mod versions;
 
 pub use http::{
     ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse, SystemArtifactHttp,
@@ -61,6 +62,21 @@ pub async fn execute_artifact(
         None => ArtifactProviderState::default(),
     };
     validate_cursor_state(&state)?;
+    if query.version().is_some()
+        && !matches!(
+            query.artifact_type(),
+            ArtifactType::Npm | ArtifactType::Pypi | ArtifactType::Crates
+        )
+    {
+        return Err(ArtifactError::new(
+            "unsupported_capability",
+            format!(
+                "version is supported for npm, pypi, and crates; {} lookups return the latest release.",
+                query.artifact_type().as_str()
+            ),
+        )
+        .with_hint("Omit version, or read the release in its source repository."));
+    }
     match query.artifact_type() {
         ArtifactType::Npm => {
             let default_registry = ResolvedNpmRegistry {

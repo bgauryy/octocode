@@ -166,7 +166,9 @@ async fn a_described_target_that_names_an_identifier_is_still_located() {
         .await
         .expect("clasify");
     let query = &outcome.structured_content["queries"][0];
-    assert_eq!(query["resources"][0]["coverage"], "complete", "{query}");
+    // Complete coverage is the default: no `coverage` field.
+    assert!(query["resources"][0].get("coverage").is_none(), "{query}");
+    assert!(query["best"]["def"][0]["lines"].is_array(), "{query}");
     runtime.close().await;
 }
 
@@ -191,17 +193,13 @@ async fn a_page_read_never_repeats_a_best_row_read() {
     let output = &outcome.structured_content;
     octocode_native::contracts::validate_output("clasify", output).expect("output contract");
     let query = &output["queries"][0];
-    let best_reads = query["best"]["t"]
-        .as_array()
-        .unwrap_or_else(|| panic!("best: {query}"))
-        .iter()
-        .map(|row| row["next"]["read"].clone())
-        .collect::<Vec<_>>();
-    assert!(best_reads.iter().all(Value::is_object), "{query}");
+    assert!(query["best"]["t"].is_array(), "best: {query}");
+    // The top best window's read is the query's next.read, emitted once.
+    let best_read = &query["next"]["read"];
+    assert!(best_read.is_object(), "{query}");
+    assert_eq!(best_read["query"]["startLine"], query["best"]["t"][0]["lines"][0]);
     for page in query["resources"][0]["pages"].as_array().unwrap() {
-        if let Some(read) = page.pointer("/next/read") {
-            assert!(!best_reads.contains(read), "duplicate read: {query}");
-        }
+        assert_ne!(page.pointer("/next/read"), Some(best_read), "duplicate read: {query}");
     }
     runtime.close().await;
 }

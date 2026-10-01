@@ -675,6 +675,123 @@ pub fn is_command_available(command: String) -> Result<bool, String> {
         })
 }
 
+/// Short catalog labels and the representative extension that selects each
+/// language's server, in the order agents see them.
+const SERVER_LANGUAGE_LABELS: &[(&str, &str)] = &[
+    ("ts/js", ".ts"),
+    ("py", ".py"),
+    ("rust", ".rs"),
+    ("c/c++", ".c"),
+    ("go", ".go"),
+    ("c#", ".cs"),
+    ("java", ".java"),
+];
+
+/// Labels (`ts/js`, `py`, `rust`, `c/c++`, `go`, `c#`, `java`) of languages
+/// whose language server resolves to an executable on this machine, through
+/// the same discovery ladder `lspSearch` uses (env overrides, user config,
+/// pyright family, octocode's TypeScript server). Resolution only: no server
+/// is spawned and no command is executed (a rustup proxy counts only when a
+/// toolchain ships the component). Computed once per process.
+#[must_use]
+pub fn available_server_languages() -> Vec<&'static str> {
+    static LANGUAGES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    LANGUAGES
+        .get_or_init(|| {
+            let root = std::env::current_dir()
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| ".".to_owned());
+            server_languages_with(
+                |extension| {
+                    let representative = Path::new(&root)
+                        .join(format!("workspace{extension}"))
+                        .to_string_lossy()
+                        .into_owned();
+                    default_server_for_file(representative, root.clone())
+                },
+                server_command_resolves,
+            )
+        })
+        .clone()
+}
+
+fn server_languages_with(
+    resolve: impl Fn(&str) -> Option<JsLanguageServerConfig>,
+    resolves: impl Fn(&JsLanguageServerConfig) -> bool,
+) -> Vec<&'static str> {
+    SERVER_LANGUAGE_LABELS
+        .iter()
+        .filter(|(_, extension)| resolve(extension).is_some_and(|config| resolves(&config)))
+        .map(|(label, _)| *label)
+        .collect()
+}
+
+/// Whether a discovered server config would launch: its program is an
+/// executable (a node-launched script must exist too). Never executes it.
+fn server_command_resolves(config: &JsLanguageServerConfig) -> bool {
+    let command = resolve_known_server_command(&config.command);
+    if is_rejected_shell(&command) {
+        return false;
+    }
+    let program = if Path::new(&command).is_absolute() || command.contains(['/', '\\']) {
+        Some(PathBuf::from(&command))
+    } else {
+        which::which(&command).ok()
+    };
+    let Some(program) = program.filter(|path| is_executable_path(path)) else {
+        return false;
+    };
+    if is_node_executable(&program)
+        && let Some(script) = config.args.as_ref().and_then(|args| args.first())
+        && script.ends_with(".mjs")
+        && !Path::new(script).is_file()
+    {
+        return false;
+    }
+    if is_rust_analyzer_command(&command) || is_rust_analyzer_command(&config.command) {
+        let rustup_home = std::env::var_os("RUSTUP_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .map(|home| PathBuf::from(home).join(".rustup"))
+            });
+        return rustup_proxy_component_installed(&program, rustup_home.as_deref());
+    }
+    true
+}
+
+/// A rustup proxy (`~/.cargo/bin/rust-analyzer -> rustup`) resolves on PATH
+/// even when no toolchain ships the component; running it would install or
+/// fail. Treat it as available only when some toolchain has the binary. Any
+/// other executable is the real server.
+fn rustup_proxy_component_installed(program: &Path, rustup_home: Option<&Path>) -> bool {
+    let target = std::fs::read_link(program).ok();
+    let is_proxy = target
+        .as_deref()
+        .and_then(Path::file_stem)
+        .is_some_and(|name| {
+            name.to_string_lossy()
+                .to_ascii_lowercase()
+                .starts_with("rustup")
+        });
+    if !is_proxy {
+        return true;
+    }
+    let Some(binary) = program.file_name() else {
+        return false;
+    };
+    let Some(toolchains) = rustup_home
+        .map(|home| home.join("toolchains"))
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+    else {
+        return false;
+    };
+    toolchains
+        .filter_map(Result::ok)
+        .any(|toolchain| is_executable_path(&toolchain.path().join("bin").join(binary)))
+}
+
 fn spec_for_file(file_path: &str) -> Option<ServerSpec> {
     spec_for_extension(&extension_key(file_path)?)
 }
@@ -1093,6 +1210,78 @@ mod tests {
     };
     use serde_json::json;
     use std::path::PathBuf;
+
+    #[test]
+    fn server_languages_keep_catalog_order_and_drop_unresolved_servers() {
+        use super::{JsLanguageServerConfig, server_languages_with};
+        let config = |command: &str| JsLanguageServerConfig {
+            command: command.to_owned(),
+            args: Some(Vec::new()),
+            workspace_root: "/w".to_owned(),
+            language_id: None,
+            initialization_options: None,
+            env: None,
+            max_memory_mb: None,
+        };
+        let languages = server_languages_with(
+            |extension| match extension {
+                ".java" => Some(config("jdtls")),
+                ".rs" => Some(config("rust-analyzer")),
+                ".ts" => Some(config("node")),
+                ".go" => Some(config("gopls")),
+                _ => None,
+            },
+            |config| config.command != "gopls",
+        );
+        assert_eq!(languages, vec!["ts/js", "rust", "java"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rustup_proxy_counts_only_when_a_toolchain_ships_the_component() {
+        use super::rustup_proxy_component_installed;
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!(
+            "octocode-rustup-probe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let bin = base.join("cargo/bin");
+        let home = base.join("rustup");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(home.join("toolchains/stable/bin")).unwrap();
+        let executable = |path: &std::path::Path| {
+            std::fs::write(path, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        executable(&bin.join("rustup"));
+        let proxy = bin.join("rust-analyzer");
+        std::os::unix::fs::symlink("rustup", &proxy).unwrap();
+        assert!(!rustup_proxy_component_installed(&proxy, Some(&home)));
+        assert!(!rustup_proxy_component_installed(&proxy, None));
+        executable(&home.join("toolchains/stable/bin/rust-analyzer"));
+        assert!(rustup_proxy_component_installed(&proxy, Some(&home)));
+        // A real (non-proxy) binary is the server itself.
+        let real = base.join("real-rust-analyzer");
+        executable(&real);
+        assert!(rustup_proxy_component_installed(&real, None));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn available_server_languages_is_cached_and_uses_known_labels() {
+        let first = super::available_server_languages();
+        assert_eq!(first, super::available_server_languages());
+        for label in &first {
+            assert!(
+                ["ts/js", "py", "rust", "c/c++", "go", "c#", "java"].contains(label),
+                "{label}"
+            );
+        }
+    }
 
     #[test]
     fn recognizes_tsgo_command_by_stem() {

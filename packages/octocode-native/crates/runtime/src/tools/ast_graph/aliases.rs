@@ -227,6 +227,7 @@ impl ResolveContext {
         };
         context.load_ts_configs(&mut reader, &js_dirs);
         context.load_manifests(&reader, &all_dirs);
+        context.load_outer_manifest(&reader);
         if !py_dirs.is_empty() {
             context.load_python_roots(root, &py_dirs);
         }
@@ -320,6 +321,44 @@ impl ResolveContext {
                 self.packages.insert(name.to_owned(), Arc::clone(&manifest));
             }
             self.manifests.insert(dir.clone(), manifest);
+        }
+    }
+
+    /// A scan of a package subtree (`packages/app/src`) still honors the
+    /// package's own `package.json` above the root (`#` subpath imports,
+    /// self-referencing exports), mirroring the outer tsconfig lookup: the
+    /// first manifest within the bounded ancestor walk governs the scan root,
+    /// its targets rebased onto the root; the walk stops at a `.git` boundary.
+    fn load_outer_manifest(&mut self, reader: &ConfigReader<'_>) {
+        if self.manifests.contains_key(".") {
+            return;
+        }
+        for directory in reader
+            .root
+            .ancestors()
+            .skip(1)
+            .take(MAX_OUTER_CONFIG_LEVELS)
+        {
+            let file = directory.join("package.json");
+            if file.is_file() {
+                let (Some(value), Ok(offset)) =
+                    (reader.read_json(&file), reader.root.strip_prefix(directory))
+                else {
+                    return;
+                };
+                let offset = offset.to_string_lossy().replace('\\', "/");
+                let manifest = Arc::new(Manifest::parse(".", &value).rebased(&offset));
+                if let Some(name) = value.get("name").and_then(Value::as_str) {
+                    self.packages
+                        .entry(name.to_owned())
+                        .or_insert_with(|| Arc::clone(&manifest));
+                }
+                self.manifests.insert(".".to_owned(), manifest);
+                return;
+            }
+            if directory.join(".git").exists() {
+                return;
+            }
         }
     }
 
@@ -524,6 +563,30 @@ impl ResolveContext {
 }
 
 impl Manifest {
+    /// Re-anchor package-relative targets of a manifest that sits `offset`
+    /// above the scan root (`./src/x.ts` with offset `src` → `./x.ts`);
+    /// targets outside the root are dropped.
+    fn rebased(mut self, offset: &str) -> Self {
+        let prefix = format!("{}/", offset.trim_matches('/'));
+        let rebase = |targets: &mut Vec<String>| {
+            targets.retain_mut(|target| {
+                let relative = target.strip_prefix("./").unwrap_or(target);
+                let Some(rest) = relative.strip_prefix(&prefix) else {
+                    return false;
+                };
+                *target = format!("./{rest}");
+                true
+            });
+        };
+        rebase(&mut self.entries);
+        for (_, targets) in self.exports.iter_mut().chain(self.imports.iter_mut()) {
+            rebase(targets);
+        }
+        self.exports.retain(|(_, targets)| !targets.is_empty());
+        self.imports.retain(|(_, targets)| !targets.is_empty());
+        self
+    }
+
     fn parse(dir: &str, value: &Value) -> Self {
         let mut manifest = Self {
             dir: dir.to_owned(),

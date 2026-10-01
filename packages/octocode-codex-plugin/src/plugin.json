@@ -1,0 +1,38 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "octocode",
+  "description": "Research local and GitHub code, trace behavior, and apply Octocode workflows for architecture, reviews, documentation, and evaluation.",
+  "author": { "name": "Guy Bary", "url": "https://octocode.ai" },
+  "homepage": "https://octocode.ai",
+  "repository": "https://github.com/bgauryy/octocode",
+  "license": "MIT",
+  "keywords": ["code-research", "github", "architecture", "code-review"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Octocode",
+        "shortDescription": "Research and understand code",
+        "longDescription": "Search local projects and GitHub repositories, trace code behavior, and use the public Octocode skills. Runs the MCP server on your computer. Authenticated GitHub access uses your locally configured credentials; GitHub CLI login is recommended. Node.js and npm are required. Some skills need additional tools or services, configured separately.",
+        "developerName": "Guy Bary",
+        "category": "Developer Tools",
+        "capabilities": [
+          "Code research",
+          "Architecture analysis",
+          "Code review"
+        ],
+        "websiteURL": "https://octocode.ai",
+        "supportURL": "https://github.com/bgauryy/octocode/issues",
+        "privacyPolicyURL": "https://github.com/bgauryy/octocode/blob/main/PRIVACY.md",
+        "termsOfServiceURL": "https://github.com/bgauryy/octocode/blob/main/TERMS.md",
+        "composerIcon": "./assets/logo.png",
+        "logo": "./assets/logo.png",
+        "defaultPrompt": [
+          "Set up Octocode for this project.",
+          "Trace how authentication works in this repository.",
+          "Review this project's architecture using source evidence."
+        ]
+      },
+      "onboardingSkill": "./skills/octocode-get-started/SKILL.md"
+    }
+  }
+}

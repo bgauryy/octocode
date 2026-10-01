@@ -133,3 +133,31 @@ pub(crate) fn invalid(artifact_type: ArtifactType) -> ArtifactError {
         ),
     )
 }
+
+/// `YYYY-MM-DD` (UTC) of a Unix timestamp in milliseconds.
+pub(crate) fn date_from_millis(millis: i64) -> String {
+    let (year, month, day) = crate::civil_date::civil_from_days(millis.div_euclid(86_400_000));
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// The `YYYY-MM-DD` prefix of an RFC 3339 / ISO 8601 timestamp.
+pub(crate) fn date_prefix(value: Option<&Value>) -> Option<String> {
+    let value = string(value)?;
+    let date = value.get(..10)?;
+    (date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-').then(|| date.to_owned())
+}
+
+#[cfg(test)]
+mod date_tests {
+    use super::*;
+
+    #[test]
+    fn dates_from_millis_and_timestamps() {
+        assert_eq!(date_from_millis(1_789_341_914_484), "2026-09-13");
+        assert_eq!(
+            date_prefix(Some(&Value::from("2019-09-08T01:56:06.955881Z"))).as_deref(),
+            Some("2019-09-08")
+        );
+        assert_eq!(date_prefix(Some(&Value::from("soon"))), None);
+    }
+}

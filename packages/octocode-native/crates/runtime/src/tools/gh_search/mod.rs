@@ -1,5 +1,6 @@
 mod code_output;
 mod fragments;
+mod lines;
 mod queries;
 mod ranking;
 mod tree;
@@ -81,8 +82,13 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     let total = data.total_count.min(1000);
     let pages = total.div_ceil(per);
     let more = current < pages;
-    let items = code_output::files(&data.items, query, security)?;
+    let mut items = code_output::files(&data.items, query, security)?;
+    // The fragment read is computed before rows are shaped (it reads the
+    // per-row owner/repo and matchIndices).
+    let fragment_read = code_output::read_top_match(&json!({"files": &items}));
     let mut value = json!({});
+    let resolution = code_output::resolve_lines(provider, query, &items, context, security).await?;
+    let top_read = code_output::shape_files(&mut value, &mut items, query, resolution);
     if !items.is_empty() {
         value["files"] = json!(items);
     }
@@ -93,7 +99,7 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
         page.remove("nextPage");
     }
     add_next(&mut value, ToolId::GhSearchCode, query, current, more);
-    if let Some(read) = code_output::read_top_match(&value) {
+    if let Some(read) = top_read.or(fragment_read) {
         value["next"]["readTopMatch"] = read;
     }
     apply_partial(
@@ -145,10 +151,7 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
             ]);
         }
         if value.get("hints").is_none() {
-            // Absence in the index is not absence on other branches.
-            value["hints"] = json!([
-                "Code search indexes only default branches; broaden keywords, or read other branches with ghGetFileContent."
-            ]);
+            value["hints"] = json!([code_output::empty_hint(query)]);
         }
     }
     Ok(output)
@@ -208,6 +211,7 @@ pub async fn execute_repositories<
         && archived.is_none()
         && visibility.is_none()
         && license.is_none()
+        && query.qualifiers.is_none()
         && matches!(
             sort,
             GhSearchRepoQuerySort::BestMatch | GhSearchRepoQuerySort::Updated
@@ -283,27 +287,40 @@ pub async fn execute_repositories<
             .map(|r| json!(r.full_name))
             .collect::<Vec<_>>()
     } else {
-        data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>()
+        let wanted = wanted_topics(query);
+        data.items
+            .into_iter()
+            .map(|item| repository_row(item, &wanted, query.debug))
+            .collect::<Vec<_>>()
     };
     let repositories_empty = repositories.is_empty();
     let mut value = match &listing {
         // The REST listing reports no total: `page` is the provider
         // page cursor and `nextPage` follows the real Link header.
+        // `next.nextPage` carries the cursor; pagination only says whether
+        // more exists and how many matched. The listing is ordered by latest
+        // push (the REST listing reports no total).
         Some(listing) => {
-            json!({"repositories":repositories,"pagination":{
-                "currentPage":current,"perPage":per,"hasMore":more,
-                "nextPage":more.then_some(listing.last_page + 1),
-                "providerPagesRead":listing.last_page + 1 - current,
-                "countScope":"unknown"
-            }})
+            let mut value =
+                json!({"repositories":repositories,"order":"pushed","pagination":{"hasMore":more}});
+            if query.debug {
+                value["pagination"]["currentPage"] = json!(current);
+                value["pagination"]["providerPagesRead"] = json!(listing.last_page + 1 - current);
+            }
+            value
         }
         None => {
-            json!({"repositories":repositories,"pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":provider_capped,"hasMore":more,"nextPage":more.then_some(current+1)}})
+            let mut value = json!({"repositories":repositories,"pagination":{"totalMatches":total,"hasMore":more}});
+            if provider_capped {
+                value["pagination"]["totalMatchesCapped"] = json!(true);
+            }
+            if query.debug {
+                value["pagination"]["currentPage"] = json!(current);
+                value["pagination"]["totalPages"] = json!(pages);
+            }
+            value
         }
     };
-    if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut) {
-        page.remove("nextPage");
-    }
     let next_from = listing
         .as_ref()
         .map_or(current, |listing| listing.last_page);
@@ -411,6 +428,73 @@ fn apply_partial(
 }
 fn date(value: Option<String>) -> Option<String> {
     value.map(|v| v.chars().take(10).collect())
+}
+
+/// Topics a row shows: at most this many, plus `topicCount` when cut.
+const ROW_TOPICS: usize = 5;
+/// Descriptions longer than this are cut at a character boundary with `…`.
+const ROW_DESCRIPTION_CHARS: usize = 160;
+
+/// Lowercased query topics and keyword words: a row lists these topics first.
+fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
+    query
+        .topics
+        .iter()
+        .map(|topic| topic.to_lowercase())
+        .chain(query.keywords.iter().flat_map(|keyword| {
+            let keyword = keyword.to_lowercase();
+            let hyphenated = keyword.split_whitespace().collect::<Vec<_>>().join("-");
+            keyword
+                .split_whitespace()
+                .map(str::to_owned)
+                .chain(std::iter::once(hyphenated))
+                .collect::<Vec<_>>()
+        }))
+        .collect()
+}
+
+/// One compact repository row: `owner/repo`, the decision facts, and at
+/// most [`ROW_TOPICS`] topics (query matches first). Forks and the creation
+/// and metadata-update dates are diagnostics (`debug`).
+fn repository_row(
+    item: crate::providers::github::RepositorySearchItem,
+    wanted: &[String],
+    debug: bool,
+) -> Value {
+    let topic_count = item.topics.len();
+    let mut topics = item.topics;
+    // Stable: matching topics keep GitHub's order, then the rest.
+    topics.sort_by_key(|topic| !wanted.contains(&topic.to_lowercase()));
+    topics.truncate(ROW_TOPICS);
+    let description = item.description.map(|text| {
+        if text.chars().count() > ROW_DESCRIPTION_CHARS {
+            let cut: String = text.chars().take(ROW_DESCRIPTION_CHARS - 1).collect();
+            format!("{}…", cut.trim_end())
+        } else {
+            text
+        }
+    });
+    let mut row = json!({
+        "repo": item.full_name,
+        "stars": item.stargazers_count,
+        "language": item.language,
+        "license": item.license.and_then(|license| license.spdx_id),
+        "pushedAt": date(item.pushed_at),
+        "description": description,
+    });
+    if !topics.is_empty() {
+        row["topics"] = json!(topics);
+    }
+    if topic_count > ROW_TOPICS {
+        row["topicCount"] = json!(topic_count);
+    }
+    if debug {
+        row["forks"] = json!(item.forks_count);
+        row["createdAt"] = json!(date(item.created_at));
+        row["updatedAt"] = json!(date(item.updated_at));
+    }
+    remove_null_fields(&mut row);
+    row
 }
 
 #[cfg(test)]
@@ -670,7 +754,194 @@ mod tests {
             assert!(hint.contains("private"), "{}", out.data);
         }
 
-        /// D13: an empty code search says the index covers default branches.
+        /// Search items for `a/b` with one GitHub fragment each (GitHub caps
+        /// fragments, so routing.py's second call is not in the index text).
+        async fn mount_code_search(server: &MockServer) {
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":2,"incomplete_results":false,"items":[
+                        {"name":"handler.py","path":"src/handler.py","sha":"1","html_url":"https://x",
+                         "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                         "text_matches":[{"fragment":"def wrap_app(app):","matches":[{"text":"wrap_app","indices":[4,12]}]}]},
+                        {"name":"routing.py","path":"src/routing.py","sha":"2","html_url":"https://x",
+                         "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                         "text_matches":[{"fragment":"    await wrap_app(app)(scope)","matches":[{"text":"wrap_app","indices":[10,18]}]}]}
+                    ]
+                })))
+                .mount(server)
+                .await;
+        }
+
+        async fn mount_content(server: &MockServer, file: &str, body: &str) {
+            Mock::given(method("GET"))
+                // The contents route encodes the path as one segment.
+                .and(path(format!(
+                    "/api/v3/repos/a/b/contents/{}",
+                    file.replace('/', "%2F")
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "type":"file","encoding":"base64","content":STANDARD.encode(body)
+                })))
+                .mount(server)
+                .await;
+        }
+
+        /// Repo-scoped hits list every keyword line of the top files with its
+        /// line number (`grep -n` over the fetched blob), name owner/repo
+        /// once, and read the top hit by line range.
+        #[tokio::test]
+        async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
+            let server = MockServer::start().await;
+            mount_code_search(&server).await;
+            mount_ref(&server, "HEAD").await;
+            mount_content(
+                &server,
+                "src/handler.py",
+                "import x\n\ndef wrap_app(app):\n    return app\n",
+            )
+            .await;
+            mount_content(
+                &server,
+                "src/routing.py",
+                "from h import wrap_app\n\nasync def a():\n    await wrap_app(app)(scope)\n\nasync def b():\n    await wrap_app(s)(scope)\n",
+            )
+            .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"]}),
+            )
+            .await
+            .expect("search");
+            let data = &out.data;
+            assert_eq!(data["owner"], "a", "{data}");
+            assert_eq!(data["repo"], "b", "{data}");
+            assert_eq!(data["commitSha"], TREE_SHA, "{data}");
+            let files = data["files"].as_array().expect("files");
+            let routing = files
+                .iter()
+                .find(|row| row["path"] == "src/routing.py")
+                .expect("routing row");
+            assert_eq!(
+                routing["lines"],
+                json!([
+                    "1\tfrom h import wrap_app",
+                    "4\t    await wrap_app(app)(scope)",
+                    "7\t    await wrap_app(s)(scope)"
+                ]),
+                "{data}"
+            );
+            for row in files {
+                assert!(
+                    row.get("owner").is_none() && row.get("repo").is_none(),
+                    "{row}"
+                );
+                assert!(row.get("matches").is_none(), "{row}");
+            }
+            let read = &data["next"]["readTopMatch"]["query"];
+            assert_eq!(read["owner"], "a", "{data}");
+            assert!(read.get("matchString").is_none(), "{data}");
+            assert!(
+                read["startLine"].as_u64().is_some() && read["endLine"].as_u64().is_some(),
+                "{data}"
+            );
+            crate::contracts::validate_query("ghGetFileContent", {
+                let mut query = read.clone();
+                query["goal"] = json!("g");
+                query
+            })
+            .expect("readTopMatch is a valid ghGetFileContent query");
+        }
+
+        /// Owner-wide searches spend no contents quota: rows keep their
+        /// owner/repo, and fragment offsets stay out of default output.
+        #[tokio::test]
+        async fn owner_wide_hits_keep_fragments_without_offsets() {
+            let server = MockServer::start().await;
+            mount_code_search(&server).await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/commits/HEAD"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(TREE_SHA))
+                .expect(0)
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","keywords":["wrap_app"]}),
+            )
+            .await
+            .expect("search");
+            let row = &out.data["files"][0];
+            assert_eq!(row["owner"], "a", "{}", out.data);
+            assert!(row["matches"][0]["value"].is_string(), "{}", out.data);
+            assert!(
+                row["matches"][0].get("matchIndices").is_none(),
+                "{}",
+                out.data
+            );
+            assert!(out.data.get("commitSha").is_none(), "{}", out.data);
+            // debug keeps the offsets.
+            let debug = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","keywords":["wrap_app"],"debug":true}),
+            )
+            .await
+            .expect("search");
+            assert!(
+                debug.data["files"][0]["matches"][0]["matchIndices"].is_array(),
+                "{}",
+                debug.data
+            );
+        }
+
+        /// `branch` verifies the top files at that ref: lines come from the
+        /// ref, a path absent there is flagged, and the page says its
+        /// candidates came from the default-branch index.
+        #[tokio::test]
+        async fn branch_hits_are_verified_at_the_ref_and_labeled() {
+            let server = MockServer::start().await;
+            mount_code_search(&server).await;
+            mount_ref(&server, "dev").await;
+            mount_content(&server, "src/handler.py", "def wrap_app(app):\n").await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/contents/src%2Frouting.py"))
+                .respond_with(
+                    ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})),
+                )
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"],"branch":"dev"}),
+            )
+            .await
+            .expect("search");
+            let data = &out.data;
+            assert_eq!(data["ref"], "dev", "{data}");
+            assert_eq!(data["indexRef"], "defaultBranch", "{data}");
+            let files = data["files"].as_array().expect("files");
+            let handler = files
+                .iter()
+                .find(|row| row["path"] == "src/handler.py")
+                .expect("handler");
+            assert_eq!(handler["lines"], json!(["1\tdef wrap_app(app):"]), "{data}");
+            let routing = files
+                .iter()
+                .find(|row| row["path"] == "src/routing.py")
+                .expect("routing");
+            assert_eq!(routing["atRef"], false, "{data}");
+            assert!(
+                routing.get("matches").is_none(),
+                "default-branch text is not shown as the ref: {data}"
+            );
+            assert_eq!(
+                data["next"]["readTopMatch"]["query"]["branch"], "dev",
+                "{data}"
+            );
+        }
+
+        /// Empty searches name the default-branch index only when a branch
+        /// was requested; otherwise the hint names the scope that came up empty.
         #[tokio::test]
         async fn empty_code_search_names_the_default_branch_index() {
             let server = MockServer::start().await;
@@ -691,15 +962,36 @@ mod tests {
                 )
                 .mount(&server)
                 .await;
-            for query in [
-                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
-                json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","keywords":["needle"]}),
+            for (query, cause) in [
+                (
+                    json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"branch":"dev"}),
+                    "default branch",
+                ),
+                (
+                    json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
+                    "in a/b",
+                ),
+                (
+                    json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","keywords":["needle"]}),
+                    "any a repository",
+                ),
+                (
+                    json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"extension":"rs"}),
+                    "extension",
+                ),
+                (
+                    json!({"operation":"code","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"match":"path"}),
+                    "path",
+                ),
             ] {
                 let out = run(&server, query).await.expect("search");
                 assert_eq!(out.status, Some("empty"));
                 let hint = out.data["hints"][0].as_str().unwrap_or_default();
-                assert!(hint.contains("default branch"), "{}", out.data);
+                assert!(hint.contains(cause), "{cause}: {}", out.data);
                 assert!(hint.len() <= 120, "{hint}");
+                if cause != "default branch" {
+                    assert!(!hint.contains("default branch"), "{}", out.data);
+                }
             }
         }
 
@@ -852,7 +1144,7 @@ mod tests {
                 .iter()
                 .map(|row| row["repo"].as_str().unwrap_or_default().to_owned())
                 .collect::<Vec<_>>();
-            assert_eq!(names, vec!["live".to_owned()], "{}", out.data);
+            assert_eq!(names, vec!["o/live".to_owned()], "{}", out.data);
         }
 
         /// D8: the listing API's own order is creation (oldest first); the
@@ -875,7 +1167,12 @@ mod tests {
             )
             .await
             .expect("owner listing");
-            assert_eq!(out.data["repositories"][0]["repo"], "live", "{}", out.data);
+            assert_eq!(
+                out.data["repositories"][0]["repo"], "o/live",
+                "{}",
+                out.data
+            );
+            assert_eq!(out.data["order"], "pushed", "{}", out.data);
         }
 
         #[tokio::test]
@@ -935,10 +1232,11 @@ mod tests {
             )
             .await
             .expect("owner listing");
-            assert_eq!(names(&first), vec!["a", "b", "c"], "{}", first.data);
+            assert_eq!(names(&first), vec!["o/a", "o/b", "o/c"], "{}", first.data);
             let pagination = &first.data["pagination"];
             assert_eq!(pagination["hasMore"], true, "{}", first.data);
-            assert_eq!(pagination["nextPage"], 3, "{}", first.data);
+            // The page cursor lives in next.nextPage only.
+            assert!(pagination.get("nextPage").is_none(), "{}", first.data);
             assert!(pagination.get("totalMatches").is_none(), "{}", first.data);
             assert!(pagination.get("totalPages").is_none(), "{}", first.data);
             assert_eq!(first.data["next"]["nextPage"]["query"]["page"], 3);
@@ -950,9 +1248,220 @@ mod tests {
             )
             .await
             .expect("last page");
-            assert_eq!(names(&last), vec!["d"], "{}", last.data);
+            assert_eq!(names(&last), vec!["o/d"], "{}", last.data);
             assert_eq!(last.data["pagination"]["hasMore"], false);
             assert!(last.data["next"].get("nextPage").is_none(), "{}", last.data);
+        }
+
+        /// ghSearchRepo S1/S2: rows carry decision facts only, topics
+        /// favor the query, and pagination does not restate next.nextPage.
+        #[tokio::test]
+        async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
+            let server = MockServer::start().await;
+            let topics = (0..20)
+                .map(|n| format!("t{n}"))
+                .chain(["http-client".into()])
+                .collect::<Vec<String>>();
+            let long = "x".repeat(300);
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/repositories"))
+                .and(query_param("page", "1"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":25,"incomplete_results":false,"items":[{
+                        "full_name":"httpie/cli","name":"cli","html_url":"h","default_branch":"master",
+                        "stargazers_count":38602,"forks_count":4012,"language":"Python",
+                        "license":{"spdx_id":"BSD-3-Clause"},"description":long,
+                        "topics":topics,"pushed_at":"2024-12-17T00:00:00Z",
+                        "created_at":"2012-02-25T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"
+                    }]
+                })))
+                .mount(&server)
+                .await;
+            let query = json!({"operation":"repositories","goal": "test", "reasoning":"test",
+                "keywords":["http client"],"pageSize":1});
+            let out = run(&server, query.clone()).await.expect("search");
+            let row = &out.data["repositories"][0];
+            assert_eq!(row["repo"], "httpie/cli", "{row}");
+            assert_eq!(row["stars"], 38602);
+            assert_eq!(row["pushedAt"], "2024-12-17");
+            assert_eq!(row["topicCount"], 21);
+            let shown = row["topics"].as_array().expect("topics");
+            assert_eq!(shown.len(), 5, "{row}");
+            assert_eq!(
+                shown[0], "http-client",
+                "query-matching topics come first: {row}"
+            );
+            let description = row["description"].as_str().expect("description");
+            assert_eq!(description.chars().count(), 160, "{row}");
+            assert!(description.ends_with('…'));
+            for absent in ["owner", "forks", "createdAt", "updatedAt"] {
+                assert!(row.get(absent).is_none(), "{absent}: {row}");
+            }
+            assert_eq!(
+                out.data["pagination"],
+                json!({"totalMatches":25,"hasMore":true}),
+                "{}",
+                out.data
+            );
+            assert_eq!(out.data["next"]["nextPage"]["query"]["page"], 2);
+
+            let mut debug = query;
+            debug["debug"] = json!(true);
+            let out = run(&server, debug).await.expect("debug search");
+            let row = &out.data["repositories"][0];
+            assert_eq!(row["forks"], 4012, "{row}");
+            assert_eq!(row["createdAt"], "2012-02-25");
+        }
+
+        /// ghSearchRepo S3: `qualifiers` alone is a search, not an owner
+        /// listing, and reaches GitHub as normalized qualifiers.
+        #[tokio::test]
+        async fn qualifiers_reach_the_search_query() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/repositories"))
+                .and(query_param(
+                    "q",
+                    "user:o archived:false forks:>50 good-first-issues:>2",
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "total_count":1,"incomplete_results":false,"items":[repo_item("r", false)]
+                })))
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"repositories","goal": "test", "reasoning":"test",
+                    "owner":"o","qualifiers":"forks:>50 good-first-issues:>2"}),
+            )
+            .await
+            .expect("qualified search");
+            assert_eq!(out.data["repositories"][0]["repo"], "o/r", "{}", out.data);
+            assert!(out.data.get("order").is_none(), "a search, not a listing");
+        }
+
+        /// ghStructure S1: `pattern` finds a file by name at any depth in one
+        /// call, keeping the dir/files row shape.
+        #[tokio::test]
+        async fn tree_pattern_finds_paths_by_name_at_any_depth() {
+            let server = MockServer::start().await;
+            mount_ref(&server, "main").await;
+            let tree = json!([
+                {"path":"starlette","type":"tree"},
+                {"path":"starlette/_exception_handler.py","type":"blob","size":3},
+                {"path":"starlette/routing.py","type":"blob","size":3},
+                {"path":"tests","type":"tree"},
+                {"path":"tests/test_exception_handler.py","type":"blob","size":3},
+                {"path":"docs/exceptions.md","type":"blob","size":3}
+            ]);
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}")))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"sha":TREE_SHA,"tree":tree,"truncated":false})),
+                )
+                .mount(&server)
+                .await;
+            let find = |pattern: &str| {
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b",
+                    "branch":"main","pattern":pattern})
+            };
+            let out = run(&server, find("**/_exception_handler.py"))
+                .await
+                .expect("glob");
+            assert_eq!(
+                out.data["structure"],
+                json!([{"dir":"starlette","files":["_exception_handler.py"]}]),
+                "{}",
+                out.data
+            );
+            assert_eq!(out.data["summary"]["totalFiles"], 1);
+            let bare = run(&server, find("Exception_Handler"))
+                .await
+                .expect("bare word");
+            assert_eq!(bare.data["summary"]["totalFiles"], 2, "{}", bare.data);
+            let none = run(&server, find("**/nope.py")).await.expect("no match");
+            assert_eq!(none.status, Some("empty"));
+            assert!(
+                none.data["hints"][0]
+                    .as_str()
+                    .is_some_and(|hint| hint.contains("pattern"))
+            );
+            let invalid = run(&server, find("src/[")).await.expect_err("bad glob");
+            assert_eq!(invalid.kind, ProviderErrorKind::Validation);
+        }
+
+        /// ghStructure S3: a recursive listing on an unresolved ref fetches
+        /// the tree by ref name while the ref resolves; the tree is used only
+        /// when it reports the resolved commit.
+        #[tokio::test]
+        async fn tree_by_ref_overlaps_the_resolve_and_is_checked_against_it() {
+            let server = MockServer::start().await;
+            mount_ref(&server, "main").await;
+            let listing = |sha: &str, file: &str| json!({"sha":sha,"truncated":false,"tree":[{"path":file,"type":"blob","size":1}]});
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/git/trees/main"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(listing(TREE_SHA, "by-ref.rs")),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}")))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(listing(TREE_SHA, "by-sha.rs")),
+                )
+                .expect(0)
+                .mount(&server)
+                .await;
+            let out = run(
+                &server,
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b",
+                    "branch":"main","maxDepth":3}),
+            )
+            .await
+            .expect("tree");
+            assert_eq!(
+                out.data["structure"][0]["files"],
+                json!(["by-ref.rs"]),
+                "{}",
+                out.data
+            );
+            assert_eq!(out.data["commitSha"], TREE_SHA);
+
+            // The branch moved between the two requests: refetch by SHA.
+            let moved = MockServer::start().await;
+            mount_ref(&moved, "dev").await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/git/trees/dev"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(listing(
+                    "fedcba9876543210fedcba9876543210fedcba98",
+                    "moved.rs",
+                )))
+                .mount(&moved)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}")))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(listing(TREE_SHA, "pinned.rs")),
+                )
+                .expect(1)
+                .mount(&moved)
+                .await;
+            let out = run(
+                &moved,
+                json!({"operation":"tree","goal": "test", "reasoning":"test","owner":"a","repo":"b",
+                    "branch":"dev","maxDepth":3}),
+            )
+            .await
+            .expect("moved tree");
+            assert_eq!(
+                out.data["structure"][0]["files"],
+                json!(["pinned.rs"]),
+                "{}",
+                out.data
+            );
         }
 
         #[tokio::test]

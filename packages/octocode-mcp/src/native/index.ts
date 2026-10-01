@@ -43,6 +43,8 @@ export interface NativeCatalog {
   fingerprint: string;
   tools: NativeCatalogTool[];
   grammarCapabilities?: GrammarCapability[];
+  /** Language labels whose LSP server resolves on this machine. */
+  lspServers?: string[];
 }
 
 export interface NativeRuntime {
@@ -402,6 +404,7 @@ export function createNativeMcp({
   const definitions = new Map(
     getDirectToolDefinitionsWithAddons({
       availableTools: availableTools.map(tool => tool.name),
+      ...(catalog.lspServers && { lspServers: catalog.lspServers }),
     }).map(definition => [definition.name, definition])
   );
 

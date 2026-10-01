@@ -447,6 +447,9 @@ mod tests {
             .find(|tool| tool["name"] == "astRewrite")
             .unwrap();
         assert!(search["querySchema"]["$defs"].is_object());
-        assert!(search["querySchema"]["oneOf"].is_array());
+        // Two rule forms, distinguished by their fields (ruleKind is inferred).
+        assert!(
+            search["querySchema"]["anyOf"].is_array() || search["querySchema"]["oneOf"].is_array()
+        );
     }
 }

@@ -12,7 +12,7 @@ Goal: the smallest useful map for coding agents. Aim for 60 lines; exceed 100 on
 
 ## Workflow
 
-1. Inventory manifests, CI, README, `docs/`, ADRs, SECURITY, existing AGENTS.md.
+1. Inventory the project's manifests, CI, README, `<workspace>/docs/`, ADRs, SECURITY, and existing AGENTS.md.
 2. Collect exact commands from those sources — do not invent scripts.
 3. Draft as an index: Package Manager → Commands → External References → Key Conventions.
 4. Verify every linked path and command exists.

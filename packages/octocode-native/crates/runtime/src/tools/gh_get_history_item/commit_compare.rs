@@ -1,7 +1,7 @@
 //! `operation: "commit"` and `operation: "compare"`: commit metadata or a
 //! ref comparison, each with one page of changed files.
 use super::continuations::attach_diff_continuations;
-use super::files::{attach_patch_cursor, in_path_scope, scope_files, shape_files};
+use super::files::{PathScope, attach_patch_cursor, in_path_scope, scope_files, shape_files};
 use super::util::{array, compare_identity, str_at, string, usize_at};
 use super::window::{
     MAX_FILE_BATCHES, WindowSpec, commit_file_items, commit_files_pagination, load_window_with,
@@ -27,7 +27,8 @@ pub(super) async fn commit<R: CredentialResolver>(
     let reference = query
         .reference()
         .ok_or_else(|| validation("ref is required"))?;
-    let path = query.path();
+    let scope = PathScope::from_query(query).map_err(|message| validation(&message))?;
+    let path = scope.as_ref();
     // File batches are derived from filePage×pageSize; a path scope hides
     // files, so it scans from the first batch.
     let loaded = load_window_with(
@@ -146,7 +147,8 @@ pub(super) async fn compare<R: CredentialResolver>(
     let file_page = query.file_page().unwrap_or(1) > 1;
     let all_files = array(raw.get("files").cloned().unwrap_or(json!([])));
     let file_limit = all_files.len() >= COMPARE_FILE_LIMIT;
-    let scoped = scope_files(all_files, query.path());
+    let scope = PathScope::from_query(query).map_err(|message| validation(&message))?;
+    let scoped = scope_files(all_files, scope.as_ref());
     let mut out = json!({"type":"compare","owner":query.owner(),"repo":query.repo(),"base":base,"head":head,
         "status": raw.get("status"),
         "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by"),"totalCommits":total,

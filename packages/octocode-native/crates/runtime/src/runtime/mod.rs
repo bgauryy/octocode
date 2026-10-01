@@ -1,6 +1,7 @@
 //! Request lifetime and bounded scheduling shared by both native interfaces.
 
 mod clasify_batch;
+mod clasify_compact;
 mod clasify_context;
 mod clasify_handoff;
 mod clasify_locate;
@@ -15,10 +16,12 @@ mod github;
 mod github_cache;
 mod lifecycle;
 mod maintenance;
+pub mod numbered;
 pub mod render;
 pub mod response;
 mod response_stage;
 mod session_stats;
+mod symbol_outline;
 
 pub use cursor::CursorError;
 pub use engine::{FailureKind, HostOptions, RuntimeError, ToolOutcome, ToolRuntime};

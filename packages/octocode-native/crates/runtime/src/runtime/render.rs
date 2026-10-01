@@ -43,6 +43,8 @@ enum RenderFamily {
     SearchHits,
     /// History items: metadata, then each changed file's patch verbatim.
     Diff,
+    /// astSearch: symbols rows render as an indented declaration outline.
+    Outline,
     /// Every other result: generic ordered encoding.
     Structured,
 }
@@ -60,6 +62,7 @@ impl RenderFamily {
             ToolId::GhGetFileContent => Self::FileText(FileLayout::Files),
             ToolId::LocalSearch => Self::SearchHits,
             ToolId::GhGetHistoryItem => Self::Diff,
+            ToolId::AstSearch => Self::Outline,
             ToolId::GhSearchRepo
             | ToolId::GhSearchCode
             | ToolId::GhStructure
@@ -67,7 +70,6 @@ impl RenderFamily {
             | ToolId::GhCloneRepo
             | ToolId::ArtifactSearch
             | ToolId::StructureSearch
-            | ToolId::AstSearch
             | ToolId::AstTopology
             | ToolId::AstRewrite
             | ToolId::LspSearch
@@ -83,6 +85,7 @@ pub fn render_tool(tool: ToolId, response: &Value, query: &Value, format: TextFo
         RenderFamily::FileText(FileLayout::Files) => render_file_list(response.clone(), format),
         RenderFamily::SearchHits => render_search_hits(response.clone(), query, format),
         RenderFamily::Diff => render_diff(response.clone(), format),
+        RenderFamily::Outline => render_outline(response.clone(), format),
         RenderFamily::Structured => render_structured(response.clone(), format),
     }
 }
@@ -338,7 +341,11 @@ fn render_file_list(mut response: Value, format: TextFormat) -> String {
             }
         }
     }
-    format.encode(
+    let mut blocks = Vec::new();
+    if format == TextFormat::Yaml {
+        take_file_contents(&mut response, &mut blocks);
+    }
+    let mut text = format.encode(
         response,
         &[
             "base",
@@ -361,7 +368,71 @@ fn render_file_list(mut response: Value, format: TextFormat) -> String {
             "pagination",
             "error",
         ],
-    )
+    );
+    for (header, content) in blocks {
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&header);
+        text.push('\n');
+        text.push_str(content.strip_suffix('\n').unwrap_or(&content));
+        text.push('\n');
+    }
+    text
+}
+
+/// GitHub file text in YAML: a multi-line `content` would be a quoted scalar
+/// escaping every tab, quote and line break. Each file's content leaves the
+/// YAML and follows it verbatim under a header naming the file, numbered
+/// `<line>\t<text>` when its lines map onto source lines (C5), as localFetch
+/// renders its own `content (source lines):` block.
+fn take_file_contents(response: &mut Value, blocks: &mut Vec<(String, String)>) {
+    let rows = response
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .map(|rows| rows.as_mut_slice())
+        .unwrap_or_default();
+    let single = rows.len() == 1
+        && rows[0]["data"]["files"]
+            .as_array()
+            .is_some_and(|files| files.len() == 1);
+    for row in rows {
+        let index = row["index"].clone();
+        for file in row
+            .get_mut("data")
+            .and_then(|data| data.get_mut("files"))
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            let numbered = super::numbered::numbered_view(file);
+            let Some(map) = file.as_object_mut() else {
+                continue;
+            };
+            let Some(content) = map
+                .get("content")
+                .and_then(Value::as_str)
+                .filter(|content| !content.is_empty())
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            map.remove("content");
+            let label = if numbered.is_some() {
+                map.remove("sourceLineRanges");
+                "source lines"
+            } else {
+                "copy-safe"
+            };
+            let header = if single {
+                format!("content ({label}):")
+            } else {
+                let path = map.get("path").and_then(Value::as_str).unwrap_or("");
+                format!("=== [{index}] {path} content ({label}) ===")
+            };
+            blocks.push((header, numbered.unwrap_or(content)));
+        }
+    }
 }
 
 fn render_structured(response: Value, format: TextFormat) -> String {
@@ -419,6 +490,24 @@ fn render_diff(mut response: Value, format: TextFormat) -> String {
     }
     if !text.ends_with('\n') {
         text.push('\n');
+    }
+    text
+}
+
+/// astSearch in YAML: symbols declarations leave the YAML and follow it as
+/// one outline section per file (see `symbol_outline`). JSON text and
+/// structured content keep the rows unchanged.
+fn render_outline(mut response: Value, format: TextFormat) -> String {
+    if format == TextFormat::Json {
+        return render_structured(response, format);
+    }
+    let sections = super::symbol_outline::take_outlines(&mut response);
+    let mut text = render_structured(response, format);
+    for section in sections {
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&section);
     }
     text
 }
@@ -565,36 +654,6 @@ fn yaml(value: Value, keys: &[&str]) -> String {
     )
 }
 
-fn source_lines(content: &str, value: &Value) -> Option<String> {
-    let ranges = value.as_array().filter(|v| !v.is_empty())?;
-    let records: Vec<&str> = content.split_inclusive('\n').collect();
-    let mut output = String::new();
-    let mut index = 0;
-    let mut prev_end: Option<u64> = None;
-    for range in ranges {
-        let start = range["start"].as_u64()?;
-        let end = range["end"].as_u64()?;
-        if start < 1 || end < start || end - start >= records.len() as u64 {
-            return None;
-        }
-        // Non-adjacent windows are separated by one unnumbered omission marker.
-        if prev_end.is_some_and(|prev| start > prev + 1)
-            && records
-                .get(index)
-                .is_some_and(|r| r.starts_with("... [line"))
-        {
-            output.push_str(records[index]);
-            index += 1;
-        }
-        prev_end = Some(end);
-        for line in start..=end {
-            output.push_str(&format!("{line}:{}", records.get(index)?));
-            index += 1;
-        }
-    }
-    (index == records.len()).then_some(output)
-}
-
 pub fn render_local_fetch(response: &Value) -> String {
     let mut lines = Vec::new();
     if let Some(base) = response["base"].as_str() {
@@ -607,9 +666,7 @@ pub fn render_local_fetch(response: &Value) -> String {
     for (position, row) in rows.iter().enumerate() {
         let data = &row["data"];
         let mut metadata = data.clone();
-        let numbered = data["content"]
-            .as_str()
-            .and_then(|content| source_lines(content, &data["sourceLineRanges"]));
+        let numbered = super::numbered::numbered_view(data);
         if let Some(map) = metadata.as_object_mut() {
             map.remove("content");
             // Numbered lines state their own source range.
@@ -724,16 +781,6 @@ fn order_read_metadata(data: &mut Value) {
 mod tests {
     use super::*;
     #[test]
-    fn source_numbering_rejects_incomplete_or_invalid_mapping() {
-        assert_eq!(
-            source_lines("a\nb\n", &json!([{"start":4,"end":5}])),
-            Some("4:a\n5:b\n".into())
-        );
-        assert_eq!(source_lines("a\nb\n", &json!([{"start":4,"end":4}])), None);
-        assert_eq!(source_lines("a\n", &json!([{"start":0,"end":1}])), None);
-    }
-
-    #[test]
     fn output_format_json_renders_parseable_json_text() {
         let response =
             json!({"results":[{"index":0,"status":"empty","data":{"path":"a"}}],"base":"/r"});
@@ -770,6 +817,7 @@ mod tests {
                 ToolId::GhGetFileContent => RenderFamily::FileText(FileLayout::Files),
                 ToolId::LocalSearch => RenderFamily::SearchHits,
                 ToolId::GhGetHistoryItem => RenderFamily::Diff,
+                ToolId::AstSearch => RenderFamily::Outline,
                 _ => RenderFamily::Structured,
             };
             assert_eq!(RenderFamily::of(tool), expected, "{tool}");
@@ -866,22 +914,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn source_lines_passes_omission_marker_through_unnumbered() {
-        assert_eq!(
-            source_lines(
-                "a\n... [lines 3-8 omitted] ...\nb\n",
-                &json!([{"start":2,"end":2},{"start":9,"end":9}])
-            ),
-            Some("2:a\n... [lines 3-8 omitted] ...\n9:b\n".into())
-        );
-    }
-
     /// Every source line keeps its own number (a text page may start mid
     /// range, and a `@@ a-b @@` block header would leave such a page, or a
     /// source line that itself reads `@@ 1-2 @@`, unnumbered). The gutter is
-    /// `rg -n`'s `N:` with no pad; the numbers make `sourceLineRanges`
+    /// unpadded; the numbers make `sourceLineRanges`
     /// redundant in text, and a sole row needs no `result:`/`data:` wrapper.
+    /// The gutter is the C5 `<line>\t` form structuredContent carries.
     #[test]
     fn local_fetch_numbers_each_line_with_a_bare_gutter_under_a_flat_header() {
         let row = |path: &str, start: u64| {
@@ -893,15 +931,68 @@ mod tests {
         assert_eq!(
             render_local_fetch(&one),
             "base: /r\npath: a.rs\ntotalLines: 900\ncontent (source lines):\n\
-             279:fn a() {\n280:\n281:    @@ 1-2 @@\n"
+             279\tfn a() {\n280\t\n281\t    @@ 1-2 @@\n"
         );
+        // Content the response stage already numbered renders unchanged.
+        let mut staged = one.clone();
+        super::super::numbered::number_read_rows(ToolId::LocalFetch, &mut staged);
+        assert_eq!(render_local_fetch(&staged), render_local_fetch(&one));
         let two = json!({"base":"/r","results":[
             {"index":0,"data":row("a.rs", 1)["data"]},
             {"index":1,"status":"error","data":{"path":"b.rs","error":"missing"}}]});
         assert_eq!(
             render_local_fetch(&two),
             "base: /r\nresult: 0\npath: a.rs\ntotalLines: 900\ncontent (source lines):\n\
-             1:fn a() {\n2:\n3:    @@ 1-2 @@\n\nresult: 1 (error)\npath: b.rs\nerror: missing\n"
+             1\tfn a() {\n2\t\n3\t    @@ 1-2 @@\n\nresult: 1 (error)\npath: b.rs\nerror: missing\n"
+        );
+    }
+
+    /// GitHub file text leaves the YAML (no escaped tabs/newlines) and follows
+    /// it numbered, like localFetch; JSON text keeps the structured encoding.
+    #[test]
+    fn github_file_content_renders_numbered_after_the_metadata() {
+        let file = |path: &str, start: u64| {
+            json!({"path":path,"content":"def a():\n    \"x\"\n","totalLines":40,
+                "sourceLineRanges":[{"start":start,"end":start + 1}],"commitSha":"abc"})
+        };
+        let one = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":[file("a.py", 7)]}}]});
+        let mut staged = one.clone();
+        super::super::numbered::number_read_rows(ToolId::GhGetFileContent, &mut staged);
+        for response in [&one, &staged] {
+            let text = render_tool(
+                ToolId::GhGetFileContent,
+                response,
+                &json!({}),
+                TextFormat::Yaml,
+            );
+            assert!(
+                text.ends_with("content (source lines):\n7\tdef a():\n8\t    \"x\"\n"),
+                "{text}"
+            );
+            assert!(!text.contains("sourceLineRanges"), "{text}");
+            assert!(text.contains("path: a.py"), "{text}");
+        }
+        let two = json!({"results":[
+            {"index":0,"data":{"owner":"o","repo":"r","files":[file("a.py", 1)]}},
+            {"index":1,"data":{"owner":"o","repo":"r","files":[{"path":"b.py","content":"x\n","contentView":"symbols"}]}}]});
+        let text = render_tool(ToolId::GhGetFileContent, &two, &json!({}), TextFormat::Yaml);
+        assert!(
+            text.contains("=== [0] a.py content (source lines) ===\n1\tdef a():\n"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("=== [1] b.py content (copy-safe) ===\nx\n"),
+            "{text}"
+        );
+        let json_text = render_tool(
+            ToolId::GhGetFileContent,
+            &staged,
+            &json!({}),
+            TextFormat::Json,
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&json_text).expect("json"),
+            staged
         );
     }
 

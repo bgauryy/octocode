@@ -147,6 +147,41 @@ async fn candidate_files(
     )
 }
 
+/// Ancestors checked above the server's workspace root for a JS monorepo root.
+const MAX_SCAN_ROOT_ASCENT: usize = 6;
+
+/// Where importers are searched: the server's workspace root, widened to the
+/// nearest enclosing JS workspace root (`pnpm-workspace.yaml`, `lerna.json`,
+/// or a `package.json` with `workspaces`) the read policy authorizes. A
+/// package's own root (its `package.json`) hides sibling packages that import
+/// it through a package-index re-export (`export { f } from "@scope/pkg"`).
+fn scan_root(workspace_root: &str, policy: &crate::policy::path::PathPolicy) -> String {
+    let start = Path::new(workspace_root);
+    start
+        .ancestors()
+        .skip(1)
+        .take(MAX_SCAN_ROOT_ASCENT)
+        .find(|dir| is_js_workspace_root(dir))
+        .filter(|dir| {
+            policy
+                .validate(dir)
+                .is_ok_and(|valid| valid.canonical.is_dir())
+        })
+        .map_or_else(
+            || workspace_root.to_owned(),
+            |dir| dir.to_string_lossy().into_owned(),
+        )
+}
+
+fn is_js_workspace_root(dir: &Path) -> bool {
+    dir.join("pnpm-workspace.yaml").is_file()
+        || dir.join("lerna.json").is_file()
+        || std::fs::read_to_string(dir.join("package.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .is_some_and(|manifest| manifest.get("workspaces").is_some())
+}
+
 /// The identifier covering a zero-based UTF-16 position, for anchors given
 /// as `position` instead of `symbolName`.
 pub(super) fn word_at(content: &str, line: u32, character: u32) -> Option<String> {
@@ -254,7 +289,8 @@ pub(super) async fn verified_anchors(
     }
     let mut skip = known_files.clone();
     skip.insert(canonical(anchor_path));
-    let (files, capped) = candidate_files(workspace_root, symbol, &skip, sources, cancel).await;
+    let scan_root = scan_root(workspace_root, sources.policy());
+    let (files, capped) = candidate_files(&scan_root, symbol, &skip, sources, cancel).await;
     let mut opened = Vec::new();
     for (index, file) in files.iter().enumerate() {
         cancel.check().map_err(LspFailure::cancelled)?;
@@ -513,7 +549,11 @@ async fn identities(
     )
     .await
     {
-        Ok(found) => Ok(found.iter().map(snippet_identity).collect()),
+        Ok((found, warnings)) if warnings.is_empty() => {
+            Ok(found.iter().map(snippet_identity).collect())
+        }
+        // A retained pre-failure alias is not terminal declaration proof.
+        Ok(_) => Ok(HashSet::new()),
         Err(failure) if failure.code == "lsp.cancelled" => Err(failure),
         Err(_) => Ok(HashSet::new()),
     }
@@ -597,6 +637,41 @@ mod tests {
             Some(json!("run"))
         );
         assert!(enclosing_callable(&flat, 9, 0).is_none());
+    }
+
+    #[test]
+    fn importer_scan_widens_to_the_enclosing_js_workspace_root() {
+        use crate::policy::path::{PathPolicy, PathPolicyConfig};
+        let root =
+            std::env::temp_dir().join(format!("octocode-lsp-scan-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let package = root.join("packages/element");
+        std::fs::create_dir_all(package.join("src")).expect("package");
+        let root = root.canonicalize().expect("canonical");
+        let package = root.join("packages/element");
+        std::fs::write(package.join("package.json"), r#"{"name":"@x/element"}"#).expect("pkg");
+        let policy = |workspace: &Path| {
+            PathPolicy::new(PathPolicyConfig {
+                workspace_root: Some(workspace.to_path_buf()),
+                ..Default::default()
+            })
+            .expect("policy")
+        };
+        let package_str = package.to_string_lossy().into_owned();
+        // No monorepo marker: the package root stays the scan root.
+        assert_eq!(scan_root(&package_str, &policy(&root)), package_str);
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"private":true,"workspaces":["packages/*"]}"#,
+        )
+        .expect("root manifest");
+        assert_eq!(
+            scan_root(&package_str, &policy(&root)),
+            root.to_string_lossy()
+        );
+        // An unauthorized monorepo root never widens the scan.
+        assert_eq!(scan_root(&package_str, &policy(&package)), package_str);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

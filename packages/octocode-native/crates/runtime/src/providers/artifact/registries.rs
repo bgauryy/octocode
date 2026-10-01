@@ -1,8 +1,9 @@
 use super::http::RegistryClient;
 use super::util::{
-    commit_sha, coordinate_path, endpoint, license, object_for, parse_url, required, rows,
-    safe_url, string, total,
+    commit_sha, coordinate_path, date_prefix, endpoint, license, object_for, parse_url, required,
+    rows, safe_url, string, total,
 };
+use super::versions::{VersionSpec, cargo_resolve, pypi_resolve};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
     ArtifactType,
@@ -13,23 +14,85 @@ pub(crate) async fn pypi(
     query: &ArtifactSearchQuery,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    let Some(package_name) = query.package_name() else {
+    let Some(package_name) = query.bare_package_name() else {
         return Err(ArtifactError::new(
             "unsupported_capability",
             "PyPI does not provide keyword search. Use type:\"pypi\" with an exact packageName.",
         )
         .with_hint("Use type:pypi with packageName for exact Python package lookup."));
     };
-    let url = parse_url(&format!(
-        "https://pypi.org/pypi/{}/json",
-        super::util::encode_component(package_name)
-    ))?;
-    let Some(response) = client.json(ArtifactType::Pypi, url, true, None).await? else {
+    let project = |suffix: &str| {
+        parse_url(&format!(
+            "https://pypi.org/pypi/{}/{suffix}json",
+            super::util::encode_component(package_name)
+        ))
+    };
+    // A bare release number is exact; operators make a PEP 440 specifier.
+    let requested = query.version().filter(|value| *value != "latest");
+    let exact = requested.filter(|value| {
+        !value.contains(['<', '>', '=', '!', '~', ',', '*'])
+            && !matches!(VersionSpec::parse(value), VersionSpec::Tag(_))
+    });
+    let response = match (requested, exact) {
+        (None, _) => {
+            client
+                .json(ArtifactType::Pypi, project("")?, true, None)
+                .await?
+        }
+        (Some(_), Some(version)) => {
+            let found = client
+                .json(
+                    ArtifactType::Pypi,
+                    project(&format!("{}/", super::util::encode_component(version)))?,
+                    true,
+                    None,
+                )
+                .await?;
+            if found.is_none()
+                && let Some(project) = client
+                    .json(ArtifactType::Pypi, project("")?, true, None)
+                    .await?
+            {
+                return Err(super::npm::version_not_found(
+                    package_name,
+                    version,
+                    &pypi_releases(&project, true),
+                ));
+            }
+            found
+        }
+        (Some(specifier), None) => {
+            let Some(project_json) = client
+                .json(ArtifactType::Pypi, project("")?, true, None)
+                .await?
+            else {
+                return Ok(ArtifactProviderPage::empty(Some(0)));
+            };
+            let releases = pypi_releases(&project_json, false);
+            let Some(resolved) = pypi_resolve(specifier, releases.iter().map(String::as_str))
+            else {
+                return Err(super::npm::version_not_found(
+                    package_name,
+                    specifier,
+                    &pypi_releases(&project_json, true),
+                ));
+            };
+            client
+                .json(
+                    ArtifactType::Pypi,
+                    project(&format!("{}/", super::util::encode_component(&resolved)))?,
+                    true,
+                    None,
+                )
+                .await?
+        }
+    };
+    let Some(response) = response else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
+    let body = object_for(&response, ArtifactType::Pypi)?;
     let info = object_for(
-        object_for(&response, ArtifactType::Pypi)?
-            .get("info")
+        body.get("info")
             .ok_or_else(|| super::util::invalid(ArtifactType::Pypi))?,
         ArtifactType::Pypi,
     )?;
@@ -59,7 +122,48 @@ pub(crate) async fn pypi(
             .flatten()
         })
     });
+    artifact.published_at = body
+        .get("urls")
+        .and_then(Value::as_array)
+        .and_then(|files| files.first())
+        .and_then(|file| date_prefix(file.get("upload_time_iso_8601")));
+    artifact.yanked = (info.get("yanked") == Some(&Value::Bool(true))).then_some(true);
+    artifact.requires_python = string(info.get("requires_python"));
+    artifact.dependencies = Some(info.get("requires_dist").and_then(Value::as_array).map_or(
+        0,
+        |requirements| {
+            requirements
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|requirement| !requirement.contains("extra =="))
+                .count()
+        },
+    ));
     Ok(single(artifact))
+}
+
+/// Release numbers of a PyPI project; `include_yanked` false drops releases
+/// whose every file is yanked (pip skips them for specifiers).
+fn pypi_releases(project: &Value, include_yanked: bool) -> Vec<String> {
+    project
+        .get("releases")
+        .and_then(Value::as_object)
+        .map(|releases| {
+            releases
+                .iter()
+                .filter(|(_, files)| {
+                    include_yanked
+                        || files.as_array().is_some_and(|files| {
+                            files.is_empty()
+                                || files
+                                    .iter()
+                                    .any(|file| file.get("yanked") != Some(&Value::Bool(true)))
+                        })
+                })
+                .map(|(version, _)| version.clone())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn crate_item(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
@@ -89,7 +193,7 @@ pub(crate) async fn crates(
     state: &ArtifactProviderState,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    if let Some(name) = query.package_name() {
+    if let Some(name) = query.bare_package_name() {
         let url = parse_url(&format!(
             "https://crates.io/api/v1/crates/{}",
             super::util::encode_component(name)
@@ -97,13 +201,60 @@ pub(crate) async fn crates(
         let Some(response) = client.json(ArtifactType::Crates, url, true, None).await? else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
+        let body = object_for(&response, ArtifactType::Crates)?;
         let row = object_for(
-            object_for(&response, ArtifactType::Crates)?
-                .get("crate")
+            body.get("crate")
                 .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?,
             ArtifactType::Crates,
         )?;
-        return Ok(single(crate_item(row)?));
+        let mut artifact = crate_item(row)?;
+        // The crate response lists every version: exact, tag, and range
+        // lookups resolve here without another request.
+        let versions = body
+            .get("versions")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let num = |entry: &Value| entry.get("num").and_then(Value::as_str).map(str::to_owned);
+        let all = versions.iter().filter_map(num).collect::<Vec<_>>();
+        let wanted = match query.version().map(VersionSpec::parse) {
+            None => artifact.version.clone(),
+            Some(VersionSpec::Tag(tag)) if tag == "latest" => artifact.version.clone(),
+            Some(VersionSpec::Exact(version)) => {
+                if !all.contains(&version) {
+                    return Err(super::npm::version_not_found(
+                        &artifact.name,
+                        &version,
+                        &all,
+                    ));
+                }
+                Some(version)
+            }
+            Some(VersionSpec::Tag(spec) | VersionSpec::Range(spec)) => {
+                let releases = versions
+                    .iter()
+                    .filter(|entry| entry.get("yanked") != Some(&Value::Bool(true)))
+                    .filter_map(num)
+                    .collect::<Vec<_>>();
+                Some(
+                    cargo_resolve(&spec, releases.iter().map(String::as_str)).ok_or_else(|| {
+                        super::npm::version_not_found(&artifact.name, &spec, &all)
+                    })?,
+                )
+            }
+        };
+        if let Some(entry) = wanted.as_deref().and_then(|wanted| {
+            versions
+                .iter()
+                .find(|entry| entry.get("num").and_then(Value::as_str) == Some(wanted))
+        }) {
+            artifact.version = num(entry);
+            artifact.published_at = date_prefix(entry.get("created_at"));
+            artifact.yanked = (entry.get("yanked") == Some(&Value::Bool(true))).then_some(true);
+            artifact.rust_version = string(entry.get("rust_version"));
+            artifact.license = license(entry.get("license")).or(artifact.license);
+        }
+        return Ok(single(artifact));
     }
     let page = state.page.unwrap_or(1);
     let size = query.page_size().unwrap_or(10);
@@ -539,6 +690,196 @@ mod tests {
 
     fn budget() -> RequestBudget {
         RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000)
+    }
+
+    /// Answers by URL path (exact match); anything else is a 404. Records
+    /// every requested path.
+    struct RouteHttp {
+        routes: Vec<(&'static str, serde_json::Value)>,
+        seen: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl RouteHttp {
+        fn new(routes: Vec<(&'static str, serde_json::Value)>) -> Self {
+            Self {
+                routes,
+                seen: std::sync::Mutex::new(vec![]),
+            }
+        }
+        fn seen(&self) -> Vec<String> {
+            self.seen.lock().expect("seen").clone()
+        }
+    }
+
+    impl ArtifactHttp for RouteHttp {
+        fn get<'a>(
+            &'a self,
+            req: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            let path = req.url.path().to_owned();
+            self.seen.lock().expect("seen").push(path.clone());
+            let found = self
+                .routes
+                .iter()
+                .find(|(route, _)| *route == path)
+                .map(|(_, body)| serde_json::to_vec(body).expect("body"));
+            Box::pin(async move {
+                Ok(match found {
+                    Some(body) => ArtifactHttpResponse { status: 200, body },
+                    None => ArtifactHttpResponse {
+                        status: 404,
+                        body: b"{}".to_vec(),
+                    },
+                })
+            })
+        }
+    }
+
+    fn versioned(artifact_type: ArtifactType, name: &str, version: &str) -> ArtifactSearchQuery {
+        artifact_query(
+            json!({"type": artifact_type, "packageName": name, "version": version}),
+            None,
+        )
+    }
+
+    fn pypi_release(version: &str) -> serde_json::Value {
+        json!({
+            "info": {"name": "requests", "version": version, "summary": "HTTP",
+                "requires_python": ">=3.7", "yanked": false,
+                "requires_dist": ["idna<4,>=2.5", "urllib3<3", "PySocks!=1.5.7; extra == \"socks\""],
+                "project_urls": {"Source": "https://github.com/psf/requests"}},
+            "urls": [{"upload_time_iso_8601": "2023-05-22T15:12:42.313790Z"}]
+        })
+    }
+
+    fn pypi_project() -> serde_json::Value {
+        let mut project = pypi_release("2.32.3");
+        project["releases"] = json!({
+            "2.30.0": [{"yanked": false}], "2.31.0": [{"yanked": false}],
+            "2.32.0": [{"yanked": true}], "2.32.3": [{"yanked": false}], "3.0.0rc1": [{"yanked": false}]
+        });
+        project
+    }
+
+    #[tokio::test]
+    async fn pypi_version_lookups_pin_exact_specifier_and_coordinate_forms() {
+        let http = RouteHttp::new(vec![
+            ("/pypi/requests/json", pypi_project()),
+            ("/pypi/requests/2.31.0/json", pypi_release("2.31.0")),
+            ("/pypi/requests/2.32.3/json", pypi_release("2.32.3")),
+        ]);
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        let exact = pypi(
+            &versioned(ArtifactType::Pypi, "requests", "2.31.0"),
+            &client,
+        )
+        .await
+        .expect("exact");
+        let item = &exact.artifacts[0];
+        assert_eq!(item.version.as_deref(), Some("2.31.0"));
+        assert_eq!(item.published_at.as_deref(), Some("2023-05-22"));
+        assert_eq!(item.requires_python.as_deref(), Some(">=3.7"));
+        assert_eq!(item.dependencies, Some(2), "extras are not dependencies");
+        assert_eq!(item.yanked, None);
+        let coordinate = pypi(
+            &exact_query(ArtifactType::Pypi, "requests==2.31.0"),
+            &client,
+        )
+        .await
+        .expect("== coordinate");
+        assert_eq!(coordinate.artifacts[0].version.as_deref(), Some("2.31.0"));
+        let range = pypi(
+            &versioned(ArtifactType::Pypi, "requests", ">=2.31,<3"),
+            &client,
+        )
+        .await
+        .expect("specifier");
+        assert_eq!(range.artifacts[0].version.as_deref(), Some("2.32.3"));
+        let missing = pypi(
+            &versioned(ArtifactType::Pypi, "requests", "2.31.9"),
+            &client,
+        )
+        .await
+        .expect_err("missing version");
+        assert_eq!(missing.code, "versionNotFound");
+        assert!(missing.hints[0].contains("2.31.0"), "{missing:?}");
+        assert_eq!(
+            http.seen()[..2],
+            ["/pypi/requests/2.31.0/json", "/pypi/requests/2.31.0/json"],
+            "exact versions are one request"
+        );
+    }
+
+    #[tokio::test]
+    async fn crates_versions_resolve_from_the_crate_response() {
+        let http = RouteHttp::new(vec![(
+            "/api/v1/crates/serde",
+            json!({
+                "crate": {"name": "serde", "max_stable_version": "1.0.228",
+                    "description": "serialization", "repository": "https://github.com/serde-rs/serde"},
+                "versions": [
+                    {"num": "1.0.228", "created_at": "2025-09-27T00:00:00Z", "yanked": false, "license": "MIT OR Apache-2.0", "rust_version": "1.61"},
+                    {"num": "1.0.200", "created_at": "2024-05-01T00:00:00Z", "yanked": true, "license": "MIT OR Apache-2.0"},
+                    {"num": "1.0.100", "created_at": "2019-09-08T01:56:06Z", "yanked": false, "license": "MIT OR Apache-2.0"},
+                    {"num": "1.0.99", "created_at": "2019-08-01T00:00:00Z", "yanked": false}
+                ]
+            }),
+        )]);
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        let state = ArtifactProviderState::default();
+        let lookup = |query: ArtifactSearchQuery| {
+            let client = &client;
+            let state = &state;
+            async move { crates(&query, state, client).await }
+        };
+        let exact = lookup(versioned(ArtifactType::Crates, "serde", "1.0.100"))
+            .await
+            .expect("exact");
+        let item = &exact.artifacts[0];
+        assert_eq!(item.version.as_deref(), Some("1.0.100"));
+        assert_eq!(item.published_at.as_deref(), Some("2019-09-08"));
+        let coordinate = lookup(exact_query(ArtifactType::Crates, "serde@1.0.100"))
+            .await
+            .expect("@");
+        assert_eq!(coordinate.artifacts[0].version.as_deref(), Some("1.0.100"));
+        let latest = lookup(exact_query(ArtifactType::Crates, "serde"))
+            .await
+            .expect("latest");
+        assert_eq!(latest.artifacts[0].rust_version.as_deref(), Some("1.61"));
+        let range = lookup(versioned(
+            ArtifactType::Crates,
+            "serde",
+            ">=1.0.100, <1.0.228",
+        ))
+        .await
+        .expect("range");
+        assert_eq!(
+            range.artifacts[0].version.as_deref(),
+            Some("1.0.100"),
+            "yanked 1.0.200 is skipped"
+        );
+        let missing = lookup(versioned(ArtifactType::Crates, "serde", "1.0.101"))
+            .await
+            .expect_err("missing");
+        assert_eq!(missing.code, "versionNotFound");
+        assert!(
+            http.seen()
+                .iter()
+                .all(|path| path == "/api/v1/crates/serde")
+        );
     }
 
     fn exact_query(artifact_type: ArtifactType, name: &str) -> ArtifactSearchQuery {

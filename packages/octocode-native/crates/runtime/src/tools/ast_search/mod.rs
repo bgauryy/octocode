@@ -220,6 +220,7 @@ pub fn execute_ast(
 }
 
 pub use matches::execute_match;
+pub(crate) use matches::{grammar_selector, present_grammars};
 pub use symbols::execute_symbols;
 pub use syntax::execute_syntax;
 

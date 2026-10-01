@@ -1,6 +1,6 @@
 # Octocode Clasify
 
-Judge unread local or GitHub files without fetching their bodies into chat. Each judgment is one typed question per resource: **Noul** (probability 0–1), **Choice** (one named class), or **Score** (one ordered level).
+Judge unread local or GitHub files without fetching their bodies into chat. Each judgment is one typed question per resource: **yesno** (probability 0–1), **choice** (one named class), **score** (one ordered level), or **locate** (ranked source line windows).
 
 ## Use when
 
@@ -19,15 +19,16 @@ First identify an unresolved judgment that changes the next action. Skip when cu
 
 ## Question types
 
-| Type | Returns | Use for |
+| `type` | Returns | Use for |
 |---|---|---|
-| `noul` | probability 0–1 | yes/no questions: does this supplied content support a scoped proposition |
+| `yesno` | probability 0–1 | yes/no questions: does this supplied content support a scoped proposition |
 | `choice` | one named class | routing: `read`/`skip`/`consider`, content type, link action |
 | `score` | one ordered level | quality/priority ranking |
+| `locate` | ranked line windows | where an unread file answers a described target |
 
-For research checks, choose `questionType:"contribution"` with a `target`, `"addsEvidence"` with a `target` and a small `knownEvidence` ledger, or `"supportsClaim"` with the exact claim as `target`. Each preset expands to one Noul question.
+Every question is `{type, ask}`. For research checks, choose `type:"relevant"` (contribution), `"adds"` with a small `known` ledger, `"supports"` with the exact claim as `ask`, or `"sufficient"`. Each expands to one yes/no provider question.
 
-For other judgments, supply custom `type`, `instructions`, and optional `criteria` unchanged. Do not mix custom fields with a preset. Clasify adds no implicit labels, localization questions, or routing flags. Add an explicit abstention class to Choice when needed. Validated probability distributions retain their full precision.
+Custom judgments put their meanings in `labels` (choice `{label: meaning}`, score `[low … high]`, optional yesno `{true, false}`). Clasify adds no implicit labels, localization questions, or routing flags. Add an explicit abstention class to choice when needed. The older `questionType`/`target`, `type`/`instructions`/`criteria`, and nested `context` forms still validate.
 
 **Confidence:** distribution concentration is not correctness. No universal threshold safely discards a candidate. Retain uncertain, `insufficient`, or incomplete results for a deciding read; verify factual claims against source evidence.
 
@@ -36,12 +37,12 @@ For other judgments, supply custom `type`, `instructions`, and optional `criteri
 Use direct execution with the current CLI form. This complete shape is valid for one unread retained artifact; replace the absolute path and target:
 
 ```bash
-octocode clasify '{"id":"artifact-locate","goal":"Find what the Choice primitive returns in the saved page.","reasoning":"Locate an answer before reading the artifact.","resources":[{"id":"saved-page","context":{"tool":"localFetch","query":{"reasoning":"Assess the retained artifact without returning its body.","path":"/ABS/.octocode/tmp/scrape/session/text/page-001.clean.part-001.md","fullContent":true}}}],"questions":[{"id":"answer","questionType":"locate","target":"What does the Choice primitive return?"}]}'
+octocode clasify '{"id":"artifact-locate","goal":"Find what the Choice primitive returns in the saved page.","reasoning":"Locate an answer before reading the artifact.","resources":[{"id":"saved-page","tool":"localFetch","query":{"path":"/ABS/.octocode/tmp/scrape/session/text/page-001.clean.part-001.md"}}],"questions":[{"id":"answer","type":"locate","ask":"What does the Choice primitive return?"}]}'
 ```
 
-Each matrix is `{id?, goal, reasoning, resources:[{id?, context}], questions:[{id?, questionType:"locate", target}]}`; `goal` and `reasoning` are required, omitted IDs are derived by position. Every question is evaluated independently for every resource, so put competing candidates in one matrix to screen them in parallel with one focused question. Maximum 25 resource×question cells. Batch unrelated matrices under root `queries[]`; dependent questions require a later call.
+Each matrix is `{id?, goal, reasoning, resources:[{id?, tool, query} | {id?, value}], questions:[{id?, type, ask}]}`; `goal` and `reasoning` are required, omitted IDs are derived by position. Every question is evaluated independently for every resource, so put competing candidates in one matrix to screen them in parallel with one focused question. Maximum 25 resource×question cells. Batch unrelated matrices under root `queries[]`; dependent questions require a later call.
 
-One `localSearch` or GitHub code-search resource fans its returned file entries into independently judged pages. Omit `candidateEvidence` (or use `"search"`) to judge only paths, snippets, and metadata. Use `candidateEvidence:"fileChunks"` when snippets cannot route the next read: the runtime hydrates up to five bounded candidate chunks per call and returns `page.next.read`, without returning bodies. Follow `next.clasify` for later search pages and verify selected source before making factual claims.
+One `localSearch` or GitHub code-search resource fans its returned file entries into independently judged pages. Screening questions judge only paths, snippets, and metadata. A `locate` question (or `candidateEvidence:"fileChunks"`) hydrates up to five bounded candidate chunks per call and returns `page.next.read`, without returning bodies. Follow `next.clasify` for later search pages and verify selected source before making factual claims.
 
 ## Install
 

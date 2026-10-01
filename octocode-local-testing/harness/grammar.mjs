@@ -58,8 +58,12 @@ for (const [lang, l] of Object.entries(L)) {
   const repair = rowData(bad)?.next?.repair;
   check(`${lang}: directory symbols with langType returns an exact repair`, !!repair && !('langType' in repair.query), JSON.stringify(rowData(bad)?.hints ?? []).slice(0, 100));
   if (l.call) {
-    const m = await call('astSearch', { operation: 'match', path: dir, langType: lang, pattern: `${l.call}($A)` });
+    // Captures are opt-in (captureText); default rows carry line/column/value only.
+    const m = await call('astSearch', { operation: 'match', path: dir, langType: lang, pattern: `${l.call}($A)`, captureText: true });
     const matches = collect(rowData(m), o => typeof o.value === 'string' && typeof o.line === 'number' && typeof o.column === 'number' && o.metavarRanges);
+    const lean = await call('astSearch', { operation: 'match', path: dir, langType: lang, pattern: `${l.call}($A)` });
+    const leanRows = collect(rowData(lean), o => typeof o.value === 'string' && typeof o.line === 'number');
+    check(`${lang}: default match rows omit captures and offer next.expandCaptures`, leanRows.length === matches.length && leanRows.every(o => !o.metavarRanges && !o.metavars) && !!rowData(lean)?.next?.expandCaptures, `${leanRows.length} vs ${matches.length}`);
     const srcLines = l.src.split('\n');
     const emojiLine = srcLines.findIndex(s => s.includes('😀')) + 1;
     const onEmoji = matches.find(x => x.line === emojiLine);

@@ -298,6 +298,14 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
             }
         }
         value["next"]["nextPage"] = continuation(next_query);
+        // Compact reference rows carry the snapshot once, in the continuation.
+        if value
+            .pointer("/payload/byFile/0/refs")
+            .is_some_and(Value::is_array)
+            && let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut)
+        {
+            pagination.shift_remove("snapshot");
+        }
     } else if value.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
         value["status"] = json!("empty");
         // A workspaceRoot-only query has no file to fall back to reading, and

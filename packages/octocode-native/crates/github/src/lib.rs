@@ -33,8 +33,8 @@ pub use query_syntax::{
     validate_search_name,
 };
 pub use search::{
-    CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchPage,
-    RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,
+    CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
+    RepositorySearchPage, RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,
 };
 pub use transport::{
     GitHubTransport, GraphQlError, GraphQlPage, HttpMethod, RequestContext, RequestSpec,

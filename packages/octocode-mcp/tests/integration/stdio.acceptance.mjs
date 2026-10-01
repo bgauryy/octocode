@@ -299,20 +299,26 @@ try {
     }
   });
   await check(
-    'local file read has matching copy-safe text and structured content',
+    'local file read carries numbered source lines in text and structured content',
     async () => {
       const file = path.join(fixture, 'math.ts');
       const data = await call('localFetch', {
         path: file,
         minify: 'none',
       });
-      assert.equal(data.content, await readFile(file, 'utf8'));
+      // C5: `<line>\t<text>` per source line (docs/TOOL_DATA_CONTRACT.md).
+      const source = await readFile(file, 'utf8');
+      const numbered = source
+        .split('\n')
+        .map((line, index, all) => (index === all.length - 1 && line === '' ? '' : `${index + 1}\t${line}`))
+        .join('\n');
+      assert.equal(data.content, numbered);
       assert.ok(
         receipt.calls.at(-1).response.content.some(block =>
           block.type === 'text'
           && block.text.includes('content (source lines):')
-          && block.text.includes('1:// Arithmetic fixture.')
-          && block.text.includes('2:export function add(left: number, right: number) { return left + right; }')
+          && block.text.includes('1\t// Arithmetic fixture.')
+          && block.text.includes('2\texport function add(left: number, right: number) { return left + right; }')
         )
       );
     }
@@ -579,7 +585,7 @@ try {
         assert.match(rendered, /export const value = 1;/);
         assert.doesNotMatch(rendered, /export const value = 200;/);
         const fresh = await call('localFetch', { path: file, minify: 'none' });
-        assert.equal(fresh.content, 'export const value = 200;\n');
+        assert.equal(fresh.content, '1\texport const value = 200;\n');
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
@@ -752,7 +758,7 @@ try {
     });
     await check('GitHub full file reads return content without a checkout', async () => {
       const data = await call('ghGetFileContent', { ...repo, branch: sha, path: 'README', fullContent: true });
-      assert.equal(data.files[0].content, 'Hello World!\n');
+      assert.equal(data.files[0].content, '1\tHello World!\n');
       assert.equal(data.files[0].localPath, undefined);
       assert.equal(data.files[0].repoRoot, undefined);
       assert.equal(data.directories, undefined);

@@ -54,8 +54,18 @@ pub fn extract(
 ) -> Result<Extraction, String> {
     let lines = records(content);
     let total = lines.len();
-    if let Some(pattern) = q.match_string.as_ref() {
-        return match_extract(q, content, &lines, pattern, regex);
+    let patterns = q.match_strings();
+    if !patterns.is_empty() {
+        return match_extract(q, content, &lines, &patterns, regex);
+    }
+    let requested = q.line_ranges();
+    if !requested.is_empty() {
+        return ranges_extract(q, content, &lines, &requested);
+    }
+    if let (Some(start), Some(end)) = (q.start_line(), q.end_line())
+        && q.block()
+    {
+        return ranges_extract(q, content, &lines, &[LineRange { start, end }]);
     }
     if let (Some(start), Some(end)) = (q.start_line(), q.end_line()) {
         if end < start {
@@ -98,21 +108,136 @@ pub fn extract(
         warnings: vec![],
     })
 }
+/// Line ranges joined into one view: sorted, overlapping or adjacent ranges
+/// merged, clamped to the file end; with `block`, each widened to its
+/// enclosing declaration.
+fn ranges_extract(
+    q: &LocalFetchQuery,
+    content: &str,
+    lines: &[&str],
+    requested: &[LineRange],
+) -> Result<Extraction, String> {
+    let total = lines.len();
+    let mut warnings = vec![];
+    let mut kept: Vec<LineRange> = vec![];
+    for range in requested {
+        if range.end < range.start {
+            return Err(format!(
+                "range {}-{} ends before it starts; use start-end with end >= start",
+                range.start, range.end
+            ));
+        }
+        if range.start > total {
+            warnings.push(format!(
+                "Range {}-{} starts past the file end ({total} lines); skipped.",
+                range.start, range.end
+            ));
+            continue;
+        }
+        if range.end > total {
+            warnings.push(format!(
+                "Range {}-{} adjusted to end at {total} (file end).",
+                range.start, range.end
+            ));
+        }
+        kept.push(LineRange {
+            start: range.start.max(1),
+            end: range.end.min(total),
+        });
+    }
+    if kept.is_empty() {
+        return Err(format!(
+            "Requested lines start past the file end ({total} lines)"
+        ));
+    }
+    if q.block() {
+        kept = super::block::widen_ranges(content, q.path(), kept, &mut warnings);
+    }
+    let windows = merge_ranges(kept);
+    let (text, selected) = windows_text(lines, &windows);
+    Ok(Extraction {
+        text,
+        source_lines: Some(selected),
+        start: windows.first().map(|r| r.start),
+        end: windows.last().map(|r| r.end),
+        match_ranges: vec![],
+        matched_lines: vec![],
+        count: None,
+        warnings,
+    })
+}
+
+/// Sorted ranges with overlapping or adjacent ones merged.
+fn merge_ranges(mut ranges: Vec<LineRange>) -> Vec<LineRange> {
+    ranges.sort_by_key(|range| (range.start, range.end));
+    let mut merged: Vec<LineRange> = vec![];
+    for range in ranges {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end + 1 => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    merged
+}
+
+/// The text of `windows` (sorted, disjoint), with one omission marker
+/// between non-adjacent windows; `selected` maps each view line to its
+/// source line (markers map to [`OMISSION_LINE`]).
+fn windows_text(lines: &[&str], windows: &[LineRange]) -> (String, Vec<usize>) {
+    let mut selected = vec![];
+    let mut text = String::new();
+    let mut prev_end: Option<usize> = None;
+    for r in windows {
+        if let Some(prev) = prev_end.filter(|prev| r.start > prev + 1) {
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n')
+            }
+            text.push_str(&omission_marker(prev + 1, r.start - 1));
+            selected.push(OMISSION_LINE)
+        }
+        for line in r.start..=r.end {
+            text.push_str(lines[line - 1]);
+            selected.push(line)
+        }
+        prev_end = Some(r.end)
+    }
+    (text, selected)
+}
+
+/// Byte spans of every pattern (a list matches any of its entries), in
+/// source order.
+fn match_spans(
+    q: &LocalFetchQuery,
+    content: &str,
+    patterns: &[&str],
+    regex: &impl RegexMatch,
+) -> Result<Vec<(usize, usize)>, String> {
+    let sensitive = q.match_string_case_sensitive.unwrap_or(false);
+    let mut spans = vec![];
+    for pattern in patterns {
+        if q.match_string_is_regex.unwrap_or(false) {
+            spans.extend(regex.matching_ranges(pattern, sensitive, content).map_err(|error| {
+                if *pattern == "[" { "Invalid regex pattern: Invalid regular expression: /[/: Unterminated character class".to_owned() } else { error }
+            })?);
+        } else {
+            spans.extend(literal_ranges(content, pattern, sensitive));
+        }
+    }
+    if patterns.len() > 1 {
+        spans.sort_unstable();
+        spans.dedup();
+    }
+    Ok(spans)
+}
+
 fn match_extract(
     q: &LocalFetchQuery,
     content: &str,
     lines: &[&str],
-    pattern: &str,
+    patterns: &[&str],
     regex: &impl RegexMatch,
 ) -> Result<Extraction, String> {
-    let sensitive = q.match_string_case_sensitive.unwrap_or(false);
-    let spans = if q.match_string_is_regex.unwrap_or(false) {
-        regex.matching_ranges(pattern, sensitive, content).map_err(|error| {
-            if pattern == "[" { "Invalid regex pattern: Invalid regular expression: /[/: Unterminated character class".to_owned() } else { error }
-        })?
-    } else {
-        literal_ranges(content, pattern, sensitive)
-    };
+    let spans = match_spans(q, content, patterns, regex)?;
     let mut hits = vec![];
     let mut line_start = 0;
     let mut next_match = 0;
@@ -149,43 +274,35 @@ fn match_extract(
     let context = q
         .context_lines()
         .unwrap_or(if q.context_bytes().is_none() { 5 } else { 0 });
-    let mut ranges: Vec<LineRange> = vec![];
-    for &line in &hits {
-        let r = LineRange {
+    let mut warnings = vec![];
+    let windows: Vec<LineRange> = hits
+        .iter()
+        .map(|&line| LineRange {
             start: line.saturating_sub(context).max(1),
             end: (line + context).min(lines.len()),
-        };
-        if let Some(last) = ranges.last_mut().filter(|last| r.start <= last.end + 1) {
-            last.end = last.end.max(r.end)
-        } else {
-            ranges.push(r)
-        }
-    }
+        })
+        .collect();
+    let windows = if q.block() && q.context_bytes().is_none() {
+        super::block::widen_matches(content, q.path(), &hits, windows, &mut warnings)
+    } else {
+        windows
+    };
+    let mut ranges = merge_ranges(windows);
     // `selected` maps each emitted view line to its source line; omission
     // markers between non-adjacent windows map to OMISSION_LINE.
-    let mut selected = vec![];
-    let mut text = String::new();
-    let mut prev_end: Option<usize> = None;
-    for r in &ranges {
-        if let Some(prev) = prev_end.filter(|prev| r.start > prev + 1) {
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n')
-            }
-            text.push_str(&omission_marker(prev + 1, r.start - 1));
-            selected.push(OMISSION_LINE)
-        }
-        for line in r.start..=r.end {
-            text.push_str(lines[line - 1]);
-            selected.push(line)
-        }
-        prev_end = Some(r.end)
-    }
-    let long_lines = q.context_lines().is_none()
+    let (mut text, mut selected) = windows_text(lines, &ranges);
+    let long_lines = !q.block()
+        && q.context_lines().is_none()
         && q.context_bytes().is_none()
         && hits
             .iter()
             .any(|line| lines[line - 1].len() > LONG_LINE_BYTES);
-    let mut warnings = vec![];
+    if let Some(requested) = q.context_lines_clamped_from() {
+        warnings.push(format!(
+            "contextLines {requested} clamped to {}; read a wider span with startLine/endLine or ranges.",
+            super::types::MAX_CONTEXT_LINES
+        ));
+    }
     if long_lines {
         warnings.push(format!(
             "longMatchedLines: a matched line exceeds {LONG_LINE_BYTES} bytes (minified source), so each match is shown with {LONG_LINE_CONTEXT_BYTES} bytes of context; `... [N bytes omitted] ...` marks gaps. Set contextLines to read whole lines, or contextBytes to resize the windows."

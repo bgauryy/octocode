@@ -123,9 +123,10 @@ const singleValue = (schema: Json | undefined): string | undefined =>
     : undefined;
 
 /**
- * typify tags a `oneOf` by a discriminator whose values are unique; when two
- * branches share a value (astSearch's two `operation: "match"` forms) it falls
- * back to positional `Variant0…` names. Name those branches from the contract
+ * typify tags a `oneOf` by a required discriminator whose values are unique;
+ * when two branches share a value (astSearch's two `operation: "match"`
+ * forms) or the discriminator is optional, it falls back to positional
+ * `Variant0…` names. Name those branches from the contract
  * itself instead: `<Owner><Value>`, plus the required field only that branch
  * has when values repeat (`AstSearchQueryMatchPattern` / `…MatchRule`).
  */
@@ -141,13 +142,22 @@ function nameUntaggableVariants(schema: JsonObject, owner: string): JsonObject {
   );
   const valuesOf = (key: string): string[] =>
     objects.map((branch) => singleValue(properties(branch)[key]) as string);
-  // Any discriminator with unique values lets typify tag the enum itself.
-  if (discriminators.some((key) => new Set(valuesOf(key)).size === objects.length)) return schema;
+  const required = (branch: JsonObject): string[] =>
+    Array.isArray(branch.required) ? branch.required.filter((key): key is string => typeof key === 'string') : [];
+  // A required discriminator with unique values lets typify tag the enum
+  // itself. An optional one (astRewrite's inferred `ruleKind`, defaulted per
+  // branch) cannot be a serde tag, so its values name the variants instead.
+  if (
+    discriminators.some(
+      (key) =>
+        new Set(valuesOf(key)).size === objects.length && objects.every((branch) => required(branch).includes(key))
+    )
+  ) {
+    return schema;
+  }
   const [discriminator] = discriminators;
   if (!discriminator) return schema;
   const values = valuesOf(discriminator);
-  const required = (branch: JsonObject): string[] =>
-    Array.isArray(branch.required) ? branch.required.filter((key): key is string => typeof key === 'string') : [];
   const titled = objects.map((branch, index) => {
     const value = values[index] as string;
     const peers = objects.filter((_, other) => other !== index && values[other] === value);

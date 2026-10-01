@@ -49,9 +49,9 @@ pub(super) fn success_value(
                     .any(|matched| shown_ids.contains(matched.id.as_str()))
         })
         .map(|file| {
-            let mut value = public_file(file);
+            let mut value = public_file(file, query.debug());
             if !apply {
-                page_patch(&mut value, file, &shown_ids);
+                page_patch(&mut value, file, &shown_ids, query.debug());
             }
             value
         })
@@ -60,7 +60,7 @@ pub(super) fn success_value(
         "operation":"rewrite","mode":if apply {"apply"} else {"preview"},
         "root":root,"snapshot":snapshot,"totalMatches":matches.len(),
         "affectedFiles":files.len(),
-        "matches":shown.iter().map(|matched| matched.public.clone()).collect::<Vec<_>>(),
+        "matches":shown.iter().map(|matched| public_match(matched, query.debug())).collect::<Vec<_>>(),
         "files":page_files,
         "complete":!has_more,"isPartial":has_more,
         "pagination":{"currentPage":page,"totalPages":total_pages,"pageSize":page_size,"hasMore":has_more}
@@ -104,7 +104,7 @@ pub(super) fn success_value(
 pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) -> Value {
     let mut value = Map::new();
     value.insert("path".to_owned(), json!(canonical_root));
-    value.insert("langType".to_owned(), json!(query.lang_type()));
+    value.insert("langType".to_owned(), json!(query.lang()));
     value.insert("apply".to_owned(), json!(query.apply()));
     value.insert("maxFiles".to_owned(), json!(query.max_files()));
     value.insert("maxMatches".to_owned(), json!(query.max_matches()));
@@ -162,7 +162,12 @@ pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) 
 
 /// Narrow a preview file's whole-file patch to the hunks of the page's
 /// matches. A page showing every match of the file keeps the whole patch.
-fn page_patch(value: &mut Value, file: &PreparedFile, shown: &std::collections::BTreeSet<&str>) {
+fn page_patch(
+    value: &mut Value,
+    file: &PreparedFile,
+    shown: &std::collections::BTreeSet<&str>,
+    debug: bool,
+) {
     let on_page = file
         .matches
         .iter()
@@ -183,17 +188,45 @@ fn page_patch(value: &mut Value, file: &PreparedFile, shown: &std::collections::
         return;
     };
     let patch = super::create_unified_patch(&file.path, before, after);
-    value["patchBytes"] = json!(patch.len());
+    if debug {
+        value["patchBytes"] = json!(patch.len());
+    }
     value["patch"] = json!(patch);
     value["patchMatchCount"] = json!(on_page.len());
 }
 
-pub(super) fn public_file(file: &PreparedFile) -> Value {
+/// Hex digits of a match id shown in a preview row; `selectedMatchIds`
+/// accepts any unique prefix of at least 12.
+pub(super) const MATCH_ID_PREFIX: usize = 16;
+
+/// A preview match row locates its hunk: id prefix, path and 1-based line.
+/// The patch already shows the text and its replacement; `debug` keeps the
+/// full row (64-hex id, ranges, text, replacement, captures).
+fn public_match(matched: &PreparedMatch, debug: bool) -> Value {
+    if debug {
+        return matched.public.clone();
+    }
     json!({
-        "path":file.path,"absolutePath":file.absolute,"beforeHash":file.before_hash,
-        "afterHash":file.after_hash,"matchCount":file.matches.len(),
-        "patch":file.patch,"patchBytes":file.patch.len()
+        "id":&matched.id[..MATCH_ID_PREFIX.min(matched.id.len())],
+        "path":matched.public["path"],
+        "line":matched.public["range"]["start"]["line"]
     })
+}
+
+/// A file row: `beforeHash` guards apply and `matchCount` sizes the edit.
+/// `afterHash` (recomputed by the journal), `patchBytes` and `absolutePath`
+/// are diagnostics kept under `debug`.
+pub(super) fn public_file(file: &PreparedFile, debug: bool) -> Value {
+    let mut value = json!({
+        "path":file.path,"beforeHash":file.before_hash,
+        "matchCount":file.matches.len(),"patch":file.patch
+    });
+    if debug {
+        value["absolutePath"] = json!(file.absolute);
+        value["afterHash"] = json!(file.after_hash);
+        value["patchBytes"] = json!(file.patch.len());
+    }
+    value
 }
 
 pub(super) fn executable_value(executable: &ExecutableReceipt) -> Value {

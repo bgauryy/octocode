@@ -94,24 +94,27 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
             .expect("output contract");
         let query = &outcome.structured_content["queries"][0];
         for page in query["resources"][0]["pages"].as_array().unwrap() {
-            let path = page["source"]["path"].as_str().expect("candidate path");
+            let path = page["path"]
+                .as_str()
+                .or_else(|| query["resources"][0]["path"].as_str())
+                .expect("candidate path");
             assert!(
                 visited.insert(path.to_owned()),
                 "repeated candidate: {path}"
             );
-            assert!(page["answers"]["relevant"]["noul"].is_number(), "{page}");
-            assert!(page["answers"]["sufficient"]["noul"].is_number(), "{page}");
-            if page["answers"]["relevant"]["noul"].as_f64().unwrap() > 0.9 {
+            assert!(page["answers"]["relevant"].is_number(), "{page}");
+            assert!(page["answers"]["sufficient"].is_number(), "{page}");
+            if page["answers"]["relevant"].as_f64().unwrap() > 0.9 {
                 assert!(
                     path.ends_with(&format!("file{:02}.txt", total - 1)),
                     "{page}"
                 );
-                assert_eq!(page["answers"]["sufficient"]["noul"], 0.98);
+                assert_eq!(page["answers"]["sufficient"], 0.98);
                 deciding_read = Some(page["next"]["read"].clone());
             }
         }
         let Some(next) = query.pointer("/next/clasify") else {
-            assert_eq!(query["resources"][0]["coverage"], "complete");
+            assert!(query["resources"][0].get("coverage").is_none(), "{query}");
             complete = true;
             break;
         };
@@ -149,4 +152,53 @@ async fn search_handoff_screens_late_candidates_and_replays_their_exact_read() {
 #[tokio::test]
 async fn later_search_handoff_preserves_the_starting_candidate_when_bounded() {
     assert_candidate_walk(31, 2, 16, 15).await;
+}
+
+/// A paged read of a large file without `matchString` offers a clasify locate
+/// of the whole file; targeted reads (match, range) and small files do not.
+#[tokio::test]
+async fn large_paged_local_read_offers_clasify_locate() {
+    let workspace = Workspace::new();
+    let body = (1..=2_500)
+        .map(|line| format!("line {line}: housekeeping detail {line}\n"))
+        .collect::<String>();
+    let file = workspace.write("src/server.c", &body);
+    let small = workspace.write("src/small.c", "one\ntwo\n");
+    let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "fixture-key".into())]);
+    let read = |query: Value| {
+        let runtime = &runtime;
+        async move {
+            runtime
+                .execute("read".into(), "localFetch".into(), query)
+                .await
+                .expect("read")
+                .structured_content["results"][0]["data"]
+                .clone()
+        }
+    };
+    let brief = |extra: Value| {
+        let mut query = json!({"goal":"find the housekeeping timer","reasoning":"read the file","path":file});
+        query.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        query
+    };
+    let paged = read(brief(json!({}))).await;
+    let offer = &paged["next"]["clasify"];
+    assert_eq!(offer["tool"], "clasify", "{paged}");
+    let matrix = &offer["query"];
+    assert_eq!(matrix["resources"][0]["tool"], "localFetch");
+    assert_eq!(matrix["questions"][0], json!({"id":"target","type":"locate","ask":"find the housekeeping timer"}));
+    octocode_native::contracts::prepare_many_and_validate(
+        "clasify",
+        matrix.clone(),
+        octocode_native::contracts::PrepareOptions::default(),
+    )
+    .expect("the offered matrix validates");
+    for targeted in [
+        read(brief(json!({"matchString":"detail 2400"}))).await,
+        read(brief(json!({"startLine":1,"endLine":40}))).await,
+        read(json!({"goal":"g","reasoning":"r","path":small})).await,
+    ] {
+        assert!(targeted["next"].get("clasify").is_none(), "{targeted}");
+    }
+    runtime.close().await;
 }

@@ -15,8 +15,9 @@ impl LocalSearchQuery {
     pub fn match_content_length(&self) -> Option<u32> {
         self.match_content_length.map(|n| u32_of(n.get()))
     }
-    pub fn max_matches_per_file(&self) -> u32 {
-        u32_of(self.max_matches_per_file.get())
+    /// The caller's per-file row cap; `None` lets the result size decide.
+    pub fn max_matches_per_file(&self) -> Option<u32> {
+        self.max_matches_per_file.map(|n| u32_of(n.get()))
     }
     pub fn max_depth(&self) -> Option<u32> {
         self.max_depth.map(u32_of_signed)

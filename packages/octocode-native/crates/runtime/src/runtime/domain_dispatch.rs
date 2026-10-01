@@ -5,7 +5,11 @@ use crate::{
     policy::path::PathPolicy,
     providers::github::ProviderError,
     security::ContentSecurity,
-    tools::{id::ToolId, local_fetch::LocalFetchRegex, lsp_search::LspExecutionConfig},
+    tools::{
+        id::ToolId,
+        local_fetch::LocalFetchRegex,
+        lsp_search::{LspExecutionConfig, prewarm},
+    },
 };
 use serde_json::Value;
 use std::{
@@ -164,7 +168,12 @@ impl DomainDispatcher {
         // OCTOCODE_BETA is the shared gate for beta local tools. For astRewrite,
         // enabling beta permits both preview and hash-guarded apply.
         let allow_apply = self.config.resolved.local.beta;
-        self.handle.block_on(async {
+        let prewarm_query = (matches!(
+            tool,
+            ToolId::LocalSearch | ToolId::LocalFetch | ToolId::StructureSearch
+        ) && prewarm::enabled(self.config.env_value("OCTOCODE_LSP_PREWARM")))
+        .then(|| query.clone());
+        let result = self.handle.block_on(async {
             tokio::task::spawn_blocking(move || {
                 dispatch::execute_local(
                     tool,
@@ -179,6 +188,20 @@ impl DomainDispatcher {
             })
             .await
             .map_err(|_| ExecutionError::WorkerFailed)?
-        })
+        })?;
+        // Opt-in: start the named file's language server in the background
+        // so a following lspSearch on it finds a warm pooled client.
+        if let Some(query) = prewarm_query
+            && let Some(file) = prewarm::anchor_file(&query, &result.data)
+        {
+            prewarm::schedule(
+                &self.handle,
+                &self.lsp_pool,
+                &self.paths,
+                &self.lsp_execution_config,
+                &file,
+            );
+        }
+        Ok(result)
     }
 }

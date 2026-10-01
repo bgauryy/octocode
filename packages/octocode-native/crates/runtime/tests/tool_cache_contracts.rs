@@ -99,7 +99,7 @@ async fn ghgetfilecontent_second_call_sets_cache_flag() {
         1,
         "second call must be served from cache (cache:1)"
     );
-    assert_eq!(row_data(&second)["files"][0]["content"], "hello cache\n");
+    assert_eq!(row_data(&second)["files"][0]["content"], "1\thello cache\n");
     runtime.close().await;
 }
 

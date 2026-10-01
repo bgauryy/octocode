@@ -217,6 +217,11 @@ fn query() -> GhCloneRepoQuery {
     }))
 }
 
+/// One sparse path, as a single-string `sparsePath`.
+fn one(path: &str) -> GhCloneRepoQuerySparsePath {
+    GhCloneRepoQuerySparsePath::String(path.to_owned())
+}
+
 fn parse_query(value: serde_json::Value) -> GhCloneRepoQuery {
     serde_json::from_value(value).expect("valid ghCloneRepo query")
 }
@@ -300,7 +305,16 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
     let explore = &fresh["next"]["exploreClone"];
     assert_eq!(explore["tool"], "structureSearch", "{fresh}");
     assert_eq!(explore["query"]["path"], fresh["location"]["localPath"]);
-    assert!(fresh["location"].get("clonedAt").is_none(), "{fresh}");
+    // A fresh clone states its age like a hit, and drops what the caller
+    // already knows (owner/repo) or what is constant (source, true flags).
+    assert!(fresh["location"]["clonedAt"].is_string(), "{fresh}");
+    assert!(fresh["location"]["expiresAt"].is_string(), "{fresh}");
+    for absent in ["owner", "repo"] {
+        assert!(fresh.get(absent).is_none(), "{fresh}");
+    }
+    for absent in ["source", "verified", "complete"] {
+        assert!(fresh["location"].get(absent).is_none(), "{fresh}");
+    }
 
     let cached = row(&execute_clone(&query(), &context).expect("cached clone"));
     assert_eq!(cached["location"]["cached"], true);
@@ -313,7 +327,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
 
     let sparse = row(&execute_clone(
         &GhCloneRepoQuery {
-            sparse_path: Some("src".into()),
+            sparse_path: Some(one("src")),
             ..query()
         },
         &context,
@@ -473,7 +487,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
 
     let sparse = execute_clone(
         &GhCloneRepoQuery {
-            sparse_path: Some("src".into()),
+            sparse_path: Some(one("src")),
             ..query()
         },
         &context,
@@ -505,7 +519,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     let pinned_sparse = execute_clone(
         &GhCloneRepoQuery {
             branch: Some(fixture.first_commit.clone()),
-            sparse_path: Some("src".into()),
+            sparse_path: Some(one("src")),
             ..query()
         },
         &context,
@@ -565,7 +579,7 @@ fn sparse_file_path_checks_out_only_that_file() {
             let clone = execute_clone(
                 &GhCloneRepoQuery {
                     branch: branch.clone(),
-                    sparse_path: Some(file.into()),
+                    sparse_path: Some(one(file)),
                     ..query()
                 },
                 &context,
@@ -739,13 +753,19 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
 
     let missing = execute_clone(
         &GhCloneRepoQuery {
-            sparse_path: Some("missing/path".into()),
+            sparse_path: Some(one("missing/path")),
             ..query()
         },
         &context,
     )
     .expect_err("missing sparse path");
     assert_eq!(missing.code, "clone.sparsePath.notFound");
+    assert!(missing.message.contains("\"missing/path\""), "{missing:?}");
+    assert_eq!(missing.hints.len(), 1, "{missing:?}");
+    assert!(
+        !missing.message.contains("ghStructure"),
+        "the hint, not the message, names the recovery: {missing:?}"
+    );
     assert!(Path::new(&tag.location.local_path).is_dir());
 }
 
@@ -779,8 +799,10 @@ fn missing_branch_endpoint_git_and_portable_paths_fail_closed() {
         },
         &context,
     )
-    .expect_err("missing branch");
-    assert_eq!(error.code, "clone.defaultBranchUnavailable");
+    .expect_err("missing git");
+    // An unresolved default branch is git's to resolve; without git the
+    // request fails as git-unavailable, never as an unresolved branch.
+    assert_eq!(error.code, "clone.git.unavailable");
     context.resolved_default_branch = Some("main");
     let error = execute_clone(&query(), &context).expect_err("missing git");
     assert_eq!(error.code, "clone.git.unavailable");
@@ -804,7 +826,7 @@ fn missing_branch_endpoint_git_and_portable_paths_fail_closed() {
     for sparse_path in [r"..\escape", r"src\portable"] {
         let error = execute_clone(
             &GhCloneRepoQuery {
-                sparse_path: Some(sparse_path.into()),
+                sparse_path: Some(one(sparse_path)),
                 ..query()
             },
             &context,
@@ -1012,7 +1034,7 @@ fn concurrent_requests_publish_once_and_validation_fails_closed() {
             ..query()
         },
         GhCloneRepoQuery {
-            sparse_path: Some("../escape".into()),
+            sparse_path: Some(one("../escape")),
             ..query()
         },
     ] {
@@ -1075,7 +1097,7 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
         let clone = execute_clone(
             &GhCloneRepoQuery {
                 branch: Some(branch.into()),
-                sparse_path: sparse.map(str::to_owned),
+                sparse_path: sparse.map(one),
                 ..query()
             },
             &context,
@@ -1174,4 +1196,228 @@ fn uppercase_commit_refs_share_the_cache_and_mismatched_meta_is_a_miss() {
     )
     .expect("re-clone");
     assert!(!again.location.cached, "mismatched meta served from cache");
+}
+
+/// A fixture context whose caller did not resolve a default branch, as the
+/// runtime now calls it (no GitHub API before cloning).
+struct Bench {
+    fixture: Fixture,
+    root: Temp,
+    policy: PathPolicy,
+    endpoint: GitHubEndpoint,
+    runner: RewriteRunner,
+    config: CloneConfig,
+}
+
+impl Bench {
+    fn new(label: &str) -> Self {
+        let fixture = Fixture::new();
+        let root = Temp::new(label);
+        let cache_home = root.0.join("home");
+        fs::create_dir_all(&cache_home).expect("home");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.0.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let runner = RewriteRunner::new(
+            "https://github.com/fixture-owner/fixture-repo.git",
+            &fixture.bare_url,
+        );
+        let mut config = CloneConfig::persistent(&cache_home);
+        config.cache_ttl = Duration::from_secs(60);
+        Self {
+            fixture,
+            root,
+            policy,
+            endpoint: GitHubEndpoint::github_com(),
+            runner,
+            config,
+        }
+    }
+
+    fn context(&self) -> CloneContext<'_> {
+        CloneContext {
+            resolved_default_branch: None,
+            ..setup(
+                &self.root.0,
+                &self.runner,
+                &self.config,
+                &self.endpoint,
+                &self.policy,
+                &NeverCancel,
+                None,
+            )
+        }
+    }
+
+    fn clones_seen(&self) -> usize {
+        self.runner
+            .seen
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|call| call.contains("\"clone\"") || call.contains("\"fetch\""))
+            .count()
+    }
+}
+
+fn unbranched() -> GhCloneRepoQuery {
+    GhCloneRepoQuery {
+        branch: None,
+        ..query()
+    }
+}
+
+/// S1/S2: an unbranched clone lets git resolve the default branch, and the
+/// next unbranched call is a cache hit through the recorded alias — neither
+/// needs the repository metadata API.
+#[test]
+fn unbranched_clone_resolves_the_default_branch_with_git_and_hits_by_alias() {
+    let bench = Bench::new("default-branch");
+    let context = bench.context();
+    let fresh = execute_clone(&unbranched(), &context).expect("default-branch clone");
+    assert_eq!(fresh.location.resolved_branch, "main");
+    assert!(!fresh.location.cached);
+    assert_eq!(fresh.location.commit_sha, bench.fixture.first_commit);
+    let network = bench.clones_seen();
+    assert_eq!(network, 1, "one git clone");
+
+    let hit = execute_clone(&unbranched(), &context).expect("aliased hit");
+    assert!(
+        hit.location.cached,
+        "the alias finds the default-branch entry"
+    );
+    assert_eq!(hit.location.local_path, fresh.location.local_path);
+    assert_eq!(bench.clones_seen(), network, "a hit runs no network git");
+
+    // The explicit branch shares the entry.
+    let named = execute_clone(&query(), &context).expect("named hit");
+    assert!(named.location.cached);
+    assert_eq!(named.location.local_path, fresh.location.local_path);
+
+    // forceRefresh ignores the alias and re-resolves through git.
+    let second = bench.fixture.push_second();
+    let refreshed = execute_clone(
+        &GhCloneRepoQuery {
+            force_refresh: Some(true),
+            ..unbranched()
+        },
+        &context,
+    )
+    .expect("refresh");
+    assert!(!refreshed.location.cached);
+    assert_eq!(refreshed.location.commit_sha, second);
+}
+
+/// S5: several sparse paths check out together; a file among them switches
+/// to exact non-cone patterns so nothing else is included.
+#[test]
+fn multiple_sparse_paths_check_out_every_path() {
+    let bench = Bench::new("multi-sparse");
+    let context = bench.context();
+    let both = execute_clone(
+        &GhCloneRepoQuery {
+            sparse_path: Some(GhCloneRepoQuerySparsePath::Array(vec![
+                "src/nested".into(),
+                "other".into(),
+            ])),
+            ..query()
+        },
+        &context,
+    )
+    .expect("multi-directory sparse clone");
+    let local = Path::new(&both.location.local_path);
+    assert!(local.join("src/nested/data.txt").is_file());
+    assert!(local.join("other/skip.txt").is_file());
+    assert_eq!(
+        both.location.requested_paths.as_deref(),
+        Some(&["src/nested".to_owned(), "other".to_owned()][..])
+    );
+    assert_eq!(both.location.requested_path, None);
+    let row = serde_json::to_value(&both).expect("serialize");
+    assert_eq!(
+        Path::new(
+            row["next"]["exploreClone"]["query"]["path"]
+                .as_str()
+                .expect("path")
+        ),
+        local,
+        "several paths explore the checkout root"
+    );
+
+    let reordered = execute_clone(
+        &GhCloneRepoQuery {
+            sparse_path: Some(GhCloneRepoQuerySparsePath::Array(vec![
+                "other".into(),
+                "src/nested".into(),
+            ])),
+            ..query()
+        },
+        &context,
+    )
+    .expect("same set, other order");
+    assert!(
+        reordered.location.cached,
+        "request order does not split the cache"
+    );
+
+    let mixed = execute_clone(
+        &GhCloneRepoQuery {
+            sparse_path: Some(GhCloneRepoQuerySparsePath::Array(vec![
+                "README.md".into(),
+                "src/nested".into(),
+            ])),
+            ..query()
+        },
+        &context,
+    )
+    .expect("file plus directory sparse clone");
+    let local = Path::new(&mixed.location.local_path);
+    assert!(local.join("README.md").is_file());
+    assert!(local.join("src/nested/data.txt").is_file());
+    assert!(!local.join("src/lib.rs").exists());
+    assert!(!local.join("other/skip.txt").exists());
+
+    let missing = execute_clone(
+        &GhCloneRepoQuery {
+            sparse_path: Some(GhCloneRepoQuerySparsePath::Array(vec![
+                "src".into(),
+                "nope".into(),
+            ])),
+            ..query()
+        },
+        &context,
+    )
+    .expect_err("one missing path fails the clone");
+    assert_eq!(missing.code, "clone.sparsePath.notFound");
+    assert!(missing.message.contains("\"nope\""), "{missing:?}");
+    assert!(!missing.message.contains("\"src\""), "{missing:?}");
+}
+
+/// S5: `depth` fetches that many commits and keys its own cache entry.
+#[test]
+fn history_depth_fetches_that_many_commits() {
+    let bench = Bench::new("depth");
+    let context = bench.context();
+    bench.fixture.push_second();
+    let shallow = execute_clone(&query(), &context).expect("shallow");
+    let deep = execute_clone(
+        &GhCloneRepoQuery {
+            depth: std::num::NonZeroU64::new(2),
+            ..query()
+        },
+        &context,
+    )
+    .expect("depth 2");
+    assert_ne!(shallow.location.local_path, deep.location.local_path);
+    assert_eq!(deep.location.depth, Some(2));
+    assert_eq!(shallow.location.depth, None);
+    let count = |path: &str| {
+        git_output(Path::new(path), &["rev-list", "--count", "HEAD"])
+            .trim()
+            .to_owned()
+    };
+    assert_eq!(count(&shallow.location.local_path), "1");
+    assert_eq!(count(&deep.location.local_path), "2");
 }

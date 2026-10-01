@@ -64,6 +64,7 @@ pub fn execute_tree(
             recursive: Some(true),
             max_depth: Some(q.walk_depth()),
             show_hidden: Some(show_hidden),
+            names: (!q.names.is_empty()).then(|| q.names.clone()),
             extensions: (!q.extensions.is_empty()).then(|| q.extensions.clone()),
             entry_type: q.entry_type.map(|kind| kind.to_string()),
             exclude_dir: Some(
@@ -133,6 +134,7 @@ pub fn execute_tree(
         q.max_depth,
         q.hidden,
         q.no_ignore,
+        q.names,
         q.extensions,
         q.entry_type.map(|kind| kind.to_string()),
         q.exclude_dir,

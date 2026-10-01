@@ -74,34 +74,72 @@ pub(super) async fn execute<
         include,
         materialize,
         materialize_offset,
+        pattern,
         ..
     } = query;
-    // Pin the listing to one commit: an explicit ref that does not resolve is
-    // an error (like ghGetFileContent), never a silent default-branch
-    // listing, and every page of one listing reads the same tree.
-    let (resolved_branch, commit_sha) = match branch {
-        Some(branch) => {
-            let sha = provider
-                .resolve_reference(owner, repo, Some(branch), false, context)
-                .await
-                .map_err(|error| missing_ref(error, owner, repo, branch))?;
-            (branch.clone(), sha)
-        }
-        None => {
-            let (metadata, sha) = tokio::try_join!(
-                transport.repository_metadata(owner, repo, context),
-                provider.resolve_reference(owner, repo, None, false, context),
-            )?;
-            (metadata.default_branch, sha)
-        }
-    };
+    let filter = pattern
+        .as_deref()
+        .map(|pattern| PathFilter::new(pattern))
+        .transpose()?;
     let requested_path = path.as_deref().unwrap_or("").trim_matches('/');
     let clean_path = if requested_path == "." {
         String::new()
     } else {
         requested_path.to_owned()
     };
-    let depth = max_depth.map_or(1, super::usize_of);
+    // A name search looks at every level unless the caller bounds it.
+    let depth = match (max_depth, &filter) {
+        (Some(depth), _) => super::usize_of(*depth),
+        (None, Some(_)) => max_listing_depth(),
+        (None, None) => 1,
+    };
+    // Pin the listing to one commit: an explicit ref that does not resolve is
+    // an error (like ghGetFileContent), never a silent default-branch
+    // listing, and every page of one listing reads the same tree.
+    let reference = branch.as_deref();
+    let resolve = async {
+        match reference {
+            Some(branch) => {
+                let sha = provider
+                    .resolve_reference(owner, repo, Some(branch), false, context)
+                    .await
+                    .map_err(|error| missing_ref(error, owner, repo, branch))?;
+                Ok::<_, ProviderError>((branch.to_owned(), sha))
+            }
+            None => {
+                let (metadata, sha) = tokio::try_join!(
+                    transport.repository_metadata(owner, repo, context),
+                    provider.resolve_reference(owner, repo, None, false, context),
+                )?;
+                Ok((metadata.default_branch, sha))
+            }
+        }
+    };
+    // A recursive listing on an unresolved ref fetches the tree by ref name
+    // while the ref resolves (one round trip instead of two). The tree is
+    // used only when it reports the resolved commit; otherwise the walk
+    // refetches it by SHA, as a sequential listing would.
+    let overlap = depth > 1
+        && provider
+            .memoized_reference(owner, repo, reference, context)
+            .await
+            .is_none();
+    let ((resolved_branch, commit_sha), prefetched) = if overlap {
+        let request = TreeRequest {
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            reference: reference.unwrap_or("HEAD").to_owned(),
+            recursive: true,
+        };
+        let (resolved, tree) = tokio::join!(resolve, transport.get_tree(&request, context));
+        let resolved = resolved?;
+        let tree = tree
+            .ok()
+            .filter(|tree| tree.sha.eq_ignore_ascii_case(&resolved.1) && !tree.truncated);
+        (resolved, tree)
+    } else {
+        (resolve.await?, None)
+    };
     let mut traversal = traverse(
         provider,
         owner,
@@ -109,9 +147,15 @@ pub(super) async fn execute<
         &commit_sha,
         &clean_path,
         depth,
+        prefetched,
         context,
     )
     .await?;
+    if let Some(filter) = &filter {
+        traversal
+            .entries
+            .retain(|entry| filter.matches(&entry.path));
+    }
     // Directory by directory, in path order: a page of a deep listing
     // carries each directory's files with its folders instead of every
     // folder of the tree before the first file.
@@ -160,6 +204,9 @@ pub(super) async fn execute<
         "summary": {"totalFiles": total_files, "totalFolders": total_folders},
         "resolvedBranch": resolved_branch,
     });
+    if let Some(pattern) = pattern.as_deref() {
+        value["summary"]["pattern"] = json!(pattern.as_str());
+    }
     // A caller-supplied full SHA is not restated.
     if !resolved_branch.eq_ignore_ascii_case(&commit_sha) {
         value["commitSha"] = json!(commit_sha);
@@ -317,11 +364,67 @@ pub(super) async fn execute<
         && value.get("isPartial").is_none()
     {
         output.status = Some("empty");
+        if filter.is_some() {
+            value["hints"] = json!([
+                "No path matched pattern; try a bare word, or \"**/name\" for an exact file name."
+            ]);
+        }
     }
     output.data = value;
     Ok(output)
 }
 
+/// Deepest level a listing may reach (contract `maxDepth` maximum).
+fn max_listing_depth() -> usize {
+    crate::contracts::query_schema_max(ToolId::GhStructure, None, "maxDepth")
+}
+
+/// `pattern`: a case-insensitive glob over repo-relative paths. Without a
+/// `/` it matches entry names at any depth; a bare word (no glob
+/// metacharacters) matches names containing it.
+struct PathFilter {
+    matcher: globset::GlobMatcher,
+    by_name: bool,
+}
+
+impl PathFilter {
+    fn new(pattern: &str) -> Result<Self, ProviderError> {
+        let pattern = pattern
+            .trim()
+            .trim_start_matches("./")
+            .trim_start_matches('/');
+        let by_name = !pattern.contains('/');
+        let bare = !pattern.contains(['*', '?', '[', '{']);
+        let glob = match (bare, by_name) {
+            (true, true) => format!("*{pattern}*"),
+            (true, false) => format!("**/*{pattern}*"),
+            (false, _) => pattern.to_owned(),
+        };
+        let matcher = globset::GlobBuilder::new(&glob)
+            .literal_separator(true)
+            .case_insensitive(true)
+            .build()
+            .map_err(|error| {
+                ProviderError::new(
+                    ProviderErrorKind::Validation,
+                    format!("Invalid pattern \"{pattern}\": {error}"),
+                )
+            })?
+            .compile_matcher();
+        Ok(Self { matcher, by_name })
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        if self.by_name {
+            self.matcher
+                .is_match(path.rsplit('/').next().unwrap_or(path))
+        } else {
+            self.matcher.is_match(path)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn traverse<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
     provider: &GitHubProvider<R, C>,
     owner: &str,
@@ -329,10 +432,16 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
     branch: &str,
     root: &str,
     max_depth: usize,
+    prefetched: Option<crate::providers::github::TreeResponse>,
     context: &RequestContext,
 ) -> Result<Traversal, ProviderError> {
     if max_depth > 1 {
         let resource = format!("git-tree:{owner}/{repo}:{branch}");
+        if let Some(tree) = prefetched {
+            root_is_directory(&tree, root)?;
+            cache_tree(provider, context, resource, branch, &tree).await;
+            return Ok(traversal_from_git_tree(tree, root, max_depth));
+        }
         if let Ok(partition) = provider.transport.cache_partition(context, None).await
             && let Some(cached) = provider.cache.get(&partition, &resource).await
             && let Ok(tree) =
@@ -356,22 +465,7 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
         {
             Ok(tree) if !tree.truncated => {
                 root_is_directory(&tree, root)?;
-                if let Ok(partition) = provider.transport.cache_partition(context, None).await
-                    && let Ok(bytes) = serde_json::to_vec(&tree)
-                {
-                    provider
-                        .cache
-                        .put(
-                            &partition,
-                            resource,
-                            crate::providers::github::CachedContent {
-                                etag: None,
-                                bytes,
-                                resolved_ref: branch.to_owned(),
-                            },
-                        )
-                        .await;
-                }
+                cache_tree(provider, context, resource, branch, &tree).await;
                 return Ok(traversal_from_git_tree(tree, root, max_depth));
             }
             Ok(_) => {}
@@ -477,6 +571,32 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
             .await;
     }
     Ok(traversal)
+}
+
+/// Keep a complete recursive tree for the cache TTL under its commit.
+async fn cache_tree<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<R, C>,
+    context: &RequestContext,
+    resource: String,
+    commit: &str,
+    tree: &crate::providers::github::TreeResponse,
+) {
+    if let Ok(partition) = provider.transport.cache_partition(context, None).await
+        && let Ok(bytes) = serde_json::to_vec(tree)
+    {
+        provider
+            .cache
+            .put(
+                &partition,
+                resource,
+                crate::providers::github::CachedContent {
+                    etag: None,
+                    bytes,
+                    resolved_ref: commit.to_owned(),
+                },
+            )
+            .await;
+    }
 }
 
 /// A ref that did not resolve names the ref, like ghGetFileContent does.

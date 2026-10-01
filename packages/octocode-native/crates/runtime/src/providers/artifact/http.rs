@@ -18,16 +18,27 @@ fn artifact_cache() -> &'static Mutex<BoundedCache<Vec<u8>>> {
     CACHE.get_or_init(|| Mutex::new(BoundedCache::new(CacheConfig::default())))
 }
 
-fn cache_key(url: &Url) -> CacheKey {
+fn cache_key(url: &Url, accept: &str) -> CacheKey {
+    // One URL can answer in several representations (npm's abbreviated
+    // packument); the default JSON keeps its historical key.
+    let resource = if accept == JSON {
+        url.as_str().to_owned()
+    } else {
+        format!("{accept} {url}")
+    };
     CacheKey {
         namespace: "artifact".into(),
-        resource: url.as_str().to_owned(),
+        resource,
         partition: CachePartition {
             endpoint: url.host_str().unwrap_or("registry").to_owned(),
             credential_fingerprint: "anonymous".into(),
         },
     }
 }
+
+const JSON: &str = "application/json";
+/// npm's abbreviated packument: versions and dist-tags without readmes.
+pub(crate) const NPM_INSTALL_JSON: &str = "application/vnd.npm.install-v1+json";
 
 pub type ArtifactHttpFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ArtifactHttpResponse, ArtifactError>> + Send + 'a>>;
@@ -247,9 +258,30 @@ impl RegistryClient<'_> {
         authorization: Option<SecretString>,
         dns_pin: Option<DnsPin>,
     ) -> Result<Option<serde_json::Value>, ArtifactError> {
+        self.json_as(
+            artifact_type,
+            url,
+            not_found_is_empty,
+            authorization,
+            dns_pin,
+            JSON,
+        )
+        .await
+    }
+
+    /// [`Self::json_with_dns_pin`] with an explicit `Accept` media type.
+    pub(crate) async fn json_as(
+        &self,
+        artifact_type: ArtifactType,
+        url: Url,
+        not_found_is_empty: bool,
+        authorization: Option<SecretString>,
+        dns_pin: Option<DnsPin>,
+        accept: &'static str,
+    ) -> Result<Option<serde_json::Value>, ArtifactError> {
         let anonymous = authorization.is_none();
         if anonymous && self.cache_enabled {
-            let key = cache_key(&url);
+            let key = cache_key(&url, accept);
             let hit = artifact_cache()
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
@@ -265,7 +297,7 @@ impl RegistryClient<'_> {
             .get(
                 ArtifactHttpRequest {
                     url: url.clone(),
-                    accept: "application/json",
+                    accept,
                     authorization,
                     dns_pin,
                 },
@@ -277,7 +309,7 @@ impl RegistryClient<'_> {
             && self.cache_enabled
             && let Some(bytes) = body.as_ref()
         {
-            let key = cache_key(&url);
+            let key = cache_key(&url, accept);
             artifact_cache()
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())

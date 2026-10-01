@@ -34,31 +34,43 @@ pub(super) struct CacheMeta {
     /// `false`. Defaults to `false` for caches written before this field existed.
     #[serde(default)]
     pub verified: bool,
+    /// Commits of history fetched; entries written before `depth` existed
+    /// are shallow.
+    #[serde(default = "shallow")]
+    pub depth: u64,
+}
+
+fn shallow() -> u64 {
+    1
+}
+
+/// What a cache entry holds: repository, ref, sparse scope ([`super::Sparse::key`]),
+/// and history depth.
+pub(super) struct Identity<'a> {
+    pub owner: &'a str,
+    pub repo: &'a str,
+    pub branch: &'a str,
+    pub sparse_key: Option<&'a str>,
+    pub depth: u64,
 }
 
 impl CacheMeta {
-    pub fn new(
-        owner: &str,
-        repo: &str,
-        branch: &str,
-        sparse_path: Option<&str>,
-        commit_sha: &str,
-        ttl: Duration,
-    ) -> Self {
+    pub fn new(identity: &Identity<'_>, commit_sha: &str, ttl: Duration) -> Self {
         let now = now_millis();
         Self {
             cloned_at: iso_millis(now),
             expires_at: iso_millis(now.saturating_add(ttl.as_millis() as i64)),
-            owner: owner.to_owned(),
-            repo: repo.to_owned(),
-            branch: branch.to_owned(),
+            owner: identity.owner.to_owned(),
+            repo: identity.repo.to_owned(),
+            branch: identity.branch.to_owned(),
             commit_sha: commit_sha.to_owned(),
-            sparse_path: sparse_path.map(str::to_owned),
+            sparse_path: identity.sparse_key.map(str::to_owned),
             source: "clone".into(),
             size_bytes: None,
             // new() is only called on the fresh-clone path, which verifies the
             // checkout before reporting success.
             verified: true,
+            depth: identity.depth,
         }
     }
 }
@@ -67,22 +79,71 @@ impl CacheMeta {
     /// Whether this persisted checkout describes the requested identity. A
     /// cache directory whose meta disagrees (hash collision, manual edit,
     /// layout drift) must be re-cloned rather than served.
-    pub fn matches(
-        &self,
-        owner: &str,
-        repo: &str,
-        branch: &str,
-        sparse_path: Option<&str>,
-    ) -> bool {
-        let branch_matches = if super::is_commit(branch) {
-            self.branch.eq_ignore_ascii_case(branch)
+    pub fn matches(&self, identity: &Identity<'_>) -> bool {
+        let branch_matches = if super::is_commit(identity.branch) {
+            self.branch.eq_ignore_ascii_case(identity.branch)
         } else {
-            self.branch == branch
+            self.branch == identity.branch
         };
-        self.owner.eq_ignore_ascii_case(owner)
-            && self.repo.eq_ignore_ascii_case(repo)
+        self.owner.eq_ignore_ascii_case(identity.owner)
+            && self.repo.eq_ignore_ascii_case(identity.repo)
             && branch_matches
-            && self.sparse_path.as_deref() == sparse_path
+            && self.sparse_path.as_deref() == identity.sparse_key
+            && self.depth == identity.depth
+    }
+}
+
+/// The default branch a default-branch clone resolved, per repository and
+/// host. It lets an unbranched request find its cache entry without a GitHub
+/// API call; it expires with the cache TTL, and `forceRefresh` ignores it.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DefaultBranchAlias {
+    branch: String,
+    recorded_at: String,
+}
+
+fn alias_path(home: &Path, owner: &str, repo: &str, endpoint: &str) -> PathBuf {
+    // A file beside the branch directories: eviction walks directories only.
+    home.join("tmp")
+        .join("clone")
+        .join(owner.to_ascii_lowercase())
+        .join(repo.to_ascii_lowercase())
+        .join(format!(".default-branch__host_{}.json", hash(endpoint, 16)))
+}
+
+pub(super) fn default_branch_alias(
+    home: &Path,
+    owner: &str,
+    repo: &str,
+    endpoint: &str,
+    ttl: Duration,
+) -> Option<String> {
+    let bytes = fs::read(alias_path(home, owner, repo, endpoint)).ok()?;
+    let alias: DefaultBranchAlias = serde_json::from_slice(&bytes).ok()?;
+    let recorded = parse_iso_millis(&alias.recorded_at)?;
+    let fresh = now_millis() < recorded.saturating_add(ttl.as_millis() as i64);
+    (fresh && !alias.branch.trim().is_empty()).then_some(alias.branch)
+}
+
+pub(super) fn write_default_branch_alias(
+    home: &Path,
+    owner: &str,
+    repo: &str,
+    endpoint: &str,
+    branch: &str,
+) {
+    let path = alias_path(home, owner, repo, endpoint);
+    let Ok(bytes) = serde_json::to_vec(&DefaultBranchAlias {
+        branch: branch.to_owned(),
+        recorded_at: iso_millis(now_millis()),
+    }) else {
+        return;
+    };
+    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+    // Best effort: without an alias the next unbranched call clones again.
+    if write_private(&temporary, &bytes).is_ok() && fs::rename(&temporary, &path).is_err() {
+        let _ = fs::remove_file(&temporary);
     }
 }
 
@@ -98,7 +159,8 @@ pub(super) fn clone_dir(
     owner: &str,
     repo: &str,
     branch: &str,
-    sparse_path: Option<&str>,
+    sparse_key: Option<&str>,
+    depth: u64,
     endpoint: &str,
 ) -> PathBuf {
     // Full commit SHAs are case-insensitive; key them lowercase so FOO and foo
@@ -120,9 +182,15 @@ pub(super) fn clone_dir(
         } else {
             branch.to_owned()
         };
-    let sparse = sparse_path
-        .map(|path| format!("__sp_{}", hash(path, 6)))
+    let sparse = sparse_key
+        .map(|key| format!("__sp_{}", hash(key, 6)))
         .unwrap_or_default();
+    // Shallow entries keep the layout they had before `depth` existed.
+    let history = if depth > 1 {
+        format!("__d{depth}")
+    } else {
+        String::new()
+    };
     // GitHub owner/repo names are case-insensitive: Foo/Bar and foo/bar are
     // one repository and must share one checkout.
     home.join("tmp")
@@ -130,7 +198,7 @@ pub(super) fn clone_dir(
         .join(owner.to_ascii_lowercase())
         .join(repo.to_ascii_lowercase())
         .join(format!(
-            "{safe_branch}{sparse}__host_{}",
+            "{safe_branch}{sparse}{history}__host_{}",
             hash(endpoint, 16)
         ))
 }
@@ -550,7 +618,15 @@ mod tests {
     fn unsafe_branch_names_remain_cache_leaves() {
         let home = Path::new("/tmp/octocode-cache-root");
         for branch in [".", "..", "feature/nested", r"feature\portable"] {
-            let path = clone_dir(home, "owner", "repo", branch, None, "https://example.test");
+            let path = clone_dir(
+                home,
+                "owner",
+                "repo",
+                branch,
+                None,
+                1,
+                "https://example.test",
+            );
             assert!(path.starts_with(home.join("tmp/clone/owner/repo")));
             assert_ne!(
                 path.file_name().and_then(|value| value.to_str()),
@@ -564,50 +640,138 @@ mod tests {
         let home = Path::new("/tmp/octocode-cache-root");
         let sha = "ABCDEF0123456789ABCDEF0123456789ABCDEF01";
         assert_eq!(
-            clone_dir(home, "o", "r", sha, None, "https://example.test"),
+            clone_dir(home, "o", "r", sha, None, 1, "https://example.test"),
             clone_dir(
                 home,
                 "o",
                 "r",
                 &sha.to_ascii_lowercase(),
                 None,
+                1,
                 "https://example.test"
             )
         );
         // Non-SHA refs stay case-sensitive (Git branch names are).
         assert_ne!(
-            clone_dir(home, "o", "r", "Main", None, "https://example.test"),
-            clone_dir(home, "o", "r", "main", None, "https://example.test")
+            clone_dir(home, "o", "r", "Main", None, 1, "https://example.test"),
+            clone_dir(home, "o", "r", "main", None, 1, "https://example.test")
         );
         // Owner/repo are case-insensitive on GitHub: one checkout.
         assert_eq!(
-            clone_dir(home, "Octo", "Repo", "main", None, "https://example.test"),
-            clone_dir(home, "octo", "repo", "main", None, "https://example.test")
+            clone_dir(
+                home,
+                "Octo",
+                "Repo",
+                "main",
+                None,
+                1,
+                "https://example.test"
+            ),
+            clone_dir(
+                home,
+                "octo",
+                "repo",
+                "main",
+                None,
+                1,
+                "https://example.test"
+            )
         );
+    }
+
+    fn identity<'a>(
+        owner: &'a str,
+        repo: &'a str,
+        branch: &'a str,
+        sparse_key: Option<&'a str>,
+        depth: u64,
+    ) -> Identity<'a> {
+        Identity {
+            owner,
+            repo,
+            branch,
+            sparse_key,
+            depth,
+        }
     }
 
     #[test]
     fn cache_meta_matches_only_the_requested_identity() {
         let meta = CacheMeta::new(
-            "Owner",
-            "Repo",
-            "main",
-            Some("src"),
+            &identity("Owner", "Repo", "main", Some("src"), 1),
             &"a".repeat(40),
             Duration::from_secs(60),
         );
-        assert!(meta.matches("owner", "repo", "main", Some("src")));
-        assert!(!meta.matches("owner", "other", "main", Some("src")));
-        assert!(!meta.matches("owner", "repo", "dev", Some("src")));
-        assert!(!meta.matches("owner", "repo", "main", None));
+        assert!(meta.matches(&identity("owner", "repo", "main", Some("src"), 1)));
+        assert!(!meta.matches(&identity("owner", "other", "main", Some("src"), 1)));
+        assert!(!meta.matches(&identity("owner", "repo", "dev", Some("src"), 1)));
+        assert!(!meta.matches(&identity("owner", "repo", "main", None, 1)));
+        assert!(!meta.matches(&identity("owner", "repo", "main", Some("src"), 5)));
         let pinned = CacheMeta::new(
-            "o",
-            "r",
-            &"b".repeat(40),
-            None,
+            &identity("o", "r", &"b".repeat(40), None, 1),
             &"b".repeat(40),
             Duration::from_secs(60),
         );
-        assert!(pinned.matches("o", "r", &"B".repeat(40), None));
+        assert!(pinned.matches(&identity("o", "r", &"B".repeat(40), None, 1)));
+    }
+
+    #[test]
+    fn meta_written_before_depth_existed_is_shallow() {
+        let meta: CacheMeta = serde_json::from_value(serde_json::json!({
+            "clonedAt": "2026-01-01T00:00:00.000Z",
+            "expiresAt": "2026-01-02T00:00:00.000Z",
+            "owner": "o", "repo": "r", "branch": "main",
+            "commitSha": "a".repeat(40), "source": "clone"
+        }))
+        .expect("legacy meta");
+        assert_eq!(meta.depth, 1);
+        assert!(meta.matches(&identity("o", "r", "main", None, 1)));
+    }
+
+    #[test]
+    fn deep_history_and_sparse_sets_key_their_own_entries() {
+        let home = Path::new("/tmp/octocode-cache-root");
+        let shallow = clone_dir(home, "o", "r", "main", None, 1, "https://example.test");
+        let deep = clone_dir(home, "o", "r", "main", None, 5, "https://example.test");
+        assert_ne!(shallow, deep);
+        assert!(deep.to_string_lossy().contains("__d5__host_"));
+        assert!(!shallow.to_string_lossy().contains("__d"));
+    }
+
+    #[test]
+    fn default_branch_alias_round_trips_and_expires() {
+        let home = std::env::temp_dir().join(format!(
+            "octocode-alias-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        let endpoint = "https://example.test";
+        assert_eq!(
+            default_branch_alias(&home, "O", "R", endpoint, Duration::from_secs(60)),
+            None
+        );
+        fs::create_dir_all(home.join("tmp/clone/o/r")).expect("repo dir");
+        write_default_branch_alias(&home, "O", "R", endpoint, "trunk");
+        assert_eq!(
+            default_branch_alias(&home, "o", "r", endpoint, Duration::from_secs(60)).as_deref(),
+            Some("trunk")
+        );
+        assert_eq!(
+            default_branch_alias(
+                &home,
+                "o",
+                "r",
+                "https://other.test",
+                Duration::from_secs(60)
+            ),
+            None,
+            "aliases are per host"
+        );
+        assert_eq!(
+            default_branch_alias(&home, "o", "r", endpoint, Duration::ZERO),
+            None,
+            "an alias older than the TTL is ignored"
+        );
+        let _ = fs::remove_dir_all(&home);
     }
 }

@@ -342,11 +342,6 @@ function validatePrimaryToolGuidance() {
       forbidden: ['ghSearch operation:', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
     {
-      file: 'skills/octocode-research/references/workflow-combination.md',
-      required: ['`ghSearchRepo`', '`ghStructure`'],
-      forbidden: ['ghSearch operation:', 'ghSearchRepos', 'ghViewRepoStructure'],
-    },
-    {
       file: 'docs/CONFIGURATION.md',
       required: ['(e.g. `["ghSearchCode","localSearch"]`)'],
       forbidden: ['(e.g. `["ghSearch","localSearch"]`)'],

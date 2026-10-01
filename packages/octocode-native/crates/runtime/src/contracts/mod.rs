@@ -84,7 +84,7 @@ pub fn prepare_and_validate(
     // and strips the "queries.0." prefix from any validation error paths.
     let query = validate_query(tool_name, serde_json::Value::Object(prepared.query))?;
     if tool_name == ToolId::Clasify.as_str() {
-        validate_semantic_relations(&query)?;
+        validate_semantic_relations(&nested_clasify(&query))?;
     }
     Ok(query)
 }
@@ -232,8 +232,9 @@ pub fn prepare_many_and_validate(
         }
         let mut total_cells = 0usize;
         for query in &queries {
-            validate_semantic_relations(query)?;
-            total_cells = total_cells.saturating_add(semantic_cell_count(query));
+            let nested = nested_clasify(query);
+            validate_semantic_relations(&nested)?;
+            total_cells = total_cells.saturating_add(semantic_cell_count(&nested));
         }
         if total_cells > clasify_policy::MAX_TOTAL_CELLS {
             return Err(ContractValidationError {
@@ -252,6 +253,15 @@ pub fn prepare_many_and_validate(
         }
     }
     Ok(queries)
+}
+
+/// A validated clasify matrix in its nested form (flat resources and
+/// `type`+`ask` questions mapped), as relation and cell checks read it. The
+/// validated query itself keeps the caller's form; execution maps it again.
+fn nested_clasify(query: &serde_json::Value) -> serde_json::Value {
+    let mut nested = query.clone();
+    crate::tools::clasify::aliases::canonicalize(&mut nested);
+    nested
 }
 
 /// Core `FILE_CHUNKS_CELLS`: why a fileChunks matrix hits the cell limit

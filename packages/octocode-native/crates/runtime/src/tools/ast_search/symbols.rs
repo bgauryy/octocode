@@ -40,6 +40,17 @@ impl AstSearchQuerySymbols {
     pub fn snapshot(&self) -> Option<&str> {
         self.snapshot.as_deref().map(String::as_str)
     }
+    /// `name` is one substring or a list; a declaration matches any of them.
+    pub fn name_matches(&self, declaration: &str) -> bool {
+        use crate::contracts::tool_types::AstSearchQuerySymbolsName;
+        match &self.name {
+            None => true,
+            Some(AstSearchQuerySymbolsName::String(name)) => declaration.contains(name.as_str()),
+            Some(AstSearchQuerySymbolsName::Array(names)) => {
+                names.iter().any(|name| declaration.contains(name.as_str()))
+            }
+        }
+    }
 }
 
 /// Every declaration kind the native extractors emit: tree-sitter graph facts
@@ -227,9 +238,7 @@ pub fn execute_symbols(
         for (d, mut row) in ds.iter().zip(compact_declarations(ds)) {
             let name = d["name"].as_str().unwrap_or("");
             let kind = d["kind"].as_str().unwrap_or("");
-            if q.name.as_ref().is_none_or(|n| name.contains(n))
-                && q.kinds().is_none_or(|ks| ks.iter().any(|k| k == kind))
-            {
+            if q.name_matches(name) && q.kinds().is_none_or(|ks| ks.iter().any(|k| k == kind)) {
                 if per_row_path {
                     row["path"] = json!(path);
                 }

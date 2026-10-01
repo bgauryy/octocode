@@ -29,6 +29,9 @@ packages must be on npm before mcp and the launcher, which depend on them.
 5. **Native** (`@octocodeai/octocode-native`).
 6. **MCP** (`octocode-mcp`).
 7. **Launcher** (`octocode`).
+8. **Codex plugin** (`@octocodeai/codex-plugin`), after both pinned MCP and launcher versions are available. Follow `<repo>/packages/octocode-codex-plugin/ARCHITECTURE.md`, then update `.agents/plugins/marketplace.json` to the published plugin version.
+
+9. **Claude Code plugin** (`@octocodeai/claude-plugin`), after both pinned MCP and launcher versions are available. Follow `<repo>/packages/octocode-claude-plugin/ARCHITECTURE.md`, then publish `.claude-plugin/marketplace.json` with the matching npm version.
 
 Then smoke-test from a clean temp dir (`npx -y octocode-mcp@<v>`,
 `npx -y octocode@<v> scheme --compact`) and run `node skills-dev/octocode-dev/scripts/dev.mjs setup` to restore the

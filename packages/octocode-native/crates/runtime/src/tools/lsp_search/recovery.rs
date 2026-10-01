@@ -84,7 +84,7 @@ pub(super) async fn resolve_definition_chain(
     path: &str,
     line: u32,
     character: u32,
-) -> Result<Vec<JsCodeSnippet>, LspFailure> {
+) -> Result<(Vec<JsCodeSnippet>, Vec<String>), LspFailure> {
     let definition = |target: String, line: u32, character: u32| async move {
         get_locations(
             client,
@@ -99,6 +99,7 @@ pub(super) async fn resolve_definition_chain(
     };
     let mut current = definition(path.to_owned(), line, character).await?;
     let mut visited = HashSet::new();
+    let mut warnings = Vec::new();
     for depth in 0..MAX_DEFINITION_HOPS {
         let mut next = Vec::new();
         let mut advanced = false;
@@ -114,16 +115,31 @@ pub(super) async fn resolve_definition_chain(
                 next.push(snippet);
                 continue;
             };
-            let _ = cancellable(
+            if let Err(error) = cancellable(
                 cancel,
                 client.open_document(target.clone(), source.content.clone()),
             )
-            .await?;
+            .await?
+            {
+                let failure = LspFailure::from_engine(&error);
+                if failure.code == "lsp.cancelled" {
+                    return Err(failure);
+                }
+                warnings.push(hop_failure_warning(&snippet, depth, &failure));
+                next.push(snippet);
+                continue;
+            }
             let (hop_line, hop_character) =
                 (snippet.range.start.line, snippet.range.start.character);
-            let mut nested = definition(target.clone(), hop_line, hop_character)
-                .await
-                .unwrap_or_default();
+            let mut nested = match definition(target.clone(), hop_line, hop_character).await {
+                Ok(nested) => nested,
+                Err(failure) if failure.code == "lsp.cancelled" => return Err(failure),
+                Err(failure) => {
+                    warnings.push(hop_failure_warning(&snippet, depth, &failure));
+                    next.push(snippet);
+                    continue;
+                }
+            };
             let has_distinct_target = nested
                 .iter()
                 .any(|candidate| snippet_identity(candidate) != identity);
@@ -133,9 +149,15 @@ pub(super) async fn resolve_definition_chain(
                     tokio::time::sleep(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
                 )
                 .await?;
-                nested = definition(target, hop_line, hop_character)
-                    .await
-                    .unwrap_or_default();
+                nested = match definition(target, hop_line, hop_character).await {
+                    Ok(nested) => nested,
+                    Err(failure) if failure.code == "lsp.cancelled" => return Err(failure),
+                    Err(failure) => {
+                        warnings.push(hop_failure_warning(&snippet, depth, &failure));
+                        next.push(snippet);
+                        continue;
+                    }
+                };
             }
             let nested = nested
                 .into_iter()
@@ -155,7 +177,19 @@ pub(super) async fn resolve_definition_chain(
             break;
         }
     }
-    Ok(current)
+    Ok((current, warnings))
+}
+
+fn hop_failure_warning(snippet: &JsCodeSnippet, depth: usize, failure: &LspFailure) -> String {
+    format!(
+        "Definition-provider follow-up hop {} at {}:{}:{} failed ({}): {}. The retained earlier location is a candidate, not verified terminal identity.",
+        depth + 1,
+        uri_to_path(&snippet.uri),
+        snippet.range.start.line + 1,
+        snippet.range.start.character + 1,
+        failure.code,
+        failure.message,
+    )
 }
 
 /// References through aliasing imports (`import { x as y }`) the server did

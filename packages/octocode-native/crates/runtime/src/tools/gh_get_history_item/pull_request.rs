@@ -270,13 +270,25 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         // A patch read re-proves only the head it read; a list page also
         // keeps the merge commit and file count, and a first inventory page
         // the diff size it lists.
+        // Merge state rides every row (a content read without it led agents
+        // to guess the merge date); labels ride the first page.
         let patches = patch_mode != "none";
-        let totals = !query.later_page() && !patches;
+        let first_page = !query.later_page();
+        let totals = first_page && !patches;
         fields.retain(|key, _| {
             matches!(
                 key.as_str(),
-                "number" | "title" | "state" | "author" | "createdAt" | "sourceSha"
-            ) || (!patches && matches!(key.as_str(), "mergeCommitSha" | "changedFilesCount"))
+                "number"
+                    | "title"
+                    | "state"
+                    | "author"
+                    | "createdAt"
+                    | "sourceSha"
+                    | "mergedAt"
+                    | "closedAt"
+                    | "targetBranch"
+            ) || (first_page && key == "labels")
+                || (!patches && matches!(key.as_str(), "mergeCommitSha" | "changedFilesCount"))
                 || (totals && matches!(key.as_str(), "additions" | "deletions"))
         });
     }
@@ -291,12 +303,19 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         content_pagination.insert("body".into(), pagination);
     }
     let mut no_selected_files_matched = false;
-    let mut first_changed_path = None;
+    let mut review = Vec::new();
     let mut unsearched = Vec::new();
     let mut first_unsearched = None;
+    let mut scope_unmatched = false;
     if let Some(loaded) = files_loaded {
         let listed = loaded.state.skipped + loaded.items.len();
         let state = loaded.state;
+        // A `files`/`fileFilter` scope that matched no changed file at all.
+        scope_unmatched = scope.is_some()
+            && needle.is_none()
+            && state.exhausted
+            && query.file_page().unwrap_or(1) == 1
+            && !loaded.items.iter().any(|file| file_filter.matches(file));
         let shaped = shape_pr_files(
             &mut row,
             &mut content_pagination,
@@ -308,7 +327,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             scope.as_ref(),
         );
         no_selected_files_matched = shaped.no_selected_match;
-        first_changed_path = shaped.patch_target;
+        review = shaped.review;
         unsearched = shaped.unsearched;
         first_unsearched = shaped.first_unsearched;
         if let Some(page) = content_pagination.get_mut("changedFiles") {
@@ -350,36 +369,24 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         .await?;
     }
     if !slim {
-        row["next"] = pr_next_menu(
-            query,
-            content,
-            patch_mode,
-            first_changed_path.as_deref(),
-            &raw,
-        );
+        row["next"] = pr_next_menu(query, content, patch_mode, &review, &raw);
     } else if file_read
         && patch_mode == "none"
         && !query.later_page()
         && query.file_filter().is_none()
     {
-        // An unfiltered inventory's own next steps: the ranked selected
-        // patch (and every patch on a small PR) and the merge commit. A
+        // An unfiltered inventory's own next steps: the review pick (and
+        // every patch on a small PR) and the merge commit. A
         // filtered inventory or a patch read is a targeted answer and keeps
         // only its continuations.
         let all_patches = raw
             .get("changed_files")
             .and_then(Value::as_u64)
             .is_some_and(|files| files <= INVENTORY_ALL_PATCHES_FILES);
-        let mut menu = pr_next_menu(
-            query,
-            content,
-            patch_mode,
-            first_changed_path.as_deref(),
-            &raw,
-        );
+        let mut menu = pr_next_menu(query, content, patch_mode, &review, &raw);
         if let Some(menu) = menu.as_object_mut() {
             menu.retain(|name, _| {
-                matches!(name.as_str(), "getSelectedPatches" | "getMergeCommit")
+                matches!(name.as_str(), "reviewPatches" | "getMergeCommit")
                     || (all_patches && name == "getAllPatches")
             });
         }
@@ -407,6 +414,13 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         row["contentPagination"] = Value::Object(content_pagination);
     }
     let mut out = json!({"type":"pullRequests","pullRequests":[row]});
+    if scope_unmatched && !no_selected_files_matched {
+        out["status"] = json!("empty");
+        out["errorCode"] = json!("noSelectedFilesMatched");
+        out["hints"] = json!([
+            "No changed file matched files/status; read the inventory (include:[\"files\"]) and copy a path."
+        ]);
+    }
     if no_selected_files_matched {
         out["status"] = json!("empty");
         out["errorCode"] = json!("noSelectedFilesMatched");

@@ -326,7 +326,17 @@ fn match_pagination_limits_next_match_page_to_the_current_file_page() {
         "pageSize":1,"maxMatchesPerFile":2
     });
     let page1 = run(&root.0, base.clone()).expect("page1");
-    assert_eq!(page1["files"][0]["totalMatchRows"], 1, "{page1}");
+    // A file whose matches all fit on its match page carries no row counts.
+    assert_eq!(
+        page1["files"][0]["matches"].as_array().map(Vec::len),
+        Some(1),
+        "{page1}"
+    );
+    assert!(
+        page1["files"][0].get("totalMatchRows").is_none()
+            && page1["files"][0].get("returnedMatchRows").is_none(),
+        "{page1}"
+    );
     assert!(
         page1["next"].get("nextMatchPage").is_none(),
         "page 1 has no truncated file, so no nextMatchPage: {page1}"
@@ -709,7 +719,8 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
     assert_eq!(restart["query"]["pageSize"], 1);
     assert_eq!(restart["query"]["page"], 1);
     assert!(restart["query"].get("snapshot").is_none());
-    let restarted = run(&root.0, restart["query"].clone()).expect("execute returned restart unchanged");
+    let restarted =
+        run(&root.0, restart["query"].clone()).expect("execute returned restart unchanged");
     assert_eq!(restarted["declarations"][0]["name"], "one");
     assert_ne!(restarted["snapshot"], first["snapshot"]);
     let second = run(&root.0, restarted["next"]["nextPage"]["query"].clone())
@@ -785,32 +796,74 @@ fn directory_symbols_keep_row_paths_without_static_notes() {
 }
 
 #[test]
-fn match_rows_emit_captures_once_and_omit_single_line_end() {
+fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     let root = Fixture::new();
     let source = root.0.join("calls.ts");
     std::fs::write(&source, "oldCall(one);\noldCall(\n  two\n);\n").expect("source");
-    let out = run(
-        &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"oldCall($A)"}),
-    )
-    .expect("match");
+    let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"oldCall($A)"});
+    let out = run(&root.0, query.clone()).expect("match");
     let matches = out["files"][0]["matches"].as_array().expect("matches");
     assert_eq!(matches.len(), 2, "{out}");
     for m in matches {
-        assert!(m.get("metavars").is_none(), "duplicate capture map: {m}");
+        for withheld in ["metavars", "metavarRanges", "capturesTruncated"] {
+            assert!(m.get(withheld).is_none(), "{withheld} is opt-in: {m}");
+        }
     }
     let single = &matches[0];
+    assert_eq!(single["line"], 1, "{single}");
+    assert_eq!(single["column"], 0, "{single}");
     assert!(single.get("endLine").is_none(), "{single}");
+    assert!(
+        single.get("endColumn").is_none(),
+        "single-line end: {single}"
+    );
+    assert_eq!(matches[1]["endLine"], 4, "{}", matches[1]);
+    assert!(matches[1]["endColumn"].is_u64(), "{}", matches[1]);
+    // Equal per-file counts repeat `matches.len()`.
+    assert!(out["files"][0].get("totalMatchRows").is_none(), "{out}");
+    // The withheld $A captures stay one exact continuation away.
+    let expand = &out["next"]["expandCaptures"]["query"];
+    assert_eq!(expand["captureText"], true, "{out}");
+
+    let mut expanded = query;
+    expanded["captureText"] = json!(true);
+    let out = run(&root.0, expanded).expect("match");
+    let single = &out["files"][0]["matches"][0];
+    assert!(
+        single.get("metavars").is_none(),
+        "duplicate capture map: {single}"
+    );
     assert_eq!(single["metavarRanges"]["A"][0]["text"], "one", "{single}");
     assert!(
         single["metavarRanges"]["A"][0].get("endLine").is_none(),
         "{single}"
     );
-    assert_eq!(matches[1]["endLine"], 4, "{}", matches[1]);
+    assert!(out["next"].get("expandCaptures").is_none(), "{out}");
 }
 
 #[test]
-fn list_captures_default_to_one_span_row_and_expand_on_request() {
+fn patterns_without_metavariables_offer_no_capture_expansion() {
+    let root = Fixture::new();
+    let source = root.0.join("calls.ts");
+    std::fs::write(&source, "oldCall(one);\n").expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"oldCall(one)"}),
+    )
+    .expect("match");
+    assert_eq!(
+        out["files"][0]["matches"][0]["value"], "oldCall(one)",
+        "{out}"
+    );
+    assert!(
+        out.get("next")
+            .is_none_or(|next| next.get("expandCaptures").is_none()),
+        "{out}"
+    );
+}
+
+#[test]
+fn list_captures_are_withheld_by_default_and_expand_on_request() {
     let root = Fixture::new();
     let source = root.0.join("body.rs");
     std::fs::write(
@@ -822,28 +875,23 @@ fn list_captures_default_to_one_span_row_and_expand_on_request() {
         "pattern":"fn $N() -> u8 { $$$B }"});
     let out = run(&root.0, query.clone()).expect("match");
     let m = &out["files"][0]["matches"][0];
-    let body = m["metavarRanges"]["B"].as_array().expect("B ranges");
-    assert_eq!(body.len(), 1, "list capture must collapse to one span: {m}");
-    assert_eq!(body[0]["count"], 3, "{m}");
-    assert_eq!(body[0]["line"], 2, "{m}");
-    assert_eq!(body[0]["endLine"], 4, "{m}");
     assert!(
-        body[0].get("text").is_none(),
-        "no body dump by default: {m}"
+        m.get("metavarRanges").is_none(),
+        "no capture dump by default: {m}"
     );
-    assert_eq!(m["capturesTruncated"], true, "{m}");
+    assert_eq!(m["line"], 1, "{m}");
+    assert_eq!(m["endLine"], 5, "{m}");
     assert!(out["next"]["expandCaptures"].is_object(), "{out}");
-    // Single captures keep their text.
-    assert_eq!(m["metavarRanges"]["N"][0]["text"], "a", "{m}");
 
     let mut expanded = query;
     expanded["captureText"] = json!(true);
     let out = run(&root.0, expanded).expect("match");
-    let body = out["files"][0]["matches"][0]["metavarRanges"]["B"]
-        .as_array()
-        .expect("B ranges");
+    let m = &out["files"][0]["matches"][0];
+    let body = m["metavarRanges"]["B"].as_array().expect("B ranges");
     assert_eq!(body.len(), 3, "{out}");
     assert_eq!(body[0]["text"], "let x = 1;", "{out}");
+    assert_eq!(body[0]["line"], 2, "{out}");
+    assert_eq!(m["metavarRanges"]["N"][0]["text"], "a", "{m}");
 }
 
 #[test]
@@ -1018,4 +1066,131 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
         .expect("value");
     assert!(value.ends_with("parse(raw) }"), "{out}");
     assert!(out["next"].get("expandCaptures").is_none(), "{out}");
+}
+
+/// A directory match without langType uses the one grammar whose files the
+/// scope holds; continuations pin the inferred grammar.
+#[test]
+fn directory_match_infers_the_only_grammar_present() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn a() { hit(1); }\n").expect("a");
+    std::fs::create_dir(root.0.join("nested")).expect("nested");
+    std::fs::write(root.0.join("nested/b.rs"), "fn b() { hit(2); }\n").expect("b");
+    std::fs::write(root.0.join("README.md"), "hit(3)\n").expect("doc");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","pageSize":1}),
+    )
+    .expect("langType inferred from the .rs files");
+    assert_eq!(out["stats"]["totalStructuralMatches"], 2, "{out}");
+    assert_eq!(out["inferredLangType"], "rust", "{out}");
+    assert_eq!(
+        out["next"]["nextPage"]["query"]["langType"], "rust",
+        "{out}"
+    );
+    let explicit = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","pageSize":1,"langType":"rust"}),
+    )
+    .expect("explicit langType");
+    assert_eq!(
+        explicit["snapshot"], out["snapshot"],
+        "same scope, same snapshot"
+    );
+    assert!(explicit.get("inferredLangType").is_none(), "{explicit}");
+}
+
+#[test]
+fn directory_match_with_several_parsing_grammars_names_the_candidates() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn a() { hit(1); }\n").expect("a");
+    std::fs::write(root.0.join("b.ts"), "hit(2);\n").expect("b");
+    let error = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)"}),
+    )
+    .expect_err("two grammars parse the pattern");
+    assert_eq!(error.code, "ast.language.required", "{error:?}");
+    for language in ["rust", "typescript"] {
+        assert!(error.message.contains(language), "{error:?}");
+    }
+    // The named langType is the repair: it scans only that grammar's files.
+    let out = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","langType":"rust"}),
+    )
+    .expect("explicit langType");
+    assert_eq!(out["stats"]["totalStructuralMatches"], 1, "{out}");
+    assert!(out.get("inferredLangType").is_none(), "{out}");
+}
+
+/// A rule object and its YAML string select the same nodes.
+#[test]
+fn object_and_yaml_rules_match_identically() {
+    let root = Fixture::new();
+    std::fs::write(
+        root.0.join("lib.rs"),
+        "fn a() { unsafe { Pin::new_unchecked(&mut x); } }\nfn b() { Pin::new_unchecked(&mut y); }\n",
+    )
+    .expect("source");
+    let base = json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust"});
+    let mut yaml = base.clone();
+    yaml["rule"] = json!(
+        "pattern: Pin::new_unchecked($A)\nnot:\n  inside:\n    kind: unsafe_block\n    stopBy: end"
+    );
+    let mut object = base;
+    object["rule"] = json!({"pattern":"Pin::new_unchecked($A)","not":{"inside":{"kind":"unsafe_block","stopBy":"end"}}});
+    let yaml = run(&root.0, yaml).expect("yaml rule");
+    let object = run(&root.0, object).expect("object rule");
+    assert_eq!(yaml["files"], object["files"], "{yaml} vs {object}");
+    assert_eq!(
+        yaml["files"][0]["matches"].as_array().map(Vec::len),
+        Some(1),
+        "{yaml}"
+    );
+    assert_eq!(yaml["files"][0]["matches"][0]["line"], 2, "{yaml}");
+    // The continuation copies the object rule exactly as written.
+    assert_eq!(
+        object["next"]["expandCaptures"]["query"]["rule"],
+        json!({"pattern":"Pin::new_unchecked($A)","not":{"inside":{"kind":"unsafe_block","stopBy":"end"}}}),
+        "{object}"
+    );
+    let continuation = object["next"]["expandCaptures"]["query"].clone();
+    assert!(
+        serde_json::from_value::<super::AstSearchQuery>(continuation).is_ok(),
+        "the continuation parses as a typed row"
+    );
+}
+
+#[test]
+fn symbols_name_list_returns_the_union_and_a_string_is_unchanged() {
+    let root = Fixture::new();
+    let source = root.0.join("task.rs");
+    std::fs::write(
+        &source,
+        "fn complete() {}\nfn try_read_output() {}\nfn other() {}\n",
+    )
+    .expect("source");
+    let names = |out: &serde_json::Value| {
+        out["declarations"]
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .map(|row| row["name"].as_str().unwrap_or_default().to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let list = run(
+        &root.0,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"name":["complete","try_read_output"]}),
+    )
+    .expect("list");
+    assert_eq!(names(&list), ["complete", "try_read_output"], "{list}");
+    let single = run(
+        &root.0,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"name":"complete"}),
+    )
+    .expect("single");
+    assert_eq!(names(&single), ["complete"], "{single}");
 }

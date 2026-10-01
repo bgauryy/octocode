@@ -16,9 +16,16 @@
         "src/runtime/clasify_context.rs",
         "src/runtime/clasify_batch.rs",
         "src/runtime/clasify_locate.rs",
-        "tests/runtime_clasify.rs"
+        "tests/runtime_clasify.rs",
+        "src/tools/clasify/aliases.rs",
+        "src/runtime/clasify_compact.rs"
       ],
-      "variants": [],
+      "variants": [
+        "fileChunks",
+        "locate",
+        "scout",
+        "state"
+      ],
       "discriminators": {
         "resources[].context.candidateEvidence": [
           "fileChunks",
@@ -34,11 +41,24 @@
         "questions[].type": [
           "noul",
           "choice",
-          "score"
+          "score",
+          "locate",
+          "sufficient",
+          "relevant",
+          "supports",
+          "adds",
+          "yesno"
+        ],
+        "resources[].candidateEvidence": [
+          "fileChunks",
+          "search"
         ]
       },
       "fields": {
         "carry": [
+          "consumed"
+        ],
+        "debug": [
           "consumed"
         ],
         "goal": [
@@ -50,6 +70,9 @@
           "consumed"
         ],
         "questions": [
+          "consumed"
+        ],
+        "questions[].ask": [
           "consumed"
         ],
         "questions[].criteria": [
@@ -67,7 +90,19 @@
         "questions[].instructions": [
           "consumed"
         ],
+        "questions[].known": [
+          "consumed"
+        ],
         "questions[].knownEvidence": [
+          "consumed"
+        ],
+        "questions[].labels": [
+          "consumed"
+        ],
+        "questions[].labels.false": [
+          "consumed"
+        ],
+        "questions[].labels.true": [
           "consumed"
         ],
         "questions[].questionType": [
@@ -85,6 +120,9 @@
           "continuation"
         ],
         "resources": [
+          "consumed"
+        ],
+        "resources[].candidateEvidence": [
           "consumed"
         ],
         "resources[].context": [
@@ -130,6 +168,36 @@
           "consumed"
         ],
         "resources[].prefilter": [
+          "consumed"
+        ],
+        "resources[].query": [
+          "consumed"
+        ],
+        "resources[].query.branch": [
+          "forwarded"
+        ],
+        "resources[].query.endLine": [
+          "forwarded"
+        ],
+        "resources[].query.owner": [
+          "forwarded"
+        ],
+        "resources[].query.path": [
+          "forwarded"
+        ],
+        "resources[].query.reasoning": [
+          "forwarded"
+        ],
+        "resources[].query.repo": [
+          "forwarded"
+        ],
+        "resources[].query.startLine": [
+          "forwarded"
+        ],
+        "resources[].tool": [
+          "consumed"
+        ],
+        "resources[].value": [
           "consumed"
         ]
       }
@@ -188,6 +256,9 @@
           "forwarded",
           "output-control"
         ],
+        "qualifiers": [
+          "forwarded"
+        ],
         "reasoning": [
           "workflow-metadata"
         ],
@@ -219,6 +290,9 @@
       "variants": [],
       "discriminators": {},
       "fields": {
+        "branch": [
+          "consumed"
+        ],
         "concise": [
           "forwarded",
           "output-control"
@@ -321,6 +395,9 @@
           "forwarded",
           "security-policy"
         ],
+        "pattern": [
+          "forwarded"
+        ],
         "reasoning": [
           "workflow-metadata"
         ],
@@ -337,6 +414,10 @@
       "variants": [],
       "discriminators": {},
       "fields": {
+        "block": [
+          "consumed",
+          "output-control"
+        ],
         "branch": [
           "forwarded"
         ],
@@ -397,6 +478,10 @@
         "path": [
           "forwarded",
           "security-policy"
+        ],
+        "ranges": [
+          "consumed",
+          "output-control"
         ],
         "reasoning": [
           "workflow-metadata"
@@ -513,6 +598,9 @@
         "path": [
           "forwarded",
           "security-policy"
+        ],
+        "qualifiers": [
+          "forwarded"
         ],
         "reactions": [
           "forwarded"
@@ -676,11 +764,19 @@
           "output-control",
           "continuation"
         ],
+        "files": [
+          "forwarded",
+          "output-control"
+        ],
         "goal": [
           "workflow-metadata"
         ],
         "head": [
           "forwarded"
+        ],
+        "include": [
+          "forwarded",
+          "output-control"
         ],
         "includeDiff": [
           "forwarded",
@@ -732,6 +828,10 @@
           "forwarded",
           "output-control",
           "continuation"
+        ],
+        "status": [
+          "forwarded",
+          "output-control"
         ]
       }
     },
@@ -785,6 +885,9 @@
         ],
         "type": [
           "forwarded"
+        ],
+        "version": [
+          "forwarded"
         ]
       }
     },
@@ -801,6 +904,9 @@
         ],
         "debug": [
           "workflow-metadata"
+        ],
+        "depth": [
+          "forwarded"
         ],
         "forceRefresh": [
           "forwarded"
@@ -1412,6 +1518,10 @@
       "variants": [],
       "discriminators": {},
       "fields": {
+        "block": [
+          "consumed",
+          "output-control"
+        ],
         "chunkSize": [
           "consumed",
           "output-control"
@@ -1463,6 +1573,10 @@
         "path": [
           "consumed",
           "security-policy"
+        ],
+        "ranges": [
+          "consumed",
+          "output-control"
         ],
         "reasoning": [
           "workflow-metadata"

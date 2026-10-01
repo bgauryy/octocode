@@ -43,6 +43,19 @@ fn non_empty(values: &[String]) -> Option<Vec<String>> {
     (!values.is_empty()).then(|| values.to_vec())
 }
 
+/// The typed rule serializes unset optional matchers as `null`; the engine
+/// reads only the keys a caller set.
+fn without_nulls(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            fields.retain(|_, field| !field.is_null());
+            fields.values_mut().for_each(without_nulls);
+        }
+        Value::Array(items) => items.iter_mut().for_each(without_nulls),
+        _ => {}
+    }
+}
+
 /// Form-independent views in the engine's units.
 impl MatchQuery<'_> {
     pub fn path(self) -> String {
@@ -57,7 +70,16 @@ impl MatchQuery<'_> {
     pub fn rule(self) -> Option<String> {
         match self {
             Self::Pattern(_) => None,
-            Self::Rule(query) => Some(query.rule.to_string()),
+            // An object rule serializes as JSON, which is valid YAML for the
+            // same rule.
+            Self::Rule(query) => Some(match serde_json::to_value(&query.rule) {
+                Ok(Value::String(text)) => text,
+                Ok(mut value) => {
+                    without_nulls(&mut value);
+                    value.to_string()
+                }
+                Err(_) => String::new(),
+            }),
         }
     }
     pub fn include(self) -> Option<Vec<String>> {
@@ -118,12 +140,18 @@ impl MatchQuery<'_> {
     pub fn snapshot(self) -> Option<String> {
         either_form!(self, snapshot => snapshot.as_ref().map(ToString::to_string))
     }
+    /// The query as a continuation copies it; an object rule keeps only the
+    /// matchers the caller set.
     fn to_value(self) -> Value {
-        match self {
+        let mut value = match self {
             Self::Pattern(query) => serde_json::to_value(query),
             Self::Rule(query) => serde_json::to_value(query),
         }
-        .unwrap_or_else(|_| json!({}))
+        .unwrap_or_else(|_| json!({}));
+        if let Some(rule) = value.get_mut("rule") {
+            without_nulls(rule);
+        }
+        value
     }
 }
 
@@ -193,12 +221,18 @@ fn execute_match_inner(
         .transpose()?;
     let p = paths.validate(q.path()).map_err(super::AstError::from)?;
     let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
-    if meta.is_dir() && q.lang_type().is_none() {
-        return Err(super::AstError::new(
-            "ast.language.required",
-            "Directory matching requires langType; choose the grammar from the source files.",
-        ));
-    }
+    // A directory without langType uses the one grammar that both occurs in
+    // the scope and parses the query; continuations pin it as langType.
+    let inferred = if meta.is_dir() && q.lang_type().is_none() {
+        Some(infer_directory_language(q, &p.canonical, paths, cancel)?)
+    } else {
+        None
+    };
+    let language = q.lang_type().or_else(|| inferred.clone());
+    let lang_extensions = match (&lang_extensions, &language) {
+        (None, Some(language)) => language_extensions(language),
+        (extensions, _) => extensions.clone(),
+    };
     // Corpus-coverage signals from the directory scan. The directory branch
     // fills these; the single-file branch leaves them at their complete defaults.
     let mut scan_truncated = false;
@@ -211,7 +245,7 @@ fn execute_match_inner(
         compile_check(extensions, q)?;
     }
     let mut files = if meta.is_file() {
-        super::validate_file_language(&p.canonical, q.lang_type().as_deref())?;
+        super::validate_file_language(&p.canonical, language.as_deref())?;
         let bytes = std::fs::read(&p.canonical).map_err(super::io_error)?;
         // Parse the file as the directory scan does: raw. Output strings
         // are redacted by the response stage.
@@ -219,7 +253,7 @@ fn execute_match_inner(
             .decode_source_bytes(&bytes, super::MAX_PARSE_SOURCE_BYTES)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
-        let r = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
+        let r = if super::cpp_header_override(&p.canonical, language.as_deref()) {
             octocode_engine::portable::structural_search_detailed_with_extension(
                 &source,
                 &source_path,
@@ -284,7 +318,7 @@ fn execute_match_inner(
                             })))
                 },
                 &|path| {
-                    if super::cpp_header_override(path, q.lang_type().as_deref()) {
+                    if super::cpp_header_override(path, language.as_deref()) {
                         "cpp".to_owned()
                     } else {
                         path.extension()
@@ -349,7 +383,7 @@ fn execute_match_inner(
         q.hidden(),
         q.no_ignore(),
         q.max_depth(),
-        q.lang_type(),
+        language,
         q.reverse(),
         // Always present: validation stamps the contract defaults.
         q.sort().as_deref().unwrap_or_default(),
@@ -401,6 +435,8 @@ fn execute_match_inner(
             .into_iter()
             .map(|value| match_value(value, q.capture_text().unwrap_or(false), content_length))
             .collect::<Vec<_>>();
+        // Rows whose captures were withheld or whose text was cut to a
+        // header: `captureText:true` (next.expandCaptures) returns them whole.
         let header_rows = matches.iter().map(|row| row.1).collect::<Vec<_>>();
         let matches = matches.into_iter().map(|row| row.0).collect::<Vec<_>>();
         if !matches.is_empty() {
@@ -417,19 +453,17 @@ fn execute_match_inner(
             let match_end = match_start.saturating_add(matches_per_page).min(total);
             let selected = matches.get(match_start..match_end).unwrap_or(&[]).to_vec();
             let more_matches = match_end < total;
-            let truncated_captures = selected
-                .iter()
-                .any(|value| value["capturesTruncated"] == true)
-                || header_rows
-                    .get(match_start..match_end)
-                    .is_some_and(|rows| rows.contains(&true));
+            let truncated_captures = header_rows
+                .get(match_start..match_end)
+                .is_some_and(|rows| rows.contains(&true));
             let out_of_range = match_start >= total;
-            let mut group = json!({
-                "path":path,
-                "totalMatchRows":total,
-                "returnedMatchRows":selected.len(),
-                "matches":selected
-            });
+            let returned = selected.len();
+            let mut group = json!({"path":path,"matches":selected});
+            // Counts only add information when this match page is a subset.
+            if returned != total || out_of_range {
+                group["totalMatchRows"] = json!(total);
+                group["returnedMatchRows"] = json!(returned);
+            }
             if total > matches_per_page || out_of_range {
                 let total_pages = total.div_ceil(matches_per_page).max(1);
                 let more = match_page < total_pages;
@@ -510,6 +544,12 @@ fn execute_match_inner(
         .collect::<Vec<_>>();
     let more = start + size < groups.len();
     let mut out = json!({"searchEngine":"structural","snapshot":snapshot,"stats":{"totalStructuralMatches":total_matches}});
+    if let Some(inferred) = &inferred {
+        out["inferredLangType"] = json!(inferred);
+    }
+    let pinned = inferred
+        .as_ref()
+        .map_or_else(|| json!({}), |language| json!({"langType":language}));
     if !groups.is_empty() {
         out["files"] = json!(selected);
         out["pagination"] = json!({"currentPage":page,"totalPages":groups.len().div_ceil(size).max(1),"filesPerPage":size,"totalFiles":groups.len()});
@@ -536,8 +576,7 @@ fn execute_match_inner(
             "path":path
         }]);
     }
-    let rust = q
-        .lang_type()
+    let rust = language
         .as_deref()
         .and_then(language_extensions)
         .map_or_else(
@@ -567,33 +606,34 @@ fn execute_match_inner(
     if scan_truncated && !more {
         out["terminalLimit"] = json!(true);
     }
+    let with = |changes: Value| {
+        let mut merged = pinned.clone();
+        if let (Some(target), Some(changes)) = (merged.as_object_mut(), changes.as_object()) {
+            target.extend(changes.clone());
+        }
+        continuation_with(q, merged, &snapshot)
+    };
     if more {
         out["pagination"]["nextPage"] = json!(page + 1);
-        out["next"] = json!({"nextPage":continuation(q, page + 1, &snapshot)})
+        // A new file page restarts per-file match pagination.
+        out["next"] = json!({"nextPage":with(json!({"page":page + 1,"matchPage":1}))})
     }
     if has_more_matches && match_page < 1_000 {
-        out["next"]["nextMatchPage"] = continuation_with(
-            q,
-            json!({"maxMatchesPerFile":matches_per_page,"matchPage":match_page+1}),
-            &snapshot,
-        );
+        out["next"]["nextMatchPage"] =
+            with(json!({"maxMatchesPerFile":matches_per_page,"matchPage":match_page+1}));
     }
     if has_truncated_captures && !q.capture_text().unwrap_or(false) {
-        out["next"]["expandCaptures"] =
-            continuation_with(q, json!({"captureText":true}), &snapshot);
+        out["next"]["expandCaptures"] = with(json!({"captureText":true}));
     }
     Ok(out)
 }
-/// One match row. Captures are emitted once, in `metavarRanges` (text plus
-/// 1-based position); the parallel engine `metavars` text map is only used as a
-/// fallback for a capture that carries no range. A multi-node list capture is
-/// one span row with `count` unless `captureText` is set. `endLine` is omitted
-/// when the span is single-line (it equals `line`). The flag is true when the
-/// value was cut to a header.
-///
-/// A multi-line match with a body block shows only its header (signature)
-/// followed by `…`; `line`/`endLine` anchor the full span, and `captureText`
-/// returns the whole text.
+/// One match row: `line`, `column` (0-based) and `value`; `endLine` and
+/// `endColumn` only for a multi-line span. Captures are opt-in: with
+/// `captureText`, each capture is emitted once in `metavarRanges` (text plus
+/// 1-based position; the engine `metavars` map is a fallback for a capture
+/// without a range). The flag is true when the row withheld something
+/// `captureText:true` returns: a capture, or a multi-line match cut to its
+/// header (signature) followed by `…`.
 fn match_value(
     m: StructuralDetailedMatch,
     capture_text: bool,
@@ -607,80 +647,45 @@ fn match_value(
         ),
         None => compact_match(&m.text, content_length),
     };
+    let mut value = json!({"line":m.start_line,"value":text,"column":m.start_col});
+    if m.end_line != m.start_line {
+        value["endLine"] = json!(m.end_line);
+        value["endColumn"] = json!(m.end_col);
+    }
+    let has_captures = m.metavar_ranges.values().any(|values| !values.is_empty())
+        || m.metavars.values().any(|values| !values.is_empty());
+    if !capture_text {
+        return (value, header.is_some() || has_captures);
+    }
     let mut ranges = serde_json::Map::new();
-    let mut metavars = serde_json::Map::new();
-    let mut truncated = false;
     for (name, values) in m.metavar_ranges {
-        let list = values.len() > 1;
-        if list && !capture_text {
-            // A `$$$` list capture (bodies, argument lists) is summarized as
-            // one span; `captureText:true` (next.expandCaptures) returns the
-            // per-node text. The match `value` already shows the source.
-            if let (Some(first), Some(last)) = (values.first(), values.last()) {
+        let rows = values
+            .into_iter()
+            .map(|range| {
                 let mut row = json!({
-                    "line":first.line,
-                    "column":first.column,
-                    "endColumn":last.end_column,
-                    "count":values.len()
+                    "text":range.text,
+                    "line":range.line,
+                    "column":range.column,
+                    "endColumn":range.end_column
                 });
-                if last.end_line != first.line {
-                    row["endLine"] = json!(last.end_line);
+                if range.end_line != range.line {
+                    row["endLine"] = json!(range.end_line);
                 }
-                ranges.insert(name, json!([row]));
-                truncated = true;
-            }
-            continue;
-        }
-        let mut budgeted = Vec::new();
-        for range in values {
-            if !capture_text && range.text.chars().count() > 120 {
-                truncated = true;
-            }
-            let mut row = json!({
-                "text":truncate_capture(range.text, capture_text),
-                "line":range.line,
-                "column":range.column,
-                "endColumn":range.end_column
-            });
-            if range.end_line != range.line {
-                row["endLine"] = json!(range.end_line);
-            }
-            budgeted.push(row);
-        }
-        if !budgeted.is_empty() {
-            ranges.insert(name, Value::Array(budgeted));
+                row
+            })
+            .collect::<Vec<_>>();
+        if !rows.is_empty() {
+            ranges.insert(name, Value::Array(rows));
         }
     }
     // Capture maps are unordered; emit names sorted so output is deterministic.
     let mut captures: Vec<_> = m.metavars.into_iter().collect();
     captures.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut metavars = serde_json::Map::new();
     for (name, values) in captures {
-        if ranges.contains_key(&name) || values.is_empty() {
-            continue;
+        if !ranges.contains_key(&name) && !values.is_empty() {
+            metavars.insert(name, json!(values));
         }
-        if capture_text || values.len() <= 1 {
-            let budgeted = values
-                .into_iter()
-                .map(|value| {
-                    if !capture_text && value.chars().count() > 120 {
-                        truncated = true;
-                    }
-                    truncate_capture(value, capture_text)
-                })
-                .collect::<Vec<_>>();
-            metavars.insert(name, json!(budgeted));
-        } else {
-            truncated = true;
-        }
-    }
-    let mut value = json!({
-        "line":m.start_line,
-        "value":text,
-        "column":m.start_col,
-        "endColumn":m.end_col
-    });
-    if m.end_line != m.start_line {
-        value["endLine"] = json!(m.end_line);
     }
     if !metavars.is_empty() {
         value["metavars"] = Value::Object(metavars);
@@ -688,10 +693,7 @@ fn match_value(
     if !ranges.is_empty() {
         value["metavarRanges"] = Value::Object(ranges);
     }
-    if truncated {
-        value["capturesTruncated"] = json!(true);
-    }
-    (value, header.is_some())
+    (value, false)
 }
 
 /// Whitespace-normalized match text bounded to `limit` characters
@@ -710,25 +712,10 @@ fn compact_match(text: &str, limit: usize) -> String {
     }
 }
 
-fn truncate_capture(text: String, verbatim: bool) -> String {
-    if verbatim || text.chars().count() <= 120 {
-        text
-    } else {
-        let mut out = text.chars().take(120).collect::<String>();
-        out.push('…');
-        out
-    }
-}
-
 fn match_display_path(root: &std::path::Path, path: &str) -> String {
     let candidate = std::path::Path::new(path);
     let relative = candidate.strip_prefix(root).unwrap_or(candidate);
     super::rooted_display(root, relative)
-}
-
-fn continuation(q: MatchQuery<'_>, page: usize, snapshot: &str) -> Value {
-    // A new file page restarts per-file match pagination.
-    continuation_with(q, json!({"page":page,"matchPage":1}), snapshot)
 }
 
 fn continuation_with(q: MatchQuery<'_>, changes: Value, snapshot: &str) -> Value {
@@ -738,6 +725,130 @@ fn continuation_with(q: MatchQuery<'_>, changes: Value, snapshot: &str) -> Value
         target.extend(changes.clone());
     }
     json!({"tool":ToolId::AstSearch.as_str(),"query":query,"confidence":"exact"})
+}
+
+/// Grammars whose extensions occur under `root`, from a bounded walk that
+/// honors the same discovery policy, ignore files and excluded directories
+/// as the match scan. Each maps to its full extension set.
+pub(crate) fn present_grammars(
+    root: &std::path::Path,
+    prune: &[String],
+    hidden: bool,
+    no_ignore: bool,
+    max_files: usize,
+    permits: &dyn Fn(&std::path::Path) -> Result<bool, String>,
+) -> Result<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>, String> {
+    let capabilities = octocode_engine::portable::grammar_capabilities()
+        .into_iter()
+        .filter(|capability| capability.structural_search)
+        .collect::<Vec<_>>();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut files = 0_usize;
+    let pruned = prune.to_vec();
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(!hidden)
+        .git_ignore(!no_ignore)
+        .git_exclude(!no_ignore)
+        .ignore(!no_ignore)
+        .parents(!no_ignore)
+        .filter_entry(move |entry| {
+            entry.depth() == 0
+                || !entry.file_type().is_some_and(|kind| kind.is_dir())
+                || !pruned
+                    .iter()
+                    .any(|name| entry.file_name().to_string_lossy() == name.as_str())
+        })
+        .build();
+    for entry in walker {
+        let Ok(entry) = entry else { continue };
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            continue;
+        }
+        if !permits(entry.path())? {
+            continue;
+        }
+        files += 1;
+        if files > max_files {
+            break;
+        }
+        if let Some(extension) = entry.path().extension().and_then(|ext| ext.to_str()) {
+            seen.insert(extension.to_ascii_lowercase());
+        }
+    }
+    let mut grammars = std::collections::BTreeMap::new();
+    for extension in seen {
+        if let Some(capability) = capabilities
+            .iter()
+            .find(|capability| capability.extensions.contains(&extension))
+            && let Some(extensions) = language_extensions(&capability.language)
+        {
+            grammars.insert(grammar_selector(capability), extensions);
+        }
+    }
+    Ok(grammars)
+}
+
+/// The langType a caller would write for a grammar: its language id
+/// (`rust`, `typescript`), else its lowercased name.
+pub(crate) fn grammar_selector(capability: &octocode_engine::types::GrammarCapability) -> String {
+    capability
+        .language_id
+        .clone()
+        .unwrap_or_else(|| capability.language.to_ascii_lowercase())
+}
+
+/// The single grammar for a directory `match` without langType: present in
+/// the scope and able to compile the query. Several candidates (or none
+/// present) fail with `ast.language.required`, naming what was found.
+fn infer_directory_language(
+    q: MatchQuery<'_>,
+    root: &std::path::Path,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<String, super::AstError> {
+    let prune = PruneMode::SyntaxVisible
+        .directories(&q.exclude_dir().unwrap_or_default(), q.default_excludes());
+    let present = present_grammars(
+        root,
+        &prune,
+        q.hidden().unwrap_or(false),
+        q.no_ignore().unwrap_or(false),
+        q.max_files() as usize,
+        &|path| super::allow_discovery(path, paths, cancel),
+    )
+    .map_err(super::native_error)?;
+    let mut first_error = None;
+    let mut parsing = Vec::new();
+    for (language, extensions) in &present {
+        match compile_check(extensions, q) {
+            Ok(()) => parsing.push(language.clone()),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    match parsing.as_slice() {
+        [language] => Ok(language.clone()),
+        [] => Err(first_error.unwrap_or_else(|| {
+            super::AstError::new(
+                "ast.language.required",
+                "No source file of a supported structural grammar was found under path; set langType.",
+            )
+        })),
+        several => {
+            let mut error = super::AstError::new(
+                "ast.language.required",
+                format!(
+                    "Several grammars in this directory parse the query ({}); set langType to one of them.",
+                    several.join(", ")
+                ),
+            );
+            error.hints.push(
+                "Or narrow path/include to files of one language.".to_owned(),
+            );
+            Err(error)
+        }
+    }
 }
 
 pub(super) fn language_extensions(language: &str) -> Option<std::collections::BTreeSet<String>> {

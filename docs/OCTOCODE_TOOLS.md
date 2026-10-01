@@ -202,17 +202,27 @@ Discover repositories by keywords, topics, owner, and metadata filters.
 {"goal": "Show a documented ghSearchRepo result.", "reasoning": "Use ghSearchRepo for this documented evidence request.", "keywords": ["code research"], "language": "TypeScript"}
 ```
 
-Fields: `keywords`, `topics`, `language`, `owner`, `stars`, `forks`,
-`goodFirstIssues`, `updated`, `created`, `size`, `license`, `archived`,
-`visibility`, `match` (array of `name`, `description`, `readme`), `sort`,
-`page`, `pageSize` (1-100), and `concise`.
+Fields: `keywords`, `topics`, `language`, `owner`, `stars`, `license`,
+`archived`, `match` (array of `name`, `description`, `readme`), `qualifiers`,
+`sort`, `page`, `pageSize` (1-100), and `concise`. `qualifiers` carries the
+rarer GitHub filters as one space-separated string (`forks:>50 size:<5000
+created:>2023-01 pushed:>2025-01 good-first-issues:>2 is:public`; keys are
+allowlisted, no `repo:`/`org:`/`user:`). The older `forks`, `goodFirstIssues`,
+`updated`, `created`, `size`, and `visibility` fields stay valid but are not
+advertised to MCP hosts.
+
+Rows are compact: `repo` (`owner/name`), `stars`, `language`, `license`,
+`pushedAt`, `description` (≤160 chars), and at most 5 `topics` (query matches
+first) plus `topicCount` when more exist. `debug:true` adds `forks`,
+`createdAt`, and `updatedAt`. `pagination` holds only `totalMatches`/`hasMore`;
+the page cursor is `next.nextPage`.
 
 `ghSearchRepo` with only `owner` (optionally `sort:"updated"`) reads the REST
-owner listing and excludes archived repositories. One call reads up to 5
-provider pages to fill a page, so it can return more than `pageSize` rows.
-`page` and `nextPage` are provider page cursors that follow GitHub's `Link`
-header. The listing reports no `totalMatches` or `totalPages`
-(`countScope: "unknown"`).
+owner listing ordered by latest push (`order: "pushed"`) and excludes archived
+repositories. One call reads up to 5 provider pages to fill a page, so it can
+return more than `pageSize` rows. `next.nextPage.query.page` is a provider page
+cursor that follows GitHub's `Link` header. The listing reports no
+`totalMatches`.
 
 ### `ghSearchCode`
 
@@ -247,9 +257,18 @@ directory (`""` or `"."` for the root).
 {"goal": "Show a documented ghStructure result.", "reasoning": "Use ghStructure for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2}
 ```
 
-Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `page`,
-`pageSize` (1-200), `include` (`sizes`, `languages`, `contributors`,
-`branches`, `tags`), `metadataPage`, `materialize`, and `materializeOffset`.
+Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `pattern`,
+`page`, `pageSize` (1-500, default 300), `include` (`sizes`, `languages`,
+`contributors`, `branches`, `tags`), `metadataPage`, `materialize`, and
+`materializeOffset`.
+`pattern` finds paths by name at any ref in one call: a case-insensitive glob
+over repo-relative paths (`**/_exception_handler.py`, `src/**/*.ts`); without
+a `/` it matches entry names, and a bare word matches names containing it.
+With `pattern` and no `maxDepth`, every level is searched. Rows keep the
+`dir`/`files`/`folders` shape and `summary.pattern` echoes the filter.
+For cross-file grep at a ref over MCP (where `ghCloneRepo` is unavailable),
+combine `pattern` with `materialize:true` (≤50 files, ≤300 KiB each), then run
+`localSearch` at the returned `location.localPath`.
 A `branch` that does not exist is an error; it never falls back to the default
 branch. A missing `path` is a not-found error whose `next.viewTree` lists the
 nearest existing directory (case-corrected).
@@ -327,7 +346,15 @@ the default branch and cannot be combined with `path` or `branch`.
 ```
 
 Prefer title-first PR and issue searches. For commit archaeology, narrow by path
-and time before fetching a commit diff.
+and time before fetching a commit diff. Rarer PR/issue filters go in one
+`qualifiers` string (`"reviewed-by:x review:approved label:bug comments:>5"`);
+it maps onto the typed fields (which stay valid), and rejects `repo:`/`org:`/
+`user:` (scope comes from `owner`/`repo`), unknown keys (with a suggestion), and
+a filter set twice. `next.readPr` targets the first merged row (else the first)
+and lists up to three `candidates`; a bare issue number in `keywords` adds
+`next.readIssueLinks`, the issue read whose `closedBy` names its fix PRs.
+Commit rows carry the author's login (else git name), never an email; read the
+full message with `next.readCommit`.
 
 Keywords follow the `ghSearchCode` rule: a bare word or one quoted phrase, never an
 operator. `owner`, `repo`, and person fields (`author`, `committer`, `assignee`,
@@ -345,8 +372,17 @@ Read one known history item or compare two refs through one strict operation:
 |---|---|---|
 | `pullRequest` | `owner`, `repo`, `number` | body, changed files, selected patches, comments, reviews, commits |
 | `issue` | `owner`, `repo`, `number` | body and comments |
-| `commit` | `owner`, `repo`, `ref` | commit metadata and optional diff |
+| `commit` | `owner`, `repo`, `ref` (+ `base` to compare `base...ref`) | commit metadata and optional diff |
 | `compare` | `owner`, `repo`, `base`, `head` | ahead/behind counts and commits between refs |
+
+Sections are selected with `include` (PR: `body`, `files`, `patches`,
+`comments`, `reviews`, `commits`; issue: `body`, `comments`; commit:
+`patches`) and narrowed with `files` (paths, `dir/`, or globs) and `status`.
+The nested spellings (`content.*`, `fileFilter`, `includeDiff`, `path`,
+`operation:"compare"`) stay valid aliases and return identical rows. Every PR
+row carries its merge state (`mergedAt`, `closedAt`, `targetBranch`; labels on
+the first page). An issue read lists the pull requests that closed it
+(`closedBy`, merged first) and offers `next.readFixPr`.
 
 Fields from another operation are rejected rather than ignored. In particular,
 PR and issue identity is always `number`; commit identity is `ref`; comparison
@@ -361,19 +397,22 @@ each commit or file page carries only its own data.
 
 <!-- tool: ghGetHistoryItem -->
 ```json
-{"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"changedFiles": true}}
-{"goal": "Find where a large PR touches esbuild.", "reasoning": "Search patches for the literal before paging the file inventory.", "operation": "pullRequest", "owner": "microsoft", "repo": "TypeScript", "number": 51387, "content": {"patches": {"mode": "all"}}, "matchString": "esbuild", "matchContext": 0, "fileFilter": {"paths": ["*.json", "*.mjs"]}}
+{"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "include": ["body", "files"]}
+{"goal": "Find where a large PR touches esbuild.", "reasoning": "Search patches for the literal before paging the file inventory.", "operation": "pullRequest", "owner": "microsoft", "repo": "TypeScript", "number": 51387, "matchString": "esbuild", "files": ["*.json", "*.mjs"]}
 {"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"body": true, "comments": {"discussion": true}}}
 {"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "includeDiff": true}
 {"goal": "Show a documented ghGetHistoryItem result.", "reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "compare", "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0"}
 ```
 
 Request selected PR patches instead of every patch for large PRs, and leave
-commit diffs off until the relevant commit is known. PRs with more than 100
-changed files do not offer `next.getAllPatches`; an unfiltered large-PR read
-offers `next.findInPatches` instead, a low-confidence template that searches
-every patch for a literal (`matchContext: 0`): replace its `matchString`
-placeholder with a literal from the question before running it.
+commit diffs off until the relevant commit is known. A PR summary offers at
+most four reads: `getChangedFiles` (the body rides along when the preview cuts
+it), `reviewPatches` (every patch on a small PR), `getDiscussion` (comments and
+reviews), and `getMergeCommit`. An inventory read offers `reviewPatches`: up to
+30 source files (no tests, docs, lockfiles, generated or binary files), the
+ones that fit one patch budget first, the rest through `continuePatch`.
+Rows of one call share one patch budget, so a multi-row patch read fits one
+response page.
 
 `content.changedFiles` returns compact patch-free rows,
 `"M +3 -1 [!flag ]path[ <- old/path]"`: a git status letter (`T` changed,
@@ -381,8 +420,11 @@ placeholder with a literal from the question before running it.
 grouped as `{"dir/": [rows]}` (path = dir + name). `!flag` marks a file GitHub
 returned without a patch: `!tooLarge` (counts still known), `!binary`, or
 `!omitted` (no patch and no counts, for example past the diff budget; 0/0 may
-still have changed). `<- old/path` marks a rename. Patch rows are objects that
-keep `patchUnavailable` and `previousPath`; a pure rename's patch is `""`.
+still have changed). `<- old/path` marks a rename. Patch rows (PR, commit, and
+comparison) are `{path, stat: "M +3 -1", patch}` objects that keep
+`patchUnavailable`, `previousPath`, and `patchPagination` when cut; files not
+reached yet ride the continuation, not empty rows; a pure rename's patch is
+`""`.
 GitHub lists at most 3000 files. Past that limit the file page reports
 `countScope: "partial"` and `providerLimit.reason: "providerFileListLimit"`.
 
@@ -393,16 +435,21 @@ PR reads narrow with three optional fields:
   matches the file name, e.g. `"*.ts"`), `status` (`added`, `removed`,
   `modified`, `renamed`, `copied`, `changed`, `unchanged`), and `minChanges`
   (additions + deletions ≥ n; files without counts pass).
-- `matchString` keeps only the patch hunks with matching lines and implies
-  patches. Files with no patch to search (`!tooLarge`, `!binary`,
-  `!omitted`) are listed as unsearched, so a miss there is not absence.
-- `matchContext` (0–10) sets the lines kept around each hit. Omitted, it is 3
-  and narrowed files offer `next.readFullPatches` for their whole patches.
+- `matchString` keeps only the patch lines that match, implies patches, and
+  returns every hit file of the PR on one page. Files with no patch to search
+  (`!tooLarge`, `!binary`, `!omitted`) are listed as unsearched, so a miss
+  there is not absence.
+- `matchContext` (0–10) sets the lines kept around each hit. Omitted, it is 0
+  (hit lines only); narrowed files offer `next.readFullPatches` (up to five
+  files) or `next.widenContext` (`matchContext: 3`).
+- A `files`/`status` scope that matches no changed file returns
+  `noSelectedFilesMatched` with an inventory hint.
 
 A file inventory, a patch read, or a later page (a file, comment, commit, or
-review page after the first, or a nonzero body offset) returns a slim identity header (`number`, `state`, `sourceSha`; inventories
-also keep title, author, and counts), not labels, body preview, or the
-follow-up menu, unless `debug: true`.
+review page after the first, or a nonzero body offset) returns a slim identity header (`number`, `state`, `sourceSha`,
+and the merge state `mergedAt`/`closedAt`/`targetBranch`; first pages also keep
+labels, inventories title, author, and counts), not the body preview or the
+full follow-up menu, unless `debug: true`.
 
 PR details accept `minify:"none"` or `"standard"`. `none` preserves selected
 body, discussion/inline comments, reviews, and all/selected patch text after
@@ -461,14 +508,20 @@ Key fields:
 |-------|---------|
 | `owner`, `repo` | Required repository. |
 | `branch` | Branch, tag, or exact commit SHA. Omit to use the default branch. |
-| `sparsePath` | Optional file or directory sparse checkout. |
+| `sparsePath` | Optional file or directory, or an array of up to 10, for a sparse checkout. A missing path is a not-found error (exit 3). |
+| `depth` | Commits of history, 1–50 (default 1). |
 | `forceRefresh` | Bypass the clone cache and re-clone. |
 
-Returns a location with an absolute path, requested-scope completeness, commit
-identity, and cache/verification state. `next.exploreClone` lists the checkout
-(the sparse subtree when requested) with `structureSearch operation:"tree"`.
-A cache hit adds `location.clonedAt` and `location.expiresAt`; its commit may
-lag the branch until then, so pass `forceRefresh` for the current head.
+Returns a location with an absolute path, commit identity, resolved branch,
+`cached`, and `location.clonedAt`/`expiresAt` (fresh clones and cache hits
+alike; a hit's commit may lag the branch until then, so pass `forceRefresh` for
+the current head). `verified` and `complete` appear only when false.
+`next.exploreClone` lists the checkout (the sparse subtree for one path, the
+root for several) with `structureSearch operation:"tree"`. No GitHub API call
+precedes git: an unbranched cache hit finds its entry through a recorded
+default-branch alias, and a fresh clone lets git resolve the remote HEAD. The
+API is asked only after git fails, to name a missing or inaccessible
+repository.
 
 Examples:
 
@@ -489,7 +542,7 @@ Rules:
 
 ### `artifactSearch`
 
-Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. Exact GitHub-backed lookups offer `next.viewRepo` for default-branch code and, when the registry names a commit or tag, `next.viewReleaseSource` for that release-ref lead. Each labels `source.scope` (`defaultBranch` or `release`) and `source.verification:"unverified"`. Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
+Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. `version` pins an exact lookup to an exact version, a range (`^3`, `>=2.31,<3`), or a tag (`latest`, `next`) on npm, PyPI, and crates.io (the `name@version` and PyPI `name==version` coordinates stay valid); a range resolves like the registry's installer, and a missing version is `versionNotFound` with the nearest published versions. Exact rows add release facts when the registry has them: `publishedAt`, `deprecated`, `yanked`, `dependencies`/`peerDependencies` counts, and `engines` (npm), `requiresPython` (PyPI), or `rustVersion` (crates). npm discovery rows carry `downloadsMonthly`. Exact GitHub-backed lookups offer `next.viewRepo` for default-branch code and, when the registry names a commit or tag, `next.viewReleaseSource` for that release. Each labels `source.scope` (`defaultBranch` or `release`); `viewRepo` is always `source.verification:"unverified"`, and `viewReleaseSource.source.verification` is `provenance` when an npm SLSA provenance attestation binds this exact tarball (subject digest equals `dist.integrity`) to the manifest's repository and names the commit (the registry verifies the attestation at publish; octocode does not re-verify signatures), else `unverified` (npm `gitHead`, Go/Composer refs). Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
 
 | Field | Meaning |
 |-------|---------|
@@ -511,7 +564,7 @@ Find packages for a capability, resolve a known dependency to registry metadata,
 
 Each query selects one ecosystem. Compare ecosystems using independent entries in `queries` (maximum five), not `type:"all"`. All providers use official APIs. PyPI has no `keywords` field, so a PyPI keyword query is rejected as `invalidInput`; it never falls back to a website or third-party service.
 
-`artifacts[]` contains canonical package identities, registry URLs, and available version, description, license, homepage, and source metadata. Go package paths stay separate from module identities. Optional metadata can be absent; cross-registry popularity scores are not comparable. Read exact source to establish behavior and match the published or installed version before making version-specific claims.
+`artifacts[]` contains canonical package identities and available version, description, license, homepage (omitted when it is the repository page), and source metadata; `debug:true` adds registry URLs. Go package paths stay separate from module identities. Optional metadata can be absent; cross-registry popularity scores are not comparable. Read exact source to establish behavior and match the published or installed version before making version-specific claims.
 
 For npm, scoped names honor `@scope:registry` and an explicit `registry` takes precedence; authentication uses registry-scoped npm configuration (with environment interpolation), caches isolate registry/configuration identities, and continuations preserve the selected registry. Private registries must support npm's search endpoint for discovery; other ecosystems use official public services. Follow executable continuations rather than constructing page numbers or interpreting cursors; unknown totals stay unknown, an empty page may still continue, and auth/unsupported/rate-limit/provider failures are errors while a missing exact package is `notFound`.
 
@@ -524,8 +577,8 @@ For npm, scoped names honor `@scope:registry` and an explicit `registry` takes p
 | Scan a whole file's structure | `ghGetFileContent` with `minify: "symbols"` |
 | Read 2–10 functions from a file | Multiple `startLine`/`endLine` reads in one batched call |
 | Read a 3MB+ file | `ghCloneRepo` sparse + local read |
-| Understand why a PR was made | `ghSearchHistory(operation:"pullRequest")`, then `ghGetHistoryItem(operation:"pullRequest", number)` with `content.body: true` |
-| Review a PR's changes | Small PR: `content.patches`. Large PR: `matchString` + `matchContext: 0` (+ `fileFilter`) over all patches, or `content.changedFiles` then `content.patches.mode: "selected"` |
+| Understand why a PR was made | `ghSearchHistory(operation:"pullRequest")`, then `ghGetHistoryItem(operation:"pullRequest", number)` with `include: ["body"]` |
+| Review a PR's changes | Small PR: `include: ["patches"]`. Large PR: `matchString` (+ `files`) over all patches, or `include: ["files"]` then `next.reviewPatches` |
 | Get all inline code comments on a PR | `content: { comments: { reviewInline: true, discussion: false } }` |
 | Count repositories in an org | `owner: "vercel", archived: false` → search `totalMatches` (an owner-only listing reports no total) |
 | Get package version only | `artifactSearch` with `type` and `packageName`; an upstream manifest is not proof of the published version |
@@ -765,13 +818,13 @@ depth), so deeply nested files do not hit the deadline on `stopBy: end`. A
 file that still exceeds the deadline is reported as a
 `structural.match.deadline` diagnostic, never as zero matches.
 
-`operation:"symbols"` rows are `{name, kind, line}` plus only what adds information:
+`operation:"symbols"` takes `name` as one substring or a list (`name:["complete","try_read_output"]` returns either); pages hold 500 declarations by default. Rows are `{name, kind, line}` plus only what adds information:
 - `endLine` when the declaration spans lines, and `startLine` when attributes or decorators start before the name line.
 - `docStartLine` when a comment block sits directly above (JSDoc, `///`, `#` in Python).
 - `parent`: the containing declaration's name; nested declarations (a function inside a function, in TypeScript as in Python and Rust) are listed with their container as `parent`. It stays meaningful when a `kinds`/`name` filter drops the parent row. `parentLine` is added only when two containers share that name and kind (two `impl A` blocks).
 - `character` only when two declarations of the same kind share a name and line.
 
-`line` feeds `lspSearch` as `symbolName` + `lineHint`. A single-file outline returns top-level `declarations`. A directory outline returns `files: [{path, declarations}]`, the same grouping as `match`, so each path is written once. `snapshot` appears only on paginated results. It marks a JS/TS declaration `exported` by its local
+`line` feeds `lspSearch` as `symbolName` + `lineHint`. The YAML text channel renders the rows as an indented outline after the metadata (`=== symbols <path> (line[-endLine] kind name; + exported; indented = member) ===`, with `as`, `doc` (doc block on the line above; `doc@N` when it starts elsewhere), `from@N`, `col N` and `(in Parent)` suffixes); structured content keeps the rows. A single-file outline returns top-level `declarations`. A directory outline returns `files: [{path, declarations}]`, the same grouping as `match`, so each path is written once. `snapshot` appears only on paginated results. It marks a JS/TS declaration `exported` by its local
 binding. When it is exported under another name, `exportedAs` lists the public
 names: `export { foo as bar }` gives `foo` with `exportedAs: ["bar"]`, and
 `export default function foo` gives `exportedAs: ["default"]`.
@@ -785,9 +838,18 @@ Pattern matching is exact about modifiers: a Rust `fn $N()` pattern does not
 match `pub fn` items (the visibility modifier is a named child). Such a pattern
 adds a `structural.pattern.visibilityExact` info diagnostic, visible only with
 `debug: true`; write `pub fn …` or
-use a YAML rule on the item kind. A multi-node `$$$` capture is returned as one
-`metavarRanges` span row with `count` (and `capturesTruncated`); set
-`captureText:true` (`next.expandCaptures`) for per-node text.
+use a YAML rule on the item kind. Match rows are `{line, column, value}`
+(`endLine`/`endColumn` only for multi-line spans); per-file
+`totalMatchRows`/`returnedMatchRows` appear only when a match page is a subset.
+Captures are opt-in: `captureText:true` (offered as `next.expandCaptures` when
+the query has metavariables or a match was cut to its header) adds
+`metavarRanges` with per-node text and positions.
+
+`rule` is a YAML string or the equivalent ast-grep rule object (the same
+`AstRule` shape astRewrite takes). A directory `match` without `langType`
+uses the one grammar whose files occur under `path` and that parses the query
+(`inferredLangType` names it and continuations pin it); several candidates
+return `ast.language.required` naming them.
 
 Structural failures retain native public codes such as
 `structural.query.invalid`, `structural.query.compileFailed`,
@@ -907,7 +969,7 @@ Read a known local path. Path-only reads are valid and return exact source subje
 
 Selection precedes minification, redaction, and pagination. Line pages preserve complete lines within a 16384-byte budget. An offset at or past the end of the view returns empty content with an offset-zero `next.restart` (`pagination.outOfRange:true` with `debug: true`). An oversized line switches to byte paging from the unreturned position. Byte ends extend by at most three bytes to finish a UTF-8 code point. Copy the complete `next.continue` query; do not calculate offsets. Continuations stop at the selected range or matched view.
 
-Every successful text read reports original-file `totalLines`, including empty files and no matches. `sourceBytes`, `returnedBytes`, and `returnedLines` are debug-only; a partial page also reports `returnedChars` (UTF-16 code units). `pagination.totalLines`/`totalBytes` describe the selected returned view. Structured `none` content has no injected line numbers and preserves whitespace and line endings. YAML text prefixes each source line with its number (`279:`) under `content (source lines):`, or prints `content (copy-safe):` unnumbered when lines cannot be mapped; the gutter is not part of the source. The `symbols` outline prefixes each line with `N| `.
+Every successful text read reports original-file `totalLines`, including empty files and no matches. `sourceBytes`, `returnedBytes`, and `returnedLines` are debug-only; a partial page also reports `returnedChars` (UTF-16 code units). `pagination.totalLines`/`totalBytes` describe the selected returned view. Content whose lines map onto original source lines is numbered in the structured result itself, `cat -n` style (`279<TAB>fn a() {`), with omission markers unnumbered and `sourceLineRanges` then omitted; strip the prefix up to the first TAB before copying text (see [numbered source content](TOOL_DATA_CONTRACT.md#numbered-source-content)). Whitespace and line endings after the prefix are preserved. YAML text prints the same lines under `content (source lines):`, or `content (copy-safe):` unnumbered when lines cannot be mapped. The `symbols` outline prefixes each line with `N| `.
 
 `matchRanges` describe all selected source context windows; `matchedLines` contains matching source anchors intersecting the current page, and `selectedMatchCount` counts matching source lines in the selected view. Overlapping context windows are merged. `matchString` forces exact content so minification cannot remove the evidence. `minifyFallback` reports the requested/applied modes and reason when a match forces exact content or an outline is unavailable.
 
@@ -939,12 +1001,28 @@ listed in `completeness.coverageGapReasons`; they do not set `truncated` or
 `terminalLimit`, which mark only real scope cuts.
 A result with unresolved internal imports is never reported as complete, so an empty dependency result under a subdirectory root that cannot resolve its imports is not absence.
 Inspect coverage before interpreting an empty dependency or cycle result.
-Coverage diagnostics default to 25 rows per page. Aggregate
-`coverage.diagnosticCounts` and import counts describe the full scan. Follow
-`next.nextDiagnostics` to retrieve the remaining rows; its snapshot token
-prevents combining different diagnostic inventories. If diagnostics change,
-follow `next.restartDiagnostics`. Use `diagnosticPageSize` to request up to 100
-rows per page. Diagnostic pagination and graph-result pagination are independent.
+By default coverage carries counts only: `coverage.diagnosticCounts` and import
+counts describe the full scan, and `completeness.diagnostics` stays `pageable`
+while rows exist. Follow `next.nextDiagnostics` (`diagnosticPage:1`) to
+retrieve the rows, 25 per page by default (`diagnosticPageSize` up to 100).
+Rows with the same code and message are grouped into one row whose `files`
+lists each `path[:line]`. The snapshot token prevents combining different
+diagnostic inventories; if diagnostics change, follow `next.restartDiagnostics`.
+Diagnostic pagination and graph-result pagination are independent.
+
+A scan rooted below its package (`packages/app/src`) still reads the nearest
+`package.json` above the root, up to a `.git` boundary, so `#` subpath imports
+and package exports resolve. `dependents` also lists files that use the
+target's items through a module re-exporting them (`pub use notify::Notify`,
+`export { x } from './t'`, `export *`); those rows carry `reexportVia` naming
+that module, and importers of other items from the module are not listed.
+
+`astTopology` is the contract surface (MCP and CLI, validated input, `next.*`
+continuations); `octocode graph ingest|query` is the CLI power surface over the
+same graph builder (persisted snapshots, symbol-level callers/callees/impact,
+issue detectors). Their `deps`/`dependents`/`path`/`cycles` file sets agree on
+the same tree, apart from the `reexportVia` rows above and Rust `mod`
+declarations, which `graph` models as containment rather than imports.
 
 Rust analysis defaults to `rustWorkspace: "syntax"`, which uses explicit module
 declarations and supported literal `#[path]` attributes. Set
@@ -1067,19 +1145,20 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 
 | Field | Meaning |
 | --- | --- |
-| `path`, `langType` | Required absolute scope and language. |
-| `ruleKind` | Required selector: `pattern` or `rule`. |
+| `path` | Source file or directory; relative paths resolve against `WORKSPACE_ROOT`. |
+| `langType` | Optional parser. Omitted: a file's extension, or the one grammar under a directory that compiles the rule (several return `ast.rewrite.language_required` naming them). `next.apply` pins the resolved value. |
+| `ruleKind` | Optional; inferred from the fields (`pattern`+`rewrite` or `rule`+`fix`). |
 | `pattern`, `rewrite` | Match and replacement for the `pattern` form. |
-| `rule`, `fix`, `constraints`, `utils`, `transform` | Full ast-grep rule object and fix for the `rule` form; inspect the live schema. |
+| `rule`, `fix`, `constraints`, `utils`, `transform` | ast-grep rule (YAML string, bare or a rule file's `rule:`, or the rule object; both preview identically) and fix for the `rule` form; inspect the live schema. |
 | `include`, `exclude`, `defaultExcludes` | Optional file filters. |
 | `maxFiles`, `maxMatches` | Scan bounds; defaults are 2,000 files (max 50,000) and 10,000 matches (max 100,000). |
-| `page`, `pageSize`, `snapshot` | Preview pagination (`pageSize` default 100, max 1000); copy executable continuations and their snapshot. A page lists only the files its matches touch, and each file's `patch` holds only the hunks of that page's matches (`patchMatchCount` of `matchCount` when the file spans pages); `beforeHash`/`afterHash` and the final page's `next.apply` still cover the whole file. |
+| `page`, `pageSize`, `snapshot` | Preview pagination (`pageSize` default 100, max 1000); copy executable continuations and their snapshot. A page lists only the files its matches touch, and each file's `patch` holds only the hunks of that page's matches (`patchMatchCount` of `matchCount` when the file spans pages); `beforeHash` and the final page's `next.apply` still cover the whole file. Match rows are `{id, path, line}` with a 16-hex id prefix (the patch shows text and replacement); `debug:true` restores full rows, `afterHash`, `patchBytes` and `absolutePath`. |
 | `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`; a complete preview returns `next.apply` with both filled in. |
-| `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
+| `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. Match ids may be any unique prefix of at least 12 hex digits. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
 | `postconditions` | 1–10 checks, `{kind:"remainingMatches", equals:n}`, evaluated in the staged rewritten files before commit. |
 
 ```bash
-node packages/octocode/out/octocode.js astRewrite '{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}'
+node packages/octocode/out/octocode.js astRewrite '{"goal":"<what to find>","reasoning":"<why>","path":"/ABS/repo/src","pattern":"console.log($A)","rewrite":"logger.info($A)"}'
 ```
 
 Match `range.start`/`range.end` lines are one-based; columns are zero-based UTF-16 code units (an emoji counts 2). `range.byteOffset` is the UTF-8 byte span.

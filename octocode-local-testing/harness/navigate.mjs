@@ -5,7 +5,7 @@
 // hops and bytes, and fails when a hop's promised handoff is missing.
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, rowData, sourcePath, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, checks, collect, rowData, sourcePath, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('navigate');
 const client = await startServer();
@@ -90,7 +90,7 @@ for (const t of TARGETS) {
     const explained = /compile_commands/.test(JSON.stringify(rowData(def)?.hints ?? []));
     check(`${t.lang}: symbols anchor → lspSearch definition lands on an astSearch-confirmed declaration`, lands || confirmed || explained, JSON.stringify(rowData(def)?.payload?.locations?.[0]?.displayRange ?? rowData(def)?.hints ?? ''));
     const refs = await hop('prove: references', 'lspSearch', { uri: file, symbolName: target.name, lineHint: target.line, operation: 'references', pageSize: 25 });
-    const refFiles = new Set((rowData(refs)?.payload?.locations ?? []).map(l => sourcePath(refs, l, file)));
+    const refFiles = new Set(lspLocations(refs).map(l => sourcePath(refs, l, file)));
     // Every text-hit file (all pages), not just the sampled uses.
     const textFiles = new Set(uses.map(u => u.file));
     let page = await call('localSearch', { path: root, searchText: target.name, wholeWord: true, langType: t.rg, resultView: 'files', pageSize: 100 });

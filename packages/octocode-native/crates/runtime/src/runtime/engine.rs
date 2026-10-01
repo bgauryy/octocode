@@ -419,6 +419,11 @@ fn execute_ordinary_queries(
     dispatcher: &super::domain_dispatch::DomainDispatcher,
     context: &ExecutionContext,
 ) -> Result<Vec<super::dispatch::DomainResult>, ExecutionError> {
+    // History-item rows reading patches share one call-level patch budget.
+    let shared = (tool == ToolId::GhGetHistoryItem)
+        .then(|| crate::tools::gh_get_history_item::share_patch_budget(queries))
+        .flatten();
+    let queries = shared.as_deref().unwrap_or(queries);
     let budget = BatchBudget::for_host(tool, queries.len());
     if budget.width <= 1 {
         return queries
@@ -749,6 +754,9 @@ impl ToolRuntime {
             "contractFormatVersion": contract["contractFormatVersion"],
             "fingerprint": contract["fingerprint"],
             "grammarCapabilities": octocode_engine::portable::grammar_capabilities(),
+            // Languages whose lspSearch server resolves here (resolution only,
+            // cached per process); hosts render it into the lspSearch description.
+            "lspServers": octocode_engine::lsp::config::available_server_languages(),
             "tools": tools,
         }))
     }

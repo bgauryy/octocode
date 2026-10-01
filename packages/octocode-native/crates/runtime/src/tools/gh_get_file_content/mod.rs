@@ -10,7 +10,7 @@ use crate::providers::github::{
 use crate::security::scan::ContentScan;
 use crate::tools::cancel::CancellationCheck;
 use crate::tools::local_fetch::{
-    ChunkType, LocalFetchQuery, MinifyMode, RegexMatch, process_fetched_content,
+    ChunkType, LocalFetchQuery, MatchString, MinifyMode, RegexMatch, process_fetched_content,
 };
 
 pub use crate::contracts::tool_types::GhGetFileContentQuery;
@@ -63,9 +63,10 @@ where
     R: CredentialResolver,
     C: ConditionalCache,
 {
-    // Resolve the ref once (memoized across a batch), then read the body at
-    // the immutable SHA. The timestamp runs only after a successful read so a
-    // missing path or a rate limit costs no extra request.
+    // Resolve the ref once (memoized across a batch), then read the body and
+    // the last-commit timestamp at the immutable SHA concurrently: the
+    // timestamp is off the critical path (2 round trips, not 3). A page after
+    // the first skips it.
     let fetched = match provider
         .resolve_reference(
             &query.owner,
@@ -85,20 +86,18 @@ where
                 force_refresh: query.force_refresh.unwrap_or(false),
                 session_id: session_id.map(str::to_owned),
             };
-            match provider
-                .get_file_content(&content_request, request_context)
-                .await
-            {
-                Ok(acquired) => {
-                    let timestamp = if query.offset.unwrap_or(0) == 0 {
-                        file_timestamp(provider, query, &sha, request_context).await
-                    } else {
-                        (None, None)
-                    };
-                    Ok((acquired, timestamp))
+            let stamp = async {
+                if query.offset.unwrap_or(0) == 0 {
+                    file_timestamp(provider, query, &sha, request_context).await
+                } else {
+                    (None, None)
                 }
-                Err(error) => Err(error),
-            }
+            };
+            let (acquired, timestamp) = tokio::join!(
+                provider.get_file_content(&content_request, request_context),
+                stamp
+            );
+            acquired.map(|acquired| (acquired, timestamp))
         }
         Err(error) => Err(error),
     };
@@ -118,11 +117,20 @@ where
         Err(error) => return Err(error),
     };
     let local = local_fetch_query(query)?;
-    let mut content = process_fetched_content(
+    let content = process_fetched_content(
         &local,
         &acquired.bytes,
         Path::new(query.path.as_str()),
         None,
+        security,
+        cancel,
+        regex,
+    );
+    let mut content = complete_small_file(
+        content,
+        &local,
+        &acquired.bytes,
+        Path::new(query.path.as_str()),
         security,
         cancel,
         regex,
@@ -230,7 +238,7 @@ where
             },
             match_not_found: match_not_found.then_some(true),
             searched_for: match_not_found
-                .then(|| query.match_string.as_deref().cloned())
+                .then(|| query.match_string.as_ref().map(MatchString::display))
                 .flatten(),
             etag: acquired.etag,
             raw_response_bytes: acquired.raw_response_bytes,
@@ -240,6 +248,67 @@ where
             last_modified_by,
         }],
     })
+}
+
+/// Small files a window mostly covers come back whole.
+const SMALL_FILE_LINES: usize = 200;
+const SMALL_FILE_BYTES: usize = 8 * 1024;
+
+/// A line or match window covering at least half of a small file returns the
+/// whole file: the rest costs little and saves the follow-up read that a
+/// window stopping short of the answer forces (G07: a ±40 window on a
+/// 124-line file stopped at line 103). Match anchors stay in `matchedLines`.
+fn complete_small_file(
+    content: crate::tools::local_fetch::LocalFetchResult,
+    local: &LocalFetchQuery,
+    bytes: &[u8],
+    path: &Path,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+    regex: &impl RegexMatch,
+) -> crate::tools::local_fetch::LocalFetchResult {
+    let (Some(total), Some(source_bytes)) = (content.total_lines, content.source_bytes) else {
+        return content;
+    };
+    let returned: usize = content
+        .source_line_ranges
+        .iter()
+        .map(|range| range.end + 1 - range.start)
+        .sum();
+    let windowed = local.full_content != Some(true)
+        && local.minify_mode() == MinifyMode::None
+        && local.context_bytes.is_none()
+        && (local.match_string.is_some() || local.start_line.is_some() || local.has_ranges());
+    if !windowed
+        || content.error.is_some()
+        || content.next.is_some()
+        || total > SMALL_FILE_LINES
+        || source_bytes > SMALL_FILE_BYTES
+        || returned == 0
+        || returned >= total
+        || returned * 2 < total
+    {
+        return content;
+    }
+    let mut whole = local.clone();
+    whole.match_string = None;
+    whole.match_string_is_regex = None;
+    whole.match_string_case_sensitive = None;
+    whole.context_lines = None;
+    whole.chunk_type = None;
+    whole.chunk_size = None;
+    whole.offset = None;
+    whole.clear_block_selectors();
+    whole.start_line = crate::tools::local_fetch::wire_positive(1);
+    whole.end_line = crate::tools::local_fetch::wire_positive(total);
+    let mut completed = process_fetched_content(&whole, bytes, path, None, security, cancel, regex);
+    if completed.error.is_some() || completed.source_line_ranges.len() != 1 {
+        return content;
+    }
+    completed.matched_lines = content.matched_lines;
+    completed.selected_match_count = content.selected_match_count;
+    completed.warnings = content.warnings;
+    completed
 }
 
 /// Last commit touching `path` at `reference` (a resolved SHA). History below
@@ -424,6 +493,7 @@ fn local_fetch_query(query: &GhGetFileContentQuery) -> Result<LocalFetchQuery, P
     let mut local: LocalFetchQuery = serde_json::from_value(value).map_err(decode_error)?;
     let paged = local.full_content != Some(true)
         && local.match_string.is_none()
+        && !local.has_ranges()
         && !(local.start_line.is_some() && local.end_line.is_some());
     if local.chunk_size.is_none() && paged {
         local.chunk_size = crate::tools::local_fetch::wire_positive(default_chunk_size(&local));
@@ -683,6 +753,143 @@ mod tests {
             Some(true),
             "{:?}",
             result.files[0].content
+        );
+    }
+
+    fn mock_provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolver, NoCache> {
+        let endpoint =
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+                .expect("endpoint");
+        GitHubProvider {
+            transport: GitHubTransport::new(
+                endpoint,
+                Arc::new(StaticCredentialResolver::new(
+                    "fixture",
+                    CredentialSource::Override,
+                )),
+                RetryPolicy::default(),
+            )
+            .expect("transport"),
+            cache: NoCache,
+        }
+    }
+
+    async fn read(
+        provider: &GitHubProvider<StaticCredentialResolver, NoCache>,
+        query: Value,
+    ) -> GhGetFileContentResult {
+        let mut query = query;
+        query["goal"] = "test".into();
+        query["reasoning"] = "test".into();
+        let query: GhGetFileContentQuery = serde_json::from_value(query).expect("query");
+        execute_default_regex(
+            provider,
+            &query,
+            &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+            Some("s"),
+            &Safe,
+            &NeverCancel,
+        )
+        .await
+        .expect("result")
+    }
+
+    /// The last-commit timestamp no longer waits for the body: both requests
+    /// run concurrently after ref resolution.
+    #[tokio::test]
+    async fn timestamp_is_fetched_concurrently_with_the_content() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let delay = Duration::from_millis(400);
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/contents/a.txt"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(delay)
+                    .set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\n")})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/commits"))
+            .respond_with(ResponseTemplate::new(200).set_delay(delay).set_body_json(
+                serde_json::json!([{"commit":{"committer":{"date":"2026-01-02T00:00:00Z"},"author":{"name":"Ada"}}}]),
+            ))
+            .mount(&server)
+            .await;
+        let provider = mock_provider(&server);
+        let started = std::time::Instant::now();
+        let result = read(
+            &provider,
+            serde_json::json!({"owner":"a","repo":"b","path":"a.txt","branch":sha}),
+        )
+        .await;
+        let elapsed = started.elapsed();
+        assert_eq!(
+            result.files[0].last_modified.as_deref(),
+            Some("2026-01-02T00:00:00Z")
+        );
+        assert!(elapsed < delay * 2, "sequential requests: {elapsed:?}");
+    }
+
+    /// A window covering at least half of a small file returns the whole
+    /// file; its match anchors stay. Large files and narrow windows keep
+    /// the window.
+    #[tokio::test]
+    async fn windows_covering_most_of_a_small_file_return_it_whole() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let small: String = (1..=30).map(|i| format!("line {i}\n")).collect();
+        let large: String = (1..=300).map(|i| format!("line {i}\n")).collect();
+        for (name, body) in [("small.py", &small), ("large.py", &large)] {
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(
+                    serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(body)}),
+                ))
+                .mount(&server)
+                .await;
+        }
+        let provider = mock_provider(&server);
+        let base =
+            |path: &str| serde_json::json!({"owner":"a","repo":"b","path":path,"branch":sha});
+        let mut matched = base("small.py");
+        matched["matchString"] = "line 12".into();
+        matched["contextLines"] = 10.into();
+        let whole = read(&provider, matched).await;
+        let file = &whole.files[0].content;
+        assert_eq!(file.content.as_deref(), Some(small.as_str()));
+        assert_eq!(
+            file.source_line_ranges,
+            vec![crate::tools::local_fetch::LineRange { start: 1, end: 30 }]
+        );
+        assert_eq!(file.matched_lines, vec![12]);
+
+        let mut ranged = base("small.py");
+        ranged["startLine"] = 1.into();
+        ranged["endLine"] = 15.into();
+        let whole = read(&provider, ranged).await;
+        assert_eq!(
+            whole.files[0].content.content.as_deref(),
+            Some(small.as_str())
+        );
+
+        let mut narrow = base("small.py");
+        narrow["startLine"] = 1.into();
+        narrow["endLine"] = 5.into();
+        let window = read(&provider, narrow).await;
+        assert_eq!(
+            window.files[0].content.content.as_deref(),
+            Some("line 1\nline 2\nline 3\nline 4\nline 5\n")
+        );
+
+        let mut big = base("large.py");
+        big["startLine"] = 1.into();
+        big["endLine"] = 200.into();
+        let window = read(&provider, big).await;
+        assert_eq!(
+            window.files[0].content.source_line_ranges,
+            vec![crate::tools::local_fetch::LineRange { start: 1, end: 200 }]
         );
     }
 

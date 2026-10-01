@@ -1,46 +1,32 @@
-# Code Research
+# Code research
 
-Load for code investigation, review, refactor, architecture, dead-code, or blast-radius work. Read `references/algorithm.md` and `references/problem-framing.md` first; load the matching `references/workflow-*.md` route before this proof ladder.
+Load for consequential code claims (callers, imports, cycles, reachability, deletion, architecture) or a Map/Validate/Investigate/Plan run.
 
-## Route
-| Need | First proof path |
+| Mode | Chain |
 |---|---|
-| bug | reproduction → violated contract → hypotheses → divergence boundary → causal/counterfactual proof |
-| feature | capability gap → acceptance criteria → consumers → options/local pattern → patch/checks |
-| enhancement | baseline → bottleneck → measurable target → experiment/change → regression guard |
-| unknown behavior | actual/authority evidence → classify → matching route |
-| refactor (preserve behavior) | skeleton → contracts → blast → big→small tasks → bulk move/rewire → verify (`workflow-refactor.md`) |
-| PR/local review | changed region → symbols → consumers/tests → ranked findings |
-| dead code/delete | `astTopology(analysis:"deadCode")` (beta) candidate → exact read → LSP/AST/broad text/tests |
-| architecture | entry points → graph dependencies/dependents/reachability/cycles → exact boundaries → tradeoffs |
+| Map | literal + synonyms → repos/packages → tree/search → exact finalist reads → clusters |
+| Validate | reframe/invert → local first → external evidence → Advocate/Critic → build, narrow, or drop |
+| Investigate | structure → symptom search → exact boundary reads → graph/LSP/AST → history/tests |
+| Plan / Architecture | contract → entry points → graph/LSP affected scope → exact boundaries → safest step/tradeoffs |
 
-## Workflow
-1. State goal, scope, and expected output: research, review, plan, or patch.
-2. Use known anchors directly; map unfamiliar structure or changed scope when needed. Keep an alternate hypothesis for causal claims.
-3. Read exact slices; use `astTopology` (beta) for file relationships, `astSearch` match for shape, and `lspSearch` for symbol identity.
-4. For edits, find a local pattern, and patch only the evidence-supported boundary.
-5. Run the declared test/build/typecheck/lint/smoke or deterministic read/search check.
-6. On failure, keep the receipt, reread the failing path, patch only the cause, or report the exact block.
-7. Report `confirmed`, `likely`, or `uncertain`; snippets and model judgment remain leads.
+State the surface plan (local, GitHub, packages, PR/history, docs/web) and why each skipped surface is skipped.
 
-## Gates
-Apply the authorization rule in `SKILL.md`; record consequences of contract or cross-package changes before editing.
-
-Review findings lead and include `file:line`, impact, evidence, confidence, and fix. Changes cannot claim success until verification runs; unavailable checks cap confidence below confirmed.
-
-## Proof Ladder
-`candidate → exact evidence → claim-specific corroboration → applicable verification → verdict`. AST, LSP, and graph are alternatives or complements, not compulsory consecutive calls.
+## Proof ladder
+`candidate → exact evidence → claim-specific corroboration → verification → verdict`. AST, LSP, and graph are alternatives or complements, never a compulsory chain.
 
 | Finding | Minimum corroboration |
 |---|---|
-| dead export / safe delete | `astTopology(analysis:"deadCode")` (beta) or search candidate + LSP excluding declaration + AST/imports + tests/build |
-| dependency cycle | `astTopology(analysis:"cycles")` (beta); inspect exact imports before a change claim |
-| affected scope / reachability | graph `dependents`/`path`/`reachability` + exact reads + LSP references/callers for changed symbols |
-| security sink | sink shape + exact read + source/callers + guard/sanitizer check |
-| test gap | important/changed symbol + no test refs + nearby test-tree read |
-| coupling/god function | fan proxies + mixed responsibilities + callers/callees |
-| performance | exact hot/independent path; benchmark only when runtime proof matters |
+| dead export / safe delete | graph `issues` or `deadCode` candidate + LSP `includeDeclaration:false` + text/AST across code, tests, configs, docs + runtime registrations + public-API/external-consumer check |
+| cycle | graph `cycles` + exact imports; type-only vs runtime |
+| affected scope | graph `impact`/`dependents`/`path` + exact reads + LSP references/callers |
+| security sink | sink shape + exact read + sources/callers + guard check |
+| test gap | changed symbol + no test references + nearby test read |
+| performance | exact hot path; benchmark only when runtime proof matters |
 
-Dismiss a candidate when stronger proof contradicts it and state the reason briefly. Final output names claim, anchor, proof, confidence, impact, next action, and any deterministic check not run.
+- Local deps, errors, and config feed external queries; upstream fixes return to local proof.
+- Advocate/Critic: strongest cited case for and against; rebut the claim most likely to flip the decision.
+- Compress large outputs into `claim → evidence → confidence → next`.
 
-Next: when the proven claim needs an edit go to `references/workflow-change.md` (behavior) or `references/workflow-refactor.md` (structure); when it is a review finding go to `references/workflow-pr-review-analysis.md`; when proof keeps flipping load `references/loop-mode.md`. Otherwise the ladder ends here — report the verdict.
+Before answering: corpus/ref and skipped surfaces stated; continuations followed or declared unnecessary; syntax, semantic, history, artifact, and runtime proof distinguished; local `path:line` and remote URL/PR/commit cited; `confirmed`/`likely`/`uncertain` with checks run and not run.
+
+Next: an edit → `workflow-change.md`; a claim that keeps flipping → `campaigns.md`.

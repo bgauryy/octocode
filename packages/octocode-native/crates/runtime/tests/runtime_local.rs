@@ -48,7 +48,7 @@ async fn ordinary_tools_require_trace_context() {
     assert_eq!(error.code, "invalidInput");
     let details = serde_json::to_string(&error.payload).expect("payload");
     assert!(
-        details.contains("reasoning: String does not match required pattern"),
+        details.contains("reasoning: is empty; give one line on why this query"),
         "{details}"
     );
 
@@ -62,7 +62,7 @@ async fn ordinary_tools_require_trace_context() {
         .expect("valid reasoning must be accepted");
     assert_eq!(
         outcome.structured_content["results"][0]["data"]["content"],
-        "ok\n"
+        "1\tok\n"
     );
     runtime.close().await;
 }
@@ -92,8 +92,8 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["index"], 0);
     assert_eq!(rows[1]["index"], 1);
-    assert_eq!(rows[0]["data"]["content"], "first\n");
-    assert_eq!(rows[1]["data"]["content"], "second\n");
+    assert_eq!(rows[0]["data"]["content"], "1\tfirst\n");
+    assert_eq!(rows[1]["data"]["content"], "1\tsecond\n");
     assert!(!successful.all_failed);
 
     let mixed = runtime
@@ -131,14 +131,14 @@ async fn local_fetch_pages_and_unions_through_the_runtime() {
     .expect("first page");
     assert_eq!(row_status(&first), "success");
     let data = row_data(&first);
-    assert_eq!(data["content"].as_str(), Some("one\n"));
+    assert_eq!(data["content"].as_str(), Some("1\tone\n"));
     let next = data["next"]["continue"]["query"].clone();
     assert!(next.is_object(), "executable continuation");
 
     let second = call(&runtime, "localFetch", next)
         .await
         .expect("second page");
-    assert_eq!(row_data(&second)["content"].as_str(), Some("two 😀\n"));
+    assert_eq!(row_data(&second)["content"].as_str(), Some("2\ttwo 😀\n"));
     runtime.close().await;
 }
 
@@ -201,7 +201,7 @@ async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
     assert_eq!(restart["path"], json!(first_path), "{}", rows[0]);
     assert!(restart.get("snapshot").is_none(), "{restart}");
     assert!(restart.get("offset").is_none(), "{restart}");
-    assert_eq!(rows[1]["data"]["content"], "second-2\n", "{}", rows[1]);
+    assert_eq!(rows[1]["data"]["content"], "2\tsecond-2\n", "{}", rows[1]);
     runtime.close().await;
 }
 
@@ -447,6 +447,23 @@ async fn runtime_catalog_lists_available_tools() {
                 .is_some_and(|extensions| extensions.contains(&json!("rs")))
             && entry["structuralSearch"] == true
     }));
+    let servers = catalog["lspServers"]
+        .as_array()
+        .expect("runtime lspSearch server languages");
+    let order = ["ts/js", "py", "rust", "c/c++", "go", "c#", "java"];
+    let positions: Vec<_> = servers
+        .iter()
+        .map(|label| {
+            order
+                .iter()
+                .position(|known| label == *known)
+                .unwrap_or_else(|| panic!("unknown server label {label}"))
+        })
+        .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{servers:?}"
+    );
     runtime.close().await;
 }
 

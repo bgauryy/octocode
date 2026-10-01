@@ -265,6 +265,124 @@ describe('usageLines', () => {
   });
 });
 
+describe('compact query view', () => {
+  const isObject = (value: unknown): value is JsonObject =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+  const branchesOf = (schema: JsonObject): JsonObject[] =>
+    ((schema.oneOf ?? schema.anyOf ?? [schema]) as unknown[]).filter(isObject);
+  // Every `$ref` expanded in place (bounded for recursion); a reference to a
+  // summarized definition expands to the view's summary on both sides.
+  const expand = (
+    root: JsonObject,
+    value: unknown,
+    summaries: JsonObject,
+    depth = 0
+  ): unknown => {
+    if (Array.isArray(value))
+      return value.map(item => expand(root, item, summaries, depth));
+    if (!isObject(value)) return value;
+    const ref = typeof value.$ref === 'string' ? value.$ref : undefined;
+    if (ref?.startsWith('#/$defs/')) {
+      const name = ref.slice('#/$defs/'.length);
+      const { $ref: _ref, ...siblings } = value;
+      if (name in summaries || depth > 6)
+        return {
+          ...((summaries[name] ??
+            (root.$defs as JsonObject)[name]) as JsonObject),
+          ...siblings,
+        };
+      return {
+        ...(expand(
+          root,
+          (root.$defs as JsonObject)[name],
+          summaries,
+          depth + 1
+        ) as JsonObject),
+        ...(expand(root, siblings, summaries, depth + 1) as JsonObject),
+      };
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        expand(root, child, summaries, depth),
+      ])
+    );
+  };
+
+  it('keeps every field, requirement and small definition of each tool', () => {
+    for (const tool of tools) {
+      const full = tool.querySchema as JsonObject;
+      const view = project({ ...tool }, 'query').querySchema as JsonObject;
+      expect(view.$schema, String(tool.name)).toBeUndefined();
+      const summaries = Object.fromEntries(
+        Object.entries((view.$defs ?? {}) as JsonObject).filter(
+          ([, definition]) =>
+            isObject(definition) &&
+            String(definition.$comment ?? '').includes('--view full')
+        )
+      );
+      for (const [name, summary] of Object.entries(summaries)) {
+        const original = (full.$defs as JsonObject)[name] as JsonObject;
+        expect(JSON.stringify(original).length, name).toBeGreaterThan(300);
+        expect((summary as JsonObject).description).toEqual(
+          original.description
+        );
+      }
+      // A root `$ref` (clasify's matrix) reads through to its definition.
+      const rooted = (schema: JsonObject): JsonObject =>
+        typeof schema.$ref === 'string'
+          ? ((schema.$defs as JsonObject)[
+              schema.$ref.slice('#/$defs/'.length)
+            ] as JsonObject)
+          : schema;
+      const fullBranches = branchesOf(rooted(full));
+      const viewBranches = branchesOf(rooted(view));
+      expect(viewBranches).toHaveLength(fullBranches.length);
+      fullBranches.forEach((original, index) => {
+        const compact = viewBranches[index]!;
+        expect(compact.required, String(tool.name)).toEqual(original.required);
+        const hoisted =
+          fullBranches.length > 1
+            ? ((rooted(view).properties ?? {}) as JsonObject)
+            : {};
+        const shown = {
+          ...hoisted,
+          ...((compact.properties ?? {}) as JsonObject),
+        };
+        const fields = (original.properties ?? {}) as JsonObject;
+        expect(Object.keys(shown).sort(), String(tool.name)).toEqual(
+          Object.keys(fields).sort()
+        );
+        // The view drops safe-integer sentinel maximums (enforcement guards).
+        const unguarded = (value: unknown): unknown =>
+          JSON.parse(
+            JSON.stringify(value, (key, child) =>
+              key === 'maximum' && typeof child === 'number' && child >= 1e9
+                ? undefined
+                : child
+            )
+          );
+        for (const [name, field] of Object.entries(fields))
+          expect(
+            expand(view, shown[name], summaries),
+            `${String(tool.name)}.${name}`
+          ).toEqual(unguarded(expand(full, field, summaries)));
+        if (original.additionalProperties === false && fullBranches.length > 1)
+          expect(rooted(view).unevaluatedProperties).toBe(false);
+      });
+    }
+  });
+
+  it('halves the astRewrite read while full keeps the rule grammar', () => {
+    const rewrite = toolNamed('astRewrite');
+    // Regression guard: 9,587 B before compaction (plan target 4,500 B).
+    expect(
+      Buffer.byteLength(JSON.stringify(project(rewrite, 'query')))
+    ).toBeLessThanOrEqual(4_700);
+    expect(JSON.stringify(project(rewrite, 'full'))).toContain('"precedes"');
+  });
+});
+
 describe('projectSelected', () => {
   it('passes through when no selection is given', () => {
     const projected = projectSelected(

@@ -673,6 +673,10 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     let workspace = Workspace::new();
     let content: String = (1..24).map(|n| format!("line {n}: research\n")).collect();
     let path = workspace.write("source.txt", &content);
+    // Line pages carry their source numbers (`<line>\t<text>`).
+    let numbered: String = (1..24)
+        .map(|n| format!("{n}\tline {n}: research\n"))
+        .collect();
     let query = serde_json::json!({
         "path": path,
         "chunkType": "lines",
@@ -691,7 +695,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
         .as_str()
         .expect("first page content")
         .to_owned();
-    assert!(content.starts_with(&first_content), "first page prefix");
+    assert!(numbered.starts_with(&first_content), "first page prefix");
     // Cursor tokens are per-process, so the response advertises the prefilled
     // continuation query as a directly re-runnable call.
     let call = &value["results"][0]["data"]["next"]["continue"];
@@ -707,7 +711,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
         .as_str()
         .expect("second page content");
     let joined = format!("{first_content}{second_content}");
-    assert!(content.starts_with(&joined), "joined prefix");
+    assert!(numbered.starts_with(&joined), "joined prefix");
     assert!(joined.len() > first_content.len(), "second page advanced");
 }
 

@@ -22,11 +22,15 @@ const VERIFY_ORDER = ['@octocodeai/octocode-native', 'octocode-mcp', 'octocode',
 const BUILD_INPUTS = {
   '@octocodeai/octocode-native': ['@octocodeai/config'],
   octocode: ['@octocodeai/octocode-agents-communication'],
+  '@octocodeai/codex-plugin': ['octocode'],
+  '@octocodeai/claude-plugin': ['octocode'],
 };
 const BUILD_OUTPUTS = {
   'packages/octocode-mcp': ['dist/index.js'],
   'packages/octocode': ['out/octocode.js'],
   'packages/octocode-vscode': ['out/extension.js'],
+  'packages/octocode-claude-plugin': ['.claude-plugin/plugin.json', '.mcp.json', 'skills/octocode-get-started/SKILL.md'],
+  'packages/octocode-codex-plugin': ['plugin.json', 'mcp.json', 'skills/octocode-get-started/SKILL.md'],
 };
 
 function readJson(filePath) {

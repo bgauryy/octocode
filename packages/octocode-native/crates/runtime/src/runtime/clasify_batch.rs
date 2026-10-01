@@ -433,6 +433,15 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
         return None;
     }
     let files = state.pointer("/results/0/data/files")?.as_array()?;
+    // A repo-scoped ghSearchCode page names owner/repo once, on `data`, or
+    // (minimized as a request echo) only in the search query itself.
+    let field = |name: &str| {
+        state
+            .pointer(&format!("/results/0/data/{name}"))
+            .or_else(|| source.pointer(&format!("/query/{name}")))
+            .cloned()
+    };
+    let page_repo = Some((field("owner"), field("repo")));
     let mut seen = HashSet::new();
     let candidates = files
         .iter()
@@ -446,7 +455,15 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
                     json!({"path":row})
                 }
             } else {
-                file.clone()
+                let mut file = file.clone();
+                if source["tool"] == ToolId::GhSearchCode.as_str()
+                    && let (Some(object), Some((Some(owner), Some(repo)))) =
+                        (file.as_object_mut(), page_repo.clone())
+                {
+                    object.entry("owner").or_insert(owner);
+                    object.entry("repo").or_insert(repo);
+                }
+                file
             };
             candidate_identity(source, &file)
                 .is_some_and(|id| seen.insert(id))
@@ -675,11 +692,22 @@ fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Option<(Value, 
         "chunkSize":max_bytes,
         "minify":"none"
     });
-    let anchor = file
-        .get("matches")
+    // A line-resolved row (`"N\ttext"`) anchors on its first hit line.
+    let line_anchor = file
+        .get("lines")
         .and_then(Value::as_array)
-        .and_then(|matches| matches.first())
-        .and_then(github_match_anchor);
+        .and_then(|lines| lines.first())
+        .and_then(Value::as_str)
+        .and_then(|line| line.split_once(crate::runtime::numbered::SEPARATOR))
+        .map(|(_, text)| text.trim())
+        .filter(|text| !text.is_empty() && text.chars().count() <= MAX_ANCHOR_LINE_CHARS)
+        .map(str::to_owned);
+    let anchor = line_anchor.or_else(|| {
+        file.get("matches")
+            .and_then(Value::as_array)
+            .and_then(|matches| matches.first())
+            .and_then(github_match_anchor)
+    });
     let anchored = anchor.is_some();
     if let Some(anchor) = anchor {
         query["matchString"] = json!(anchor);
@@ -2155,8 +2183,70 @@ type PageAssessment = (
     Option<Value>,
 );
 
+/// One provider usage summary: calls and reported tokens (each total only
+/// when every call reported it).
+fn usage_summary(records: &[Value]) -> Value {
+    let total = |key: &str| {
+        records
+            .iter()
+            .map(|record| record.get(key).and_then(Value::as_u64))
+            .sum::<Option<u64>>()
+    };
+    let mut usage = json!({"calls":records.len()});
+    if let Some(tokens) = total("input_tokens") {
+        usage["inputTokens"] = json!(tokens);
+    }
+    if let Some(tokens) = total("output_tokens") {
+        usage["outputTokens"] = json!(tokens);
+    }
+    usage
+}
+
+/// One matrix's output: compact by default; `debug:true` keeps every page's
+/// full answers and adds provider usage receipts (per page and per matrix).
 #[allow(clippy::too_many_arguments)]
 fn execute_query(
+    query: &Value,
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+    config: ProviderConfig<'_>,
+    budget: &crate::providers::RequestBudget,
+    gate: &GateLease,
+    reads: &ReadLimiter,
+) -> Result<(DomainResult, Vec<Value>), ExecutionError> {
+    let started = std::time::Instant::now();
+    let (mut result, usage) =
+        execute_query_verbose(query, dispatcher, execution, config, budget, gate, reads)?;
+    if query.get("debug").and_then(Value::as_bool) == Some(true) {
+        let mut summary = usage_summary(&usage);
+        summary["ms"] = json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
+        result.data["usage"] = summary;
+        return Ok((result, usage));
+    }
+    let locate_ids = query["questions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|question| clasify::questions::is_locate(&question["question"]))
+        .filter_map(|question| question["id"].as_str())
+        .collect::<Vec<_>>();
+    let single = match query["resources"].as_array().map(Vec::as_slice) {
+        Some([resource]) => resource["id"].as_str(),
+        _ => None,
+    };
+    super::clasify_compact::compact_query(
+        &mut result.data,
+        &super::clasify_compact::Matrix {
+            single_resource: single,
+            locate_ids: &locate_ids,
+            default_max_chars: MAX_RESOURCE_CHARS as u64,
+        },
+    );
+    Ok((result, usage))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_query_verbose(
     query: &Value,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
@@ -2372,12 +2462,14 @@ fn execute_query(
             continuation,
         } = captured_resource;
         let mut outcomes = Vec::with_capacity(pages.len());
+        let mut page_usage = Vec::with_capacity(pages.len());
         let resource_id = resource["id"].as_str().unwrap_or_default();
         for (page_index, mut page) in pages.into_iter().enumerate() {
             clasify_output::host_receipt(page_context_mut(&mut page), &dispatcher.paths);
             match page {
                 CapturedPage::Failed { error, context } => {
                     read_failures.push(error.failure);
+                    page_usage.push(None);
                     outcomes.push(PageOutcome::Failed {
                         error,
                         receipt: context,
@@ -2393,13 +2485,15 @@ fn execute_query(
                     if assessed_resource != resource_index || assessed_page != page_index {
                         return Err(ExecutionError::WorkerFailed);
                     }
-                    if let Some(usage) = usage {
-                        if let Some(calls) = usage.get("calls").and_then(Value::as_array) {
-                            usage_records.extend(calls.iter().cloned());
-                        } else {
-                            usage_records.push(usage);
-                        }
-                    }
+                    let records = match usage {
+                        Some(usage) => match usage.get("calls").and_then(Value::as_array) {
+                            Some(calls) => calls.clone(),
+                            None => vec![usage],
+                        },
+                        None => Vec::new(),
+                    };
+                    page_usage.push(Some(usage_summary(&records)));
+                    usage_records.extend(records);
                     if let Some(read) = clasify_output::read_template(&context) {
                         locate_reads.push(LocateRead {
                             resource_id: resource_id.to_owned(),
@@ -2432,12 +2526,19 @@ fn execute_query(
             pending["context"] = context;
             continuation_resources.push(pending);
         }
-        rendered.push(clasify_output::resource(
-            &resource["id"],
-            &question_ids,
-            outcomes,
-            has_continuation,
-        ));
+        let mut rendered_resource =
+            clasify_output::resource(&resource["id"], &question_ids, outcomes, has_continuation);
+        if query.get("debug").and_then(Value::as_bool) == Some(true)
+            && let Some(pages) = rendered_resource["pages"].as_array_mut()
+            && pages.len() == page_usage.len()
+        {
+            for (page, usage) in pages.iter_mut().zip(page_usage) {
+                if let Some(usage) = usage {
+                    page["usage"] = usage;
+                }
+            }
+        }
+        rendered.push(rendered_resource);
     }
     if assessments.next().is_some() {
         return Err(ExecutionError::WorkerFailed);
@@ -2683,6 +2784,10 @@ fn evaluate(
     record_usage: impl FnOnce(ClassificationUsage),
 ) -> Result<Vec<DomainResult>, ExecutionError> {
     let mut normalized_queries = queries.to_vec();
+    // Flat resources and `type`+`ask` questions run as their nested form.
+    normalized_queries
+        .iter_mut()
+        .for_each(clasify::aliases::canonicalize);
     normalize_ids(&mut normalized_queries);
     let queries = normalized_queries.as_slice();
     let budget = clasify::transport::budget(execution.deadline, execution.cancellation.clone());
@@ -2941,6 +3046,30 @@ mod tests {
             search_candidate_states(&tree, &state).is_none(),
             "tree entries are one discovery page, not code candidates"
         );
+    }
+
+    /// A repo-scoped page names owner/repo once (or only in the query, when
+    /// the echo was minimized) and lists numbered `lines`: each candidate
+    /// keeps its identity and reads from its first hit line.
+    #[test]
+    fn repo_scoped_code_pages_keep_candidate_identity_and_line_anchors() {
+        let state = json!({"results":[{"data":{"files":[
+            {"path":"a.rs","lines":["12\tfn alpha() {}","40\talpha();"]},
+            {"path":"b.rs","matches":[{"value":"beta"}],"lineResolved":false}
+        ]}}]});
+        let code =
+            json!({"tool":"ghSearchCode","query":{"owner":"o","repo":"r","keywords":["alpha"]}});
+        let candidates = search_candidate_states(&code, &state).expect("code candidates");
+        assert_eq!(candidates.len(), 2);
+        let first = &candidates[0]["results"][0]["data"]["files"][0];
+        assert_eq!(
+            (first["owner"].as_str(), first["repo"].as_str()),
+            (Some("o"), Some("r"))
+        );
+        let (read, anchored) = github_candidate_read(&candidates[0], 4000).expect("read");
+        assert!(anchored);
+        assert_eq!(read["query"]["matchString"], "fn alpha() {}", "{read}");
+        assert_eq!(read["query"]["owner"], "o");
     }
 
     #[test]

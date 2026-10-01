@@ -105,7 +105,8 @@ for (const p of PROJECTS) {
   const diagHint = rowData(dependents)?.next?.nextDiagnostics;
   if (diagHint) {
     const diagPage = await raw(diagHint.tool, diagHint.query);
-    const entries = collect(rowData(diagPage)?.coverage, o => typeof o.file === 'string' && typeof o.code === 'string');
+    // Identical code+message rows are grouped: `files` lists each `path[:line]`.
+    const entries = collect(rowData(diagPage)?.coverage, o => (typeof o.file === 'string' || Array.isArray(o.files)) && typeof o.code === 'string');
     check(`${p.lang}: next.nextDiagnostics returns diagnostic entries`, !diagPage.isError && entries.length > 0, `entries=${entries.length} pagination=${JSON.stringify(rowData(diagPage)?.coverage?.diagnosticsPagination ?? {})}`);
   }
   const dependencies = await topo(root, 'dependencies', { file: hub, depth: 1 });
@@ -166,7 +167,7 @@ for (const p of PROJECTS) {
       // Files whose imports the graph declares it cannot link (macro-generated
       // Rust paths) are disclosed gaps, not wrong edges.
       const diagPages = await walkPages(allDependents, 'nextDiagnostics', 60);
-      const diagnosed = new Set(diagPages.flatMap(pg => collect(rowData(pg)?.coverage, o => typeof o.file === 'string' && /macro|unsupported/.test(o.message ?? '')).map(o => o.file)));
+      const diagnosed = new Set(diagPages.flatMap(pg => collect(rowData(pg)?.coverage, o => (typeof o.file === 'string' || Array.isArray(o.files)) && /macro|unsupported/.test(o.message ?? '')).flatMap(o => o.files ? o.files.map(f => f.replace(/:\d+$/, '')) : [o.file])));
       const inRoot = refFiles.map(f => path.relative(root, f));
       const outside = inRoot.filter(f => !allowed.has(f) && !diagnosed.has(f) && f !== hub && !f.endsWith(path.basename(hub)));
       row.lsp = `${symbol.name}: ${refFiles.length} files, ${outside.length} outside graph`;

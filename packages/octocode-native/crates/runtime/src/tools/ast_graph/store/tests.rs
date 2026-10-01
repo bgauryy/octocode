@@ -1112,3 +1112,111 @@ fn plan_3_rust_module_path_calls_link() {
         );
     }
 }
+
+/// One engine, two front ends: the persisted `graph query` file answers and
+/// the astTopology analyses must name the same files on the same tree.
+fn topology(dir: &Path, query: Value) -> Value {
+    let mut row = query;
+    row["goal"] = json!("parity");
+    row["reasoning"] = json!("parity");
+    row["path"] = json!(dir.join("app"));
+    let query: crate::tools::ast_graph::AstTopologyQuery =
+        serde_json::from_value(row).expect("topology query");
+    crate::tools::ast_graph::execute_topology(
+        &query,
+        &policy(dir),
+        &ContentSecurity::new(),
+        &NeverCancel,
+    )
+    .expect("topology")
+}
+
+fn file_ids(out: &GraphOutput) -> std::collections::BTreeSet<String> {
+    ids(out)
+        .into_iter()
+        .filter(|id| !id.starts_with("pkg:") && !id.contains('#'))
+        .collect()
+}
+
+fn topology_files(out: &Value) -> std::collections::BTreeSet<String> {
+    out["results"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        // Re-export consumers are astTopology's addition over the edge walk,
+        // and the graph store models a Rust `mod` declaration as containment.
+        .filter(|row| row.get("reexportVia").is_none() && row["edgeKinds"] != json!(["rust-module"]))
+        .filter_map(|row| row["file"].as_str().map(str::to_owned))
+        .collect()
+}
+
+fn assert_parity(dir: &Path, from: &str, to: &str) {
+    assert_eq!(ingest_fixture(dir, None).exit, 0);
+    for (op, analysis, file) in [
+        ("deps", "dependencies", from),
+        ("dependents", "dependents", to),
+    ] {
+        let graph = ask(dir, op, Some(file), |_| {});
+        let topo = topology(dir, json!({"analysis":analysis,"file":file}));
+        assert!(!file_ids(&graph).is_empty(), "{op} {file}: {}", graph.value);
+        assert_eq!(
+            file_ids(&graph),
+            topology_files(&topo),
+            "{op} {file}: {} vs {topo}",
+            graph.value
+        );
+    }
+    let graph = ask(dir, "path", Some(from), |o| o.to = Some(to.into()));
+    let topo = topology(dir, json!({"analysis":"path","file":from,"target":to}));
+    let hops = graph.value["path"]
+        .as_array()
+        .expect("graph path")
+        .iter()
+        .map(|hop| hop["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(json!(hops), topo["results"][0]["files"], "{topo}");
+    let graph = ask(dir, "cycles", None, |_| {});
+    let topo = topology(dir, json!({"analysis":"cycles"}));
+    let graph_cycles = graph.value["results"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| row["nodes"].clone())
+        .collect::<Vec<_>>();
+    let topo_cycles = topo["results"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| row["files"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(graph_cycles, topo_cycles, "{} vs {topo}", graph.value);
+}
+
+#[test]
+fn graph_query_and_ast_topology_agree_on_typescript_files() {
+    let dir = fixture();
+    assert_parity(dir.path(), "src/main.ts", "src/lib.ts");
+}
+
+#[test]
+fn graph_query_and_ast_topology_agree_on_rust_files() {
+    let dir = tempfile::tempdir().expect("dir");
+    std::fs::create_dir_all(dir.path().join(".git")).expect("git");
+    write_all(
+        &dir.path().join("app"),
+        &[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+            ),
+            ("src/lib.rs", "pub mod a;\npub mod b;\npub mod api;\n"),
+            ("src/a.rs", "use crate::b::bee;\npub fn ay() { bee() }\n"),
+            ("src/b.rs", "use crate::a::ay;\npub fn bee() { ay() }\n"),
+            (
+                "src/api.rs",
+                "use crate::a::ay;\npub fn handle() { ay() }\n",
+            ),
+        ],
+    );
+    assert_parity(dir.path(), "src/api.rs", "src/a.rs");
+}

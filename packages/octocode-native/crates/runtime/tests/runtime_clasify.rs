@@ -46,6 +46,17 @@ fn filler(len: usize) -> String {
         .collect()
 }
 
+/// The full per-page receipt (`debug:true`): these tests inspect page
+/// internals (scopes, sources, runner-up matches) the default output compacts.
+fn verbose(mut input: serde_json::Value) -> serde_json::Value {
+    if let Some(queries) = input.get_mut("queries").and_then(serde_json::Value::as_array_mut) {
+        queries.iter_mut().for_each(|query| query["debug"] = json!(true));
+    } else if input.is_object() {
+        input["debug"] = json!(true);
+    }
+    input
+}
+
 fn query() -> serde_json::Value {
     json!({
         "id":"decision",
@@ -87,7 +98,7 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
     input["reasoning"] = json!("The next read depends on whether the file states the fact.");
     input["goal"] = json!("Files that state whether the evidence is present.");
     let outcome = runtime
-        .execute("semantic-reasoning".into(), "clasify".into(), input.clone())
+        .execute("semantic-reasoning".into(), "clasify".into(), verbose(input.clone()))
         .await
         .expect("required briefs reach the provider");
     assert_eq!(
@@ -119,7 +130,7 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
         let mut rejected = input.clone();
         rejected[field] = invalid;
         let error = runtime
-            .execute("semantic-reasoning".into(), "clasify".into(), rejected)
+            .execute("semantic-reasoning".into(), "clasify".into(), verbose(rejected))
             .await
             .expect_err("blank or missing briefs are rejected");
         assert_eq!(error.code, "invalidInput");
@@ -128,7 +139,7 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
         let mut missing = input.clone();
         missing.as_object_mut().unwrap().remove(field);
         let error = runtime
-            .execute("semantic-reasoning".into(), "clasify".into(), missing)
+            .execute("semantic-reasoning".into(), "clasify".into(), verbose(missing))
             .await
             .expect_err("missing briefs are rejected");
         assert_eq!(error.code, "invalidInput");
@@ -177,7 +188,7 @@ async fn provider_byte_limit_forwards_reasoning_and_isolates_oversized_questions
         .execute(
             "provider-byte-limit".into(),
             "clasify".into(),
-            json!({"queries":[trace, oversized, ordinary]}),
+            verbose(json!({"queries":[trace, oversized, ordinary]})),
         )
         .await
         .expect("one oversized provider request must not fail the matrix batch");
@@ -241,7 +252,7 @@ async fn public_identity_is_a_hard_cutover_and_missing_key_is_actionable() {
     );
 
     let error = runtime
-        .execute("missing-key".into(), "clasify".into(), query())
+        .execute("missing-key".into(), "clasify".into(), verbose(query()))
         .await
         .unwrap_err();
     assert_eq!(error.code, "missingConfiguration");
@@ -291,21 +302,16 @@ async fn matrix_is_resource_major_without_agent_telemetry_or_duplicate_text() {
     assert_eq!(queries[0]["queryId"], "decision");
     assert!(queries[0].get("model").is_none());
     assert!(queries[0].get("usage").is_none());
-    let resources = queries[0]["resources"].as_array().unwrap();
-    assert_eq!(resources.len(), 1);
-    assert_eq!(resources[0]["resourceId"], "observed");
+    // Default output: a supplied value is one plain page, so its answers sit
+    // on the resource; complete coverage is implied.
     assert_eq!(
-        resources[0]["coverage"], "complete",
+        queries[0]["resources"],
+        json!([{"resourceId":"observed","answers":{
+            "relevant":0.9,
+            "risk":{"score":0.75,"confidence":0.8,"probabilities":{"0":0.25,"1":0.75}}
+        }}]),
         "{}",
         outcome.structured_content
-    );
-    let pages = resources[0]["pages"].as_array().unwrap();
-    assert_eq!(pages.len(), 1);
-    assert_eq!(pages[0]["answers"]["relevant"], json!({"noul":0.9}));
-    assert_eq!(
-        pages[0]["answers"]["risk"],
-        json!({"score":0.75,"confidence":0.8,"probabilities":{"0":0.25,"1":0.75}}),
-        "no echoed legend or type"
     );
     let text = outcome.structured_content.to_string();
     for redundant in [
@@ -349,7 +355,7 @@ async fn independent_resource_assessments_are_dispatched_concurrently() {
     });
 
     let outcome = runtime
-        .execute("concurrent-resources".into(), "clasify".into(), input)
+        .execute("concurrent-resources".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     {
@@ -403,7 +409,7 @@ async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
-        .execute("bounded-resources".into(), "clasify".into(), input)
+        .execute("bounded-resources".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let arrivals = arrivals
@@ -473,7 +479,7 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
         .execute(
             "concurrent-matrices".into(),
             "clasify".into(),
-            json!({"queries":queries}),
+            verbose(json!({"queries":queries})),
         )
         .await
         .unwrap();
@@ -521,7 +527,7 @@ async fn oversized_first_page_is_not_classified_or_given_a_looping_continuation(
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
-        .execute("bounded".into(), "clasify".into(), input)
+        .execute("bounded".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
@@ -568,7 +574,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
-        .execute("recover-full-content".into(), "clasify".into(), input)
+        .execute("recover-full-content".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
@@ -621,7 +627,7 @@ async fn scout_expands_explicit_question_type_and_preserves_source_identity() {
         "questions":[{"id":"new","questionType":"addsEvidence","target":"Shutdown timing", "knownEvidence":["onClose runs after requests finish"]}]
     });
     let result = runtime
-        .execute("preset".into(), "clasify".into(), input)
+        .execute("preset".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let output = &result.structured_content["queries"][0];
@@ -695,7 +701,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
         "questions":[{"id":"relevant","questionType":"contribution","target":"line content"}]
     });
     let outcome = runtime
-        .execute("paged".into(), "clasify".into(), input)
+        .execute("paged".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let assess = outcome.structured_content["queries"][0]["next"]["clasify"].clone();
@@ -730,7 +736,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
             break;
         };
         let page = runtime
-            .execute("continue-preset".into(), "clasify".into(), query)
+            .execute("continue-preset".into(), "clasify".into(), verbose(query))
             .await
             .unwrap();
         let row = &page.structured_content["queries"][0];
@@ -775,7 +781,7 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let first = runtime
-        .execute("over-budget-first".into(), "clasify".into(), input)
+        .execute("over-budget-first".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let assess = first.structured_content["queries"][0]["next"]["clasify"].clone();
@@ -787,7 +793,7 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
     .expect("next.clasify must satisfy the public input contract");
 
     let resumed = runtime
-        .execute("over-budget-resume".into(), "clasify".into(), assess)
+        .execute("over-budget-resume".into(), "clasify".into(), verbose(assess))
         .await
         .expect("next.clasify must execute unchanged");
     let resumed_query = &resumed.structured_content["queries"][0];
@@ -816,7 +822,7 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
         }]
     });
     let error = runtime
-        .execute("bad-inner-query".into(), "clasify".into(), input)
+        .execute("bad-inner-query".into(), "clasify".into(), verbose(input))
         .await
         .expect_err("invalid delegated path must fail contract validation");
     assert_eq!(error.code, "invalidInput");
@@ -865,7 +871,7 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
-        .execute("search-page".into(), "clasify".into(), input)
+        .execute("search-page".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
@@ -953,7 +959,7 @@ async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let first = runtime
-        .execute("walk-1".into(), "clasify".into(), input)
+        .execute("walk-1".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     octocode_native::contracts::validate_output("clasify", &first.structured_content)
@@ -989,7 +995,7 @@ async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
         .map(|page| page["source"]["path"].clone())
         .collect::<Vec<_>>();
     let replay = runtime
-        .execute("walk-2".into(), "clasify".into(), next)
+        .execute("walk-2".into(), "clasify".into(), verbose(next))
         .await
         .expect("replayed next.clasify");
     octocode_native::contracts::validate_output("clasify", &replay.structured_content)
@@ -1053,7 +1059,7 @@ async fn file_chunk_scout_judges_every_hit_cluster_of_a_clipped_file() {
         "questions":[{"id":"decides","type":"noul","instructions":"Does this source decide the answer?"}]
     });
     let outcome = runtime
-        .execute("clusters".into(), "clasify".into(), input)
+        .execute("clusters".into(), "clasify".into(), verbose(input))
         .await
         .expect("cluster scout");
     let pages = outcome.structured_content["queries"][0]["resources"][0]["pages"]
@@ -1140,7 +1146,7 @@ async fn file_chunk_scout_judges_near_clusters_of_one_file_in_one_call() {
             "questions":[{"id":"decides","type":"noul","instructions":"Does this source decide the answer?"}]
         });
         let outcome = runtime
-            .execute("near".into(), "clasify".into(), input)
+            .execute("near".into(), "clasify".into(), verbose(input))
             .await
             .expect("near scout");
         let pages = outcome.structured_content["queries"][0]["resources"][0]["pages"]
@@ -1223,7 +1229,7 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
         }]
     });
     let outcome = runtime
-        .execute("hydrated-search".into(), "clasify".into(), input)
+        .execute("hydrated-search".into(), "clasify".into(), verbose(input))
         .await
         .expect("hydrated scout");
     let query = &outcome.structured_content["queries"][0];
@@ -1333,10 +1339,10 @@ async fn expanded_cells_fail_before_any_provider_request() {
         .execute(
             "expanded-cells".into(),
             "clasify".into(),
-            json!({
+            verbose(json!({
                 "id":"expanded-cells","reasoning":"Exercise the runtime expansion gate.","goal":"Decide the next read.",
                 "resources":[resource("a","a"),resource("b","b")],"questions":questions
-            }),
+            })),
         )
         .await
         .expect("structured expansion failure");
@@ -1384,7 +1390,7 @@ async fn empty_file_is_reported_without_a_provider_call() {
         "questions":[{"id":"q","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
-        .execute("empty".into(), "clasify".into(), input)
+        .execute("empty".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let resource = &outcome.structured_content["queries"][0]["resources"][0];
@@ -1425,7 +1431,7 @@ async fn empty_search_page_is_not_sent_to_the_provider() {
         "questions":[{"id":"q","type":"noul","instructions":"Does this page show a match?"}]
     });
     let outcome = runtime
-        .execute("empty-search".into(), "clasify".into(), input)
+        .execute("empty-search".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let resource = &outcome.structured_content["queries"][0]["resources"][0];
@@ -1478,7 +1484,7 @@ async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
         "questions":[{"id":"q","type":"noul","instructions":"Does this content show MARKER?"}]
     });
     let outcome = runtime
-        .execute("disjoint".into(), "clasify".into(), input)
+        .execute("disjoint".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
@@ -1530,7 +1536,7 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
         ]
     });
     let outcome = runtime
-        .execute("pure-scout".into(), "clasify".into(), input)
+        .execute("pure-scout".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
@@ -1633,7 +1639,7 @@ async fn snippet_continuations_visit_every_file_and_match_page_before_completing
     let mut coverages = Vec::new();
     for call in 0..10 {
         let outcome = runtime
-            .execute(format!("page-{call}"), "clasify".into(), input.clone())
+            .execute(format!("page-{call}"), "clasify".into(), verbose(input.clone()))
             .await
             .unwrap();
         let query = &outcome.structured_content["queries"][0];
@@ -1691,7 +1697,7 @@ async fn clasify_locate_preflight_returns_a_typed_error_without_capture_or_provi
         ]
     });
     let outcome = runtime
-        .execute("preflight".into(), "clasify".into(), input)
+        .execute("preflight".into(), "clasify".into(), verbose(input))
         .await
         .expect("typed rejection rather than WorkerFailed");
     let resources = outcome.structured_content["queries"][0]["resources"]
@@ -1739,11 +1745,11 @@ async fn a_repeated_matrix_replays_its_judgment_without_a_second_provider_reques
     input["questions"] =
         json!([{"id":"floor","type":"noul","instructions":"Is the retry floor stated?"}]);
     let first = runtime
-        .execute("replay-1".into(), "clasify".into(), input.clone())
+        .execute("replay-1".into(), "clasify".into(), verbose(input.clone()))
         .await
         .expect("first judgment");
     let second = runtime
-        .execute("replay-2".into(), "clasify".into(), input)
+        .execute("replay-2".into(), "clasify".into(), verbose(input))
         .await
         .expect("replayed judgment");
     let answer = |outcome: &octocode_native::runtime::ToolOutcome| {
@@ -1794,7 +1800,7 @@ async fn identical_pages_in_one_call_share_a_single_provider_request() {
         .execute(
             "dedupe".into(),
             "clasify".into(),
-            json!({"queries":[matrix("m1"), matrix("m2")]}),
+            verbose(json!({"queries":[matrix("m1"), matrix("m2")]})),
         )
         .await
         .unwrap();
@@ -1846,7 +1852,7 @@ async fn judgment_cache_ignores_correlation_ids_but_not_question_text() {
             .execute(
                 label.into(),
                 "clasify".into(),
-                input(question_id, instructions),
+                verbose(input(question_id, instructions)),
             )
             .await
             .unwrap();
@@ -1894,12 +1900,12 @@ async fn prefilter_window_is_centered_on_the_hit_not_aligned_to_a_bucket() {
         .execute(
             "prefilter".into(),
             "clasify".into(),
-            json!({
+            verbose(json!({
                 "id":"pf","reasoning":"Judge only the hit window.","goal":"Find the retry floor.",
                 "resources":[{"id":"f","prefilter":["RETRY_FLOOR_MS"],
                     "context":{"tool":"localFetch","query":{"path":file}}}],
                 "questions":[{"id":"q","type":"noul","instructions":"Is the retry floor defined?"}]
-            }),
+            })),
         )
         .await
         .unwrap();
@@ -1981,7 +1987,7 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
     };
 
     let first = runtime
-        .execute("walk-1".into(), "clasify".into(), input(None))
+        .execute("walk-1".into(), "clasify".into(), verbose(input(None)))
         .await
         .unwrap();
     let pages = judged(&first.structured_content);
@@ -2001,7 +2007,7 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
         "dropped hits need a continuation: {query}"
     );
     let resumed = runtime
-        .execute("walk-2".into(), "clasify".into(), resume)
+        .execute("walk-2".into(), "clasify".into(), verbose(resume))
         .await
         .expect("next.clasify must execute unchanged");
     let pages = judged(&resumed.structured_content);
@@ -2016,7 +2022,7 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
     // One maxChars budget spans every window: the second window waits for
     // the next call instead of each window getting its own full budget.
     let tight = runtime
-        .execute("walk-tight".into(), "clasify".into(), input(Some(20_000)))
+        .execute("walk-tight".into(), "clasify".into(), verbose(input(Some(20_000))))
         .await
         .unwrap();
     let pages = judged(&tight.structured_content);
@@ -2086,7 +2092,7 @@ async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated()
         ]
     });
     let first = runtime
-        .execute("partial-1".into(), "clasify".into(), input.clone())
+        .execute("partial-1".into(), "clasify".into(), verbose(input.clone()))
         .await
         .unwrap();
     let resources = &first.structured_content["queries"][0]["resources"];
@@ -2099,7 +2105,7 @@ async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated()
     );
     assert!(resources[1]["pages"][0]["answers"]["b"]["error"].is_object());
     let second = runtime
-        .execute("partial-2".into(), "clasify".into(), input)
+        .execute("partial-2".into(), "clasify".into(), verbose(input))
         .await
         .unwrap();
     let page = &second.structured_content["queries"][0]["resources"][1]["pages"][0];
@@ -2162,7 +2168,7 @@ async fn gh_search_code_resource_is_judged_without_a_context_contract_violation(
         "questions":[{"id":"relevant","type":"noul","instructions":"Does this acquire the semaphore?"}]
     });
     let outcome = runtime
-        .execute("gh-code".into(), "clasify".into(), input)
+        .execute("gh-code".into(), "clasify".into(), verbose(input))
         .await
         .expect("clasify");
     let rendered = outcome.structured_content.to_string();
@@ -2275,7 +2281,7 @@ async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
         "questions":[{"id":"t","questionType":"locate","target":"The function that returns one."}]
     });
     let outcome = runtime
-        .execute("locate-gh".into(), "clasify".into(), input)
+        .execute("locate-gh".into(), "clasify".into(), verbose(input))
         .await
         .expect("clasify");
     let output = &outcome.structured_content;
@@ -2333,7 +2339,7 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
         "questions":[{"id":"t","questionType":"locate","target":"Where is step_17 defined?"}]
     });
     let outcome = runtime
-        .execute("locate-literal".into(), "clasify".into(), input)
+        .execute("locate-literal".into(), "clasify".into(), verbose(input))
         .await
         .expect("clasify");
     let output = &outcome.structured_content;
@@ -2408,7 +2414,7 @@ async fn symbols_scout_judges_each_file_once_across_outline_pages() {
     let mut judged: Vec<(String, usize)> = Vec::new();
     for call in 0..6 {
         let outcome = runtime
-            .execute(format!("outline-{call}"), "clasify".into(), input.clone())
+            .execute(format!("outline-{call}"), "clasify".into(), verbose(input.clone()))
             .await
             .expect("clasify");
         let query = &outcome.structured_content["queries"][0];
@@ -2436,5 +2442,85 @@ async fn symbols_scout_judges_each_file_once_across_outline_pages() {
         .map(|(path, _)| path.as_str())
         .collect::<Vec<_>>();
     assert_eq!(files, ["src/a.rs", "src/b.rs", "src/c.rs"], "{judged:?}");
+    runtime.close().await;
+}
+
+/// The unified input (flat resources, `type`+`ask` questions) and the nested
+/// form send byte-identical provider requests; the default output is compact
+/// and `debug:true` returns the full receipt plus provider usage.
+#[tokio::test]
+async fn unified_and_nested_matrices_reach_the_provider_identically() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{
+                "answer_0":{"type":"noul","noul":0.8},
+                "answer_1":{"type":"choice","choice":"runtime","confidence":1.0,
+                    "probabilities":{"runtime":1.0,"test":0.0}}
+            },
+            "usage":{"input_tokens":7,"output_tokens":2}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("trace.txt", "Evidence is present.\n");
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let brief = json!({"id":"m","goal":"Decide whether the trace states the fact.","reasoning":"The next read depends on it."});
+    let mut nested = brief.clone();
+    nested["resources"] = json!([{"id":"src","context":{"tool":"localFetch","query":{"path":file,"fullContent":true}}}]);
+    nested["questions"] = json!([
+        {"id":"present","questionType":"contribution","target":"the fact"},
+        {"id":"kind","type":"choice","instructions":"Kind?","criteria":{"runtime":null,"test":null}}
+    ]);
+    let mut unified = brief.clone();
+    unified["resources"] = json!([{"id":"src","tool":"localFetch","query":{"path":file}}]);
+    unified["questions"] = json!([
+        {"id":"present","type":"relevant","ask":"the fact"},
+        {"id":"kind","type":"choice","ask":"Kind?","labels":{"runtime":null,"test":null}}
+    ]);
+    let old = runtime
+        .execute("nested".into(), "clasify".into(), nested)
+        .await
+        .expect("nested form stays valid");
+    let new = runtime
+        .execute("unified".into(), "clasify".into(), unified.clone())
+        .await
+        .expect("unified form is valid");
+    // The judgment cache keys on the provider state and question text, so the
+    // unified matrix replays the nested one's judgment: one provider request.
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    assert_eq!(old.structured_content, new.structured_content);
+    for outcome in [&old, &new] {
+        octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+            .expect("compact output contract");
+        assert_eq!(
+            outcome.structured_content["queries"][0]["resources"][0],
+            json!({"resourceId":"src","path":"trace.txt","totalLines":1,
+                "pages":[{"lines":[1,1],"answers":{"present":0.8,"kind":"runtime"}}]}),
+            "{}",
+            outcome.structured_content
+        );
+    }
+    unified["debug"] = json!(true);
+    unified["questions"][0]["ask"] = json!("the fact, judged again");
+    let debug = runtime
+        .execute("debug".into(), "clasify".into(), unified)
+        .await
+        .expect("debug is accepted");
+    let query = &debug.structured_content["queries"][0];
+    assert_eq!(query["usage"]["calls"], 1, "{query}");
+    assert_eq!(query["usage"]["inputTokens"], 7);
+    assert_eq!(query["usage"]["outputTokens"], 2);
+    assert!(query["usage"]["ms"].is_u64());
+    let page = &query["resources"][0]["pages"][0];
+    assert_eq!(page["usage"], json!({"calls":1,"inputTokens":7,"outputTokens":2}));
+    assert_eq!(page["answers"]["present"], json!({"noul":0.8}));
+    assert_eq!(page["answers"]["kind"]["probabilities"]["runtime"], 1.0);
     runtime.close().await;
 }

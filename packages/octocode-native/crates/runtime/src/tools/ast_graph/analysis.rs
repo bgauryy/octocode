@@ -121,7 +121,7 @@ pub(crate) fn analyze(
     .into_iter()
     .filter_map(|(present, reason)| present.then_some(reason))
     .collect::<Vec<_>>();
-    let diagnostics_changed = add_coverage(&mut base, b, q, &results_digest);
+    let coverage_state = add_coverage(&mut base, b, q, &results_digest);
     if !reasons.is_empty() {
         base.insert("truncated".into(), json!(true));
         base.insert("partialReasons".into(), json!(reasons));
@@ -132,7 +132,7 @@ pub(crate) fn analyze(
     if terminal {
         base.insert("terminalLimit".into(), json!(true));
     }
-    if diagnostics_changed {
+    if coverage_state.changed {
         base.insert(
             "next".into(),
             json!({"restartDiagnostics": restart_continuation(q)}),
@@ -144,7 +144,7 @@ pub(crate) fn analyze(
             &b.root,
             limit_truncated,
             b.truncated,
-            terminal,
+            coverage_state.withheld.as_deref(),
         );
     }
     let result_state = if base["pagination"]["hasMore"] == true {
@@ -169,7 +169,9 @@ pub(crate) fn analyze(
     };
     let diag_state = if base["coverage"]["diagnosticsPagination"]["terminalLimit"] == true {
         "truncated"
-    } else if base["coverage"]["diagnosticsPagination"]["hasMore"] == true {
+    } else if base["coverage"]["diagnosticsPagination"]["hasMore"] == true
+        || coverage_state.withheld.is_some()
+    {
         "pageable"
     } else {
         "complete"
@@ -205,6 +207,24 @@ fn traversal(
     let depth = q.depth().unwrap_or(1);
     let idoms = (depth > 1).then(|| dominators(&graph, &file));
     let mut items = traverse(&graph, &file, depth);
+    if q.analysis() == GraphAnalysis::Dependents {
+        let listed = items
+            .iter()
+            .filter_map(|item| item["file"].as_str().map(str::to_owned))
+            .collect::<BTreeSet<_>>();
+        for (importer, module) in reexport_dependents(b, &file) {
+            if importer == file || listed.contains(&importer) {
+                continue;
+            }
+            let kinds = b
+                .nodes
+                .get(&importer)
+                .and_then(|node| node.edges.get(&module))
+                .cloned()
+                .unwrap_or_default();
+            items.push(json!({"file":importer,"distance":1,"via":module,"reexportVia":module,"edgeKinds":kinds,"confidence":"syntactic"}));
+        }
+    }
     for item in &mut items {
         let Some(f) = item["file"].as_str().map(str::to_owned) else {
             continue;
@@ -235,6 +255,81 @@ fn traversal(
     }
     let summary = json!({"source":file,"depth":depth,"condensationComponentCount":c.components.len(),"topologicalLayerCount":c.layers.len(),"transitiveEdgeCount":trans.len()});
     Ok((items, summary, vec![], false))
+}
+
+/// Files that use `target`'s items through a module re-exporting them:
+/// `sync/mod.rs` has `pub use notify::Notify` and `sync/broadcast.rs` has
+/// `use super::Notify`. A module re-exports what it imports or re-exports
+/// from `target` (`export * from` and `pub use x::*` re-export every public
+/// name); an importer of that module counts only when it names one of those
+/// items, so importers of other items of a hub module are not dependents.
+/// Returns `(importer, re-exporting module)` pairs in file order.
+fn reexport_dependents(b: &BuiltGraph, target: &str) -> Vec<(String, String)> {
+    let public = || {
+        b.facts
+            .get(target)
+            .into_iter()
+            .flat_map(|facts| &facts.declarations)
+            .filter(|declaration| declaration.exported)
+            .flat_map(|declaration| declaration.public_names().iter().cloned())
+            .collect::<BTreeSet<_>>()
+    };
+    let mut modules = BTreeMap::<&str, BTreeSet<String>>::new();
+    for (module, facts) in &b.facts {
+        if module == target {
+            continue;
+        }
+        for import in facts
+            .imports
+            .iter()
+            .filter(|import| import.target.as_deref() == Some(target))
+        {
+            let names = modules.entry(module).or_default();
+            if import.imported_name == "*" {
+                names.extend(public());
+            } else if !import.imported_name.is_empty() {
+                names.insert(
+                    import
+                        .local_name
+                        .clone()
+                        .unwrap_or_else(|| import.imported_name.clone()),
+                );
+            }
+        }
+        for reexport in facts
+            .reexports
+            .iter()
+            .filter(|reexport| reexport.target.as_deref() == Some(target))
+        {
+            modules
+                .entry(module)
+                .or_default()
+                .insert(reexport.local_name.clone());
+        }
+    }
+    for module in b.star_reexporters.get(target).into_iter().flatten() {
+        if module != target {
+            modules.entry(module).or_default().extend(public());
+        }
+    }
+    let mut out = Vec::new();
+    for (importer, facts) in &b.facts {
+        if importer == target {
+            continue;
+        }
+        let module = facts.imports.iter().find_map(|import| {
+            let module = import.target.as_deref()?;
+            (module != importer.as_str()
+                && modules
+                    .get(module)
+                    .is_some_and(|names| names.contains(&import.imported_name)))
+            .then_some(module)
+        });
+        if let Some(module) = module {
+            out.push((importer.clone(), module.to_owned()));
+        }
+    }
+    out
 }
 
 fn path_analysis(
@@ -1227,16 +1322,26 @@ fn restart_continuation(q: &AstTopologyQuery) -> Value {
     json!({"tool":ToolId::AstTopology.as_str(),"query":query,"why":"Restart pagination from the current graph snapshot.","confidence":"exact"})
 }
 
+/// Coverage outcome of one response: whether the caller's diagnostic snapshot
+/// is stale, and the snapshot id of diagnostic rows withheld by the
+/// counts-only default (rows stay reachable through `next.nextDiagnostics`).
+struct CoverageState {
+    changed: bool,
+    withheld: Option<String>,
+}
+
 /// Attach coverage and diagnostics. The snapshot id binds both the diagnostic
 /// list and the full result list, so a replayed result or diagnostic page from
 /// a changed graph is rejected instead of silently mixing graph versions.
-/// Returns whether the caller's snapshot is stale.
+/// Diagnostic rows are returned only for an explicit `diagnosticPage`; the
+/// default carries `diagnosticCounts` and gap reasons, and rows with the same
+/// code and message are grouped into one row listing every `path[:line]`.
 fn add_coverage(
     base: &mut Map<String, Value>,
     b: &mut BuiltGraph,
     q: &AstTopologyQuery,
     results_digest: &str,
-) -> bool {
+) -> CoverageState {
     b.diagnostics.sort();
     b.diagnostics.dedup();
     let tuples = b
@@ -1262,21 +1367,40 @@ fn add_coverage(
         insert_snapshot_changed(base);
         base.insert("results".into(), json!([]));
         base.insert("coverage".into(), coverage);
-        return true;
+        return CoverageState {
+            changed: true,
+            withheld: None,
+        };
     }
+    if base["pagination"]["hasMore"] == true {
+        base["pagination"]["resultId"] = json!(id);
+    }
+    if !q.diagnostic_rows_requested() {
+        base.insert("coverage".into(), coverage);
+        return CoverageState {
+            changed: false,
+            withheld: (!b.diagnostics.is_empty()).then_some(id),
+        };
+    }
+    let groups = group_diagnostics(&b.diagnostics);
     let size = q
         .diagnostic_page_size()
         .clamp(1, super::topology_max("diagnosticPageSize")) as usize;
-    let pages = usize::max(1, b.diagnostics.len().div_ceil(size));
+    let pages = usize::max(1, groups.len().div_ceil(size));
     let current = (q.diagnostic_page().max(1) as usize).min(pages);
     let more = current < pages;
-    let ds = b
-        .diagnostics
-        .iter()
+    let ds = groups
+        .into_iter()
         .skip((current - 1) * size)
         .take(size)
         .collect::<Vec<_>>();
-    let mut diagnostics_pagination = json!({"currentPage":current,"totalPages":pages,"entriesPerPage":size,"totalEntries":b.diagnostics.len(),"hasMore":more,"resultId":id});
+    let total = b
+        .diagnostics
+        .iter()
+        .map(|d| (&d.code, &d.message))
+        .collect::<BTreeSet<_>>()
+        .len();
+    let mut diagnostics_pagination = json!({"currentPage":current,"totalPages":pages,"entriesPerPage":size,"totalEntries":total,"hasMore":more,"resultId":id});
     if q.diagnostic_page() as usize > pages {
         diagnostics_pagination["outOfRange"] = json!(true);
         let warning = format!(
@@ -1300,10 +1424,42 @@ fn add_coverage(
         coverage["diagnosticsPagination"] = diagnostics_pagination;
     }
     base.insert("coverage".into(), coverage);
-    if base["pagination"]["hasMore"] == true {
-        base["pagination"]["resultId"] = json!(id);
+    CoverageState {
+        changed: false,
+        withheld: None,
     }
-    false
+}
+
+/// One row per distinct code+message, in first-file order. A single
+/// occurrence keeps `file`/`line`; repeated ones list `files` as `path[:line]`.
+fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<Value> {
+    let mut order = Vec::<(&str, &str)>::new();
+    let mut members = BTreeMap::<(&str, &str), Vec<&Diagnostic>>::new();
+    for d in diagnostics {
+        let key = (d.code.as_str(), d.message.as_str());
+        let list = members.entry(key).or_default();
+        if list.is_empty() {
+            order.push(key);
+        }
+        list.push(d);
+    }
+    order
+        .into_iter()
+        .map(|key| match members[&key].as_slice() {
+            [single] => json!(single),
+            many => json!({
+                "code": key.0,
+                "message": key.1,
+                "files": many
+                    .iter()
+                    .map(|d| match d.line {
+                        Some(line) => format!("{}:{line}", d.file),
+                        None => d.file.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        })
+        .collect()
 }
 fn add_next(
     base: &mut Map<String, Value>,
@@ -1311,7 +1467,7 @@ fn add_next(
     root: &Path,
     limit_truncated: bool,
     scan_truncated: bool,
-    _terminal: bool,
+    withheld_diagnostics: Option<&str>,
 ) {
     let mut next = Map::new();
     if base["pagination"]["hasMore"] == true && q.page() < 1000 {
@@ -1330,6 +1486,16 @@ fn add_next(
             value["query"]["diagnosticSnapshot"] = snapshot.clone();
         }
         next.insert("nextPage".into(), value);
+    }
+    if let Some(snapshot) = withheld_diagnostics {
+        let mut value = clean_query(q);
+        value["diagnosticPage"] = json!(1);
+        value["diagnosticPageSize"] = json!(q.diagnostic_page_size());
+        value["diagnosticSnapshot"] = json!(snapshot);
+        next.insert(
+            "nextDiagnostics".into(),
+            json!({"tool":ToolId::AstTopology.as_str(),"query":value,"why":"Coverage diagnostic rows behind diagnosticCounts.","confidence":"exact"}),
+        );
     }
     if base["coverage"]["diagnosticsPagination"]["hasMore"] == true && q.diagnostic_page() < 1000 {
         let mut value = clean_query(q);
@@ -1372,10 +1538,7 @@ fn add_next(
         let mut value = clean_query(q);
         value["limit"] = json!((limit * 2).max(limit + 1).min(max_limit));
         value["page"] = json!(1);
-        value["diagnosticPage"] = json!(1);
-        if let Some(query) = value.as_object_mut() {
-            query.remove("diagnosticSnapshot");
-        }
+        restart_diagnostic_rows(&mut value, q);
         next.insert("expandLimit".into(),json!({"tool":ToolId::AstTopology.as_str(),"query":value,"why":"Re-run with a larger result limit because additional graph results exist.","confidence":"exact"}));
     }
     if q.analysis() == GraphAnalysis::DeadCode
@@ -1404,6 +1567,18 @@ fn clean_query(q: &AstTopologyQuery) -> Value {
     }
     v
 }
+/// A re-run over a new graph restarts diagnostic paging: rows stay requested
+/// only when this query requested them, and the old snapshot is dropped.
+fn restart_diagnostic_rows(query: &mut Value, q: &AstTopologyQuery) {
+    if let Some(fields) = query.as_object_mut() {
+        fields.remove("diagnosticSnapshot");
+        if q.diagnostic_rows_requested() {
+            fields.insert("diagnosticPage".into(), json!(1));
+        } else {
+            fields.remove("diagnosticPage");
+        }
+    }
+}
 fn continuation(q: &AstTopologyQuery, page: Option<u32>, max: Option<u32>, why: &str) -> Value {
     let mut v = clean_query(q);
     if let Some(x) = page {
@@ -1411,10 +1586,7 @@ fn continuation(q: &AstTopologyQuery, page: Option<u32>, max: Option<u32>, why: 
     }
     if let Some(x) = max {
         v["maxFiles"] = json!(x);
-        if let Some(query) = v.as_object_mut() {
-            query.remove("diagnosticSnapshot");
-        }
-        v["diagnosticPage"] = json!(1)
+        restart_diagnostic_rows(&mut v, q);
     }
     json!({"tool":ToolId::AstTopology.as_str(),"query":v,"why":why,"confidence":"exact"})
 }
@@ -1737,7 +1909,7 @@ mod tests {
         .cloned()
         .expect("result object");
 
-        add_next(&mut result, &query, Path::new("/repo"), false, false, false);
+        add_next(&mut result, &query, Path::new("/repo"), false, false, None);
 
         assert_eq!(result["next"]["nextDiagnostics"]["tool"], "astTopology");
         assert!(
@@ -1748,6 +1920,47 @@ mod tests {
         assert_eq!(
             result["next"]["nextDiagnostics"]["query"]["diagnosticSnapshot"],
             "diagnostic-snapshot"
+        );
+
+        // Counts-only default: withheld rows are offered from page 1 of the
+        // same snapshot.
+        let mut counts_only = json!({"pagination":{"hasMore":false},"coverage":{},"results":[]})
+            .as_object()
+            .cloned()
+            .expect("result object");
+        add_next(
+            &mut counts_only,
+            &query,
+            Path::new("/repo"),
+            false,
+            false,
+            Some("withheld-snapshot"),
+        );
+        let offered = &counts_only["next"]["nextDiagnostics"]["query"];
+        assert_eq!(offered["diagnosticPage"], 1);
+        assert_eq!(offered["diagnosticPageSize"], 2);
+        assert_eq!(offered["diagnosticSnapshot"], "withheld-snapshot");
+    }
+
+    #[test]
+    fn identical_diagnostics_group_into_one_row_with_their_files() {
+        let diagnostic = |file: &str, line: Option<u32>, message: &str| Diagnostic {
+            file: file.into(),
+            line,
+            code: "unsupported-linking".into(),
+            message: message.into(),
+        };
+        let rows = group_diagnostics(&[
+            diagnostic("a.rs", Some(3), "macro"),
+            diagnostic("b.rs", None, "macro"),
+            diagnostic("c.rs", Some(9), "other"),
+        ]);
+        assert_eq!(
+            rows,
+            vec![
+                json!({"code":"unsupported-linking","message":"macro","files":["a.rs:3","b.rs"]}),
+                json!({"file":"c.rs","line":9,"code":"unsupported-linking","message":"other"}),
+            ]
         );
     }
 

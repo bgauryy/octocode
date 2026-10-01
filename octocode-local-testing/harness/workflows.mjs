@@ -2,14 +2,14 @@
 // continuation hygiene: each `next.*` met along the way must execute.
 import fs from 'node:fs';
 import path from 'node:path';
-import { FIXTURES, ROOT, checks, collect, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { FIXTURES, ROOT, checks, collect, nextHints, rowData, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('workflows');
 const client = await startServer();
 const { call, raw } = client;
 const NATIVE = path.join(ROOT, 'packages/octocode-native');
 const LSP = path.join(FIXTURES, 'lsp');
-const locations = e => (rowData(e)?.payload?.locations ?? []).map(l => path.resolve(e.sc?.base ?? '/', l.path));
+const locations = e => lspLocations(e).map(l => path.resolve(e.sc?.base ?? '/', l.path));
 const callers = e => (rowData(e)?.payload?.items ?? []).map(i => `${i.from?.name}@${path.basename(i.from?.path ?? '')}`);
 
 // F1 — TS/JS importers from the declaration side (inferred project, CommonJS alias).

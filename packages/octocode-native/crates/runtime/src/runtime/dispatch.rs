@@ -285,7 +285,7 @@ pub(super) fn provider_failure(
 /// not-found (like a GitHub 404), not an execution failure; every other
 /// domain error stays an execution failure.
 fn error_failure(code: &str) -> FailureKind {
-    if matches!(code, "notFound" | "lsp.anchorUnresolved")
+    if matches!(code, "notFound" | "versionNotFound" | "lsp.anchorUnresolved")
         || super::response::is_not_found_code(code)
     {
         FailureKind::NotFound
@@ -306,6 +306,7 @@ mod provider_failure_tests {
         );
         assert_eq!(error_failure("pathNotFound"), FailureKind::NotFound);
         assert_eq!(error_failure("notFound"), FailureKind::NotFound);
+        assert_eq!(error_failure("versionNotFound"), FailureKind::NotFound);
         assert_eq!(error_failure("fileAccessFailed"), FailureKind::Execution);
     }
 

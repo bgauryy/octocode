@@ -158,6 +158,11 @@ impl AstTopologyQuery {
     pub fn diagnostic_page(&self) -> u32 {
         every_analysis!(self, diagnostic_page => diagnostic_page.map_or(1, u32_of))
     }
+    /// Coverage diagnostic rows are returned only when the caller asks for a
+    /// diagnostic page (`next.nextDiagnostics`); the default carries counts.
+    pub fn diagnostic_rows_requested(&self) -> bool {
+        every_analysis!(self, diagnostic_page => diagnostic_page.is_some())
+    }
     pub fn diagnostic_page_size(&self) -> u32 {
         every_analysis!(self, diagnostic_page_size => u32_of(*diagnostic_page_size))
     }

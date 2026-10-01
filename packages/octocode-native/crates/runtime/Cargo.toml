@@ -41,6 +41,8 @@ hex = { workspace = true }
 ignore = "0.4"
 # PR changed-file `fileFilter.paths` globs (already in the tree via `ignore`).
 globset = "0.4"
+# artifactSearch `version` ranges (already in the lockfile via the toolchain crates).
+semver = "1"
 octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
 octocode-github = { path = "../github" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }

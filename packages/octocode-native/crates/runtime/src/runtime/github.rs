@@ -304,7 +304,13 @@ impl GitHubServices {
         security: &ContentSecurity,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
-        let raw_query = query;
+        // Recovery queries echo the caller's row, never the runtime-only
+        // patch-budget key.
+        let mut raw_query = query.clone();
+        if let Some(fields) = raw_query.as_object_mut() {
+            fields.remove(gh_get_history_item::PATCH_ROWS_KEY);
+        }
+        let raw_query = &raw_query;
         let mut query = match gh_get_history_item::HistoryItemRequest::from_row(query.clone()) {
             Ok(query) => query,
             Err(error) => return Ok(super::dispatch::invalid_query(&error)),
@@ -407,11 +413,15 @@ impl GitHubServices {
         security: &ContentSecurity,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
-        let query: gh_search_history::GhSearchHistoryQuery =
-            match super::dispatch::parse_query(query.clone()) {
-                Ok(query) => query,
-                Err(row) => return Ok(*row),
-            };
+        let mut row = query.clone();
+        if let Err(error) = gh_search_history::normalize_row(&mut row) {
+            return Ok(history_error(error, true));
+        }
+        let query: gh_search_history::GhSearchHistoryQuery = match super::dispatch::parse_query(row)
+        {
+            Ok(query) => query,
+            Err(row) => return Ok(*row),
+        };
         // History search results are mutable; bypass ConditionalCache intentionally.
         // See gh_search_history module-level doc for the full rationale.
         let result =
@@ -450,33 +460,9 @@ impl GitHubServices {
                 FailureKind::Execution,
             ));
         }
-        let metadata = if query.branch.is_none() {
-            match self
-                .provider
-                .transport
-                .repository_metadata(&query.owner, &query.repo, request_context)
-                .await
-            {
-                Ok(value) => Some(value),
-                // A missing repository must be reported as such; proceeding
-                // without metadata would surface the internal-sounding
-                // clone.defaultBranchUnavailable failure instead.
-                Err(error) if error.kind == ProviderErrorKind::NotFound => {
-                    let error = gh_clone_repo::repository_not_found(&query);
-                    return Ok(DomainResult::failure(
-                        error.code,
-                        error.message,
-                        error.hints,
-                        None,
-                        FailureKind::NotFound,
-                    ));
-                }
-                Err(error) => return Ok(provider_error(error)),
-            }
-        } else {
-            None
-        };
-        let default_branch = metadata.as_ref().map(|value| value.default_branch.as_str());
+        // No GitHub API call on the happy path: a cache hit (including an
+        // unbranched one, via the default-branch alias) and a fresh clone
+        // (git resolves the remote HEAD) both run on git alone.
         // CloneConfig treats cache_home as the octocode home and derives
         // tmp/clone, tmp/clone-locks, tmp/clone-tmp, and tmp/git-home itself.
         let config = CloneConfig::persistent(self.home.clone()).with_limits(&self.clone_limits);
@@ -485,25 +471,47 @@ impl GitHubServices {
             config: &config,
             endpoint: self.provider.transport.endpoint(),
             credential: request_context.resolved_credential(),
-            resolved_default_branch: default_branch.or(query.branch.as_deref()),
+            resolved_default_branch: None,
             cancellation: context,
             deadline: context.deadline,
             path_policy: paths,
             git: &git,
         };
-        match gh_clone_repo::execute_clone(&query, &clone_context) {
-            Ok(result) => Ok(DomainResult::payload(
-                serde_json::to_value(result).map_err(|_| ExecutionError::WorkerFailed)?,
-                None,
-            )),
-            Err(error) => Ok(DomainResult::failure(
-                error.code,
-                error.message,
-                error.hints,
-                None,
-                FailureKind::Execution,
-            )),
+        let error = match gh_clone_repo::execute_clone(&query, &clone_context) {
+            Ok(result) => {
+                return Ok(DomainResult::payload(
+                    serde_json::to_value(result).map_err(|_| ExecutionError::WorkerFailed)?,
+                    None,
+                ));
+            }
+            Err(error) => error,
+        };
+        // Git failed: only now ask the API whether the repository exists, so a
+        // missing, private, or hidden repository is named as such instead of
+        // a raw git error.
+        if error.code == "clone.git.failed" {
+            let api = self
+                .provider
+                .transport
+                .repository_metadata(&query.owner, &query.repo, request_context)
+                .await
+                .err();
+            if let Some(result) = classify_clone_git_failure(&query, api) {
+                return Ok(result);
+            }
         }
+        let kind = if error.code == "clone.sparsePath.notFound" {
+            FailureKind::NotFound
+        } else {
+            FailureKind::Execution
+        };
+        Ok(DomainResult::failure(
+            error.code,
+            error.message,
+            error.hints,
+            None,
+            kind,
+        ))
     }
 
     async fn execute_file_resolved(
@@ -1128,9 +1136,61 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
     row
 }
 
+/// After git failed, the repository metadata answer explains why: a missing,
+/// private, or hidden repository is named as such, and an API failure
+/// (auth, rate limit, outage) keeps its typed provider error. When the
+/// repository exists (`None`), the git error stands.
+fn classify_clone_git_failure(
+    query: &gh_clone_repo::GhCloneRepoQuery,
+    api: Option<crate::providers::github::ProviderError>,
+) -> Option<DomainResult> {
+    let api = api?;
+    if api.kind == ProviderErrorKind::NotFound {
+        let missing = gh_clone_repo::repository_not_found(query);
+        return Some(DomainResult::failure(
+            missing.code,
+            missing.message,
+            missing.hints,
+            None,
+            FailureKind::NotFound,
+        ));
+    }
+    Some(provider_error(api))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ghCloneRepo S2: the metadata API runs only after git failed, and its
+    /// answer decides the error class.
+    #[test]
+    fn clone_git_failures_are_classified_by_the_metadata_answer() {
+        let query: gh_clone_repo::GhCloneRepoQuery = serde_json::from_value(
+            json!({"owner":"ghost","repo":"nope","goal":"g","reasoning":"r"}),
+        )
+        .expect("query");
+        assert!(
+            classify_clone_git_failure(&query, None).is_none(),
+            "an existing repository keeps the git error"
+        );
+        let missing = classify_clone_git_failure(
+            &query,
+            Some(ProviderError::new(ProviderErrorKind::NotFound, "Not Found")),
+        )
+        .expect("classified");
+        assert_eq!(missing.data["errorCode"], "clone.repositoryNotFound");
+        assert_eq!(missing.failure, Some(FailureKind::NotFound));
+        let limited = classify_clone_git_failure(
+            &query,
+            Some(ProviderError::new(
+                ProviderErrorKind::RateLimited,
+                "slow down",
+            )),
+        )
+        .expect("classified");
+        assert_eq!(limited.data["errorCode"], "rateLimited", "{}", limited.data);
+    }
 
     #[test]
     fn authentication_errors_explain_canonical_login_and_environment_precedence() {

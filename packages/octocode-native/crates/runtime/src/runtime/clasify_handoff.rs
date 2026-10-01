@@ -38,7 +38,8 @@ pub(super) fn row_queries<'a>(queries: &'a [Value], rejected: &[usize]) -> Vec<O
 }
 
 pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Value>]) {
-    if !crate::tools::clasify::is_candidate_search_tool(tool) {
+    let search = crate::tools::clasify::is_candidate_search_tool(tool);
+    if !search && !crate::tools::clasify::is_file_read_tool(tool) {
         return;
     }
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
@@ -56,6 +57,21 @@ pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Valu
         let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
             continue;
         };
+        if !search {
+            let offer = large_read_handoff(tool, query, data);
+            if let Some(offer) = offer
+                && data
+                    .get("next")
+                    .is_none_or(|next| next.get(ToolId::Clasify.as_str()).is_none())
+                && let Some(next) = data
+                    .entry("next")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+            {
+                next.insert(ToolId::Clasify.as_str().into(), offer);
+            }
+            continue;
+        }
         if let Some(request) = request(tool, query, data) {
             let next = data.entry("next").or_insert_with(|| json!({}));
             if let Some(next) = next.as_object_mut() {
@@ -66,6 +82,77 @@ pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Valu
             }
         }
     }
+}
+
+/// Lines a file must have before a paged read without `matchString` offers a
+/// clasify locate instead of the next page.
+const LARGE_READ_LINES: u64 = 2_000;
+
+/// `next.clasify` for one file-read row (`localFetch` / `ghGetFileContent`):
+/// a read of a file of at least [`LARGE_READ_LINES`] lines that stopped
+/// before its end (more pages, or a partial row) and has no `matchString`.
+/// The read's goal becomes the locate target; the matrix uses the unified
+/// input shape and reads the whole file. Reads that select a range, a match,
+/// or a transformed view are already targeted and get nothing. The caller
+/// (the file-read tool's `next` builder) inserts the returned continuation;
+/// the cross-tool `next` filter drops it when clasify is unavailable.
+fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value> {
+    if !crate::tools::clasify::is_file_read_tool(tool) {
+        return None;
+    }
+    if ["matchString", "startLine", "endLine"]
+        .iter()
+        .any(|key| query.get(*key).is_some())
+        || query
+            .get("minify")
+            .and_then(Value::as_str)
+            .is_some_and(|minify| minify != "none")
+    {
+        return None;
+    }
+    let total = data
+        .get("totalLines")
+        .or_else(|| {
+            data.get("pagination")
+                .and_then(|page| page.get("totalLines"))
+        })
+        .and_then(Value::as_u64)?;
+    let paged = data.get("pagination").and_then(|page| page.get("hasMore"))
+        == Some(&Value::Bool(true))
+        || data.get("isPartial") == Some(&Value::Bool(true));
+    if total < LARGE_READ_LINES || !paged {
+        return None;
+    }
+    let goal_chars =
+        crate::contracts::query_schema_number(ToolId::Clasify, None, "goal", "maxLength")
+            .and_then(|length| usize::try_from(length).ok())
+            .unwrap_or(usize::MAX);
+    let goal: String = query
+        .get("goal")?
+        .as_str()?
+        .chars()
+        .take(goal_chars)
+        .collect();
+    if goal.trim().is_empty() {
+        return None;
+    }
+    let mut read = Map::new();
+    for key in ["path", "owner", "repo", "branch"] {
+        if let Some(value) = query.get(key) {
+            read.insert(key.into(), value.clone());
+        }
+    }
+    read.get("path")?;
+    Some(json!({
+        "tool": ToolId::Clasify.as_str(),
+        "confidence": "medium",
+        "query": {
+            "goal": goal,
+            "reasoning": "Locate the deciding lines of this large file before reading more pages.",
+            "resources": [{"id": "file", "tool": tool, "query": Value::Object(read)}],
+            "questions": [{"id": "target", "type": "locate", "ask": goal}],
+        },
+    }))
 }
 
 /// Whether a search term already names what it wants, so its hits are the
@@ -181,6 +268,75 @@ fn request(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paged_read_of_a_large_file_without_match_string_offers_locate() {
+        let query =
+            json!({"path":"src/server.c","goal":"find the housekeeping timer","reasoning":"r"});
+        let paged = json!({"totalLines":8615,"pagination":{"chunkType":"bytes","offset":0,"chunkSize":20000,"hasMore":true}});
+        let offer =
+            large_read_handoff("localFetch", &query, paged.as_object().unwrap()).expect("offer");
+        assert_eq!(
+            offer["query"],
+            json!({
+                "goal":"find the housekeeping timer",
+                "reasoning":"Locate the deciding lines of this large file before reading more pages.",
+                "resources":[{"id":"file","tool":"localFetch","query":{"path":"src/server.c"}}],
+                "questions":[{"id":"target","type":"locate","ask":"find the housekeeping timer"}]
+            })
+        );
+        let prepared = crate::contracts::prepare_many_and_validate(
+            "clasify",
+            offer["query"].clone(),
+            crate::contracts::PrepareOptions::default(),
+        )
+        .expect("the offer validates");
+        let mut nested = prepared[0].clone();
+        crate::tools::clasify::aliases::canonicalize(&mut nested);
+        assert_eq!(
+            nested["resources"][0]["context"]["query"]["fullContent"],
+            true
+        );
+        let gh = json!({"owner":"o","repo":"r","path":"a.go","branch":"main","goal":"g","reasoning":"r"});
+        let partial = json!({"totalLines":2000,"isPartial":true});
+        assert!(
+            large_read_handoff("ghGetFileContent", &gh, partial.as_object().unwrap()).is_some()
+        );
+        // Small, complete, targeted, transformed, or non-file reads get nothing.
+        for (tool, query, data) in [
+            (
+                "localFetch",
+                query.clone(),
+                json!({"totalLines":1999,"pagination":{"hasMore":true}}),
+            ),
+            (
+                "localFetch",
+                query.clone(),
+                json!({"totalLines":8615,"pagination":{"hasMore":false}}),
+            ),
+            (
+                "localFetch",
+                json!({"path":"a","goal":"g","matchString":"cron"}),
+                paged.clone(),
+            ),
+            (
+                "localFetch",
+                json!({"path":"a","goal":"g","startLine":1,"endLine":50}),
+                paged.clone(),
+            ),
+            (
+                "localFetch",
+                json!({"path":"a","goal":"g","minify":"symbols"}),
+                paged.clone(),
+            ),
+            ("localSearch", query.clone(), paged.clone()),
+        ] {
+            assert!(
+                large_read_handoff(tool, &query, data.as_object().unwrap()).is_none(),
+                "{query}"
+            );
+        }
+    }
 
     fn run(structured: &mut Value, tool: &str, queries: &[Value]) {
         let by_row = row_queries(queries, &[]);

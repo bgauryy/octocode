@@ -2,7 +2,7 @@
 // full pagination, and cross-tool correlation (text ⊇ syntax ⊇ identity).
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, nextHints, rowData, sourcePath, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, checks, collect, nextHints, rowData, sourcePath, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('repo-sweep');
 const client = await startServer();
@@ -129,7 +129,7 @@ for (const r of REPOS_BY_LANG) {
     check(`${r.lang}: lspSearch definition from a call site = an astSearch declaration${explainedNoDatabase ? ' (clangd: no compile database, explained)' : ''}`, lands || explainedNoDatabase, row.lspDefinition);
     const refs = await call('lspSearch', { uri: L, symbolName: S.name, lineHint: S.line, operation: 'references', pageSize: 100 });
     const refPages = await walk(refs, 'nextPage', 50);
-    const refFiles = [...new Set(refPages.flatMap(p => (rowData(p)?.payload?.locations ?? []).map(o => sourcePath(p, o, L))))];
+    const refFiles = [...new Set(refPages.flatMap(p => lspLocations(p).map(o => sourcePath(p, o, L))))];
     const outside = refFiles.filter(f => !textFiles.includes(f));
     row.lspRefs = `${refFiles.length} files`;
     check(`${r.lang}: LSP reference files ⊆ text hits`, !refs.isError && outside.length === 0, `outside=${outside.slice(0, 2).join(',')}`);

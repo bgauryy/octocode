@@ -1,5 +1,6 @@
 //! Vendor-agnostic single-question classification: preflight validation,
 //! provider request building, HTTP dispatch, and answer projection.
+pub(crate) mod aliases;
 pub(crate) mod batch;
 pub(crate) mod cache;
 pub(crate) mod questions;
@@ -55,9 +56,33 @@ pub(crate) fn is_file_read_tool(tool: &str) -> bool {
     in_policy(tool, clasify_policy::FILE_READ_TOOLS)
 }
 
-/// Contract `candidateEvidence` enum (generated wire type).
-pub(crate) type CandidateEvidence =
-    crate::contracts::tool_types::ClasifyInputVariant0ResourcesItemContextVariant1CandidateEvidence;
+/// Contract `candidateEvidence` enum (`search` | `fileChunks`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CandidateEvidence {
+    Search,
+    FileChunks,
+}
+
+impl std::fmt::Display for CandidateEvidence {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Search => "search",
+            Self::FileChunks => "fileChunks",
+        })
+    }
+}
+
+impl std::str::FromStr for CandidateEvidence {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "search" => Ok(Self::Search),
+            "fileChunks" => Ok(Self::FileChunks),
+            _ => Err(()),
+        }
+    }
+}
 
 /// A resource context's parsed `candidateEvidence`, when present and known.
 pub(crate) fn candidate_evidence(context: &Value) -> Option<CandidateEvidence> {

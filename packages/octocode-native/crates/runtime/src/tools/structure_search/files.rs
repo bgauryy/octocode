@@ -87,11 +87,24 @@ pub fn execute_files(
     let access = access.as_deref();
     // Leave out what the tree and localSearch leave out: `.gitignore`d
     // entries, pruned during the walk. `defaultExcludes:false` walks them too.
-    let gitignore = q
-        .default_excludes
-        .defaults()
+    let gitignore = (q.default_excludes.defaults() && q.no_ignore != Some(true))
         .then(|| crate::policy::gitignore::GitignoreFilter::new(&validated.canonical));
     let ignored = std::sync::atomic::AtomicUsize::new(0);
+    let detail = q.detail();
+    let sort = q.sort();
+    let requested = q
+        .limit()
+        .unwrap_or_else(super::max_walk)
+        .min(super::max_walk()) as usize;
+    // Path order is the walk order (name-sorted, depth-first), so the first
+    // `limit` matches are final once found: stop the walk there. Other sorts
+    // rank the whole walk.
+    let early_exit = sort == "path";
+    let walk_limit = if early_exit {
+        requested as u32
+    } else {
+        super::max_walk()
+    };
     let native = octocode_engine::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
@@ -119,7 +132,7 @@ pub fn execute_files(
                 PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults()),
             ),
             stop_at_limit: Some(true),
-            limit: Some(super::max_walk()),
+            limit: Some(walk_limit),
         },
         &|path| {
             if gitignore
@@ -135,8 +148,6 @@ pub fn execute_files(
     .map_err(super::walk_error)?;
     cancel.check().map_err(super::cancelled)?;
     let mut warnings = walk_warnings(native.skipped, native.permission_denied);
-    let detail = q.detail();
-    let sort = q.sort();
     let count_lines = detail == "full" || sort == "lines";
     let mut rows = native
         .entries
@@ -155,10 +166,6 @@ pub fn execute_files(
         .collect::<Result<Vec<_>, super::StructureError>>()?;
     sort_rows(&mut rows, &sort);
     let available = rows.len();
-    let requested = q
-        .limit()
-        .unwrap_or_else(super::max_walk)
-        .min(super::max_walk()) as usize;
     rows.truncate(requested);
     let total = rows.len();
     // Snapshot fingerprint over the query shape plus the ordered result set, so
@@ -199,8 +206,13 @@ pub fn execute_files(
         .collect::<Vec<_>>();
     let out_of_range = total > 0 && start >= total;
     let has_more = page < total_pages;
-    let limit_cut = available > total;
-    let scan_cut = native.was_capped;
+    // An early-exit walk that found one more match than the limit has more;
+    // only a full walk knows the total.
+    let (limit_cut, scan_cut) = if early_exit {
+        (native.was_capped, false)
+    } else {
+        (available > total, native.was_capped)
+    };
     let can_expand = limit_cut && requested < super::max_walk() as usize;
     let terminal = (has_more && page >= 1000) || ((limit_cut || scan_cut) && !can_expand);
     let mut out = json!({"path":super::display_name(&validated.canonical),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":total_pages,"filesPerPage":page_size,"totalFiles":total,"hasMore":has_more}});
@@ -230,9 +242,14 @@ pub fn execute_files(
         }
         out["truncated"] = json!(true);
         out["partialReasons"] = json!(reasons);
-        out["totalAvailable"] = json!(usize::max(native.total_discovered as usize, available));
+        if early_exit {
+            out["atLeast"] = json!(total + 1);
+        } else {
+            out["totalAvailable"] = json!(usize::max(native.total_discovered as usize, available));
+        }
     }
-    if (scan_cut || native.total_discovered as usize > total)
+    if !early_exit
+        && (scan_cut || native.total_discovered as usize > total)
         && let Some(pagination) = out.get_mut("pagination")
     {
         pagination["totalFilesFound"] = json!(native.total_discovered)
@@ -249,9 +266,9 @@ pub fn execute_files(
         &mut out,
         q,
         ignored,
-        json!({"defaultExcludes":false,"page":1}),
+        json!({"noIgnore":true,"page":1}),
         format!(
-            "{ignored} entries here are .gitignore'd; retry with defaultExcludes:false (next.includeIgnored) to walk them."
+            "{ignored} entries here are .gitignore'd; retry with noIgnore:true (next.includeIgnored) to list them."
         ),
     );
     Ok(out)
@@ -266,8 +283,10 @@ fn make_row(
     cancel: &dyn CancellationCheck,
 ) -> Result<Row, super::StructureError> {
     let full = detail == "full";
+    // Rows name the root's own directory first; the envelope anchors them on
+    // the root's parent, so every row path resolves against the workspace.
     let root_name = root.file_name().unwrap_or_default().to_string_lossy();
-    let relative = if e.relative_path == root_name || e.relative_path.is_empty() {
+    let relative = if e.relative_path.is_empty() || std::path::Path::new(&e.path) == root {
         root_name.into_owned()
     } else {
         format!("{root_name}/{}", e.relative_path)
@@ -322,9 +341,10 @@ fn sort_rows(r: &mut [Row], sort: &str) {
         "lines" => b.lines.cmp(&a.lines),
         "size" => b.size.cmp(&a.size),
         "name" => a.name.cmp(&b.name),
-        "path" => a.path.cmp(&b.path),
+        // Component-wise, the walk order: `a/x` before `a-b/x`.
+        "path" => std::path::Path::new(&a.path).cmp(std::path::Path::new(&b.path)),
         "modified" => b.modified.total_cmp(&a.modified),
-        _ => a.path.cmp(&b.path),
+        _ => std::path::Path::new(&a.path).cmp(std::path::Path::new(&b.path)),
     })
 }
 fn line_count(

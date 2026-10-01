@@ -3,7 +3,7 @@
 // totals that agree across pages, and executable continuations.
 import fs from 'node:fs';
 import path from 'node:path';
-import { FIXTURES, REPOS, checks, collect, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { FIXTURES, REPOS, checks, collect, nextHints, rowData, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('large-files');
 const MAX_RESPONSE_BYTES = 2_000_000;
@@ -67,7 +67,7 @@ for (const [name, file, sample] of [['checkerTs', TARGETS.checkerTs, 0], ['jsonH
   const first = await call('localFetch', { path: file, chunkType: 'lines', chunkSize: 5000 }, {}, `fetch ${name}`);
   bounded(first, `localFetch ${name} page 1`);
   const pages = await walk(first, 'continue', sample || 400, `fetch ${name}`);
-  const ranges = pages.map(p => { const r = rowData(p)?.sourceLineRanges ?? []; return [r[0]?.start, r.at(-1)?.end]; });
+  const ranges = pages.map(p => { const r = sourceView(rowData(p)).ranges; return [r[0]?.start, r.at(-1)?.end]; });
   let gapFree = ranges[0]?.[0] === 1;
   for (let i = 1; i < ranges.length; i++) gapFree &&= ranges[i][0] === ranges[i - 1][1] + 1;
   const last = ranges.at(-1)?.[1];
@@ -149,7 +149,7 @@ for (const [label, query] of [
   check(`astSearch symbols 20,001 functions: ${pages.length} pages, all unique`, names.length === 20_001 && new Set(names).size === names.length, `names=${names.length}`);
 }
 {
-  const first = await call('astSearch', { operation: 'match', path: TARGETS.checkerTs, langType: 'TypeScript', pattern: 'isTypeAssignableTo($A, $B)', maxMatchesPerFile: 50, debug: true /* totalStructuralMatches */ }, {}, 'match checker');
+  const first = await call('astSearch', { operation: 'match', path: TARGETS.checkerTs, langType: 'TypeScript', pattern: 'isTypeAssignableTo($A, $B)', maxMatchesPerFile: 50, captureText: true, debug: true /* totalStructuralMatches */ }, {}, 'match checker');
   bounded(first, 'astSearch match checker');
   const d = rowData(first);
   const total = collect(d, o => typeof o.totalStructuralMatches === 'number')[0]?.totalStructuralMatches;
@@ -179,7 +179,7 @@ for (const [label, query] of [
   const refs = await call('lspSearch', { uri: manyFns, symbolName: 'helper', lineHint: 60_001, operation: 'references', pageSize: 100 }, {}, 'lsp refs helper');
   bounded(refs, 'lspSearch references 20k');
   const rp = await walk(refs, 'nextPage', 3, 'lsp refs helper');
-  const locs = rp.reduce((sum, p) => sum + (rowData(p)?.payload?.locations?.length ?? 0), 0);
+  const locs = rp.reduce((sum, p) => sum + lspLocations(p).length, 0);
   check(`lspSearch references (20,001 refs): pages 1-3 follow their snapshot`, rp.length === 3 && rp.every(p => !p.isError && !p.rowErrors) && locs === 300, `locations=${locs} perPage=${rp.map(p => p.ms + 'ms').join('/')}`);
 }
 

@@ -63,122 +63,152 @@ pub(super) fn is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<b
         }))
 }
 
+/// The branch a default-branch clone checked out (the remote HEAD).
+pub(super) fn current_branch(
+    context: &CloneContext<'_>,
+    directory: &Path,
+) -> Result<String, CloneError> {
+    let output = run(
+        context,
+        scoped(directory, &["symbolic-ref", "--quiet", "--short", "HEAD"]),
+        HEAD_TIMEOUT,
+        "read checkout branch",
+        None,
+    )?;
+    let branch = output.stdout.trim().to_owned();
+    if branch.is_empty() {
+        return Err(CloneError::new(
+            "clone.git.invalidHead",
+            "Git did not report the checked-out default branch.",
+        ));
+    }
+    Ok(branch)
+}
+
+/// Check out `branch` (the remote default when `None`), a tag, or a full
+/// commit SHA with `depth` commits of history, limited to `sparse_paths`.
 pub(super) fn checkout(
     context: &CloneContext<'_>,
     repository_url: &str,
-    branch: &str,
-    sparse_path: Option<&str>,
+    branch: Option<&str>,
+    sparse_paths: Option<&[String]>,
+    depth: u64,
     target: &Path,
 ) -> Result<(), CloneError> {
-    if is_commit(branch) {
-        checkout_commit(context, repository_url, branch, sparse_path, target)
-    } else if let Some(sparse_path) = sparse_path {
-        checkout_sparse(context, repository_url, branch, sparse_path, target)
-    } else {
-        checkout_full(context, repository_url, branch, target)
+    match branch {
+        Some(commit) if is_commit(commit) => {
+            checkout_commit(context, repository_url, commit, sparse_paths, depth, target)
+        }
+        _ => checkout_branch(context, repository_url, branch, sparse_paths, depth, target),
     }
 }
 
-fn checkout_full(
+/// `git clone` of one branch. Without `branch`, git follows the remote HEAD,
+/// so no API call is needed to learn the default branch.
+fn checkout_branch(
     context: &CloneContext<'_>,
     repository_url: &str,
-    branch: &str,
+    branch: Option<&str>,
+    sparse_paths: Option<&[String]>,
+    depth: u64,
     target: &Path,
 ) -> Result<(), CloneError> {
+    let mut args: Vec<OsString> = vec!["clone".into()];
+    if sparse_paths.is_some() {
+        args.extend(["--filter", "blob:none", "--sparse"].map(OsString::from));
+    }
+    args.extend([
+        OsString::from("--depth"),
+        OsString::from(depth.to_string()),
+        OsString::from("--single-branch"),
+    ]);
+    if let Some(branch) = branch {
+        args.extend([OsString::from("--branch"), OsString::from(branch)]);
+    }
+    args.extend([
+        OsString::from("--"),
+        OsString::from(repository_url),
+        target.as_os_str().to_owned(),
+    ]);
     run(
         context,
-        vec![
-            "clone".into(),
-            "--depth".into(),
-            "1".into(),
-            "--single-branch".into(),
-            "--branch".into(),
-            branch.into(),
-            "--".into(),
-            repository_url.into(),
-            target.as_os_str().to_owned(),
-        ],
+        args,
         CLONE_TIMEOUT,
-        "full clone",
+        if sparse_paths.is_some() {
+            "sparse clone"
+        } else {
+            "full clone"
+        },
         Some(repository_url),
     )?;
+    if let Some(paths) = sparse_paths {
+        run(
+            context,
+            sparse_set_args(context, target, "HEAD", paths),
+            SPARSE_TIMEOUT,
+            "set sparse checkout paths",
+            Some(repository_url),
+        )?;
+    }
     Ok(())
 }
 
-fn checkout_sparse(
-    context: &CloneContext<'_>,
-    repository_url: &str,
-    branch: &str,
-    sparse_path: &str,
-    target: &Path,
-) -> Result<(), CloneError> {
-    run(
-        context,
-        vec![
-            "clone".into(),
-            "--filter".into(),
-            "blob:none".into(),
-            "--sparse".into(),
-            "--depth".into(),
-            "1".into(),
-            "--single-branch".into(),
-            "--branch".into(),
-            branch.into(),
-            "--".into(),
-            repository_url.into(),
-            target.as_os_str().to_owned(),
-        ],
-        CLONE_TIMEOUT,
-        "sparse clone",
-        Some(repository_url),
-    )?;
-    run(
-        context,
-        sparse_set_args(context, target, "HEAD", sparse_path),
-        SPARSE_TIMEOUT,
-        "set sparse checkout paths",
-        Some(repository_url),
-    )?;
-    Ok(())
-}
-
-/// `sparse-checkout set` arguments for `sparse_path` at `rev`. Cone mode
-/// always includes every file beside each cone directory, so a file path
-/// uses an exact anchored non-cone pattern instead; directories (and paths
-/// that do not resolve, left for the caller's not-found check) keep cone mode.
+/// `sparse-checkout set` arguments for `sparse_paths` at `rev`. Cone mode
+/// always includes every file beside each cone directory, so when any path is
+/// a file every path becomes an exact anchored non-cone pattern (a directory
+/// as `/dir/`); directories alone (and paths that do not resolve, left for
+/// the caller's not-found check) keep cone mode.
 fn sparse_set_args(
     context: &CloneContext<'_>,
     target: &Path,
     rev: &str,
-    sparse_path: &str,
+    sparse_paths: &[String],
 ) -> Vec<OsString> {
-    let path = sparse_path.trim_end_matches('/');
+    let paths = sparse_paths
+        .iter()
+        .map(|path| path.trim_end_matches('/'))
+        .collect::<Vec<_>>();
     // ls-tree reads tree objects only, so it never lazily fetches a blob;
     // `-z` keeps unusual paths unquoted.
-    let is_file = run(
+    let mut ls_tree = scoped(target, &["ls-tree", "-z", rev, "--"]);
+    ls_tree.extend(paths.iter().map(OsString::from));
+    let files = run(
         context,
-        scoped(target, &["ls-tree", "-z", rev, "--", path]),
+        ls_tree,
         SPARSE_TIMEOUT,
         "resolve sparse path type",
         None,
     )
-    .is_ok_and(|output| {
-        output.stdout.split('\0').any(|line| {
-            line.split_once('\t').is_some_and(|(meta, entry)| {
-                entry == path && meta.split_whitespace().nth(1) == Some("blob")
+    .map(|output| {
+        output
+            .stdout
+            .split('\0')
+            .filter_map(|line| {
+                let (meta, entry) = line.split_once('\t')?;
+                (meta.split_whitespace().nth(1) == Some("blob")).then(|| entry.to_owned())
             })
-        })
-    });
-    if is_file {
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+    if paths
+        .iter()
+        .any(|path| files.iter().any(|file| file == path))
+    {
         let mut args = scoped(target, &["sparse-checkout", "set", "--no-cone", "--"]);
-        args.push(file_pattern(path).into());
+        args.extend(paths.iter().map(|path| {
+            let mut pattern = file_pattern(path);
+            if !files.iter().any(|file| file == path) {
+                pattern.push('/');
+            }
+            OsString::from(pattern)
+        }));
         args
     } else {
         let mut args = scoped(
             target,
             &["sparse-checkout", "set", "--cone", "--skip-checks", "--"],
         );
-        args.push(sparse_path.into());
+        args.extend(sparse_paths.iter().map(OsString::from));
         args
     }
 }
@@ -199,7 +229,8 @@ fn checkout_commit(
     context: &CloneContext<'_>,
     repository_url: &str,
     commit: &str,
-    sparse_path: Option<&str>,
+    sparse_paths: Option<&[String]>,
+    depth: u64,
     target: &Path,
 ) -> Result<(), CloneError> {
     run(
@@ -216,7 +247,7 @@ fn checkout_commit(
         "configure commit remote",
         Some(repository_url),
     )?;
-    if sparse_path.is_some() {
+    if sparse_paths.is_some() {
         run(
             context,
             scoped(target, &["config", "remote.origin.promisor", "true"]),
@@ -235,8 +266,9 @@ fn checkout_commit(
             Some(repository_url),
         )?;
     }
-    let mut fetch = scoped(target, &["fetch", "--depth", "1"]);
-    if sparse_path.is_some() {
+    let depth = depth.to_string();
+    let mut fetch = scoped(target, &["fetch", "--depth", &depth]);
+    if sparse_paths.is_some() {
         fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);
     }
     fetch.extend([
@@ -251,10 +283,10 @@ fn checkout_commit(
         "fetch requested commit",
         Some(repository_url),
     )?;
-    if let Some(sparse_path) = sparse_path {
+    if let Some(paths) = sparse_paths {
         run(
             context,
-            sparse_set_args(context, target, "FETCH_HEAD", sparse_path),
+            sparse_set_args(context, target, "FETCH_HEAD", paths),
             SPARSE_TIMEOUT,
             "set sparse commit paths",
             Some(repository_url),

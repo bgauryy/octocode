@@ -169,6 +169,7 @@ pub fn execute_local_fetch_with_regex(
     let full_content_limited = q.full_content == Some(true)
         && q.minify_mode() == MinifyMode::None
         && q.match_string.is_none()
+        && !q.has_ranges()
         && q.start_line().is_none()
         && meta.len() > 100 * 1024;
     let q = if full_content_limited {
@@ -781,7 +782,13 @@ mod source_size_tests {
         assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
         assert_eq!(result.source_bytes, Some(len as usize));
         assert_eq!(result.terminal_limit, Some(true));
-        assert!(result.error.as_deref().expect("error").contains("1073741824 bytes / 1 GiB"));
+        assert!(
+            result
+                .error
+                .as_deref()
+                .expect("error")
+                .contains("1073741824 bytes / 1 GiB")
+        );
         assert!(!result.error.as_deref().expect("error").contains("10 MiB"));
         assert!(!result.hints.is_empty());
         assert!(!result.hints.join(" ").contains("remove matchString"));
@@ -795,9 +802,19 @@ mod source_size_tests {
         let source = vec![b'x'; (MAX_SOURCE_BYTES + 100) as usize];
         let bytes = read_in_memory_source(std::io::Cursor::new(source)).expect("bounded read");
         assert_eq!(bytes.len() as u64, MAX_SOURCE_BYTES + 1);
-        let result = source_too_large("growing.txt", bytes.len() as u64, SourceSizeLimit::InMemoryGrowth);
+        let result = source_too_large(
+            "growing.txt",
+            bytes.len() as u64,
+            SourceSizeLimit::InMemoryGrowth,
+        );
         assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
-        assert!(result.error.as_deref().expect("error").contains("in-memory read guard"));
+        assert!(
+            result
+                .error
+                .as_deref()
+                .expect("error")
+                .contains("in-memory read guard")
+        );
         assert!(result.hints.join(" ").contains("fresh bounded line-window"));
         assert!(!result.hints.join(" ").contains("remove matchString"));
         assert_eq!(result.terminal_limit, Some(true));

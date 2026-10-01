@@ -73,22 +73,210 @@ pub struct HistoryItemRequest {
     content: Option<Value>,
     /// Effective automatic response page (`output.pagination.defaultCharLength`).
     pub auto_page_chars: Option<usize>,
+    /// Rows of this call that read patches: they share one patch budget.
+    pub patch_rows: usize,
+    /// Commit/compare `files` scope (paths or globs); pull requests carry
+    /// theirs as `fileFilter.paths`.
+    pub(super) file_scope: Vec<String>,
+}
+
+/// Runtime-only row key carrying the call's patch-reading row count. It is
+/// added after validation and removed before parsing, so it never reaches
+/// the wire contract or a continuation.
+pub const PATCH_ROWS_KEY: &str = "\u{0}patchRows";
+
+/// Whether a validated row reads patch text without an explicit window.
+fn reads_default_patch_window(row: &Value) -> bool {
+    if row.get("charLength").is_some() {
+        return false;
+    }
+    let patches_selected = row
+        .pointer("/content/patches/mode")
+        .and_then(Value::as_str)
+        .is_some_and(|mode| mode != "none");
+    let included = row
+        .get("include")
+        .and_then(Value::as_array)
+        .is_some_and(|include| include.iter().any(|item| item == "patches"));
+    match row.get("operation").and_then(Value::as_str) {
+        Some("pullRequest") => patches_selected || included || row.get("matchString").is_some(),
+        Some("commit" | "compare") => {
+            included || row.get("includeDiff").and_then(Value::as_bool) == Some(true)
+        }
+        _ => false,
+    }
+}
+
+/// One patch budget per call: when two or more rows read patches with the
+/// default window, each row is stamped with that count so the windows split
+/// one response page instead of each taking a whole one (which spilled
+/// multi-row reads into response pagination). `None` leaves rows as-is.
+pub fn share_patch_budget(rows: &[Value]) -> Option<Vec<Value>> {
+    let count = rows
+        .iter()
+        .filter(|row| reads_default_patch_window(row))
+        .count();
+    (count > 1).then(|| {
+        rows.iter()
+            .map(|row| {
+                let mut row = row.clone();
+                if reads_default_patch_window(&row)
+                    && let Some(fields) = row.as_object_mut()
+                {
+                    fields.insert(PATCH_ROWS_KEY.into(), Value::from(count));
+                }
+                row
+            })
+            .collect()
+    })
 }
 
 impl HistoryItemRequest {
     /// Parses a validated `ghGetHistoryItem` row.
     pub fn from_row(mut row: Value) -> Result<Self, serde_json::Error> {
+        let patch_rows = row
+            .as_object_mut()
+            .and_then(|fields| fields.remove(PATCH_ROWS_KEY))
+            .and_then(|count| count.as_u64())
+            .map_or(1, |count| usize::try_from(count).unwrap_or(1).max(1));
+        let file_scope = normalize_aliases(&mut row);
         imply_patch_search(&mut row);
         let content = row.get("content").cloned();
         Ok(Self {
             query: serde_json::from_value(row)?,
             content,
             auto_page_chars: None,
+            patch_rows,
+            file_scope,
         })
     }
     /// The `content` selector as JSON, for the shaping code's key lookups.
     pub fn content_value(&self) -> Option<Value> {
         self.content.clone()
+    }
+}
+
+/// The flat read selectors (`include`, `files`, `status`, commit `base`)
+/// map onto the nested shapes every handler reads (`content.*`,
+/// `fileFilter`, `includeDiff`, `operation:"compare"`), so the old and the
+/// new spellings of one read run the same code. Returns the commit/compare
+/// `files` scope, which has no nested spelling.
+fn normalize_aliases(row: &mut Value) -> Vec<String> {
+    let Some(fields) = row.as_object_mut() else {
+        return Vec::new();
+    };
+    let strings = |value: Option<Value>| {
+        value
+            .and_then(|value| match value {
+                Value::Array(items) => Some(items),
+                _ => None,
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|item| item.as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    let include = strings(fields.remove("include"));
+    let files = strings(fields.remove("files"));
+    let status = fields.remove("status");
+    let operation = fields
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    match operation.as_str() {
+        "pullRequest" | "issue" => {
+            let had_content = fields.contains_key("content");
+            let content = fields
+                .entry("content")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(content) = content.as_object_mut() {
+                for item in &include {
+                    match item.as_str() {
+                        "body" => {
+                            content.insert("body".into(), Value::Bool(true));
+                        }
+                        "files" => {
+                            content.insert("changedFiles".into(), Value::Bool(true));
+                        }
+                        "patches" => {
+                            content
+                                .entry("patches")
+                                .or_insert_with(|| serde_json::json!({"mode":"all"}));
+                        }
+                        "comments" => {
+                            let comments = content
+                                .entry("comments")
+                                .or_insert_with(|| serde_json::json!({}));
+                            if let Some(comments) = comments.as_object_mut() {
+                                comments.insert("discussion".into(), Value::Bool(true));
+                                if operation == "pullRequest" {
+                                    comments.insert("reviewInline".into(), Value::Bool(true));
+                                }
+                            }
+                        }
+                        "reviews" => {
+                            content.insert("reviews".into(), Value::Bool(true));
+                        }
+                        "commits" => {
+                            content
+                                .entry("commits")
+                                .or_insert_with(|| serde_json::json!({}));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if !had_content
+                && fields
+                    .get("content")
+                    .and_then(Value::as_object)
+                    .is_some_and(serde_json::Map::is_empty)
+            {
+                fields.remove("content");
+            }
+            if operation == "pullRequest" && (!files.is_empty() || status.is_some()) {
+                let filter = fields
+                    .entry("fileFilter")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(filter) = filter.as_object_mut() {
+                    if !files.is_empty() {
+                        let paths = filter
+                            .entry("paths")
+                            .or_insert_with(|| serde_json::json!([]));
+                        if let Some(paths) = paths.as_array_mut() {
+                            for file in &files {
+                                if !paths.iter().any(|path| path == file.as_str()) {
+                                    paths.push(Value::String(file.clone()));
+                                }
+                            }
+                        }
+                    }
+                    if let Some(status) = status {
+                        filter.insert("status".into(), status);
+                    }
+                }
+            }
+            Vec::new()
+        }
+        "commit" | "compare" => {
+            if include.iter().any(|item| item == "patches") {
+                fields.insert("includeDiff".into(), Value::Bool(true));
+            }
+            // A commit with a base is the comparison base...ref.
+            if operation == "commit"
+                && let Some(base) = fields.remove("base")
+            {
+                fields.insert("operation".into(), Value::from("compare"));
+                if let Some(head) = fields.remove("ref") {
+                    fields.insert("head".into(), head);
+                }
+                fields.insert("base".into(), base);
+                fields.entry("page").or_insert_with(|| Value::from(1));
+            }
+            files
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -495,6 +683,50 @@ mod tests {
         let wants = pull_request::content_wants(&query);
         assert!(
             !wants.body && !wants.files && !wants.discussion && !wants.reviews && !wants.commits
+        );
+    }
+
+    /// S8/S9 (A8): the flat selectors and the nested shapes they replace
+    /// parse to the same request, so old continuations keep working.
+    #[test]
+    fn flat_selectors_alias_the_nested_shapes() {
+        let flat = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
+            "include":["body","files","patches","comments","reviews"],
+            "files":["src/**"],"status":["modified"]
+        }))
+        .expect("flat shape");
+        let nested = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
+            "content":{"body":true,"changedFiles":true,"patches":{"mode":"all"},
+                "comments":{"discussion":true,"reviewInline":true},"reviews":true},
+            "fileFilter":{"paths":["src/**"],"status":["modified"]}
+        }))
+        .expect("nested shape");
+        assert_eq!(flat.content_value(), nested.content_value());
+        assert_eq!(
+            serde_json::to_value(&flat.query).ok(),
+            serde_json::to_value(&nested.query).ok()
+        );
+        // Commit include patches = includeDiff; base folds compare in.
+        let commit = HistoryItemRequest::from_row(json!({
+            "operation":"commit","goal":"g","reasoning":"r","owner":"o","repo":"r",
+            "ref":"head-sha","base":"base-sha","include":["patches"],"files":["src/*.rs"]
+        }))
+        .expect("commit with base");
+        assert_eq!(commit.operation(), ItemOperation::Compare);
+        assert_eq!(commit.base(), Some("base-sha"));
+        assert_eq!(commit.head(), Some("head-sha"));
+        assert!(commit.include_diff());
+        assert_eq!(commit.file_scope, ["src/*.rs"]);
+        let issue = HistoryItemRequest::from_row(json!({
+            "operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"r","number":2,
+            "include":["comments"]
+        }))
+        .expect("issue include");
+        assert_eq!(
+            issue.content_value(),
+            Some(json!({"comments":{"discussion":true}}))
         );
     }
 

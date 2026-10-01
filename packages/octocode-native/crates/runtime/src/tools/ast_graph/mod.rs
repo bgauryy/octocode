@@ -94,6 +94,7 @@ mod drift_tests {
     use super::*;
     use crate::policy::path::{PathPolicy, PathPolicyConfig};
     use serde_json::{Value, json};
+    use std::collections::BTreeMap;
 
     struct Active;
     impl CancellationCheck for Active {
@@ -348,6 +349,208 @@ mod drift_tests {
         // A coverage gap is not truncation: nothing more is reachable by paging.
         assert!(out.get("truncated").is_none(), "{out}");
         assert!(out.get("terminalLimit").is_none(), "{out}");
+    }
+
+    #[test]
+    fn coverage_diagnostics_default_to_counts_with_rows_behind_next() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        for (name, text) in [
+            (
+                "a.ts",
+                "import { x } from '#missing/x';\nimport { b } from './b';\nexport const a = b;\n",
+            ),
+            (
+                "c.ts",
+                "import { x } from '#missing/x';\nexport const c = x;\n",
+            ),
+            ("b.ts", "export const b = 1;\n"),
+        ] {
+            std::fs::write(root.join(name), text).unwrap();
+        }
+        let query = json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"b.ts"});
+        let out = run(query, root).expect("dependents");
+        assert_eq!(
+            out["coverage"]["diagnosticCounts"]["unresolved-internal"], 2,
+            "{out}"
+        );
+        assert!(out["coverage"].get("diagnostics").is_none(), "{out}");
+        assert_eq!(out["completeness"]["diagnostics"], "pageable", "{out}");
+        let next = out["next"]["nextDiagnostics"]["query"].clone();
+        assert_eq!(next["diagnosticPage"], 1, "{out}");
+        let rows = run(next, root).expect("diagnostic rows");
+        // Both files fail on the same specifier: one grouped row.
+        let diagnostics = rows["coverage"]["diagnostics"].as_array().expect("rows");
+        assert_eq!(diagnostics.len(), 1, "{rows}");
+        assert_eq!(
+            diagnostics[0]["files"],
+            json!(["a.ts:1", "c.ts:1"]),
+            "{rows}"
+        );
+        assert_eq!(rows["completeness"]["diagnostics"], "complete", "{rows}");
+        assert!(rows["next"].get("nextDiagnostics").is_none(), "{rows}");
+    }
+
+    #[test]
+    fn subtree_scan_resolves_package_imports_through_the_outer_manifest() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let package = temp.path().join("pkg");
+        std::fs::create_dir_all(package.join("src/enums")).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r##"{"name":"pkg","imports":{"#enums/*":"./src/enums/*.ts","#outside":"./lib/x.js"}}"##,
+        )
+        .unwrap();
+        std::fs::write(package.join("src/enums/flags.ts"), "export const F = 1;\n").unwrap();
+        std::fs::write(
+            package.join("src/main.ts"),
+            "import { F } from '#enums/flags';\nexport const m = F;\n",
+        )
+        .unwrap();
+        let src = package.join("src");
+        let out = run(
+            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":src.to_string_lossy(),"file":"enums/flags.ts"}),
+            temp.path(),
+        )
+        .expect("dependents");
+        assert_eq!(out["results"][0]["file"], "main.ts", "{out}");
+        assert_eq!(out["coverage"]["imports"]["unresolvedInternal"], 0, "{out}");
+    }
+
+    #[test]
+    fn outer_manifest_lookup_stops_at_the_repository_boundary() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        std::fs::write(
+            temp.path().join("package.json"),
+            r##"{"name":"outer","imports":{"#enums/*":"./repo/src/enums/*.ts"}}"##,
+        )
+        .unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join("src/enums")).unwrap();
+        std::fs::write(repo.join("src/enums/flags.ts"), "export const F = 1;\n").unwrap();
+        std::fs::write(
+            repo.join("src/main.ts"),
+            "import { F } from '#enums/flags';\nexport const m = F;\n",
+        )
+        .unwrap();
+        let src = repo.join("src");
+        let out = run(
+            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":src.to_string_lossy(),"file":"enums/flags.ts"}),
+            temp.path(),
+        )
+        .expect("dependents");
+        assert_eq!(out["results"], json!([]), "{out}");
+        assert_eq!(out["coverage"]["imports"]["unresolvedInternal"], 1, "{out}");
+    }
+
+    fn dependents_by_file(out: &Value) -> BTreeMap<String, Value> {
+        out["results"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| {
+                (
+                    row["file"].as_str().unwrap_or_default().to_owned(),
+                    row["reexportVia"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dependents_follow_typescript_reexports_of_the_named_items_only() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        for (name, text) in [
+            ("t.ts", "export const x = 1;\nexport const y = 2;\n"),
+            (
+                "index.ts",
+                "export { x } from './t';\nexport const other = 3;\n",
+            ),
+            ("star.ts", "export * from './t';\n"),
+            (
+                "a.ts",
+                "import { x } from './index';\nexport const a = x;\n",
+            ),
+            (
+                "b.ts",
+                "import { other } from './index';\nexport const b = other;\n",
+            ),
+            ("c.ts", "import { y } from './star';\nexport const c = y;\n"),
+        ] {
+            std::fs::write(root.join(name), text).unwrap();
+        }
+        let out = run(
+            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"t.ts"}),
+            root,
+        )
+        .expect("dependents");
+        assert_eq!(
+            dependents_by_file(&out),
+            BTreeMap::from([
+                ("a.ts".to_owned(), json!("index.ts")),
+                ("c.ts".to_owned(), json!("star.ts")),
+                ("index.ts".to_owned(), Value::Null),
+                ("star.ts".to_owned(), Value::Null),
+            ]),
+            "{out}"
+        );
+        let a = out["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["file"] == "a.ts")
+            .unwrap();
+        assert_eq!(a["importLine"], 1, "{out}");
+    }
+
+    #[test]
+    fn dependents_follow_rust_pub_use_reexports() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        let write = |path: &str, text: &str| {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            std::fs::write(path, text).expect("write");
+        };
+        write(
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        );
+        write("src/lib.rs", "pub mod sync;\npub mod task;\n");
+        write(
+            "src/sync/mod.rs",
+            "mod notify;\npub use notify::Notify;\nmod broadcast;\nmod other;\npub struct Other;\n",
+        );
+        write("src/sync/notify.rs", "pub struct Notify;\n");
+        write(
+            "src/sync/broadcast.rs",
+            "use super::Notify;\npub fn b(_: Notify) {}\n",
+        );
+        write(
+            "src/sync/other.rs",
+            "use super::Other;\npub fn o(_: Other) {}\n",
+        );
+        write("src/task/mod.rs", "pub mod local;\n");
+        write(
+            "src/task/local.rs",
+            "use crate::sync::Notify;\npub fn l(_: Notify) {}\n",
+        );
+        let out = run(
+            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"src/sync/notify.rs","rustWorkspace":"cargo"}),
+            root,
+        )
+        .expect("dependents");
+        assert_eq!(
+            dependents_by_file(&out),
+            BTreeMap::from([
+                ("src/sync/broadcast.rs".to_owned(), json!("src/sync/mod.rs")),
+                ("src/sync/mod.rs".to_owned(), Value::Null),
+                ("src/task/local.rs".to_owned(), json!("src/sync/mod.rs")),
+            ]),
+            "{out}"
+        );
     }
 
     #[test]

@@ -16,8 +16,8 @@ pub use octocode_github::{
     ContentsListing, ExecutorConfig, GitHubBudget, GitHubEndpoint, GitHubProvider, GitHubResource,
     GitHubTransport, GraphQlError, GraphQlPage, HistoryPage, HistoryRequest, HttpMethod,
     LimiterKey, NoCache, ProviderError, ProviderErrorKind, ProviderErrorReason, PullListRequest,
-    RateLimit, RepositoryMetadata, RepositorySearchPage, RepositorySearchRequest, RequestContext,
-    RequestSpec, ResponsePage, RetryPolicy, SearchName, TextMatch, TreeEntry, TreeRequest,
-    TreeResponse, qualifier_value, quote_search_keyword, search_phrase, session_snapshot,
-    validate_qualifier_value, validate_search_name,
+    RateLimit, RepositoryMetadata, RepositorySearchItem, RepositorySearchPage,
+    RepositorySearchRequest, RequestContext, RequestSpec, ResponsePage, RetryPolicy, SearchName,
+    TextMatch, TreeEntry, TreeRequest, TreeResponse, qualifier_value, quote_search_keyword,
+    search_phrase, session_snapshot, validate_qualifier_value, validate_search_name,
 };

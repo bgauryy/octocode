@@ -144,8 +144,13 @@ async fn run(
     )
     .await?;
     let has_more = page.next_state.is_some();
+    let mut rows = serde_json::to_value(&page.artifacts)
+        .map_err(|_| ArtifactError::new("provider_error", "Failed to encode artifacts."))?;
+    if !query.debug() {
+        compact_rows(&mut rows);
+    }
     let mut data = json!({
-        "artifacts": page.artifacts,
+        "artifacts": rows,
         "pagination": {
             "perPage": query.page_size().unwrap_or(page.artifacts.len()),
             "returned": page.artifacts.len(),
@@ -195,21 +200,27 @@ async fn run(
                     .or_else(|| artifact.repository.as_deref().and_then(github_repo_dir))
                     .unwrap_or_default(),
                 "maxDepth": 1,
-                "reasoning": "Inspect upstream default-branch code; this is not evidence of the published release.",
+                "reasoning": "Default-branch code; not release evidence.",
             },
         });
-        // The published version's own commit or tag is a separate, weaker
-        // lead: a publish can come from a commit never pushed upstream (npm
-        // `gitHead`), which GitHub answers 404/422. The default-branch lead
-        // may be ahead of the release; neither registry lead is verified here.
+        // The published version's own commit. An npm provenance attestation
+        // bound to this tarball and repository names it (`provenance`);
+        // otherwise it is the registry's unchecked lead (npm `gitHead`, Go
+        // pseudo-version), which may name a commit never pushed upstream.
         if let Some(reference) = artifact.source_ref.as_deref() {
+            let attested = artifact.source_attested;
             let mut release = data["next"]["viewRepo"].clone();
-            release["confidence"] = json!("medium");
-            release["source"]["scope"] = json!("release");
+            release["confidence"] = json!(if attested { "high" } else { "medium" });
+            release["source"] = json!({
+                "scope": "release",
+                "verification": if attested { "provenance" } else { "unverified" },
+            });
             release["query"]["branch"] = json!(reference);
-            release["query"]["reasoning"] = json!(
-                "Inspect the registry's unverified release-ref lead; if unavailable, use next.viewRepo for default-branch code, not release evidence."
-            );
+            release["query"]["reasoning"] = json!(if attested {
+                "Release commit attested by npm provenance."
+            } else {
+                "Registry release-ref lead; may be unpushed."
+            });
             data["next"]["viewReleaseSource"] = release;
         }
     }
@@ -238,6 +249,35 @@ async fn run(
         data["hints"] = json!(["Try fewer or broader keywords."]);
     }
     Ok(data)
+}
+
+/// Drop what a row restates: the registry URL (derivable from type and
+/// name; kept under `debug`) and a homepage that is the repository page.
+fn compact_rows(rows: &mut Value) {
+    for row in rows.as_array_mut().into_iter().flatten() {
+        let Some(row) = row.as_object_mut() else {
+            continue;
+        };
+        row.remove("registryUrl");
+        let duplicate = match (
+            row.get("homepage").and_then(Value::as_str),
+            row.get("repository").and_then(Value::as_str),
+        ) {
+            (Some(homepage), Some(repository)) => {
+                let page = homepage
+                    .split(['#', '?'])
+                    .next()
+                    .unwrap_or(homepage)
+                    .trim_end_matches('/')
+                    .trim_end_matches(".git");
+                page.eq_ignore_ascii_case(repository.trim_end_matches('/'))
+            }
+            _ => false,
+        };
+        if duplicate {
+            row.remove("homepage");
+        }
+    }
 }
 
 /// `owner/repo` from a GitHub repository URL in any common registry form
@@ -274,7 +314,25 @@ fn github_repo_dir(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod github_repo_tests {
-    use super::{github_repo, github_repo_dir};
+    use super::{compact_rows, github_repo, github_repo_dir};
+
+    #[test]
+    fn rows_drop_the_registry_url_and_a_homepage_that_is_the_repository() {
+        let mut rows = serde_json::json!([
+            {"name":"zod","registryUrl":"https://registry.npmjs.org/zod",
+             "homepage":"https://github.com/colinhacks/zod#readme",
+             "repository":"https://github.com/colinhacks/zod"},
+            {"name":"x","homepage":"https://zod.dev","repository":"https://github.com/o/x"}
+        ]);
+        compact_rows(&mut rows);
+        assert_eq!(
+            rows,
+            serde_json::json!([
+                {"name":"zod","repository":"https://github.com/colinhacks/zod"},
+                {"name":"x","homepage":"https://zod.dev","repository":"https://github.com/o/x"}
+            ])
+        );
+    }
 
     #[test]
     fn parses_monorepo_subdirectories() {
@@ -543,12 +601,9 @@ mod npm_auth_tests {
         assert_eq!(view["confidence"], "high", "{data}");
         assert_eq!(view["source"]["scope"], "defaultBranch", "{data}");
         assert_eq!(view["source"]["verification"], "unverified", "{data}");
-        assert!(
-            view["query"]["reasoning"]
-                .as_str()
-                .expect("reasoning")
-                .contains("not evidence of the published release")
-        );
+        let reasoning = view["query"]["reasoning"].as_str().expect("reasoning");
+        assert!(reasoning.contains("not release evidence"), "{data}");
+        assert!(reasoning.chars().count() <= 60, "{reasoning}");
         let release = &data["next"]["viewReleaseSource"];
         assert_eq!(release["tool"], "ghStructure", "{data}");
         assert_eq!(release["query"]["branch"], sha, "{data}");
@@ -558,7 +613,8 @@ mod npm_auth_tests {
         assert_eq!(release["source"]["verification"], "unverified", "{data}");
         let row = data["artifacts"][0].as_object().expect("row");
         assert!(
-            row.keys().all(|key| key != "gitHead" && key != "sourceRef"),
+            row.keys()
+                .all(|key| key != "gitHead" && key != "sourceRef" && key != "registryUrl"),
             "{data}"
         );
     }

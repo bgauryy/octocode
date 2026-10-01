@@ -10,10 +10,10 @@ Write for expensive-to-reverse choices (stack, schema, auth, API style, infra). 
 
 ## Convention first
 
-Inspect existing ADR folders/tools (for example, `docs/adr/`, `docs/decisions/`, `.adr-dir`, adr-tools, MADR). Match location, numbering, headings, and markup.
+Inspect existing ADR folders/tools in the user's workspace (for example, `<workspace>/docs/adr/`, `<workspace>/docs/decisions/`, `.adr-dir`, adr-tools, MADR). These are project output locations, not files bundled with this skill. Match location, numbering, headings, and markup.
 
 IF conventions conflict → THEN surface the conflict; do not invent a second scheme.
-IF none exist → THEN use `docs/decisions/ADR-NNN-short-title.md`.
+IF none exist → THEN use `<workspace>/docs/decisions/ADR-NNN-short-title.md`.
 
 ## Required sections
 

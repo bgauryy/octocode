@@ -36,6 +36,7 @@ mod importers;
 mod inferred_project;
 mod locations;
 mod ops;
+pub mod prewarm;
 mod receipt;
 mod recovery;
 mod render;

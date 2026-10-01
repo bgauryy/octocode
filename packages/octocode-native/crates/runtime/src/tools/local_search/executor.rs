@@ -39,6 +39,12 @@ const MIN_MATCH_VALUE_CHARS: usize = 40;
 const DEFAULT_MATCH_CONTENT_LENGTH: u32 = 200;
 /// Cap on the context-scaled default; an explicit matchContentLength may exceed it.
 const MAX_DEFAULT_MATCH_CONTENT_LENGTH: u32 = 4000;
+/// Rows per file when a result is too large to show whole.
+const DEFAULT_MAX_MATCHES_PER_FILE: u32 = 10;
+/// A result with at most this many hits shows all of them on one page.
+const SHOW_ALL_MAX_HITS: usize = 50;
+/// ...unless their values exceed this many bytes (wide context windows).
+const SHOW_ALL_MAX_CHARS: usize = 32_000;
 /// Files per page for snippet views; path-only list views stay at 100.
 const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
 const DEFAULT_LIST_PAGE_SIZE: u32 = 100;
@@ -364,7 +370,43 @@ pub fn execute_local_search(
     {
         parsed.files.reverse();
     }
-    let matches_per = query.max_matches_per_file().max(1);
+    // A small result shows every hit on one page: paging metadata and
+    // continuations would cost more than the rows they hide. A caller cap
+    // always wins; larger results keep the 10-rows-per-file default.
+    let list_view = matches!(
+        view,
+        LocalSearchQueryResultView::Files
+            | LocalSearchQueryResultView::FilesWithout
+            | LocalSearchQueryResultView::CountLines
+            | LocalSearchQueryResultView::CountMatches
+    );
+    let hits_total: usize = if list_view {
+        0
+    } else {
+        parsed.files.iter().map(|file| file.matches.len()).sum()
+    };
+    let hit_chars: usize = if list_view {
+        0
+    } else {
+        parsed
+            .files
+            .iter()
+            .flat_map(|file| &file.matches)
+            .map(|matched| matched.value.len())
+            .sum()
+    };
+    let show_all = !list_view
+        && query.max_matches_per_file().is_none()
+        && hits_total <= SHOW_ALL_MAX_HITS
+        && hit_chars <= SHOW_ALL_MAX_CHARS;
+    let matches_per = query
+        .max_matches_per_file()
+        .unwrap_or(if show_all {
+            u32::try_from(hits_total).unwrap_or(u32::MAX)
+        } else {
+            DEFAULT_MAX_MATCHES_PER_FILE
+        })
+        .max(1);
     // A file with more hits than one match page shows its deciding rows
     // first: declarations, then assignments/branches/returns, then other
     // code, then comments and strings (stable by line within a rank). A row
@@ -379,7 +421,13 @@ pub fn execute_local_search(
     }
     let page_size = query
         .page_size()
-        .unwrap_or_else(|| default_page_size(view))
+        .unwrap_or_else(|| {
+            if show_all {
+                default_page_size(view).max(u32::try_from(parsed.files.len()).unwrap_or(u32::MAX))
+            } else {
+                default_page_size(view)
+            }
+        })
         .max(1);
     let page = query.page().max(1);
     let total_files = parsed.files.len() as u32;
@@ -448,7 +496,7 @@ pub fn execute_local_search(
         && parsed.files[page_range.clone()]
             .iter()
             .any(|file| file.matches.len() as u32 > match_page.saturating_mul(matches_per));
-    let next = build_next(
+    let mut next = build_next(
         query,
         page,
         total_pages,
@@ -651,6 +699,21 @@ pub fn execute_local_search(
     let coverage_gap = error_count > 0 || binary_cut;
     let has_more = page < total_pages;
     let capped = stats.capped.unwrap_or(false);
+    // Only a complete result hands off a read: a partial one keeps its
+    // coverage limit visible.
+    if next.is_none()
+        && !capped
+        && !coverage_gap
+        && !list
+        && view != LocalSearchQueryResultView::MatchOnly
+        && context_lines == 0
+        && regex != LocalSearchQueryRegex::Pcre2
+        && query.invert_match != Some(true)
+        && total_files as usize <= READ_HANDOFF_MAX_FILES
+        && let Some(read) = files.first().and_then(|top| read_handoff(query, root, top))
+    {
+        next = Some(json!({ "read": read }));
+    }
     let (status, terminal_limit) = classify_search(
         empty,
         capped,
@@ -719,6 +782,53 @@ pub fn execute_local_search(
         source_snapshot: Some(result_identity),
         source_root: output_root.to_path_buf(),
     })
+}
+
+/// A complete result over at most this many files hands off a read of its
+/// top file.
+const READ_HANDOFF_MAX_FILES: usize = 3;
+/// Hits a handed-off read may cover (each opens a ±6-line window).
+const READ_HANDOFF_MAX_HITS: usize = 20;
+
+/// localFetch read of the top file's hits in context: the search text as
+/// `matchString`, ±6 lines. Paths join the caller's own `path`, so the read
+/// resolves wherever the search did.
+fn read_handoff(
+    query: &LocalSearchQuery,
+    root: &std::path::Path,
+    top: &SearchFile,
+) -> Option<Value> {
+    let hits = top.matches.as_ref()?;
+    if hits.is_empty() || hits.len() > READ_HANDOFF_MAX_HITS {
+        return None;
+    }
+    let path = if root.is_file() {
+        query.path.to_string()
+    } else {
+        std::path::Path::new(query.path.as_str())
+            .join(&top.path)
+            .to_string_lossy()
+            .into_owned()
+    };
+    let mut read = json!({
+        "path": path,
+        "matchString": query.search_text.as_str(),
+        "contextLines": 6,
+    });
+    if query.regex != LocalSearchQueryRegex::Literal
+        && regex::escape(&query.search_text) != query.search_text.as_str()
+    {
+        read["matchStringIsRegex"] = json!(true);
+    }
+    if query.case_mode == LocalSearchQueryCaseMode::Sensitive {
+        read["matchStringCaseSensitive"] = json!(true);
+    }
+    Some(json!({
+        "tool": ToolId::LocalFetch.as_str(),
+        "query": read,
+        "why": "Read the top file's hits in context.",
+        "confidence": "high",
+    }))
 }
 
 /// A query that explicitly targets a single file which the engine then skips
@@ -950,13 +1060,13 @@ fn context_window(matched: &SearchMatch, context: u32) -> Option<(u32, Vec<&str>
 }
 
 /// Merge rows whose context windows overlap or touch into one block, so each
-/// source line is emitted once. A merged block keeps the first row's
+/// source line is emitted once, numbered. A merged block keeps the first row's
 /// `line`/`column`, and `matchLines` lists every matched line it holds. Rows
 /// merge only when both windows are plain and their shared lines are
 /// byte-identical, so a clipped or redacted window is never spliced.
-/// Merges overlapping windows while the joined block stays within
-/// `max_chars` (`matchContentLength`); a block never exceeds what one match
-/// could have returned.
+/// Merges overlapping windows while the joined block stays within the
+/// `max_chars` (`matchContentLength`) budgets of the rows it joins, so a
+/// block is never larger than those rows returned separately.
 fn merge_context_windows(
     rows: Vec<SearchMatch>,
     context: u32,
@@ -968,10 +1078,20 @@ fn merge_context_windows(
         lines: Vec<String>,
         match_lines: Vec<u32>,
     }
+    // Every window is numbered `<line>\t<text>` (the C5 form), so a cited
+    // line never has to be counted from `line`.
     fn flush(block: Block) -> SearchMatch {
         let mut head = block.head;
+        // One number per window line, blank lines included (a window can end
+        // on an empty line, which a split-based numberer would drop).
+        head.value = block
+            .lines
+            .iter()
+            .zip(block.start..)
+            .map(|(line, number)| format!("{number}{}{line}", crate::runtime::numbered::SEPARATOR))
+            .collect::<Vec<_>>()
+            .join("\n");
         if block.match_lines.len() > 1 {
-            head.value = block.lines.join("\n");
             head.match_lines = Some(block.match_lines);
         }
         head
@@ -1004,7 +1124,7 @@ fn merge_context_windows(
                 && start >= block.start
                 && start <= end
                 && shared_agrees
-                && grown.saturating_sub(1) <= max_chars
+                && grown.saturating_sub(1) <= max_chars.saturating_mul(block.match_lines.len() + 1)
             {
                 block
                     .lines
@@ -1069,19 +1189,67 @@ fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError 
             object.remove(cursor);
         }
     }
-    repaired["regex"] = json!("literal");
+    let pcre2 = query.regex == LocalSearchQueryRegex::Pcre2;
+    // An alternation stays a regex: a literal search for `a(|b(` matches
+    // nothing, while each alternative escaped finds every anchor.
+    let why = if let Some(text) = repair_alternation(&query.search_text, pcre2) {
+        repaired["searchText"] = json!(text);
+        "Search each alternative with its metacharacters escaped."
+    } else {
+        repaired["regex"] = json!("literal");
+        "Search searchText as literal text."
+    };
     LocalSearchError {
         code: "invalidRegex",
         message,
         hints: vec![
-            "Use regex:\"literal\" for exact text, or escape metacharacters/fix searchText to keep regex matching.".into(),
+            "Use regex:\"literal\" for exact text, or escape metacharacters ( [ . per alternative to keep regex matching.".into(),
         ],
         next: Some(Box::new(json!({"repair":{
             "tool":ToolId::LocalSearch.as_str(),
             "query":repaired,
-            "why":"Search searchText as literal text."
+            "why":why
         }}))),
     }
+}
+
+/// `a(|b|c[` → `a\(|b|c\[`: split on unescaped `|`, keep alternatives that
+/// parse on their own, escape the rest. `None` for a single alternative or
+/// when the joined result still fails to parse.
+fn repair_alternation(text: &str, pcre2: bool) -> Option<String> {
+    let mut parts = vec![String::new()];
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                let part = parts.last_mut()?;
+                part.push(c);
+                if let Some(next) = chars.next() {
+                    part.push(next);
+                }
+            }
+            '|' => parts.push(String::new()),
+            _ => parts.last_mut()?.push(c),
+        }
+    }
+    if parts.len() < 2 {
+        return None;
+    }
+    let valid = |pattern: &str| {
+        octocode_engine::portable::validate_ripgrep_pattern(pattern, false, pcre2).valid
+    };
+    let repaired = parts
+        .iter()
+        .map(|part| {
+            if !part.is_empty() && valid(part) {
+                part.clone()
+            } else {
+                regex::escape(part)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    valid(&repaired).then_some(repaired)
 }
 
 fn cancelled(message: String) -> LocalSearchError {
@@ -1390,8 +1558,11 @@ mod merge_tests {
         let merged =
             merge_context_windows(vec![row(5, "l4\nl5\nl6"), row(6, "l5\nl6\nl7")], 1, 500);
         assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].value, "l4\nl5\nl6\nl7");
+        assert_eq!(merged[0].value, "4\tl4\n5\tl5\n6\tl6\n7\tl7");
         assert_eq!(merged[0].match_lines, Some(vec![5, 6]));
+        // A window ending on a blank line keeps that line numbered.
+        let blank = merge_context_windows(vec![row(5, "l4\nl5\n")], 1, 500);
+        assert_eq!(blank[0].value, "4\tl4\n5\tl5\n6\t");
         // A redacted/rewritten shared line keeps both rows verbatim.
         let apart = merge_context_windows(
             vec![row(5, "l4\nl5\nl6"), row(6, "l5\n[REDACTED]\nl7")],
@@ -1407,12 +1578,37 @@ mod merge_tests {
         // Disjoint windows (gap at line 7..) stay separate rows.
         let gap = merge_context_windows(vec![row(2, "l1\nl2\nl3"), row(9, "l8\nl9\nl10")], 1, 500);
         assert_eq!(gap.len(), 2);
-        let capped = merge_context_windows(vec![row(5, "l4\nl5\nl6"), row(6, "l5\nl6\nl7")], 1, 8);
+        // A merged block may use the budgets of the rows it replaces (here
+        // 2 × 8 chars), so it is never larger than those rows unmerged.
+        let within = merge_context_windows(vec![row(5, "l4\nl5\nl6"), row(6, "l5\nl6\nl7")], 1, 8);
+        assert_eq!(within.len(), 1, "two 8-char rows merge into 11 chars");
+        let capped = merge_context_windows(vec![row(5, "l4\nl5\nl6"), row(6, "l5\nl6\nl7")], 1, 5);
         assert_eq!(
             capped.len(),
             2,
-            "a merge must not exceed matchContentLength"
+            "a merge must not exceed the merged rows' matchContentLength budgets"
         );
+    }
+
+    #[test]
+    fn wide_overlapping_windows_merge_up_to_the_rows_combined_budget() {
+        // Three ±3 windows over 6-char lines (48 chars each): any two merged
+        // exceed one row's 60-char cap, all three fit their combined budget.
+        let lines: Vec<String> = (1..=20).map(|n| format!("line{n:02}")).collect();
+        let window = |line: u32| {
+            let lo = line.saturating_sub(3).max(1) as usize;
+            let hi = (line + 3).min(20) as usize;
+            lines[lo - 1..hi].join("\n")
+        };
+        let rows = vec![row(5, &window(5)), row(7, &window(7)), row(9, &window(9))];
+        let merged = merge_context_windows(rows, 3, 60);
+        assert_eq!(merged.len(), 1, "{merged:?}");
+        let numbered = (2..=12)
+            .map(|n| format!("{n}\tline{n:02}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(merged[0].value, numbered);
+        assert_eq!(merged[0].match_lines, Some(vec![5, 7, 9]));
     }
 }
 
@@ -1450,6 +1646,46 @@ mod repair_tests {
         }
         crate::contracts::validate_query("localSearch", repair.clone())
             .expect("repair query is contract-valid");
+    }
+
+    #[test]
+    fn an_invalid_alternation_is_repaired_per_alternative_not_as_one_literal() {
+        let query: LocalSearchQuery = serde_json::from_value(json!({
+            "path":"/tmp","goal":"g","reasoning":"r",
+            "searchText":"EndProcessProperty(|SetPropertyPresence(|PropertyPresence\\.None"
+        }))
+        .expect("query");
+        let error = invalid_regex(&query, "unclosed group".into());
+        let repair = &error.next.expect("repair")["repair"]["query"];
+        assert_eq!(
+            repair["searchText"],
+            "EndProcessProperty\\(|SetPropertyPresence\\(|PropertyPresence\\.None",
+            "broken alternatives are escaped, valid ones kept: {repair}"
+        );
+        assert!(
+            repair.get("regex").is_none_or(|mode| mode == "rust"),
+            "{repair}"
+        );
+        let text = repair["searchText"].as_str().expect("text");
+        assert!(octocode_engine::portable::validate_ripgrep_pattern(text, false, false).valid);
+        crate::contracts::validate_query("localSearch", repair.clone())
+            .expect("repair query is contract-valid");
+        // A single anchor keeps the literal repair.
+        let single: LocalSearchQuery = serde_json::from_value(json!({
+            "path":"/tmp","goal":"g","reasoning":"r","searchText":"call("
+        }))
+        .expect("query");
+        let error = invalid_regex(&single, "unclosed group".into());
+        assert_eq!(
+            error.next.expect("repair")["repair"]["query"]["regex"],
+            "literal"
+        );
+    }
+
+    #[test]
+    fn escaped_bars_do_not_split_alternatives() {
+        assert_eq!(repair_alternation("a\\|b(", false), None, "one alternative");
+        assert_eq!(repair_alternation("x[|y", false).as_deref(), Some("x\\[|y"));
     }
 }
 

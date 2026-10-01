@@ -685,18 +685,18 @@ async fn gh_get_history_item_commit_not_found_surfaces_error() {
     runtime.close().await;
 }
 
-/// Cloning a repository that does not exist must report the missing repo by
-/// name, not the internal-sounding clone.defaultBranchUnavailable failure
-/// that used to surface when default-branch resolution silently failed.
+/// ghCloneRepo S1/S2: no GitHub API call precedes git. A missing or
+/// inaccessible repository is classified from the metadata API only after
+/// git fails (unit-tested in `runtime::github`); here the endpoint cannot
+/// be cloned at all, and the API is never asked.
 #[tokio::test]
-async fn gh_clone_repo_missing_repository_reports_repo_not_found() {
+async fn gh_clone_repo_makes_no_metadata_call_before_git() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/ghost/nope"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
         .mount(&server)
         .await;
-
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
@@ -709,106 +709,14 @@ async fn gh_clone_repo_missing_repository_reports_repo_not_found() {
     )
     .await
     .expect("clone error row");
-
-    assert_eq!(
-        row_status(&outcome),
-        "error",
-        "{}",
-        outcome.structured_content
-    );
-    let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "clone.repositoryNotFound", "{data}");
-    assert_eq!(
-        data["error"].as_str(),
-        Some("Repository not found: ghost/nope"),
-        "{data}"
-    );
-    // D8: the full access hint, never cut mid-sentence by the guidance cap.
-    let hint = data["hints"][0].as_str().expect("repo hint");
-    assert!(
-        !hint.ends_with('…') && hint.ends_with("token access."),
-        "{hint}"
-    );
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn gh_clone_repo_preserves_metadata_auth_and_rate_limit_failures() {
-    for (status, code, retryable) in [
-        (401, "authentication", false),
-        (429, "rateLimited", true),
-        (503, "server", true),
-    ] {
-        let server = MockServer::start().await;
-        let response =
-            ResponseTemplate::new(status).set_body_json(json!({"message": "metadata unavailable"}));
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b"))
-            .respond_with(response)
-            .mount(&server)
-            .await;
-        let workspace = Workspace::new();
-        let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-        let outcome = call(&runtime, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
-            .await
-            .expect("clone metadata error row");
-        let data = row_data(&outcome);
-        assert_eq!(row_status(&outcome), "error", "{data}");
-        assert_eq!(data["errorCode"], code, "{data}");
-        assert_eq!(data["httpStatus"], status, "{data}");
-        assert_eq!(data["retryable"], retryable, "{data}");
-        assert!(data["hints"][0].is_string(), "{data}");
-        assert!(
-            !data.to_string().contains("defaultBranchUnavailable"),
-            "{data}"
-        );
-        assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        assert!(
-            !workspace.home.join("tmp/clone").exists(),
-            "metadata failure must return before starting Git"
-        );
-        runtime.close().await;
-    }
-}
-
-#[tokio::test]
-async fn gh_clone_repo_preserves_metadata_timeout() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_delay(Duration::from_secs(6))
-                .set_body_json(json!({"default_branch":"main"})),
-        )
-        .mount(&server)
-        .await;
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[
-        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("REQUEST_TIMEOUT", "5000".into()),
-    ]);
-    let outcome = call(&runtime, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
-        .await
-        .expect("clone timeout row");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "error", "{data}");
-    assert_eq!(data["errorCode"], "timeout", "{data}");
-    assert!(
-        data["hints"][0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("Retry")),
-        "{data}"
-    );
+    assert_eq!(data["errorCode"], "clone.endpoint.unsupported", "{data}");
     assert!(
         !data.to_string().contains("defaultBranchUnavailable"),
         "{data}"
     );
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
-    assert!(
-        !workspace.home.join("tmp/clone").exists(),
-        "metadata timeout must return before starting Git"
-    );
+    assert_eq!(server.received_requests().await.unwrap().len(), 0);
     runtime.close().await;
 }
 
@@ -901,11 +809,12 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
     let preview = pr["bodyPreview"].as_str().expect("bodyPreview");
     assert!(preview.ends_with("..."), "{preview}");
     assert!(preview.chars().count() <= 500, "{preview}");
-    let get_body = &pr["next"]["getBody"]["query"];
+    // The long body rides the file-list read (S6 menu diet).
+    let get_body = &pr["next"]["getChangedFiles"]["query"];
     // Continuations omit defaulted fields; validation restores them on replay.
     assert!(get_body.get("pageSize").is_none(), "{get_body}");
     assert!(get_body.get("minify").is_none(), "{get_body}");
-    assert_eq!(get_body["content"], json!({"body": true}), "{get_body}");
+    assert_eq!(get_body["include"], json!(["files", "body"]), "{get_body}");
     let replayed = octocode_native::contracts::validate_query("ghGetHistoryItem", get_body.clone())
         .expect("compact continuation validates");
     // pageSize has no contract default: each surface sizes its own page.
@@ -1758,5 +1667,83 @@ async fn gh_full_content_first_page_stays_under_the_host_output_cap() {
         "no continuation: {}",
         &rendered[..rendered.len().min(2000)]
     );
+    runtime.close().await;
+}
+
+/// S2 (G08/G09): an issue read lists the pull requests that closed it
+/// (merged first) and offers the merged fix as `next.readFixPr`; without
+/// GraphQL the read falls back to the keyword search hop.
+#[tokio::test]
+async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 42, "title": "model_config mutates", "state": "closed",
+            "state_reason": "completed", "body": "repro", "user": {"login": "alice"},
+            "labels": [], "comments": 0, "closed_at": "2026-09-25T00:29:37Z",
+            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:29:37Z"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+            "repository": {"issue": {"closedByPullRequestsReferences": {"nodes": [
+                {"number": 13794, "state": "CLOSED", "mergedAt": null},
+                {"number": 13825, "state": "MERGED", "mergedAt": "2026-09-25T00:29:36Z"}
+            ]}}}
+        }})))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+    )
+    .await
+    .expect("issue read");
+    let data = row_data(&outcome);
+    assert_eq!(row_status(&outcome), "success", "{data}");
+    let issue = &data["issues"][0];
+    assert_eq!(
+        issue["closedBy"],
+        json!([
+            {"number": 13825, "state": "merged", "mergedAt": "2026-09-25T00:29:36Z"},
+            {"number": 13794, "state": "closed"}
+        ]),
+        "{data}"
+    );
+    let read = &data["next"]["readFixPr"];
+    assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
+    assert_eq!(read["query"]["operation"], "pullRequest", "{data}");
+    assert_eq!(read["query"]["number"], 13825, "{data}");
+    runtime.close().await;
+
+    // GraphQL unavailable: no closedBy, the search hop instead.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 42, "title": "t", "state": "closed", "state_reason": "completed",
+            "body": "", "user": {"login": "alice"}, "labels": [], "comments": 0
+        })))
+        .mount(&server)
+        .await;
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+    )
+    .await
+    .expect("issue read");
+    let data = row_data(&outcome);
+    assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
+    let find = &data["next"]["findFixPr"];
+    assert_eq!(find["tool"], "ghSearchHistory", "{data}");
+    assert_eq!(find["query"]["keywords"], json!(["42"]), "{data}");
     runtime.close().await;
 }

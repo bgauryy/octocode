@@ -23,6 +23,9 @@ struct CompiledQuery {
     min_depth: u32,
     show_hidden: bool,
     name_globs: Vec<Regex>,
+    /// `names` entries containing `/`: matched against the root-relative path
+    /// and ORed with the basename globs.
+    name_path_globs: Vec<Regex>,
     extensions: Vec<String>,
     path_glob: Option<Regex>,
     regex: Option<Regex>,
@@ -100,7 +103,13 @@ impl CompiledQuery {
     fn new(options: FileSystemQueryOptions) -> Result<Self, String> {
         let root = PathBuf::from(options.path);
         let mut warnings = Vec::new();
-        let name_globs = compile_globs(options.names.unwrap_or_default(), "names", &mut warnings);
+        let (path_names, base_names): (Vec<String>, Vec<String>) = options
+            .names
+            .unwrap_or_default()
+            .into_iter()
+            .partition(|name| name.contains('/'));
+        let name_globs = compile_globs(base_names, "names", &mut warnings);
+        let name_path_globs = compile_globs(path_names, "names", &mut warnings);
         let extensions = normalize_extensions(options.extensions.unwrap_or_default());
         let path_glob = match options.path_pattern {
             Some(pattern) => Some(compile_glob(&pattern, "pathPattern").map_err(|err| err.reason)?),
@@ -131,6 +140,7 @@ impl CompiledQuery {
             min_depth,
             show_hidden: options.show_hidden.unwrap_or(true),
             name_globs,
+            name_path_globs,
             extensions,
             path_glob,
             regex,
@@ -293,7 +303,13 @@ fn matches_query(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) ->
         .map(normalize_path)
         .unwrap_or_else(|_| normalized_path.clone());
 
-    if !query.name_globs.is_empty() && !query.name_globs.iter().any(|re| re.is_match(&name)) {
+    if (!query.name_globs.is_empty() || !query.name_path_globs.is_empty())
+        && !query.name_globs.iter().any(|re| re.is_match(&name))
+        && !query
+            .name_path_globs
+            .iter()
+            .any(|re| re.is_match(&relative_path))
+    {
         return false;
     }
     if let Some(path_glob) = &query.path_glob
@@ -608,7 +624,8 @@ fn compile_glob(pattern: &str, label: &str) -> std::result::Result<Regex, GlobEr
 fn glob_body_to_regex(pattern: &str) -> String {
     // Collapse `**` to a single wildcard token before translating `*` so
     // `packages/**/src` does not become `.*.*` (two greedy dots).
-    let collapsed = pattern.replace("**", "\u{0001}");
+    // `**/` also matches zero directories (`a/**/b` matches `a/b`).
+    let collapsed = pattern.replace("**/", "\u{0002}").replace("**", "\u{0001}");
     let chars: Vec<char> = collapsed.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -616,6 +633,10 @@ fn glob_body_to_regex(pattern: &str) -> String {
         match chars[i] {
             '\u{0001}' | '*' => {
                 out.push_str(".*");
+                i += 1;
+            }
+            '\u{0002}' => {
+                out.push_str("(?:.*/)?");
                 i += 1;
             }
             '?' => {
@@ -875,6 +896,38 @@ mod tests {
             .collect::<Vec<_>>();
         paths.sort();
         assert_eq!(paths, ["src/lib.rs", "target/debug/generated.rs"]);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn names_with_a_slash_match_the_root_relative_path_ored_with_basenames() {
+        let root = temp_root("path_names");
+        fs::create_dir_all(root.join("scrape/deep")).expect("dirs");
+        fs::create_dir_all(root.join("other")).expect("dirs");
+        for file in [
+            "scrape/a.go",
+            "scrape/deep/b.go",
+            "other/c.go",
+            "other/d_test.go",
+        ] {
+            File::create(root.join(file)).expect("file");
+        }
+        let result = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            names: Some(vec!["scrape/**/*.go".to_owned(), "*_test.go".to_owned()]),
+            ..Default::default()
+        })
+        .expect("query");
+        let mut paths = result
+            .entries
+            .iter()
+            .map(|entry| entry.relative_path.replace('\\', "/"))
+            .collect::<Vec<_>>();
+        paths.sort();
+        assert_eq!(
+            paths,
+            ["other/d_test.go", "scrape/a.go", "scrape/deep/b.go"]
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 

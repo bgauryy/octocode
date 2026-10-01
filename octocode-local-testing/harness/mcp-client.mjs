@@ -165,6 +165,46 @@ export function sourcePath(entry, location, fallback) {
   return value.startsWith('file:') ? fileURLToPath(value) : path.resolve(entry.sc?.base ?? ROOT, value);
 }
 
+/**
+ * lspSearch location rows in one shape: `payload.locations`, or the compact
+ * per-file `payload.byFile[].refs` rows ("line:col text", "start-end:col text")
+ * long reference lists default to, expanded to {path, displayRange, content}.
+ */
+export function lspLocations(entry, index = 0) {
+  const payload = rowData(entry, index)?.payload;
+  if (Array.isArray(payload?.locations)) return payload.locations;
+  return (payload?.byFile ?? []).flatMap(file => (file.refs ?? []).map(ref => {
+    const [, start, end, column, text] = /^(\d+)(?:-(\d+))?:(\d+)(?: (.*))?$/.exec(ref) ?? [];
+    return { path: file.path, displayRange: { startLine: Number(start), startCharacter: Number(column), endLine: Number(end ?? start) }, content: text ?? '' };
+  }));
+}
+
+/**
+ * A file-read row's source view. Reads number source lines in `content`
+ * (`<line>\t<text>`, omission markers unnumbered; docs/TOOL_DATA_CONTRACT.md
+ * "Numbered source content") and then omit `sourceLineRanges`: `text` strips
+ * the gutter and `ranges` comes from the numbers. Verbatim views pass through.
+ */
+export function sourceView(file) {
+  const content = file?.content ?? '';
+  const records = content.split('\n');
+  const trailing = records.at(-1) === '' ? records.pop() : undefined;
+  const marker = /^\.\.\. \[lines? \d+(?:-\d+)? omitted\] \.\.\.$/;
+  const numbered = records.length > 0 && records.some(l => /^\d+\t/.test(l)) && records.every(l => /^\d+\t/.test(l) || marker.test(l));
+  if (!numbered) return { text: content, ranges: file?.sourceLineRanges ?? [], numbered: false };
+  const ranges = [];
+  const text = records.map(l => {
+    const m = /^(\d+)\t/.exec(l);
+    if (!m) return l;
+    const n = Number(m[1]);
+    const last = ranges.at(-1);
+    if (last && last.end + 1 === n) last.end = n; else ranges.push({ start: n, end: n });
+    return l.slice(m[0].length);
+  });
+  if (trailing !== undefined) text.push('');
+  return { text: text.join('\n'), ranges, numbered: true };
+}
+
 export function rowData(entry, index = 0) {
   const row = entry.sc?.results?.[index];
   return row?.data ?? row;

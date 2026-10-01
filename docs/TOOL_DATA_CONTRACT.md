@@ -62,7 +62,31 @@ MCP returns the envelope under `structuredContent`; CLI JSON/compact output expo
 The text channel (YAML by default) is compacted further; `structuredContent` and JSON keep the envelope:
 - a single-row response drops the `results: - index: 0 data:` wrapper and renders the row's fields at the top (a batch keeps it);
 - path-only search rows (`resultView:"files"`) render as `path`, and count rows as `path (count)`;
-- `localFetch` numbers each source line with an `rg -n` style gutter (`279:fn a() {`).
+- `localFetch` and `ghGetFileContent` print file content verbatim after the metadata, under `content (source lines):` when numbered (below) or `content (copy-safe):` otherwise; a GitHub batch labels each block `=== [index] path content (…) ===`.
+
+### Numbered source content
+
+Hosts show agents the structured JSON, so source evidence carries its own line numbers there. When a `localFetch` or `ghGetFileContent` row returns original source lines (no transformed `contentView`; line ranges, match windows, `fullContent`, and line pages), `content` is numbered like `cat -n`, without padding:
+
+```text
+95	        self._thread_sharing_count = 0
+96	
+... [lines 97-254 omitted] ...
+255	    def close(self):
+```
+
+- Each returned line is `<line>` + TAB + the source text. The prefix is not part of the source: strip everything up to the first TAB before copying text into an edit or a `matchString`.
+- Line-omission markers between non-adjacent windows (`... [lines A-B omitted] ...`) stay unnumbered.
+- The numbers state the returned source lines, so `sourceLineRanges` is omitted from a numbered row; `matchedLines` is omitted when every returned line matched (a grep-style map).
+- Views whose lines are not source lines stay verbatim and keep `sourceLineRanges` when they have one: `minify:"standard"`/`"symbols"` views (`contentView`), byte windows (`contextBytes`, long minified lines) and `chunkType:"bytes"` pages, whose offsets count the returned text, and content whose lines no longer map one-to-one onto the source range.
+- Both text encodings render from the same numbered content. The runtime helper is `packages/octocode-native/crates/runtime/src/runtime/numbered.rs`; other tools that return multi-line source text reuse it rather than inventing a format.
+- Search rows use the same form. A `localSearch` row with `contextLines > 0` numbers its window (`matchLines` still lists which lines matched; a truncated window stays verbatim). A repo-scoped `ghSearchCode` `match:"file"` row lists its keyword lines as `lines: ["<line>\t<text>", …]` (see below).
+
+### Search result shapes
+
+- `localSearch` shows every hit on one page when a search has at most 50 hits and no `maxMatchesPerFile`, so no per-file `pagination` or `next.nextMatchPage` appears; larger results keep 10 rows per file and the paging continuations. A complete result over at most three files carries `next.read`: a `localFetch` `matchString` read (±6 lines) of the top file's hits. An invalid regex alternation (`a(|b`) gets a `next.repair` that escapes each broken alternative and keeps regex mode; a single invalid anchor still gets the literal repair.
+- `ghSearchCode` reads the top 5 files of a repo-scoped `match:"file"` page through the contents cache (core API quota, no extra code-search calls). Each resolved row has `lines` (every keyword line, up to 20, with `hitCount` when there are more) in place of index fragments; `data.commitSha` names the commit read. `owner`/`repo` are named once on `data` for a repo-scoped page. A row whose blob had no keyword line or could not be read keeps its fragments and sets `lineResolved:false`. With `branch`, lines are read at that ref (`data.ref`), `data.indexRef:"defaultBranch"` labels the candidates and unresolved fragments as default-branch index output, and a path absent at the ref is `atRef:false` without default-branch text. Fragment `matchIndices` appear only with `debug:true`. `next.readTopMatch` reads the first resolved file by line range.
+- `structureSearch` `files` sorts by path by default (walk order, like `git ls-files`) and stops walking once `limit` is filled; such a cut reports `truncated`, `partialReasons:["limit"]`, `atLeast` (a lower bound, not a total) and `next.expandLimit`. Other sorts walk the whole scope and report `totalAvailable`.
 
 | Field | Interpretation |
 |---|---|
@@ -115,7 +139,7 @@ Copy the returned target and query. Follow every independent partial surface rel
 | `results[].data.next.<name>` | Normally one tool query. | Call the named tool with `{ "queries": [next.query] }`. Check the returned shape rather than guessing from the next-call name. |
 | `responsePagination.next` | A complete outer request, including its own `queries`. | Pass `next.query` as the tool arguments. Do not wrap that envelope inside another `queries` array. |
 
-One PR action is a template, not a replay: `next.findInPatches` (a large pull request's metadata or first inventory page, `confidence: "low"`) leaves `matchString` as `<literal from the question>`; replace it (and optionally add `fileFilter.paths`) before running.
+PR menus are exact reads: `reviewPatches` names its files (a ranking guess, `confidence: "high"`), and a literal search of every patch needs the caller's literal, so it is never offered as a placeholder. Issue reads add `closedBy` (`{number, state, mergedAt?}`, merged first) and `next.readFixPr`; `ghSearchHistory`'s `next.readPr` carries `candidates` (up to three numbers, the target first).
 
 Every `next.*` query is complete under the contract: it carries the `goal` and `reasoning` of the query that produced it, plus any page, snapshot, or offset fields the published schemas leave out. Run it unchanged. A query you write yourself needs its own `goal` and `reasoning`; the contract rejects a query without them, whoever wrote it.
 

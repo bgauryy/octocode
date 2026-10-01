@@ -178,6 +178,200 @@ impl GhSearchHistoryQuery {
     }
 }
 
+/// `qualifiers` keys and the typed field each one sets (`None`: handled
+/// specially), with the operations that accept it.
+const QUALIFIER_KEYS: &[(&str, &str, bool)] = &[
+    // (qualifier key, typed field, pull requests only)
+    ("assignee", "assignee", false),
+    ("author", "author", false),
+    ("commenter", "commenter", false),
+    ("mentions", "mentions", false),
+    ("created", "created", false),
+    ("updated", "updated", false),
+    ("closed", "closed", false),
+    ("comments", "comments", false),
+    ("reactions", "reactions", false),
+    ("label", "label", false),
+    ("in", "match", false),
+    ("is", "state", false),
+    ("archived", "archived", false),
+    ("review-requested", "review-requested", true),
+    ("reviewed-by", "reviewed-by", true),
+    ("review", "review", true),
+    ("status", "checks", true),
+    ("checks", "checks", true),
+    ("head", "head", true),
+    ("base", "base", true),
+    ("merged", "merged-at", true),
+    ("merged-at", "merged-at", true),
+    ("draft", "draft", true),
+];
+/// Scope comes from owner/repo/operation, never from free text.
+const SCOPE_QUALIFIERS: &[&str] = &["repo", "org", "user", "owner", "type"];
+
+fn qualifier_error(message: String) -> ProviderError {
+    ProviderError::new(ProviderErrorKind::Validation, message)
+}
+
+/// Split `a:b label:"good first issue"` into terms; quotes group words.
+fn qualifier_terms(text: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for c in text.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            c if c.is_whitespace() && !quoted => {
+                if !current.is_empty() {
+                    terms.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        terms.push(current);
+    }
+    terms
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b = b.chars().collect::<Vec<_>>();
+    let mut row = (0..=b.len()).collect::<Vec<_>>();
+    for (i, ca) in a.chars().enumerate() {
+        let mut previous = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let next = (row[j + 1] + 1)
+                .min(row[j] + 1)
+                .min(previous + usize::from(ca != *cb));
+            previous = row[j + 1];
+            row[j + 1] = next;
+        }
+    }
+    row[b.len()]
+}
+
+/// Map a row's `qualifiers` string onto the typed search fields (one code
+/// path for both spellings): allowlisted keys only, scope qualifiers
+/// rejected, a field set twice rejected, unknown keys get a suggestion.
+pub fn normalize_row(row: &mut Value) -> Result<(), ProviderError> {
+    let Some(fields) = row.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(qualifiers) = fields.remove("qualifiers") else {
+        return Ok(());
+    };
+    let text = qualifiers.as_str().unwrap_or_default().to_owned();
+    let operation = fields
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    if operation == "commit" {
+        return Err(qualifier_error(
+            "qualifiers apply to pullRequest and issue searches; commits use since/until/path/branch.".into(),
+        ));
+    }
+    let pull_request = operation == "pullRequest";
+    for term in qualifier_terms(&text) {
+        let (negated, term) = match term.strip_prefix('-') {
+            Some(rest) => (true, rest),
+            None => (false, term.as_str()),
+        };
+        let Some((key, value)) = term
+            .split_once(':')
+            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+        else {
+            return Err(qualifier_error(format!(
+                "qualifiers: \"{term}\" is not key:value; put free text in keywords."
+            )));
+        };
+        let key = key.to_ascii_lowercase();
+        if SCOPE_QUALIFIERS.contains(&key.as_str()) {
+            return Err(qualifier_error(format!(
+                "qualifiers: {key}: is not allowed; scope comes from owner/repo."
+            )));
+        }
+        let Some(&(_, field, pr_only)) = QUALIFIER_KEYS.iter().find(|(name, _, _)| *name == key)
+        else {
+            let suggestion = QUALIFIER_KEYS
+                .iter()
+                .map(|(name, _, _)| (edit_distance(&key, name), *name))
+                .filter(|(distance, _)| *distance <= 2)
+                .min();
+            return Err(qualifier_error(match suggestion {
+                Some((_, name)) => format!("qualifiers: unknown key {key}:; did you mean {name}:?"),
+                None => format!(
+                    "qualifiers: unknown key {key}:; allowed: {}.",
+                    QUALIFIER_KEYS
+                        .iter()
+                        .map(|(name, _, _)| *name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }));
+        };
+        if pr_only && !pull_request {
+            return Err(qualifier_error(format!(
+                "qualifiers: {key}: applies to pull requests only."
+            )));
+        }
+        let (field, value) = match (field, value) {
+            ("state", "draft") if pull_request => ("draft", Value::Bool(!negated)),
+            ("state", "open" | "closed") if !negated => ("state", json!(value)),
+            ("state", "merged") if pull_request && !negated => ("state", json!(value)),
+            ("state", "pr" | "issue" | "pull-request") => {
+                return Err(qualifier_error(format!(
+                    "qualifiers: is:{value} is set by operation."
+                )));
+            }
+            ("state", _) => {
+                return Err(qualifier_error(format!(
+                    "qualifiers: is:{value} is not supported; use open, closed{}.",
+                    if pull_request {
+                        ", merged, or draft"
+                    } else {
+                        ""
+                    }
+                )));
+            }
+            ("draft" | "archived", "true" | "false") if !negated => {
+                (field, Value::Bool(value == "true"))
+            }
+            ("draft" | "archived", _) => {
+                return Err(qualifier_error(format!(
+                    "qualifiers: {key}: takes true or false."
+                )));
+            }
+            ("label", _) if !negated => {
+                let labels = fields.entry("label").or_insert_with(|| json!([]));
+                if let Some(labels) = labels.as_array_mut() {
+                    labels.push(json!(value));
+                }
+                continue;
+            }
+            ("match", _) if !negated => {
+                let kinds = value.split(',').map(|kind| json!(kind)).collect::<Vec<_>>();
+                ("match", Value::Array(kinds))
+            }
+            (_, _) if negated => {
+                return Err(qualifier_error(format!(
+                    "qualifiers: -{key}: (negation) is not supported."
+                )));
+            }
+            (field, value) => (field, json!(value)),
+        };
+        if fields.contains_key(field) {
+            return Err(qualifier_error(format!(
+                "qualifiers: {key}: repeats the {field} field; set it once."
+            )));
+        }
+        fields.insert(field.into(), value);
+    }
+    Ok(())
+}
+
 fn usize_of(value: std::num::NonZeroU64) -> usize {
     usize::try_from(value.get()).unwrap_or(usize::MAX)
 }
@@ -368,26 +562,25 @@ pub async fn execute<R: CredentialResolver>(
                 v["pagination"]["totalMatches"] = json!(total);
                 v["pagination"]["totalPages"] = json!(1);
             }
-            if let Some(number) = v["pullRequests"]
-                .get(0)
-                .and_then(|x| x.get("number"))
-                .and_then(Value::as_u64)
+            if let Some((number, candidates)) = read_target(&result.items, is_merged)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
-                let mut read = json!({"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":crate::tools::gh_get_history_item::default_page_size()});
-                if let Some(read) = read.as_object_mut() {
-                    crate::contracts::stamp_schema_defaults(
-                        ToolId::GhGetHistoryItem,
-                        Some("pullRequest"),
-                        read,
-                        &["minify"],
-                    );
+                // A merged row is the likely fix; the pick stays a guess.
+                let merged = result.items.iter().any(is_merged);
+                v["next"]["readPr"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),
+                    "query":pr_read_query(owner, repo, number),
+                    "confidence":if merged {"medium"} else {"low"}});
+                if candidates.len() > 1 {
+                    v["next"]["readPr"]["candidates"] = json!(candidates);
                 }
-                v["next"]["readPr"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":read,"confidence":"low"});
+            }
+            if let Some(read) = issue_links_read(&query) {
+                v["next"]["readIssueLinks"] = read;
             }
             v
         }
         HistoryOperation::Issue => {
+            let by_update = query.sort().as_deref() == Some("updated");
             let issues = result
                 .items
                 .iter()
@@ -396,7 +589,7 @@ pub async fn execute<R: CredentialResolver>(
                     if query.concise() == Some(true) {
                         concise_row(&item)
                     } else {
-                        map_issue(item)
+                        map_issue(item, by_update)
                     }
                 })
                 .collect::<Vec<_>>();
@@ -408,14 +601,13 @@ pub async fn execute<R: CredentialResolver>(
             } {
                 v["totalCount"] = json!(total);
             }
-            if let Some(number) = result
-                .items
-                .first()
-                .and_then(|x| x.get("number"))
-                .and_then(Value::as_u64)
+            if let Some((number, candidates)) = read_target(&result.items, is_completed)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
                 v["next"]["readIssue"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
+                if candidates.len() > 1 {
+                    v["next"]["readIssue"]["candidates"] = json!(candidates);
+                }
             }
             v
         }
@@ -563,10 +755,15 @@ fn map_pr(v: Value) -> Value {
         "state":state,
         "mergedAt":merged_at,
         "author":v.pointer("/user/login").and_then(Value::as_str).unwrap_or(""),
-        "labels":labels(&v),
         "createdAt":v.get("created_at").and_then(Value::as_str).unwrap_or(""),
-        "commentsCount":v.get("comments").and_then(Value::as_u64).unwrap_or(0)
     });
+    let labels = labels(&v);
+    if !labels.is_empty() {
+        row["labels"] = json!(labels);
+    }
+    if let Some(count) = v.get("comments").and_then(Value::as_u64).filter(|n| *n > 0) {
+        row["commentsCount"] = json!(count);
+    }
     remove_null_fields(&mut row);
     row
 }
@@ -615,8 +812,82 @@ fn should_use_search_for_prs(q: &GhSearchHistoryQuery) -> bool {
         || q.merged_at().is_some()
         || q.state().as_deref() == Some("merged")
 }
-fn map_issue(v: Value) -> Value {
-    json!({"number":v["number"],"title":v["title"],"state":v["state"],"author":v.pointer("/user/login"),"labels":labels(&v),"createdAt":v["created_at"],"updatedAt":v["updated_at"]})
+/// An issue row: `updatedAt` only when the rows are sorted by it; labels
+/// only when present.
+fn map_issue(v: Value, by_update: bool) -> Value {
+    let mut row = json!({"number":v["number"],"title":v.get("title"),"state":v.get("state"),"author":v.pointer("/user/login"),"createdAt":v.get("created_at")});
+    let labels = labels(&v);
+    if !labels.is_empty() {
+        row["labels"] = json!(labels);
+    }
+    if by_update {
+        row["updatedAt"] = v.get("updated_at").cloned().unwrap_or(Value::Null);
+    }
+    remove_null_fields(&mut row);
+    row
+}
+/// The row a default read continuation targets: the first row `prefer`
+/// picks (a merged PR, a completed issue), else the first row; plus up to
+/// three candidate numbers, the target first.
+fn read_target(items: &[Value], prefer: fn(&Value) -> bool) -> Option<(u64, Vec<u64>)> {
+    let number = |item: &Value| item.get("number").and_then(Value::as_u64);
+    let target = items
+        .iter()
+        .find(|item| prefer(item))
+        .or_else(|| items.first())
+        .and_then(number)?;
+    let mut candidates = vec![target];
+    candidates.extend(
+        items
+            .iter()
+            .filter_map(number)
+            .filter(|n| *n != target)
+            .take(2),
+    );
+    Some((target, candidates))
+}
+fn is_merged(item: &Value) -> bool {
+    item.get("merged_at")
+        .or_else(|| item.pointer("/pull_request/merged_at"))
+        .is_some_and(|value| !value.is_null())
+}
+fn is_completed(item: &Value) -> bool {
+    item.get("state").and_then(Value::as_str) == Some("closed")
+        && item.get("state_reason").and_then(Value::as_str) == Some("completed")
+}
+/// The default PR read: body and the patch-free file inventory.
+fn pr_read_query(owner: &str, repo: &str, number: u64) -> Value {
+    json!({"operation":"pullRequest","owner":owner,"repo":repo,"number":number,
+        "include":["body","files"]})
+}
+/// A PR search whose keywords are one bare issue number (`13786`, `#13786`)
+/// is an issue → fix-PR hop: the issue read lists the PRs that closed it.
+fn issue_links_read(q: &GhSearchHistoryQuery) -> Option<Value> {
+    let (owner, repo) = q.owner().zip(q.repo())?;
+    let [keyword] = q.keywords()[..] else {
+        return None;
+    };
+    let number = keyword
+        .trim()
+        .trim_start_matches('#')
+        .parse::<u64>()
+        .ok()
+        .filter(|n| *n > 0)?;
+    Some(
+        json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":"high","query":{
+        "operation":"issue","owner":owner,"repo":repo,"number":number}}),
+    )
+}
+/// A commit person as one string: the GitHub login, else the git name
+/// (emails stay out of default rows).
+fn person(v: &Value, kind: &str) -> Value {
+    v.pointer(&format!("/{kind}/login"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            v.pointer(&format!("/commit/{kind}/name"))
+                .and_then(Value::as_str)
+        })
+        .map_or(Value::Null, |name| json!(name))
 }
 fn map_commit(v: Value) -> Value {
     let message = v
@@ -628,7 +899,9 @@ fn map_commit(v: Value) -> Value {
         .unwrap_or("");
     // No per-row html_url: it is owner/repo/commit/sha, all already in the row
     // and its envelope (issue and PR rows omit it too).
-    json!({"sha":v["sha"],"messageHeadline":message,"date":v.pointer("/commit/author/date"),"author":{"name":v.pointer("/commit/author/name"),"email":v.pointer("/commit/author/email"),"login":v.pointer("/author/login")}})
+    let mut row = json!({"sha":v["sha"],"messageHeadline":message,"date":v.pointer("/commit/author/date"),"author":person(&v, "author")});
+    remove_null_fields(&mut row);
+    row
 }
 
 #[cfg(test)]
@@ -809,43 +1082,33 @@ fn build_query_with_warnings(
     Ok((out.join(" "), warnings))
 }
 
+/// A commit-list row: headline, date and the author's login; the full
+/// message (and emails) come from `next.readCommit`. The committer appears
+/// only when it is a different person (not the GitHub web-flow bot).
 fn map_commit_list(v: Value) -> Value {
-    let full = v
+    let headline = v
         .pointer("/commit/message")
         .and_then(Value::as_str)
+        .unwrap_or("")
+        .lines()
+        .next()
         .unwrap_or("");
-    let headline = full.lines().next().unwrap_or("");
-    let body = full.split_once('\n').map(|(_, rest)| rest.trim_start());
-    let truncated = body.is_some_and(|text| text.chars().count() > 500);
-    let body = body.map(|text| text.chars().take(500).collect::<String>());
-    let author_login = v.pointer("/author/login").and_then(Value::as_str);
-    let committer_login = v.pointer("/committer/login").and_then(Value::as_str);
-    let same = author_login == committer_login
-        || committer_login == Some("web-flow")
+    let author = person(&v, "author");
+    let committer = person(&v, "committer");
+    let same = committer == author
+        || committer == "web-flow"
+        || v.pointer("/committer/login").and_then(Value::as_str) == Some("web-flow")
         || v.pointer("/commit/committer/name") == v.pointer("/commit/author/name");
     let mut row = json!({
         "sha": v["sha"],
         "date": v.pointer("/commit/author/date"),
         "messageHeadline": headline,
-        "author": {
-            "name": v.pointer("/commit/author/name"),
-            "email": v.pointer("/commit/author/email"),
-            "login": author_login
-        }
+        "author": author,
     });
-    if let Some(body) = body.filter(|text| !text.is_empty()) {
-        row["messageBody"] = json!(body);
-        if truncated {
-            row["messageTruncated"] = json!(true);
-        }
-    }
     if !same {
-        row["committer"] = json!({
-            "name": v.pointer("/commit/committer/name"),
-            "email": v.pointer("/commit/committer/email").and_then(Value::as_str).unwrap_or(""),
-            "login": committer_login
-        });
+        row["committer"] = committer;
     }
+    remove_null_fields(&mut row);
     row
 }
 #[cfg(test)]
@@ -987,6 +1250,149 @@ mod tests {
         }));
         assert_eq!(closed["state"], "closed");
         assert!(closed.get("mergedAt").is_none());
+    }
+
+    /// G09: the default PR read targets the merged fix, not the first
+    /// (unmerged) search row; the other rows ride as candidates.
+    #[test]
+    fn read_pr_prefers_the_first_merged_row_and_names_candidates() {
+        let rows = [
+            json!({"number":13794,"state":"closed","pull_request":{"merged_at":null}}),
+            json!({"number":13825,"state":"closed","pull_request":{"merged_at":"2026-09-25T00:29:36Z"}}),
+            json!({"number":13787,"state":"open"}),
+            json!({"number":13001,"state":"open"}),
+        ];
+        let (number, candidates) = read_target(&rows, is_merged).expect("rows");
+        assert_eq!(number, 13825);
+        assert_eq!(candidates, vec![13825, 13794, 13787]);
+        // No merged row: the first row, unchanged.
+        let open = [
+            json!({"number":5,"state":"open"}),
+            json!({"number":6,"state":"closed"}),
+        ];
+        assert_eq!(read_target(&open, is_merged), Some((5, vec![5, 6])));
+        assert_eq!(read_target(&[], is_merged), None);
+        let read = pr_read_query("o", "r", 13825);
+        assert_eq!(read["number"], 13825);
+        assert_eq!(read["include"], json!(["body", "files"]));
+        assert!(read.get("pageSize").is_none(), "{read}");
+    }
+
+    /// The issue read prefers an issue closed as completed (its fix landed).
+    #[test]
+    fn read_issue_prefers_a_completed_issue() {
+        let rows = [
+            json!({"number":1,"state":"open"}),
+            json!({"number":2,"state":"closed","state_reason":"not_planned"}),
+            json!({"number":3,"state":"closed","state_reason":"completed"}),
+        ];
+        assert_eq!(read_target(&rows, is_completed), Some((3, vec![3, 1, 2])));
+    }
+
+    /// A bare issue number in the keywords links straight to that issue's
+    /// closing pull requests.
+    #[test]
+    fn bare_issue_number_keywords_offer_the_issue_links_read() {
+        let q = parse(
+            r##"{"operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["#13786"]}"##,
+        );
+        let read = issue_links_read(&q).expect("bare number");
+        assert_eq!(read["query"]["operation"], "issue");
+        assert_eq!(read["query"]["number"], 13786);
+        let words = parse(
+            r#"{"operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["fix 13786"]}"#,
+        );
+        assert!(issue_links_read(&words).is_none());
+    }
+
+    /// Row diet: commit authors are a login (else name) without email, list
+    /// rows drop the message body, issue rows drop updatedAt and empty
+    /// labels, PR rows drop empty labels and zero comment counts.
+    #[test]
+    fn history_rows_carry_no_emails_or_empty_fields() {
+        let raw = json!({"sha":"abc","commit":{"message":"Fix (#1)\n\nlong body",
+            "author":{"name":"Dev","email":"dev@example.com","date":"2026-01-01T00:00:00Z"},
+            "committer":{"name":"GitHub","email":"noreply@github.com"}},
+            "author":{"login":"dev"},"committer":{"login":"web-flow"}});
+        for row in [map_commit(raw.clone()), map_commit_list(raw.clone())] {
+            assert_eq!(row["author"], "dev", "{row}");
+            assert!(!row.to_string().contains('@'), "{row}");
+            assert!(row.get("messageBody").is_none(), "{row}");
+            assert!(row.get("committer").is_none(), "{row}");
+        }
+        let nameless =
+            json!({"sha":"abc","commit":{"message":"x","author":{"name":"Dev","email":"d@e.f"}}});
+        assert_eq!(map_commit_list(nameless)["author"], "Dev");
+        let other = json!({"sha":"abc","commit":{"message":"x","author":{"name":"A"},"committer":{"name":"B"}},
+            "author":{"login":"a"},"committer":{"login":"b"}});
+        assert_eq!(map_commit_list(other)["committer"], "b");
+        let issue = map_issue(
+            json!({"number":1,"title":"t","state":"open","user":{"login":"u"},
+            "labels":[],"created_at":"c","updated_at":"u"}),
+            false,
+        );
+        assert!(
+            issue.get("updatedAt").is_none() && issue.get("labels").is_none(),
+            "{issue}"
+        );
+        let by_update = map_issue(
+            json!({"number":1,"updated_at":"u","labels":[{"name":"bug"}]}),
+            true,
+        );
+        assert_eq!(by_update["updatedAt"], "u");
+        assert_eq!(by_update["labels"], json!(["bug"]));
+        let pr = map_pr(
+            json!({"number":1,"title":"t","state":"open","user":{"login":"u"},
+            "labels":[],"created_at":"c","comments":0}),
+        );
+        assert!(
+            pr.get("labels").is_none() && pr.get("commentsCount").is_none(),
+            "{pr}"
+        );
+    }
+
+    /// S5 (A3): the `qualifiers` string sets the typed fields, so both
+    /// spellings build the same search; scope and unknown keys are rejected.
+    #[test]
+    fn qualifiers_map_onto_typed_fields() {
+        let built = |mut row: Value| {
+            normalize_row(&mut row)
+                .map(|()| build_query(&serde_json::from_value(row).expect("typed")).expect("query"))
+        };
+        let base = json!({"operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["x"]});
+        let mut flat = base.clone();
+        flat["qualifiers"] = json!(
+            r#"reviewed-by:dev review:approved comments:>5 label:"good first issue" -is:draft merged:>2026-01-01"#
+        );
+        let mut typed = base.clone();
+        for (k, v) in [
+            ("reviewed-by", json!("dev")),
+            ("review", json!("approved")),
+            ("comments", json!(">5")),
+            ("label", json!(["good first issue"])),
+            ("draft", json!(false)),
+            ("merged-at", json!(">2026-01-01")),
+        ] {
+            typed[k] = v;
+        }
+        assert_eq!(built(flat).expect("flat"), built(typed).expect("typed"));
+        for (bad, needle) in [
+            ("repo:evil/x", "owner/repo"),
+            ("reviewd-by:dev", "did you mean reviewed-by:"),
+            ("loose words", "key:value"),
+            ("is:pr", "operation"),
+        ] {
+            let mut row = base.clone();
+            row["qualifiers"] = json!(bad);
+            let error = built(row).expect_err(bad);
+            assert!(error.message.contains(needle), "{bad}: {}", error.message);
+        }
+        let mut twice = base.clone();
+        twice["author"] = json!("a");
+        twice["qualifiers"] = json!("author:b");
+        assert!(built(twice).is_err());
+        let mut issue = json!({"operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"r","qualifiers":"review:approved"});
+        assert!(normalize_row(&mut issue).is_err());
     }
 
     #[test]

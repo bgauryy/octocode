@@ -843,6 +843,154 @@ async fn recovered_alias_references_are_labeled_in_output() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn many_references_default_to_compact_rows_grouped_by_file() {
+    let (root, paths) = temp_workspace("compact-refs");
+    let a = root.join("a.ts");
+    let b = root.join("b.ts");
+    std::fs::write(&a, "x\n").expect("a.ts");
+    std::fs::write(&b, "x\n").expect("b.ts");
+    let uri_a = octocode_engine::lsp::uri::path_to_uri(&a.to_string_lossy()).expect("uri");
+    let uri_b = octocode_engine::lsp::uri::path_to_uri(&b.to_string_lossy()).expect("uri");
+    let at = |uri: &str, line: u32, character: u32, end_line: u32, content: &str| {
+        serde_json::json!({
+            "uri": uri,
+            "range": {"start": {"line": line, "character": character}, "end": {"line": end_line, "character": character + 3}},
+            "content": content
+        })
+    };
+    let mut snippets = vec![at(&uri_a, 4, 13, 28, "export const foo = (\n  a,\n) => a;")];
+    snippets.extend((10..30).map(|line| at(&uri_a, line, 2, line, "  foo(bar);")));
+    let mut recovered = at(&uri_b, 0, 9, 0, "import { foo } from './a';");
+    recovered["source"] = serde_json::json!("recoveredImporter");
+    snippets.push(recovered);
+    let compact = |extra: serde_json::Value| {
+        let mut input = serde_json::json!({
+            "operation": "references", "goal": "test", "reasoning": "test",
+            "uri": uri_a, "symbolName": "foo", "lineHint": 5
+        });
+        for (key, value) in extra.as_object().expect("object") {
+            input[key] = value.clone();
+        }
+        query(input)
+    };
+    let result = locations(
+        &compact(serde_json::json!({})),
+        &mut SourceCache::new(&paths),
+        "references",
+        "referencesProvider",
+        snippets.clone(),
+    )
+    .await;
+    let payload = &result["payload"];
+    assert!(payload.get("locations").is_none(), "{result}");
+    let files = payload["byFile"].as_array().expect("byFile");
+    assert_eq!(files.len(), 2, "{result}");
+    assert_eq!(files[0]["path"], serde_json::json!(a.to_string_lossy()));
+    let refs = files[0]["refs"].as_array().expect("refs");
+    assert_eq!(refs.len(), 21);
+    // Multi-line ranges keep their end line; text is the first trimmed line.
+    assert_eq!(refs[0], "5-29:14 export const foo = (");
+    assert_eq!(refs[1], "11:3 foo(bar);");
+    assert_eq!(
+        files[1]["refs"],
+        serde_json::json!(["1:10 import { foo } from './a';"])
+    );
+    assert_eq!(
+        files[1]["recovered"],
+        serde_json::json!({"recoveredImporter": [1]})
+    );
+    assert_eq!(payload["totalReferences"], 22);
+    assert_eq!(payload["totalFiles"], 2);
+    crate::contracts::validate_output(
+        "lspSearch",
+        &serde_json::json!({"results":[{"index":0,"data":result}]}),
+    )
+    .expect("compact references satisfy the output contract");
+
+    // Explicit row forms keep per-location rows.
+    for extra in [
+        serde_json::json!({"groupByFile": false}),
+        serde_json::json!({"contextLines": 1}),
+    ] {
+        let result = locations(
+            &compact(extra.clone()),
+            &mut SourceCache::new(&paths),
+            "references",
+            "referencesProvider",
+            snippets.clone(),
+        )
+        .await;
+        assert!(
+            result["payload"]["locations"].is_array(),
+            "{extra}: {result}"
+        );
+    }
+    // A short reference list stays per location.
+    let result = locations(
+        &compact(serde_json::json!({})),
+        &mut SourceCache::new(&paths),
+        "references",
+        "referencesProvider",
+        snippets[..5].to_vec(),
+    )
+    .await;
+    assert!(result["payload"]["locations"].is_array(), "{result}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn compact_reference_pages_state_the_snapshot_once_in_next() {
+    let q = query(serde_json::json!({
+        "operation": "references", "goal": "test", "reasoning": "test",
+        "uri": "file:///repo/a.ts", "symbolName": "foo", "lineHint": 1
+    }));
+    let page = |payload: serde_json::Value| {
+        serde_json::json!({
+            "payload": payload,
+            "pagination": {"currentPage": 1, "hasMore": true, "nextPage": 2, "snapshot": "lsp-v1:abc"}
+        })
+    };
+    let compact = with_next(
+        &q,
+        page(
+            serde_json::json!({"kind": "references", "byFile": [{"path": "/repo/a.ts", "refs": ["1:1 foo"]}]}),
+        ),
+    );
+    assert_eq!(
+        compact["next"]["nextPage"]["query"]["snapshot"],
+        "lsp-v1:abc"
+    );
+    assert!(compact["pagination"].get("snapshot").is_none(), "{compact}");
+    let rows = with_next(
+        &q,
+        page(serde_json::json!({"kind": "references", "locations": [{"path": "/repo/a.ts"}]})),
+    );
+    assert_eq!(rows["pagination"]["snapshot"], "lsp-v1:abc");
+}
+
+#[test]
+fn local_search_identity_continuations_validate_as_anchored_queries() {
+    // The shape localSearch emits as next.references / next.callers for a
+    // declaration hit: uri + symbolName + lineHint, nothing else.
+    for operation in ["references", "callers"] {
+        let continuation = serde_json::json!({
+            "goal": "Who uses run_and_clear_commit_hooks?",
+            "reasoning": "Declaration hit from localSearch.",
+            "operation": operation,
+            "uri": "/repo/django/db/backends/base/base.py",
+            "symbolName": "run_and_clear_commit_hooks",
+            "lineHint": 749
+        });
+        let validated = crate::contracts::validate_query("lspSearch", continuation)
+            .unwrap_or_else(|error| panic!("{operation}: {error:?}"));
+        let parsed: LspSearchQuery = serde_json::from_value(validated).expect("typed query");
+        assert!(matches!(parsed, LspSearchQuery::Anchored(_)), "{operation}");
+        assert_eq!(parsed.operation(), operation);
+        assert_eq!(parsed.symbol_name(), Some("run_and_clear_commit_hooks"));
+    }
+}
+
 fn temp_workspace(tag: &str) -> (std::path::PathBuf, crate::policy::path::PathPolicy) {
     use crate::policy::path::{PathPolicy, PathPolicyConfig};
     let root = std::env::temp_dir().join(format!("octocode-lsp-{tag}-{}", std::process::id()));

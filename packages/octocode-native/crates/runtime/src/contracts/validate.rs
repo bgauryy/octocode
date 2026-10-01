@@ -801,6 +801,13 @@ fn validate_artifact_queries(input: &Value) -> Result<(), ContractValidationErro
                 "Set exactly one of packageName or keywords",
             ));
         }
+        if !exact && query.get("version").is_some() {
+            return Err(issue(
+                "artifact.version",
+                prefix,
+                "version applies only to exact packageName lookups",
+            ));
+        }
         if exact
             && ["pageSize", "cursor"]
                 .iter()
@@ -905,6 +912,7 @@ fn validate_github_search_queries(
                         "size",
                         "visibility",
                         "license",
+                        "qualifiers",
                     ]
                     .iter()
                     .any(|field| has_text(field))
@@ -1332,6 +1340,30 @@ mod tests {
                 "kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Check the query fields.",
                 "details":["queries.0.endLine: Set endLine greater than or equal to startLine."]
             })
+        );
+        // A blank brief names the field and the fix, not a regex.
+        let blank = validate(
+            "localFetch",
+            json!({"queries":[
+                {"path":"/tmp/a","goal":"ok","reasoning":"ok"},
+                {"path":"/tmp/a","goal":"  ","reasoning":""}]}),
+        )
+        .expect_err("blank brief");
+        assert_eq!(
+            format_input_error("localFetch", &blank, false)["details"],
+            json!([
+                "queries.1.goal: is empty; give one line on what to find or decide (goal and reasoning are required on every query).",
+                "queries.1.reasoning: is empty; give one line on why this query (goal and reasoning are required on every query)."
+            ])
+        );
+        let blank_path = validate(
+            "localFetch",
+            json!({"queries":[{"path":" ","goal":"ok","reasoning":"ok"}]}),
+        )
+        .expect_err("blank path");
+        assert_eq!(
+            format_input_error("localFetch", &blank_path, false)["details"],
+            json!(["queries.0.path: is empty; give non-blank text."])
         );
         let unknown = validate(
             "localFetch",

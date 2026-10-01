@@ -3,14 +3,23 @@ pub fn validate_request(q: &LocalFetchQuery) -> Result<(), String> {
     let full = q.full_content == Some(true);
     let matched = q.match_string.is_some();
     let ranged = q.start_line().is_some() || q.end_line().is_some();
+    let multi = q.has_ranges();
     if q.path.trim().is_empty() {
         return Err("path is required".into());
     }
-    if q.minify == Some(MinifyMode::Symbols) && (matched || ranged) {
+    if q.minify == Some(MinifyMode::Symbols) && (matched || ranged || multi) {
         return Err("minify:\"symbols\" returns a whole-file signature skeleton and cannot be combined with matchString/startLine/endLine — remove the line/match constraints, or use minify:\"standard\" (or \"none\") to extract a specific range.".into());
     }
-    if [full, matched, ranged].iter().filter(|x| **x).count() > 1 {
-        return Err("fullContent, matchString, and startLine/endLine are mutually exclusive extraction methods".into());
+    if [full, matched, ranged, multi]
+        .iter()
+        .filter(|x| **x)
+        .count()
+        > 1
+    {
+        return Err("fullContent, matchString, startLine/endLine, and ranges are mutually exclusive extraction methods".into());
+    }
+    if q.block() && !(matched || ranged || multi) {
+        return Err("block widens startLine/endLine, ranges, or matchString; set one.".into());
     }
     match (q.start_line(), q.end_line()) {
         (Some(start), None) => {

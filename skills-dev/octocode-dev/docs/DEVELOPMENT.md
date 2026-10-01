@@ -25,6 +25,8 @@ Versions are from each `package.json`; workspace packages version independently.
 | `packages/octocode-mcp` | `octocode-mcp` | 19.2.0 |
 | `packages/octocode` | `octocode` | 19.2.0 |
 | `packages/octocode-vscode` | `octocode-mcp-vscode` | 19.2.0 |
+| `packages/octocode-claude-plugin` | `@octocodeai/claude-plugin` | 0.1.0 |
+| `packages/octocode-codex-plugin` | `@octocodeai/codex-plugin` | 0.1.0 |
 | `packages/octocode-skill-installer` | `@octocodeai/octocode-skill-installer` (private) | 0.1.0 |
 | `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | 19.2.0 |
 | `skills/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` (private) | 0.1.0 |
@@ -50,6 +52,10 @@ The `./engine` subpath exposes primitives, never tool policy. Publishing is in `
 **`octocode`.** The public Node launcher. It delegates tool commands and management commands to the native binary, owns `octocode skill` (via the skill installer) and the interactive install picker. See the CLI guide (`<repo>/packages/octocode/docs/OCTOCODE_CLI.md`).
 
 **`octocode-mcp-vscode`.** VS Code extension: GitHub sign-in, token sync into MCP configs, and MCP installation across supported editors. It runs no research tools.
+
+**`@octocodeai/claude-plugin`.** Claude Code manifest, local MCP launch configuration, all public skills, and GitHub CLI onboarding. The GitHub marketplace points to the prebuilt npm package. See `<repo>/packages/octocode-claude-plugin/ARCHITECTURE.md` for validation and publishing.
+
+**`@octocodeai/codex-plugin`.** Codex plugin metadata, local MCP launch configuration, all public skills, and onboarding. It reuses the native runtime's authentication and the CLI's skill staging. See `<repo>/packages/octocode-codex-plugin/ARCHITECTURE.md` for packaging and release gates.
 
 **`@octocodeai/octocode-skill-installer`.** Private library bundled into the CLI: durable canonical skill copies, per-platform links or copies, upgrades, conflict policy and atomic replacement.
 
