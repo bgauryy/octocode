@@ -33,6 +33,19 @@ Every step below exists for one reason: move a *semantic routing decision* out o
 | 16 | Search handoff | A semantic `localSearch`/`ghSearchCode` page with ≥8 files proposes `contribution` + `sufficient` over the search resource; `localSearch` screens hydrated `fileChunks`, `ghSearchCode` screens snippets | Screen every reachable candidate before deciding which source to read | `runtime/clasify_handoff.rs` |
 | 17 | Usage telemetry | Provider calls and billed tokens aggregate into opt-in `<home>/stats.json` | Provider cost is tracked separately from host context | `runtime/session_stats.rs` |
 
+With `OCTOCODE_ENABLE_STATS=true` and persistent storage, `stats.clasify` records
+successful provider request groups once: `calls`, `input_tokens`, `output_tokens`,
+`known_usage_calls`, and `unknown_usage_calls`. Cached judgments add no provider
+usage. Reported zero tokens count as known; missing or invalid token fields and
+historical calls without completeness counters remain unknown. Token totals
+retain reported values and may be partial when unknown calls exist. Current Jev
+responses require both token fields; missing usage is a provider error. Failed
+attempts have no billed-token receipt, so successful counters alone cannot prove
+complete cost after a failure. Prices and provider request IDs are not exposed
+by this accounting surface. For an isolated benchmark session, use a unique
+`OCTOCODE_HOME` and collect its stats after the calls complete; keep provider
+usage separate from host-model tokens and costs.
+
 ### When to call it
 
 ```mermaid
@@ -64,9 +77,9 @@ Why: literal routes are 3–10× cheaper and ~5× faster than a provider round-t
 
 ## Admission
 
-Use Clasify for an explicit classification request or a measured workflow that improves both answer quality and total host context. The admitted research route is `questionType:"locate"` over unread known files when the target is semantic and no useful literal is known. Direct search and bounded reads remain the default for literals, symbols, and already-known anchors.
+Use Clasify for an explicit classification request, a supplied-state judgment, or unread-resource screening when the answer changes which items to read. Use `contribution` plus `sufficient` to identify relevant candidates still missing deciding facts; verify consequential facts in source. Use `questionType:"locate"` over unread known files when the target is semantic and no useful literal is known, or use `prefilter` literals to focus a large file. Direct search and bounded reads remain the default for literals, symbols, and already-known anchors.
 
-Rule of thumb (A/B runs, 2026-09-30): Clasify pays for classifying an explicit list instead of reading every item, locating inside a large known file (with `prefilter` literals when the answer contains one), and absence screens. To locate behavior, guess one literal and search it first; clasify cost 2.6× the bytes when a literal was guessable and 22× for a literal target. Skip it for identifiers, literals, and PR filters (`fileFilter`, `matchString`). Scores 0.36–0.69 are where its errors fell: read to verify.
+In the bounded A/B runs on 2026-09-30, explicit list classification, prefilter locate, and absence screening were useful routes. To locate behavior, guess one literal and search it first; Clasify cost 2.6× the bytes when a literal was guessable and 22× for a literal target in those cases. Skip it for exact identifiers, literals, and PR filters (`fileFilter`, `matchString`). These measurements do not calibrate a universal score threshold. Verify deciding source regardless of score; an absence judgment does not prove absence without complete relevant coverage.
 
 The target budget is host-model context. Provider tokens are cheaper and tracked
 separately; they may increase when private assessment prevents larger source

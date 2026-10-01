@@ -1,10 +1,9 @@
 // Imports / dependencies / flows between files, cross-checked across tools.
-// Every astTopology edge carries an importLine; each sampled edge is proven
-// by reading that exact line with localFetch and requiring it to name the
-// target module. astSearch import syntax and lspSearch identity are then
-// correlated against the same graph.
+// Explicit imports are verified at importLine. Typed Java same-package
+// candidates are verified against package declarations and lexical class uses.
+// Bounded syntactic graph coverage is measured against LSP, not called complete.
 import path from 'node:path';
-import { REPOS, checks, collect, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, ROOT, checks, collect, nextHints, rowData, sourcePath, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('deps-flows');
 const client = await startServer({ env: { OCTOCODE_BETA: '1' } });
@@ -59,6 +58,19 @@ async function proveEdges(root, lang, edges, limit = 20) {
   let proven = 0;
   const failures = [];
   for (const edge of edges.slice(0, limit)) {
+    if (lang === 'Java' && edge.edgeKinds?.includes('java-same-package') && edge.importLine === undefined) {
+      const from = await call('localFetch', { path: path.join(root, edge.from), matchString: tokens(edge.to, lang)[0], contextLines: 2 });
+      const fromHead = await call('localFetch', { path: path.join(root, edge.from), startLine: 1, endLine: 80 });
+      const to = await call('localFetch', { path: path.join(root, edge.to), startLine: 1, endLine: 80 });
+      const a = rowData(from)?.content ?? '', b = rowData(to)?.content ?? '';
+      const packageOf = s => s.match(/^\s*package\s+([\w.]+)\s*;/m)?.[1];
+      const name = tokens(edge.to, lang)[0];
+      const declared = packageOf(rowData(fromHead)?.content ?? '');
+      if (!from.isError && !to.isError && !fromHead.isError && declared && declared === packageOf(b) && new RegExp(`\\b${name}\\b`).test(a) && new RegExp(`\\b(class|interface|enum|record)\\s+${name}\\b`).test(b)) proven += 1;
+      else failures.push(`unverified same-package candidate ${edge.from} ↛ ${edge.to}`);
+      continue;
+    }
+    if (!Number.isInteger(edge.importLine)) { failures.push(`missing importLine/kind ${edge.from} ↛ ${edge.to}`); continue; }
     const text = await lineAt(root, edge.from, edge.importLine);
     if (tokens(edge.to, lang).some(t => text.includes(t))) proven += 1;
     else failures.push(`${edge.from}:${edge.importLine} ↛ ${edge.to} «${text.trim().slice(0, 60)}»`);
@@ -78,7 +90,8 @@ for (const p of PROJECTS) {
   const row = { lang: p.lang };
   const listing = await call('structureSearch', { operation: 'files', path: path.join(root, p.scope), extensions: p.ext, detail: 'full', sort: 'lines', limit: 30 });
   const candidates = collect(rowData(listing), o => typeof o.path === 'string' && typeof o.lineCount === 'number')
-    .map(o => path.relative(root, path.join(path.dirname(path.join(root, p.scope)), o.path)))
+    // Paths are relative to the response `base` (the workspace for structureSearch).
+    .map(o => path.relative(root, path.resolve(listing.sc?.base ?? ROOT, o.path)))
     .filter(f => !/(^|[/_.])(tests?|spec|bench)([/_.]|$)/i.test(f));
   let hub, dependents;
   for (const candidate of candidates.slice(0, 10)) {
@@ -103,10 +116,10 @@ for (const p of PROJECTS) {
   row.confidence = rowData(dependencies)?.confidence;
   row.resolution = JSON.stringify(rowData(dependencies)?.summary?.importResolution ?? {}).replace(/"/g, '');
 
-  const inbound = await proveEdges(root, p.lang, dependentRows.map(r => ({ from: r.file, to: hub, importLine: r.importLine })));
+  const inbound = await proveEdges(root, p.lang, dependentRows.map(r => ({ ...r, from: r.file, to: hub })));
   row.dependentsProven = `${inbound.proven}/${inbound.sampled}`;
   check(`${p.lang}: dependent edges proven at their importLine`, inbound.proven === inbound.sampled, inbound.failures.slice(0, 2).join(' | '));
-  const outbound = await proveEdges(root, p.lang, depRows.map(r => ({ from: hub, to: r.file, importLine: r.importLine })));
+  const outbound = await proveEdges(root, p.lang, depRows.map(r => ({ ...r, from: hub, to: r.file })));
   row.depsProven = `${outbound.proven}/${outbound.sampled}`;
   check(`${p.lang}: dependency edges proven at their importLine`, outbound.proven === outbound.sampled, outbound.failures.slice(0, 2).join(' | '));
 
@@ -116,9 +129,10 @@ for (const p of PROJECTS) {
   const importLines = new Set(collect(rowData(imports), o => typeof o.value === 'string' && typeof o.line === 'number').flatMap(o => {
     const end = o.endLine ?? o.line; const out = []; for (let l = o.line; l <= end; l++) out.push(l); return out;
   }));
-  const syntaxCovered = depRows.filter(r => importLines.has(r.importLine) || p.lang === 'Rust').length;
-  row.importSyntax = `${importLines.size} lines; ${syntaxCovered}/${depRows.length} edges on import nodes`;
-  check(`${p.lang}: graph importLines are import syntax (astSearch ${p.importKind})`, imports.isError ? false : syntaxCovered === depRows.length, `${syntaxCovered}/${depRows.length} ${imports.isError ? imports.text.slice(0, 100) : ''}`);
+  const explicitRows = depRows.filter(r => !(p.lang === 'Java' && r.edgeKinds?.includes('java-same-package') && r.importLine === undefined));
+  const syntaxCovered = explicitRows.filter(r => importLines.has(r.importLine) || p.lang === 'Rust').length;
+  row.importSyntax = `${importLines.size} lines; ${syntaxCovered}/${explicitRows.length} explicit imports; ${depRows.length - explicitRows.length} typed same-package candidates`;
+  check(`${p.lang}: explicit graph importLines are import syntax (astSearch ${p.importKind})`, !imports.isError && syntaxCovered === explicitRows.length, row.importSyntax);
 
   // Transitive closure, path, cycles.
   const deep = await topo(root, 'dependencies', { file: hub, depth: 3 });
@@ -145,7 +159,7 @@ for (const p of PROJECTS) {
     for (const symbol of exported.slice(0, 2)) {
       const refs = await call('lspSearch', { uri: path.join(root, hub), symbolName: symbol.name, lineHint: symbol.line, operation: 'references', pageSize: 25, groupByFile: true });
       const refPages = await walkPages(refs, 'nextPage', 40);
-      const refFiles = [...new Set(refPages.flatMap(pg => collect(rowData(pg)?.payload, o => typeof o.path === 'string').map(o => path.resolve(pg.sc?.base ?? root, o.path))))];
+      const refFiles = [...new Set(refPages.flatMap(pg => collect(rowData(pg)?.payload, o => typeof o.path === 'string' || typeof o.uri === 'string').map(o => sourcePath(pg, o, path.join(root, hub)))))];
       const allDependents = await topo(root, 'dependents', { file: hub, depth: 6, pageSize: 25 });
       const depPages = await walkPages(allDependents, 'nextPage', 80);
       const allowed = new Set(depPages.flatMap(pg => results(pg).map(r => r.file)));
@@ -156,7 +170,9 @@ for (const p of PROJECTS) {
       const inRoot = refFiles.map(f => path.relative(root, f));
       const outside = inRoot.filter(f => !allowed.has(f) && !diagnosed.has(f) && f !== hub && !f.endsWith(path.basename(hub)));
       row.lsp = `${symbol.name}: ${refFiles.length} files, ${outside.length} outside graph`;
-      check(`${p.lang}: LSP references of ${symbol.name} ⊆ dependent graph`, !refs.isError && outside.length === 0, `outside=${outside.slice(0, 3).join(', ')}`);
+      (row.lspComparisons ??= []).push({ symbol: symbol.name, files: refFiles.length, outside, coverage: rowData(allDependents)?.coverage, confidence: rowData(allDependents)?.confidence });
+      const partial = rowData(allDependents)?.confidence === 'low' || rowData(allDependents)?.summary?.importResolution?.status === 'partial' || (rowData(allDependents)?.coverage?.imports?.unresolvedInternal ?? 0) > 0;
+      check(`${p.lang}: bounded graph/LSP comparison for ${symbol.name} discloses coverage gaps`, !refs.isError && (outside.length === 0 || partial), `outside=${outside.slice(0, 3).join(', ')} partial=${partial}`);
     }
   }
   report.push(row);

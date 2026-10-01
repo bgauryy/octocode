@@ -6,6 +6,7 @@
 //! better comparatively, with a `choice` over the page. Text search keeps its
 //! own candidate path (`search_candidate_states`) because it can hydrate file
 //! chunks.
+use crate::tools::id::ToolId;
 use serde_json::{Value, json};
 
 /// One candidate: the narrowed state the provider judges, its identity, and
@@ -22,21 +23,24 @@ pub(super) struct Item {
 /// Split one captured list page into candidates. `None` leaves the page whole:
 /// the tool has no candidate list, or the page lists nothing.
 pub(super) fn split(source: &Value, state: &Value) -> Option<Vec<Item>> {
-    let tool = source.get("tool").and_then(Value::as_str)?;
+    let tool = source
+        .get("tool")
+        .and_then(Value::as_str)
+        .and_then(ToolId::from_name)?;
     let query = source.get("query").unwrap_or(&Value::Null);
     let data = state.pointer("/results/0/data")?;
     let base = state.get("base").and_then(Value::as_str);
     let operation = query.get("operation").and_then(Value::as_str);
     let items = match (tool, operation) {
-        ("astSearch", Some("match")) => ast_matches(state, data, base)?,
-        ("astSearch", Some("symbols")) if data.get("files").is_some() => {
+        (ToolId::AstSearch, Some("match")) => ast_matches(state, data, base)?,
+        (ToolId::AstSearch, Some("symbols")) if data.get("files").is_some() => {
             symbol_files(state, data, base)?
         }
-        ("astSearch", Some("symbols")) => declarations(state, data, base, query)?,
-        ("lspSearch", _) => references(state, data, base, query)?,
-        ("ghSearchRepo", _) => repositories(state, data)?,
-        ("ghSearchHistory", _) => history(state, data, query)?,
-        ("artifactSearch", _) if query.get("keywords").is_some() => packages(state, data)?,
+        (ToolId::AstSearch, Some("symbols")) => declarations(state, data, base, query)?,
+        (ToolId::LspSearch, _) => references(state, data, base, query)?,
+        (ToolId::GhSearchRepo, _) => repositories(state, data)?,
+        (ToolId::GhSearchHistory, _) => history(state, data, query)?,
+        (ToolId::ArtifactSearch, _) if query.get("keywords").is_some() => packages(state, data)?,
         _ => return None,
     };
     (!items.is_empty()).then_some(items)
@@ -47,14 +51,83 @@ pub(super) fn split(source: &Value, state: &Value) -> Option<Vec<Item>> {
 pub(super) fn is_paged_list(source: &Value) -> bool {
     let query = source.get("query").unwrap_or(&Value::Null);
     let operation = query.get("operation").and_then(Value::as_str);
-    match source.get("tool").and_then(Value::as_str) {
+    match source
+        .get("tool")
+        .and_then(Value::as_str)
+        .and_then(ToolId::from_name)
+    {
         // Symbols and references group rows by file; capping rows would cut
         // one file's outline, so those pages are bounded by the cell check.
-        Some("astSearch") => operation == Some("match"),
-        Some("ghSearchRepo" | "ghSearchHistory") => true,
-        Some("artifactSearch") => query.get("keywords").is_some(),
+        Some(ToolId::AstSearch) => operation == Some("match"),
+        Some(ToolId::GhSearchRepo | ToolId::GhSearchHistory) => true,
+        Some(ToolId::ArtifactSearch) => query.get("keywords").is_some(),
         _ => false,
     }
+}
+
+/// A directory symbols outline page: declaration rows grouped per file under
+/// `files`. The outline pages by rows, so one file can straddle pages.
+pub(super) fn is_symbol_outline(source: &Value, state: &Value) -> bool {
+    source.get("tool").and_then(Value::as_str) == Some(ToolId::AstSearch.as_str())
+        && source.pointer("/query/operation").and_then(Value::as_str) == Some("symbols")
+        && state
+            .pointer("/results/0/data/files")
+            .is_some_and(Value::is_array)
+}
+
+fn outline_files(state: &Value) -> &[Value] {
+    state
+        .pointer("/results/0/data/files")
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice)
+}
+
+/// Absolute path of an outline file; page `base`s can differ between pages.
+fn outline_path(state: &Value, file: &Value) -> Option<String> {
+    let base = state.get("base").and_then(Value::as_str);
+    Some(absolute(base, file.get("path")?.as_str()?))
+}
+
+pub(super) fn first_outline_path(state: &Value) -> Option<String> {
+    outline_path(state, outline_files(state).first()?)
+}
+
+pub(super) fn last_outline_path(state: &Value) -> Option<String> {
+    outline_files(state)
+        .last()
+        .and_then(|file| outline_path(state, file))
+}
+
+/// Drop the page's first file (its rows were judged with the page that
+/// started it); a page's only file is kept.
+pub(super) fn drop_first_outline_file(state: &mut Value) {
+    if let Some(files) = state
+        .pointer_mut("/results/0/data/files")
+        .and_then(Value::as_array_mut)
+        .filter(|files| files.len() > 1)
+    {
+        files.remove(0);
+    }
+}
+
+/// Append the declarations `following` holds for `state`'s last file.
+/// `None`: `following` starts with another file. `Some(more)`: rows were
+/// appended, and `more` says whether `following` also lists other files.
+pub(super) fn extend_last_outline_file(state: &mut Value, following: &Value) -> Option<bool> {
+    let files = outline_files(following);
+    let first = files.first()?;
+    if outline_path(following, first)? != last_outline_path(state)? {
+        return None;
+    }
+    let rows = first.get("declarations")?.as_array()?.clone();
+    state
+        .pointer_mut("/results/0/data/files")?
+        .as_array_mut()?
+        .last_mut()?
+        .get_mut("declarations")?
+        .as_array_mut()?
+        .extend(rows);
+    Some(files.len() > 1)
 }
 
 fn narrowed(state: &Value, pointer: &str, items: Vec<Value>) -> Value {
@@ -77,8 +150,8 @@ fn absolute(base: Option<&str>, path: &str) -> String {
 
 /// A kept candidate's fetch. It serves the scouting matrix, whose brief the
 /// response stage copies onto it (see `continuations::inherit_clasify_briefs`).
-fn read(tool: &str, query: serde_json::Map<String, Value>) -> Value {
-    json!({"tool":tool,"confidence":"high","query":query})
+fn read(tool: ToolId, query: serde_json::Map<String, Value>) -> Value {
+    json!({"tool":tool.as_str(),"confidence":"high","query":query})
 }
 
 /// A local read around the densest run of anchor lines, or the whole file
@@ -94,7 +167,7 @@ fn local_read(path: &str, lines: Vec<u64>) -> Value {
         );
         query.insert("endLine".into(), json!(center.saturating_add(radius)));
     }
-    read("localFetch", query)
+    read(ToolId::LocalFetch, query)
 }
 
 fn line(value: &Value, key: &str) -> Option<u64> {
@@ -233,7 +306,7 @@ fn repositories(state: &Value, data: &Value) -> Option<Vec<Item>> {
                     "/results/0/data/repositories",
                     vec![repository.clone()],
                 ),
-                read: Some(read("ghStructure", query)),
+                read: Some(read(ToolId::GhStructure, query)),
                 path: None,
                 item: Some(format!("{owner}/{repo}")),
             })
@@ -295,7 +368,7 @@ fn history(state: &Value, data: &Value, query: &Value) -> Option<Vec<Item>> {
             let read = identity.as_ref().and(located).map(|(owner, repo)| {
                 fetch.insert("owner".into(), json!(owner));
                 fetch.insert("repo".into(), json!(repo));
-                read("ghGetHistoryItem", fetch)
+                read(ToolId::GhGetHistoryItem, fetch)
             });
             Item {
                 state: narrowed(state, &pointer, vec![row.clone()]),
@@ -321,7 +394,7 @@ fn packages(state: &Value, data: &Value) -> Option<Vec<Item>> {
             query.insert("packageName".into(), json!(name));
             Some(Item {
                 state: narrowed(state, "/results/0/data/artifacts", vec![artifact.clone()]),
-                read: Some(read("artifactSearch", query)),
+                read: Some(read(ToolId::ArtifactSearch, query)),
                 path: None,
                 item: Some(format!("{kind}:{name}")),
             })
@@ -368,6 +441,40 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn outline_pages_join_a_file_split_across_pages() {
+        let page = |files: Value| json!({"base":"/r","results":[{"data":{"files":files}}]});
+        let source = json!({"tool":"astSearch","query":{"operation":"symbols","path":"/r"}});
+        let mut first = page(json!([
+            {"path":"a.rs","declarations":[{"name":"a1","line":1}]},
+            {"path":"b.rs","declarations":[{"name":"b1","line":1}]}
+        ]));
+        assert!(is_symbol_outline(&source, &first));
+        let only_b = page(json!([{"path":"b.rs","declarations":[{"name":"b2","line":2}]}]));
+        assert_eq!(extend_last_outline_file(&mut first, &only_b), Some(false));
+        let b_then_c = json!({"base":"/","results":[{"data":{"files":[
+            {"path":"r/b.rs","declarations":[{"name":"b3","line":3}]},
+            {"path":"r/c.rs","declarations":[{"name":"c1","line":1}]}
+        ]}}]});
+        assert_eq!(extend_last_outline_file(&mut first, &b_then_c), Some(true));
+        assert_eq!(
+            first["results"][0]["data"]["files"][1]["declarations"]
+                .as_array()
+                .map(Vec::len),
+            Some(3)
+        );
+        let c_only = page(json!([{"path":"c.rs","declarations":[{"name":"c1","line":1}]}]));
+        assert_eq!(extend_last_outline_file(&mut first, &c_only), None);
+
+        let mut resumed = b_then_c.clone();
+        assert_eq!(first_outline_path(&resumed).as_deref(), Some("/r/b.rs"));
+        assert_eq!(last_outline_path(&first).as_deref(), Some("/r/b.rs"));
+        drop_first_outline_file(&mut resumed);
+        assert_eq!(first_outline_path(&resumed).as_deref(), Some("/r/c.rs"));
+        drop_first_outline_file(&mut resumed);
+        assert_eq!(first_outline_path(&resumed).as_deref(), Some("/r/c.rs"));
     }
 
     #[test]

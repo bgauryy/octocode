@@ -8,6 +8,7 @@
 //! distribution over mutually exclusive passages sums to P(answer lies in
 //! that declaration). A doc-comment passage snaps to the declaration line.
 use crate::tools::clasify::transport::ClassificationError;
+use crate::tools::id::ToolId;
 use serde_json::{Map, Value, json};
 
 #[derive(Clone, Debug)]
@@ -686,12 +687,12 @@ pub(super) fn literal_search<'a>(
     )
     .ok()?;
     let mut query = serde_json::to_value(query).ok()?;
-    super::continuations::compact_input("localSearch", &mut query);
+    super::continuations::compact_input(ToolId::LocalSearch.as_str(), &mut query);
     let object = query.as_object_mut()?;
     object.retain(|_, value| !value.is_null());
     object.remove("goal");
     object.remove("reasoning");
-    Some(json!({"tool":"localSearch","query":query}))
+    Some(json!({"tool":ToolId::LocalSearch.as_str(),"query":query}))
 }
 
 /// The one path every local resource reads under: a single file or directory,
@@ -702,16 +703,21 @@ fn local_scope(resources: &[Value]) -> Option<String> {
     let mut paths = Vec::<&str>::new();
     for resource in resources {
         let context = &resource["context"];
-        match context["tool"].as_str() {
-            Some("localFetch" | "localSearch" | "structureSearch" | "astSearch") => {
-                let path = context["query"]["path"]
-                    .as_str()
-                    .filter(|path| !path.is_empty())?;
-                if !paths.contains(&path) {
-                    paths.push(path);
-                }
-            }
-            _ => return None,
+        // Local-family reads scope by their `path` (a path-less local read,
+        // e.g. lspSearch's `uri`, leaves no scope). astTopology is excluded:
+        // its `path` is a graph-analysis root, not the evidence it read.
+        let local = context["tool"]
+            .as_str()
+            .and_then(ToolId::from_name)
+            .is_some_and(|id| id.is_local() && id != ToolId::AstTopology);
+        if !local {
+            return None;
+        }
+        let path = context["query"]["path"]
+            .as_str()
+            .filter(|path| !path.is_empty())?;
+        if !paths.contains(&path) {
+            paths.push(path);
         }
     }
     let (first, rest) = paths.split_first()?;

@@ -677,6 +677,58 @@ fn single_file_symbols_are_compact_and_path_free() {
 }
 
 #[test]
+fn cached_symbol_pages_still_check_content_and_path_policy() {
+    let root = Fixture::new();
+    let source = root.0.join("pages.ts");
+    std::fs::write(
+        &source,
+        "export function one() {}\nexport function two() {}\n",
+    )
+    .expect("source");
+    let first = run(
+        &root.0,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":1}),
+    )
+    .expect("first");
+    let next = first["next"]["nextPage"]["query"].clone();
+    assert_eq!(
+        run(&root.0, next.clone()).expect("second")["declarations"][0]["name"],
+        "two"
+    );
+    // Same byte length: cache invalidation cannot rely only on file size.
+    std::fs::write(
+        &source,
+        "export function one() {}\nexport function six() {}\n",
+    )
+    .expect("changed");
+    let stale = run(&root.0, next.clone()).expect("stale");
+    assert_eq!(stale["errorCode"], "ast.snapshot.changed");
+    let restart = &stale["next"]["restart"];
+    assert_eq!(restart["tool"], "astSearch");
+    assert_eq!(restart["query"]["operation"], "symbols");
+    assert_eq!(restart["query"]["pageSize"], 1);
+    assert_eq!(restart["query"]["page"], 1);
+    assert!(restart["query"].get("snapshot").is_none());
+    let restarted = run(&root.0, restart["query"].clone()).expect("execute returned restart unchanged");
+    assert_eq!(restarted["declarations"][0]["name"], "one");
+    assert_ne!(restarted["snapshot"], first["snapshot"]);
+    let second = run(&root.0, restarted["next"]["nextPage"]["query"].clone())
+        .expect("new snapshot continuation");
+    assert_eq!(second["declarations"][0]["name"], "six");
+    let fresh = run(
+        &root.0,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":2}),
+    )
+    .expect("fresh");
+    assert_eq!(fresh["declarations"][1]["name"], "six");
+    let forbidden = Fixture::new();
+    assert!(
+        run(&forbidden.0, next).is_err(),
+        "warm extraction must not bypass root authorization"
+    );
+}
+
+#[test]
 fn symbols_keep_column_and_parent_line_only_when_ambiguous() {
     let root = Fixture::new();
     let source = root.0.join("twins.rs");

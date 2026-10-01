@@ -812,7 +812,8 @@ fn is_pagination_key(key: &str) -> bool {
 
 /// Search statistics: the listed files already carry the counts. Keep the
 /// totals only while more pages exist, and the scan scope only when nothing
-/// matched (it shows the search ran where intended).
+/// matched (it shows the search ran where intended). Coverage limits remain
+/// public even on the final page: they explain evidence that was not returned.
 fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
     let has_rows = data
         .get("files")
@@ -821,12 +822,18 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
     let Some(stats) = data.get_mut("stats").and_then(Value::as_object_mut) else {
         return;
     };
+    let capped = stats.get("capped").and_then(Value::as_bool) == Some(true);
+    let cap_reason = stats
+        .get("capReason")
+        .and_then(Value::as_str)
+        .is_some_and(|reason| !reason.trim().is_empty());
+    let keep_cap = |key: &str| (key == "capped" && capped) || (key == "capReason" && cap_reason);
     if !has_rows {
         stats.retain(|key, _| {
             matches!(
                 key.as_str(),
                 "filesSearched" | "totalOccurrences" | "totalStructuralMatches"
-            )
+            ) || keep_cap(key)
         });
         return;
     }
@@ -835,10 +842,20 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
             matches!(
                 key.as_str(),
                 "totalOccurrences" | "filesMatched" | "totalStructuralMatches"
-            )
+            ) || keep_cap(key)
         });
     } else {
-        data.remove("stats");
+        stats.retain(|key, _| {
+            keep_cap(key)
+                || ((capped || cap_reason)
+                    && matches!(
+                        key.as_str(),
+                        "totalOccurrences" | "filesMatched" | "totalStructuralMatches"
+                    ))
+        });
+        if stats.is_empty() {
+            data.remove("stats");
+        }
     }
 }
 
@@ -941,7 +958,31 @@ pub fn is_partial(data: &Value) -> bool {
     })
 }
 
-fn continuation(value: &Value, key_matches: &impl Fn(&str) -> bool) -> bool {
+/// `next.*` name prefixes (lowercased) that page more of the same result.
+const PAGE_CONTINUATION_PREFIXES: &[&str] = &["next", "continue"];
+/// Prefixes that resume the same result under a wider bound.
+const RESUME_CONTINUATION_PREFIXES: &[&str] = &["expand", "retry"];
+/// Recovery routes (restart, narrower or alternate strategy, drill-down read)
+/// that satisfy the continuation contract for a bounded row but do not mean
+/// more of this result remains.
+const RECOVERY_CONTINUATION_PREFIXES: &[&str] =
+    &["restart", "narrow", "fallback", "escalate", "read"];
+
+fn has_prefix(name: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| name.starts_with(prefix))
+}
+
+/// A `next.*` name (any case) that pages or resumes this result: more of it
+/// remains (CLI exit 6). Drill-downs (`get*`, `read*`, `verify*`) and recovery
+/// routes are optional follow-ups on a complete result and do not count.
+pub fn is_remaining_continuation_name(name: &str) -> bool {
+    let name = name.to_lowercase();
+    has_prefix(&name, PAGE_CONTINUATION_PREFIXES) || has_prefix(&name, RESUME_CONTINUATION_PREFIXES)
+}
+
+/// Whether `value` holds, at any depth, an executable `{tool, query}` call
+/// under a key whose lowercased name satisfies `key_matches`.
+pub fn continuation(value: &Value, key_matches: &impl Fn(&str) -> bool) -> bool {
     match value {
         Value::Object(map) => map.iter().any(|(key, child)| {
             (key_matches(&key.to_lowercase())
@@ -967,15 +1008,10 @@ fn pagination_codes(data: &Value) -> Vec<String> {
     }
     let pageable = tree_some(data, &|m| m.get("hasMore") == Some(&Value::Bool(true)));
     let partial = tree_some(data, &|m| m.get("isPartial") == Some(&Value::Bool(true)));
-    let page = continuation(data, &|k| {
-        k.starts_with("next") || k.starts_with("continue")
-    });
+    let page = continuation(data, &|k| has_prefix(k, PAGE_CONTINUATION_PREFIXES));
     let expansion = continuation(data, &|k| {
-        [
-            "expand", "retry", "restart", "narrow", "fallback", "escalate", "read",
-        ]
-        .iter()
-        .any(|p| k.starts_with(p))
+        has_prefix(k, RESUME_CONTINUATION_PREFIXES)
+            || has_prefix(k, RECOVERY_CONTINUATION_PREFIXES)
             || k.contains("search")
             || k.contains("completeness")
     });
@@ -988,15 +1024,11 @@ fn pagination_codes(data: &Value) -> Vec<String> {
 
 /// Tools whose rows name local files: a relative row path must resolve as-is
 /// wherever a local tool takes a `path` (against the workspace root).
+/// Every local-family tool except astTopology (anchored separately: fields
+/// stay relative to the scanned directory, its `base`) and the CLI-only
+/// astRewrite, whose edit rows are emitted as-is.
 fn names_local_files(tool: ToolId) -> bool {
-    matches!(
-        tool,
-        ToolId::LocalSearch
-            | ToolId::LocalFetch
-            | ToolId::StructureSearch
-            | ToolId::AstSearch
-            | ToolId::LspSearch
-    )
+    tool.is_local() && !matches!(tool, ToolId::AstTopology | ToolId::AstRewrite)
 }
 
 /// Build the public envelope for executed rows; `queries` maps each row
@@ -1483,6 +1515,39 @@ mod tests {
             row["data"]["stats"],
             json!({"totalOccurrences":0,"filesSearched":176})
         );
+    }
+
+    #[test]
+    fn capped_searches_keep_limit_diagnostics_on_first_final_and_empty_pages() {
+        for (files, more) in [
+            (json!([{ "path": "a.rs" }]), true),
+            (json!([{ "path": "a.rs" }]), false),
+            (json!([]), false),
+        ] {
+            let row = minimized(
+                ToolId::LocalSearch,
+                json!({ "debug": false }),
+                json!({
+                    "files": files,
+                    "stats": {"capped": true, "capReason": "maxCollectedFiles", "totalOccurrences": 10002,
+                        "filesMatched": 10002, "filesSearched": 10002, "bytesSearched": 70014},
+                    "pagination": {"currentPage": if more { 1 } else { 20 }, "hasMore": more},
+                    "isPartial": true,
+                    "terminalLimit": !more,
+                }),
+            );
+            assert_eq!(row["data"]["stats"]["capped"], true, "{row}");
+            assert_eq!(
+                row["data"]["stats"]["capReason"], "maxCollectedFiles",
+                "{row}"
+            );
+            assert_eq!(row["data"]["isPartial"], true, "{row}");
+            assert_eq!(row["data"]["stats"]["totalOccurrences"], 10002, "{row}");
+            assert_eq!(row["data"]["terminalLimit"] == true, !more, "{row}");
+            assert!(row["data"]["stats"].get("bytesSearched").is_none(), "{row}");
+            crate::contracts::validate_output("localSearch", &json!({"results": [row]}))
+                .expect("minimized cap diagnostics obey the canonical output schema");
+        }
     }
 
     #[test]

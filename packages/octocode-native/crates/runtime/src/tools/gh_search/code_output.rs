@@ -2,6 +2,7 @@ use super::{GhSearchCodeQuery, GhSearchCodeQueryMatch};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderErrorKind, RequestContext,
 };
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_null_fields;
 use crate::{
     providers::github::{CodeSearchItem, ProviderError},
@@ -45,7 +46,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         }
         Err(error) if error.kind == ProviderErrorKind::NotFound => (
             "findRepository",
-            "ghSearchRepo",
+            ToolId::GhSearchRepo,
             json!({"keywords":[repo]}),
             "Find the repository by name in case it moved or was renamed.",
             "low",
@@ -67,10 +68,13 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             remove_null_fields(&mut next);
             next["owner"] = json!(new_owner);
             next["repo"] = json!(new_repo);
-            next["page"] = json!(1);
+            // From the first page: the schema default is stamped below.
+            if let Some(object) = next.as_object_mut() {
+                object.remove("page");
+            }
             (
                 "retryRenamed",
-                "ghSearchCode",
+                ToolId::GhSearchCode,
                 next,
                 "Re-run the same search against the renamed repository.",
                 "exact",
@@ -79,7 +83,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         }
         Ok(metadata) if metadata.archived => (
             "viewStructure",
-            "ghStructure",
+            ToolId::GhStructure,
             json!({"owner":owner,"repo":repo,"path":""}),
             "Inspect the archived repository outside the code-search index.",
             "exact",
@@ -94,7 +98,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             };
             (
                 "viewStructure",
-                "ghStructure",
+                ToolId::GhStructure,
                 json!({"owner":owner,"repo":repo,"path":scope.as_str()}),
                 "Verify that the scoped path exists before concluding absence.",
                 "exact",
@@ -118,22 +122,14 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     // different tool), not next-page continuations of the original search,
     // so stamp page 1 rather than `page + 1`. The canonical continuation
     // contract still requires each tool's defaulted fields, which the
-    // hand-built queries above omit.
+    // hand-built queries above omit: stamp them from the target's schema.
     if let Some(object) = next_query.as_object_mut() {
-        object.entry("page").or_insert_with(|| json!(1));
-        match tool {
-            "ghSearchCode" => {
-                object.entry("pageSize").or_insert_with(|| json!(30));
-                object.entry("match").or_insert_with(|| json!("file"));
-            }
-            "ghSearchRepo" => {
-                object.entry("pageSize").or_insert_with(|| json!(30));
-                object.entry("sort").or_insert_with(|| json!("best-match"));
-            }
-            _ => {
-                object.entry("pageSize").or_insert_with(|| json!(100));
-            }
-        }
+        crate::contracts::stamp_schema_defaults(
+            tool,
+            None,
+            object,
+            &["page", "pageSize", "match", "sort"],
+        );
     }
     // Re-running the stale name cannot recover results the renamed repository
     // holds: the renamed query is the same search, so it supersedes `retry`.
@@ -143,7 +139,8 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
     {
         next.remove("retry");
     }
-    value["next"][name] = json!({"tool":tool,"query":next_query,"confidence":confidence,"why":why});
+    value["next"][name] =
+        json!({"tool":tool.as_str(),"query":next_query,"confidence":confidence,"why":why});
     Ok(())
 }
 
@@ -182,7 +179,7 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
     // A cross-tool read states its own reason rather than reusing the
     // search's.
     Some(json!({
-        "tool": "ghGetFileContent",
+        "tool": ToolId::GhGetFileContent.as_str(),
         "confidence": confidence,
         "why": "Read the top hit's matched region; sourceLineRanges gives its line numbers.",
         "query": {

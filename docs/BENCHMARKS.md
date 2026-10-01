@@ -1,37 +1,44 @@
 # Benchmarks
 
-The [unified agent benchmark](../packages/octocode-benchmark/compare/unified/README.md) gives two Sonnet workers the same 30 pinned code-research questions (10 GitHub, 20 local). The `octocode` worker has the Octocode MCP tools and no shell. The `rg-gh` worker has a shell with `rg` and `gh`. A blinded Opus judge grades each answer from 0 to 10 in both answer orders.
+The [unified agent benchmark](../packages/octocode-benchmark/compare/unified/README.md) compares Octocode MCP with a shell using `rg` and REST-only `gh`. Both workers answer the same 30 questions using concrete Sonnet 5.5. Opus 5.5 grades every pair in both answer orders. References stay outside the solver filesystem boundary.
 
-## Run `full-1` (2026-09-30, pre-slimming build)
+## Repaired candidate — 2026-10-01
 
-Full tables: [results/full-1/REPORT.md](../packages/octocode-benchmark/compare/unified/results/full-1/REPORT.md).
+[Full report](../packages/octocode-benchmark/compare/unified/results/production-review-fixed-v3-20261001/REPORT.md) · [each question and worker](../packages/octocode-benchmark/compare/unified/results/production-review-fixed-v3-20261001/PER_QUESTION.csv).
 
-> **Build caveat.** `full-1` ran on the MCP build from the morning of 2026-09-30, before the published tool schemas were slimmed. Its first request carried 40.8k tokens of fixed context. The current build's overhead probe measures about 17.2k. The token and cost figures below therefore overstate what the current build spends, and no run has measured the current build yet.
+Run `production-review-fixed-v3-20261001` completes 60 valid workers and incremental reflections, four readiness/isolation probes, and 60 primary judging orders. Independent raw-stream reconciliation finds no metric/cost discrepancy; all 71 frozen source, executable, configuration, build, dependency and corpus checks match. The candidate uses Node 24.15.0, Claude Code 2.1.286 and macOS arm64 debug interfaces.
 
-| Worker | Mean quality | Cost | Weighted tokens | Raw total tokens | Research tokens | Tool calls |
-|---|--:|--:|--:|--:|--:|--:|
-| `octocode` | 8.42 | $2.96 | 1,024.9k | 5,697.5k | 424.6k | 117 |
-| `rg-gh` | 9.12 | $1.86 | 567.8k | 1,049.6k | 457.7k | 92 |
+| Metric | Octocode MCP | rg/gh CLI |
+|---|---:|---:|
+| Mean quality, 0–10 | 8.3833 | 8.975 |
+| Raw research-session tokens | 2,361,178 | 940,528 |
+| Reported research-session cost | $2.2462194 | $1.7094944 |
+| Tool invocations | 125 MCP | 83 Bash |
+| Initial context probe | approximately 16.4k | approximately 4.7k |
 
-- **Quality.** Octocode lost: it won 3 questions, tied 11 and lost 16, with a mean delta of −0.70. A two-sided sign test on the 19 non-ties gives p ≈ 0.004.
-- **Cost.** Octocode cost 1.67× as much per question (mean; median 1.64×). The raw-token ratio of 6.08× overstates the gap. It counts cache reads at full weight, and the tool definitions are cached on every request. Weighted tokens price each token kind by its Claude price multiple (cache write 1.25×, cache read 0.1×, output 5×). They put the mean per-question ratio at 1.89×.
-- **Research tokens** (total minus the per-request fixed context) were about even: 1.09× mean, 0.97× median.
-- **Where Octocode lost.** Local questions averaged 8.43 vs 9.32, and every local category trailed. The biggest gaps were L04 (6.5 vs 9.0), L09 (7.5 vs 10.0) and L13 (6.0 vs 8.0).
-- **Where it held.** On GitHub PR review both workers averaged 8.30. On bug root-cause analysis Octocode scored 9.25 vs 8.75, but that is only 2 questions.
-- **Input errors.** 34 of Octocode's 117 tool calls (29%) failed, and 33 of those were input-validation rejections, such as a missing `goal`/`reasoning` or `"10"` sent for an integer. The MCP adapter now coerces lossless numeric and boolean strings, and the published schemas describe the required brief.
-- **clasify** was called 0 times, so this run says nothing about clasify.
+Octocode trails by 0.5917 quality points, uses 2.51× aggregate raw tokens and 1.31× reported research cost. Initial context includes each profile's instructions and tool exposure; the whole difference cannot be attributed to schemas alone. Raw tokens count cache reads at full weight. All cache writes have verified one-hour TTL; weighted tokens are unknown without a frozen tariff. Context/research decomposition is estimated, not per-request verified accounting.
 
-## What the data does not support
+Five distinct native calls fail and recover: four structured row errors plus one top-level-only error, overlapping three explicit SDK error results. No transport errors occur. MCP and Bash invocations are different units; upstream HTTP counts were not persisted. Only six of thirteen offered MCP tools are selected, with no AST, LSP, clasify or artifact calls. Dedicated tool acceptance covers those families separately; this trial does not measure their agent-selected quality.
 
-- **Efficiency claims.** None hold for the current build until it is re-run. The report's `efficiency` column divides by raw total tokens, and `weighted efficiency` is the cost-aligned figure.
-- **Generalizing from `full-1`.** It is a single pass (n = 1 per question) with no held-out question set.
-- **The retired tool-level figures.** These include "clasify 10/10 vs 9/10 for `rg`, 43% fewer files opened". They came from scripted tool calls, not agents, and their records remain only in git history. Treat them as historical, not current.
+The generated report uses a ±0.5-point tie band: three Octocode wins, fourteen ties and thirteen losses. Exact numeric comparison gives six wins, six equal scores and eighteen losses. One paired trial and an uncalibrated judge do not establish production thresholds. Both orders agree on preferred answers in 24/30 cases. Reference issues and wrong claims remain in the full report.
 
-## Next run
+Reported trial Claude cost totals $14.6727408: research $3.9557138, incremental reflections $3.202548, probes $0.104092, and judge $7.410387. These exclude earlier failed runs, smokes, tool validation and review-agent usage; they are not independently verified invoices. Classification telemetry is absent in question sessions, rather than a fabricated numeric zero. Provider pricing/failed-attempt billing and total system cost remain unknown.
 
-Re-run on the current build before making any further token or quality claim:
+The published-core release gate separately fails because the expected authored core 19.1.6 is absent from npm. Local contract equality does not satisfy publication order. Cross-platform release and independently calibrated quality acceptance remain pending.
+
+## Historical evidence
+
+[Run full-1](../packages/octocode-benchmark/compare/unified/results/full-1/REPORT.md) used an earlier build and harness. Its provisional stream accounting, assumed cache weights and weaker isolation do not establish current costs, efficiency or production quality. Preserve its receipts as historical diagnostics; do not treat the new trial as a controlled causal improvement over it. Retired scripted tool scores likewise do not establish agent-selected quality.
+
+## Next evaluation
+
+Measure smaller context profiles and deciding-source/citation verification on held-out questions, with predeclared quality gates and judge calibration. Explicitly test AST/LSP/semantic routing where those tools should change the next action. Preserve complete accounting, strict isolation and original failed receipts.
+
+Use concrete model names and the canonical prerequisites in the [harness guide](../packages/octocode-benchmark/compare/unified/README.md):
 
 ```bash
 cd packages/octocode-benchmark/compare/unified
-node run.mjs --run-id <id> --probes && node judge.mjs --run-id <id> && node report.mjs --run-id <id>
+node run.mjs --run-id <new-id> --model claude-sonnet-5-5 --probes
+node judge.mjs --run-id <new-id> --model claude-opus-5-5
+node report.mjs --run-id <new-id>
 ```

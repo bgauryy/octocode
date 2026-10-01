@@ -628,7 +628,10 @@ async fn scout_expands_explicit_question_type_and_preserves_source_identity() {
     assert!(output.get("templateVersion").is_none());
     let page = &output["resources"][0]["pages"][0];
     assert_eq!(page["answers"]["new"]["noul"], 0.82);
-    assert_eq!(page["source"]["path"], file.to_str().unwrap());
+    assert_eq!(
+        page["source"]["path"],
+        file.file_name().unwrap().to_str().unwrap()
+    );
     assert_eq!(page["scope"]["startLine"], 1);
     assert!(
         !result
@@ -879,11 +882,13 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
         2,
         "each candidate needs its own source: {cell}"
     );
+    // Workspace-relative (TOOL_DATA_CONTRACT "Paths"); localFetch resolves
+    // them against the workspace root, so they stay executable.
     assert!(
-        source_paths
-            .iter()
-            .all(|path| std::path::Path::new(path).is_absolute()),
-        "local candidate paths must be executable absolute paths: {source_paths:?}"
+        source_paths.iter().all(|path| {
+            !std::path::Path::new(path).is_absolute() && workspace.workspace.join(path).is_file()
+        }),
+        "local candidate paths must be workspace-relative files: {source_paths:?}"
     );
     let resume = &query["next"]["clasify"]["resources"][0]["context"];
     assert_eq!(resume["tool"], "localSearch", "{query}");
@@ -1543,9 +1548,14 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
             .get("lowSignal")
             .is_none()
     );
+    // Local sources display workspace-relative (TOOL_DATA_CONTRACT "Paths").
     assert_eq!(
         page["source"]["path"],
-        expected_source_path.to_string_lossy().as_ref()
+        expected_source_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .as_ref()
     );
     assert!(page["source"].get("evidenceHash").is_none());
     let requests = server.received_requests().await.expect("mock requests");
@@ -2355,5 +2365,76 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
         !rendered.contains("fn step_1()"),
         "literal match only: {rendered}"
     );
+    runtime.close().await;
+}
+
+/// A directory outline pages by declaration rows, so one file's declarations
+/// can straddle a symbols page. Scout judges each file once, whole: the page
+/// holding a file's first row judges all of its rows, and the next page skips
+/// the rows it already judged.
+#[tokio::test]
+async fn symbols_scout_judges_each_file_once_across_outline_pages() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.4}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    workspace.write(
+        "src/a.rs",
+        "fn a1() {}\nfn a2() {}\nfn a3() {}\nfn a4() {}\nfn a5() {}\n",
+    );
+    workspace.write("src/b.rs", "fn b1() {}\nfn b2() {}\n");
+    let root = workspace.write("src/c.rs", "fn c1() {}\n");
+    let root = root.parent().unwrap().to_string_lossy().into_owned();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let mut input = json!({
+        "id":"outline",
+        "reasoning":"Pick a file.","goal":"Which file declares the handler.",
+        "resources":[{"id":"ast","context":{"tool":"astSearch","query":{
+            "path":root,"operation":"symbols","pageSize":2
+        }}}],
+        "questions":[{"id":"rel","type":"noul","instructions":"Relevant?"}]
+    });
+    let mut judged: Vec<(String, usize)> = Vec::new();
+    for call in 0..6 {
+        let outcome = runtime
+            .execute(format!("outline-{call}"), "clasify".into(), input.clone())
+            .await
+            .expect("clasify");
+        let query = &outcome.structured_content["queries"][0];
+        for page in query["resources"][0]["pages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let path = page["source"]["path"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let lines = page["next"]["read"]["query"]["endLine"]
+                .as_u64()
+                .unwrap_or(0) as usize;
+            judged.push((path, lines));
+        }
+        match query["next"].get("clasify") {
+            Some(next) => input = next.clone(),
+            None => break,
+        }
+    }
+    let files = judged
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(files, ["src/a.rs", "src/b.rs", "src/c.rs"], "{judged:?}");
     runtime.close().await;
 }

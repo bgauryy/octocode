@@ -775,6 +775,7 @@ impl ToolRuntime {
         tool: String,
         input: Value,
     ) -> Result<ToolOutcome, RuntimeError> {
+        let input = contracts::normalize_input(&tool, input);
         self.execute_channel(admission, tool, input, false).await
     }
 
@@ -794,6 +795,7 @@ impl ToolRuntime {
         tool: String,
         input: Value,
     ) -> Result<Value, RuntimeError> {
+        let input = contracts::normalize_input(&tool, input);
         if let Some(result) = super::error::mcp_envelope_error(&tool, &input) {
             return Ok(result);
         }
@@ -937,7 +939,14 @@ impl ToolRuntime {
             } else {
                 Vec::new()
             };
-            let issues = security_issues(&checked, &prefix, id.is_clasify());
+            let mut issues = security_issues(&checked, &prefix, id.is_clasify());
+            if id.is_clasify() {
+                issues.extend(super::clasify_context::unavailable_context_issues(
+                    &query,
+                    &prefix,
+                    |name| self.is_available(name),
+                ));
+            }
             if issues.is_empty() {
                 queries.push(Value::Object(checked.sanitized_params));
             } else {
@@ -1103,8 +1112,10 @@ impl ToolRuntime {
                 super::continuations::filter_unavailable_cross_tool_next(
                     &mut structured,
                     &tool,
+                    // An MCP-mode call can never execute a contract `cliOnly`
+                    // tool (see the admission check in `execute`).
                     |target| {
-                        (!mcp || target != "ghCloneRepo")
+                        !(mcp && ToolId::from_name(target).is_some_and(ToolId::is_cli_only))
                             && dispatcher.available_tools.contains(&target)
                     },
                 );

@@ -17,8 +17,9 @@
  *   build-native.cjs --release --target <platform> [--target <platform>...]
  *   build-native.cjs --release --all [--jobs N]
  *
- * No --target builds for the host and stages binaries into npm/<host>/ and both
- * addons into the package root (what the local launcher and MCP load). A
+ * No --target builds for the host and stages binaries and both addons into
+ * npm/<host>/, plus both addons into the package root (what the local
+ * launcher and MCP load). A
  * --target build stages all four artifacts into npm/<platform>/ (and the root
  * addons too when the platform is the host). Cross targets use cargo-zigbuild
  * (Linux) or cargo-xwin (Windows), as napi's --cross-compile does.
@@ -221,7 +222,9 @@ function stageHosts(platform, explicitTarget, release, dir) {
     staged.push(destination);
   }
   const addon = `octocode-native.${platform}.node`;
-  const destinations = explicitTarget ? [join(packageDir, addon)] : [];
+  // npm/<platform>/ always holds the addon next to the binaries it was built
+  // with; a host build that refreshed only the binaries left a stale addon.
+  const destinations = [join(packageDir, addon)];
   if (platform === hostPlatform) destinations.push(join(ROOT, addon));
   for (const destination of destinations) {
     stageFile(join(built, library), destination, { platform });
@@ -230,12 +233,12 @@ function stageHosts(platform, explicitTarget, release, dir) {
   return staged;
 }
 
-function stageEngine(platform, explicitTarget, outDir) {
+function stageEngine(platform, outDir) {
   const addon = `octocode-engine.${platform}.node`;
   // napi emits the real ABI declarations; the hand-written loader stays
   // canonical and check-engine-napi-abi diffs the two.
   stageFile(join(outDir, 'engine-generated.d.ts'), join(ROOT, '.napi-abi-snapshot.d.ts'));
-  const destinations = explicitTarget ? [join(ROOT, 'npm', platform, addon)] : [];
+  const destinations = [join(ROOT, 'npm', platform, addon)];
   if (platform === hostPlatform) destinations.push(join(ROOT, addon));
   for (const destination of destinations) {
     mkdirSync(join(destination, '..'), { recursive: true });
@@ -273,7 +276,7 @@ async function buildPlatform(platform, explicitTarget, options) {
 
   const staged = [
     ...(hosts ? stageHosts(platform, explicitTarget, options.release, dirs.hosts) : []),
-    ...(engine ? stageEngine(platform, explicitTarget, outDir) : []),
+    ...(engine ? stageEngine(platform, outDir) : []),
   ];
   verifyStaged(platform, staged);
   for (const artifact of staged) console.log(`[${label}] staged ${relative(ROOT, artifact)}`);

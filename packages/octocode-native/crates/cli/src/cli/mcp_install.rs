@@ -46,10 +46,23 @@ struct ServerSpec {
     env: BTreeMap<String, String>,
 }
 
+/// Primary env name bound to the `local.enabled` config key (`ENABLE_LOCAL`).
+fn local_enabled_env() -> Option<&'static str> {
+    octocode_native::config::CONFIG_FIELDS
+        .iter()
+        .find(|field| field.path == "local.enabled")
+        .and_then(|field| field.env.first())
+        .map(|binding| binding.name)
+}
+
+/// The GitHub token env var `--pass-env` forwards; one of the config
+/// contract's `ENV_TOKEN_VARS` (a unit test pins that).
+const PASS_ENV_TOKEN: &str = "GITHUB_TOKEN";
+
 fn server_spec(args: &InstallArgs) -> ServerSpec {
     let mut env = BTreeMap::new();
     if args.pass_env {
-        for key in ["ENABLE_LOCAL", "GITHUB_TOKEN"] {
+        for key in local_enabled_env().into_iter().chain([PASS_ENV_TOKEN]) {
             if let Ok(value) = std::env::var(key)
                 && !value.is_empty()
             {
@@ -57,9 +70,9 @@ fn server_spec(args: &InstallArgs) -> ServerSpec {
             }
         }
     }
-    if let Some(enabled) = args.enable_local {
+    if let (Some(enabled), Some(key)) = (args.enable_local, local_enabled_env()) {
         env.insert(
-            "ENABLE_LOCAL".to_owned(),
+            key.to_owned(),
             if enabled { "true" } else { "false" }.to_owned(),
         );
     }
@@ -787,6 +800,20 @@ mod tests {
             backup: false,
             rollback: None,
         }
+    }
+
+    #[test]
+    fn passed_env_names_are_config_contract_names() {
+        assert!(super::local_enabled_env().is_some());
+        assert!(octocode_native::config::ENV_TOKEN_VARS.contains(&super::PASS_ENV_TOKEN));
+        let spec = super::server_spec(&super::InstallArgs {
+            enable_local: Some(false),
+            ..default_args()
+        });
+        assert_eq!(
+            spec.env.get(super::local_enabled_env().unwrap_or_default()),
+            Some(&"false".to_owned())
+        );
     }
 
     #[test]

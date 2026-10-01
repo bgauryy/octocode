@@ -19,3 +19,11 @@ export function getRuntimeSurface(): RuntimeSurface {
 export function _resetRuntimeSurface(): void {
   runtimeSurface = DEFAULT_RUNTIME_SURFACE;
 }
+
+/**
+ * Per-request execution budget for interactive surfaces (CLI and MCP): cold
+ * start plus one logical LSP request — initialize, Java readiness, retries,
+ * delays, and transport overhead. The native CLI's
+ * `INTERACTIVE_EXECUTION_TIMEOUT_SECS` uses the same value.
+ */
+export const INTERACTIVE_EXECUTION_TIMEOUT_SECS = 300;

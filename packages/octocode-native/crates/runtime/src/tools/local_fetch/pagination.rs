@@ -1,6 +1,7 @@
 use super::extraction::line_count;
 use super::types::*;
 use crate::security::scan::ContentScan;
+use crate::tools::id::ToolId;
 fn utf16(s: &str) -> usize {
     s.encode_utf16().count()
 }
@@ -335,7 +336,7 @@ pub fn continuation(q: &LocalFetchQuery, p: &Pagination) -> Option<NextCalls> {
         query.chunk_size = wire_positive(p.chunk_size);
         NextCalls {
             r#continue: Some(Continuation {
-                tool: "localFetch".into(),
+                tool: ToolId::LocalFetch.as_str().into(),
                 query,
                 confidence: "exact".into(),
                 reason: None,

@@ -390,6 +390,11 @@ impl GitHubServices {
                 diagnostics: output.diagnostics,
                 ..DomainResult::payload(output.data, output.status)
             },
+            Err(error) if tool == ToolId::GhStructure && missing_path(&error, query) => {
+                let found = locate_path(&self.provider, query, request_context).await;
+                context.check()?;
+                structure_path_error(error, query, found)
+            }
             Err(error) => search_error(tool, error),
         })
     }
@@ -715,7 +720,7 @@ fn apply_path_recovery(data: &mut Value, query: &Value, found: PathRecovery) {
         crate::tools::result::remove_nulls(&mut read);
         read["path"] = json!(path);
         data["next"]["readFile"] = json!({
-            "tool": "ghGetFileContent",
+            "tool": ToolId::GhGetFileContent.as_str(),
             "confidence": "high",
             "query": read,
         });
@@ -725,6 +730,60 @@ fn apply_path_recovery(data: &mut Value, query: &Value, found: PathRecovery) {
             "The rest of the path does not exist; next.viewTree lists the nearest existing directory."
         ]);
     }
+}
+
+/// A ghStructure listing of a missing path names the path and, like
+/// ghGetFileContent's recovery, lists the nearest existing directory
+/// (case-corrected) with `next.viewTree`; without a located directory it
+/// falls back to the parent at low confidence.
+fn structure_path_error(
+    error: ProviderError,
+    query: &Value,
+    found: Option<PathRecovery>,
+) -> DomainResult {
+    let owner = query["owner"].as_str().unwrap_or_default();
+    let repo = query["repo"].as_str().unwrap_or_default();
+    let requested = query["path"].as_str().unwrap_or_default().trim_matches('/');
+    let mut row = search_error(ToolId::GhStructure, error);
+    let (directory, confidence, hint) = match &found {
+        Some(found) => {
+            row.data["error"] = json!(format!("Path not found in {owner}/{repo}: {requested}"));
+            let directory = if found.directory.is_empty() {
+                ".".to_owned()
+            } else {
+                found.directory.clone()
+            };
+            let hint = if found.file.is_some() {
+                "The path names a file (its case differs); read it with ghGetFileContent, or list its directory with next.viewTree."
+            } else if found.directory.eq_ignore_ascii_case(requested) {
+                "Only the path's case differs; run the viewTree continuation."
+            } else {
+                "The rest of the path does not exist; next.viewTree lists the nearest existing directory."
+            };
+            (directory, "exact", hint)
+        }
+        None => {
+            let parent = std::path::Path::new(requested)
+                .parent()
+                .map(|path| path.to_string_lossy().into_owned())
+                .filter(|path| !path.is_empty())
+                .unwrap_or_else(|| ".".into());
+            (
+                parent,
+                "low",
+                "Check the path's exact case (no leading slash) and the branch; list the parent directory with next.viewTree.",
+            )
+        }
+    };
+    let mut tree = tree_recovery(owner, repo, &directory, query);
+    tree["confidence"] = json!(confidence);
+    // The recovery lists at the depth the caller asked for.
+    if let Some(depth) = query.get("maxDepth").filter(|value| !value.is_null()) {
+        tree["query"]["maxDepth"] = depth.clone();
+    }
+    row.data["next"] = json!({ "viewTree": tree });
+    row.data["hints"] = json!([hint]);
+    row
 }
 
 fn file_error(error: ProviderError, query: &Value) -> DomainResult {
@@ -832,7 +891,7 @@ fn attach_pull_request_recovery(data: &mut Value, query: &Value) {
     next.insert("operation".into(), json!("pullRequest"));
     data["hints"] = json!(["This number is a pull request; run the readPullRequest continuation."]);
     data["next"] = json!({"readPullRequest": {
-        "tool": "ghGetHistoryItem",
+        "tool": ToolId::GhGetHistoryItem.as_str(),
         "confidence": "exact",
         "query": next,
     }});
@@ -850,7 +909,7 @@ fn attach_issue_recovery(data: &mut Value, query: &Value) {
     next.insert("operation".into(), json!("issue"));
     data["hints"] = json!(["This number is an issue; run the readIssue continuation."]);
     data["next"] = json!({"readIssue": {
-        "tool": "ghGetHistoryItem",
+        "tool": ToolId::GhGetHistoryItem.as_str(),
         "confidence": "exact",
         "query": next,
     }});
@@ -861,23 +920,24 @@ fn attach_issue_recovery(data: &mut Value, query: &Value) {
 /// requires the paginated defaulted fields: stamp the contract defaults (fresh
 /// page 1 — this starts a new bounded query, not a next-page of the fetch).
 fn tree_recovery(owner: &str, repo: &str, path: &str, query: &Value) -> Value {
-    let mut tree = json!({
-        "tool": "ghStructure",
-        "query": {
-            "owner": owner,
-            "repo": repo,
-            "path": path,
-            "page": 1,
-            "pageSize": 100,
-            "debug": false
-        },
-        "confidence": "low"
-    });
+    let mut tree_query = serde_json::Map::new();
+    tree_query.insert("owner".into(), json!(owner));
+    tree_query.insert("repo".into(), json!(repo));
+    tree_query.insert("path".into(), json!(path));
     if let Some(branch) = query["branch"].as_str() {
-        tree["query"]["branch"] = json!(branch);
+        tree_query.insert("branch".into(), json!(branch));
     }
-
-    tree
+    crate::contracts::stamp_schema_defaults(
+        ToolId::GhStructure,
+        None,
+        &mut tree_query,
+        &["page", "pageSize", "debug"],
+    );
+    json!({
+        "tool": ToolId::GhStructure.as_str(),
+        "query": tree_query,
+        "confidence": "low"
+    })
 }
 
 pub(super) fn provider_error(error: ProviderError) -> DomainResult {

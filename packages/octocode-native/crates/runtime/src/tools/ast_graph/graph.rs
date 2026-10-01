@@ -2,6 +2,7 @@ use super::aliases::{ResolveContext, probe_js};
 use super::cargo::{CargoCrates, load_cargo_crates};
 use super::packages::{PackageIndex, PackageLink};
 use super::types::*;
+use crate::tools::id::ToolId;
 use crate::{
     policy::{gitignore::GitignoreFilter, path::PathPolicy},
     security::ContentSecurity,
@@ -43,7 +44,11 @@ pub(crate) fn build_graph_with(
     cancel
         .check()
         .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
-    let requested_root=q.path().map(PathBuf::from).or_else(|| infer_root(q)).ok_or_else(||AstGraphError::new("invalidGraphQuery","path is required — or provide an absolute file path to infer its nearest Cargo.toml (Rust) or package.json root"))?;
+    let requested_root = q
+        .path()
+        .map(PathBuf::from)
+        .or_else(|| infer_root(q))
+        .ok_or_else(|| missing_root_error(q))?;
     let validated = paths
         .validate(&requested_root)
         .map_err(|e| AstGraphError::new("ast.path.invalid", e.message))?;
@@ -69,7 +74,10 @@ pub(crate) fn build_graph_with(
             cancel,
         )?;
     }
-    let max_files = q.max_files().unwrap_or(20_000).clamp(1, 50_000);
+    let max_files = q
+        .max_files()
+        .unwrap_or(20_000)
+        .clamp(1, super::topology_max("maxFiles"));
     let scan = octocode_engine::portable::scan_typed_graph_facts_filtered(
         GraphFactsScanOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
@@ -286,6 +294,20 @@ fn has_cargo_manifest(root: &Path, known: &BTreeSet<String>) -> bool {
         })
 }
 
+/// No `path` and no absolute file to infer a root from: the caller must name
+/// the scan root, so this is an input error, not an execution failure.
+fn missing_root_error(q: &AstTopologyQuery) -> AstGraphError {
+    let message = match q.file().or(q.target()) {
+        Some(relative) => format!(
+            "path is required: file {relative:?} is relative and no scan root was given. Pass path:<absolute project root> (file then resolves against it) or an absolute file (its nearest Cargo.toml or package.json becomes the root)."
+        ),
+        None => "path is required: pass path:<absolute project root>, or an absolute file whose nearest Cargo.toml or package.json becomes the root.".to_owned(),
+    };
+    let mut error = AstGraphError::new("ast.input.invalid", message);
+    error.hints =
+        vec!["Add path with the absolute project root the relative file lives under.".into()];
+    error
+}
 fn infer_root(q: &AstTopologyQuery) -> Option<PathBuf> {
     let candidate = q
         .file()
@@ -653,7 +675,9 @@ fn link_file(
                     &file,
                     &mut node,
                     &target,
-                    edge_kind(&ext, "value"),
+                    // Not an import: no import statement exists, so the edge
+                    // carries no `importLine` and names its own kind.
+                    "java-same-package",
                     line,
                 )?;
             }
@@ -1393,7 +1417,7 @@ fn admit_scope(
         next.insert(
             "narrowScope".into(),
             serde_json::json!({
-                "tool": "astTopology",
+                "tool": ToolId::AstTopology.as_str(),
                 "confidence": "medium",
                 "query": continuation(format!("{root_display}/{dir}"), None),
             }),
@@ -1402,7 +1426,7 @@ fn admit_scope(
     next.insert(
         "expandScan".into(),
         serde_json::json!({
-            "tool": "astTopology",
+            "tool": ToolId::AstTopology.as_str(),
             "confidence": "low",
             "query": continuation(root_display, Some(20_000)),
         }),

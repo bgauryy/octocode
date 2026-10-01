@@ -5,7 +5,7 @@
 //! object/array/string/number/size checks. Per-tool rule logic lives in the
 //! parent module; union-branch selection lives in `super::union`.
 
-use super::{ContractValidationError, ValidationIssue, issue, schema_issue, union};
+use super::{ContractValidationError, ValidationIssue, coerce, issue, schema_issue, union};
 use regex::Regex;
 use serde_json::Value;
 use url::Url;
@@ -250,10 +250,16 @@ fn validate_array(
 ) -> Result<(), ContractValidationError> {
     let received = value.clone();
     let array = value.as_array_mut().ok_or_else(|| {
-        // A lone string where a list is expected (`include:"src/**"`) is the
-        // most common shape slip; show the exact corrected value.
+        // Lossless repair already turned JSON-encoded lists and scalars the
+        // items accept into arrays; name the fix for what is left, and never
+        // suggest wrapping an encoded list or an item the list rejects.
         let message = match &received {
-            Value::String(_) => format!("Expected array; wrap the value: [{}]", received),
+            Value::String(text) if coerce::looks_like_json_array(text) => {
+                "Expected array; send a JSON array, not a JSON-encoded string".to_owned()
+            }
+            Value::String(_) if coerce::items_accept(root, schema, &received) => {
+                format!("Expected array; wrap the value: [{received}]")
+            }
             _ => "Expected array".to_owned(),
         };
         schema_issue("schema.type", path.clone(), &message, schema, &received)

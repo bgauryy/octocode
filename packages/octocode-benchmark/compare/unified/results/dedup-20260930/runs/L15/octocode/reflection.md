@@ -1,0 +1,7 @@
+1. **Helped:** The second `localSearch` call, with a regex alternation over flooding-related identifiers and `include` restricted to five filenames, located the defense in one step. It returned `ImmutableSet.java:664–835` and `RegularImmutableMap.java:70`. The `localFetch` of lines 660–880 then gave the full mechanism: `insertInHashTable`, `review`, `hashFloodingDetected`, `maxRunBeforeFallback` and `MAX_RUN_MULTIPLIER`. A final `localFetch` with `matchString` and `contextLines` confirmed the `JdkBackedSetBuilderImpl` fallback.
+
+2. **Did not help:** My first `localSearch` failed validation because I passed `include` as a JSON string instead of an array. That cost one call. The search output was paginated (page 1 of 2, 12 matches), and I never fetched page 2. I also never read `RegularImmutableSet` or the tests. The `JdkBackedSetBuilderImpl` read ended before the constructor closed, so I saw only part of it.
+
+3. **Next time:** I would pass array parameters correctly from the start. I would also read the `RegularImmutableSet` and `JdkBackedImmutableSet` classes, and the map mechanism at `RegularImmutableMap.java:250`, to back up the claims I made without evidence.
+
+4. **Confidence:** Medium-high. The builder mechanism (probe limit, `review()` check, `HashSet` fallback) is directly supported by source I read. My comment that `HashSet` has tree bins comes from general knowledge, not from code I read, and the map claims are only from search hits.

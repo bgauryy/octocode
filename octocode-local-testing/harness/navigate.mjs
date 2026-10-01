@@ -5,7 +5,7 @@
 // hops and bytes, and fails when a hop's promised handoff is missing.
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, checks, collect, rowData, sourcePath, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('navigate');
 const client = await startServer();
@@ -77,20 +77,20 @@ for (const t of TARGETS) {
   // PROVE: identity via LSP from the copied anchor, else text + syntax.
   if (t.lsp) {
     const def = await hop('prove: definition', 'lspSearch', { uri: file, symbolName: target.name, lineHint: target.line, operation: 'definition' });
-    const lands = (rowData(def)?.payload?.locations ?? []).some(l => abs(def, l.path ?? rowData(def)?.path ?? path.basename(file)) === file && Math.abs((l.displayRange?.startLine ?? 0) - target.line) <= 1);
+    const lands = (rowData(def)?.payload?.locations ?? []).some(l => sourcePath(def, l, file) === file && Math.abs((l.displayRange?.startLine ?? 0) - target.line) <= 1);
     // The server may resolve a declaration name to a merged declaration
     // elsewhere (TS: a function merged with an imported interface); accept
     // any landing that astSearch confirms declares the same name.
     let confirmed = false;
     for (const l of rowData(def)?.payload?.locations ?? []) {
-      const at = abs(def, l.path ?? rowData(def)?.path ?? path.basename(file));
+      const at = sourcePath(def, l, file);
       const d = await call('astSearch', { operation: 'symbols', path: at, name: target.name, ...(t.langType ? { langType: t.langType } : {}) });
       if (collect(rowData(d), o => o.name === target.name && Math.abs(o.line - (l.displayRange?.startLine ?? 0)) <= 1).length) confirmed = true;
     }
     const explained = /compile_commands/.test(JSON.stringify(rowData(def)?.hints ?? []));
     check(`${t.lang}: symbols anchor → lspSearch definition lands on an astSearch-confirmed declaration`, lands || confirmed || explained, JSON.stringify(rowData(def)?.payload?.locations?.[0]?.displayRange ?? rowData(def)?.hints ?? ''));
     const refs = await hop('prove: references', 'lspSearch', { uri: file, symbolName: target.name, lineHint: target.line, operation: 'references', pageSize: 25 });
-    const refFiles = new Set((rowData(refs)?.payload?.locations ?? []).map(l => abs(refs, l.path ?? rowData(refs)?.path)));
+    const refFiles = new Set((rowData(refs)?.payload?.locations ?? []).map(l => sourcePath(refs, l, file)));
     // Every text-hit file (all pages), not just the sampled uses.
     const textFiles = new Set(uses.map(u => u.file));
     let page = await call('localSearch', { path: root, searchText: target.name, wholeWord: true, langType: t.rg, resultView: 'files', pageSize: 100 });

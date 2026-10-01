@@ -1,0 +1,174 @@
+{
+  "qid": "L03",
+  "worker": "octocode",
+  "started": "2026-09-30T19:56:58.569Z",
+  "promptSha256": "7b5cb6f1673cdc01471acbc346cbcbd44729895f98c218f0835b433bcdcda2c1",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 18143,
+  "status": "ok",
+  "answer": "Callbacks registered with `transaction.on_commit` are kept in a per-connection list, dropped on savepoint rollback, full rollback or close, and run when the outermost transaction commits and autocommit is switched back on. Line numbers are from the pinned commit. I did not read `Atomic.__exit__`, so the link between the outermost atomic block exiting and `set_autocommit(True)` is inferred from the flag logic, not seen directly.\n\n**Storage**\n- `django/db/transaction.py:142` defines `on_commit(func, using=None, robust=False)`. It just calls `get_connection(using).on_commit(func, robust)`.\n- `BaseDatabaseWrapper.on_commit` is at `django/db/backends/base/base.py:727`. It raises `TypeError` if `func` is not callable.\n- Inside an atomic block (`in_atomic_block`), it appends `(set(self.savepoint_ids), func, robust)` to `self.run_on_commit` (line 732). The list is initialised at line 102, and the tuple format is documented in the comment at lines 98-101.\n- Outside a transaction, in autocommit mode, it runs `func()` immediately. With `robust=True`, exceptions are caught and logged.\n- In manual transaction management (not in an atomic block, autocommit off), it raises `TransactionManagementError`.\n\n**Discarding**\n- **Savepoint rollback:** `savepoint_rollback` (around lines 414-419) rebuilds the list, keeping only entries whose saved savepoint-ID set does not contain the rolled-back `sid`. This drops callbacks registered while that savepoint was active.\n- **Full rollback:** `rollback()` sets `self.run_on_commit = []` (line 341).\n- **Close:** `close()` sets `self.run_on_commit = []` (line 347).\n- **Reconnect:** `connect()` also resets the list (line 261).\n\n**Running**\n- `commit()` does not run the callbacks itself. After `_commit()` it sets `run_commit_hooks_on_set_autocommit_on = True` (line 330).\n- In `set_autocommit` (lines 490-492), if `autocommit` is true and that flag is set, it calls `run_and_clear_commit_hooks()` and resets the flag to `False`.\n- `run_and_clear_commit_hooks` (line 749) first calls `validate_no_atomic_block()`. It then swaps `self.run_on_commit` for an empty list, so callbacks registered while the hooks run go into the new list. It pops the old entries in registration order (FIFO) and calls each one.\n- If `robust` is true, an exception is logged with `logger.exception` and the remaining callbacks still run. Otherwise the exception propagates and the callbacks still queued in the local list are lost.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 9418,
+    "cache_read_input_tokens": 92383,
+    "output_tokens": 843,
+    "context_tokens": 101811,
+    "total_tokens": 102654,
+    "first_request_context": 16896,
+    "fixed_overhead_tokens": 84480,
+    "research_tokens": 18174,
+    "max_request_context": 22961
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3353,
+      "cache_read_input_tokens": 13541,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 817,
+      "cache_read_input_tokens": 16894,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4067,
+      "cache_read_input_tokens": 17711,
+      "output_tokens": 4
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 681,
+      "cache_read_input_tokens": 21778,
+      "output_tokens": 6
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 500,
+      "cache_read_input_tokens": 22459,
+      "output_tokens": 781
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 9418,
+    "cache_read_input_tokens": 92383,
+    "output_tokens": 2382
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 2382,
+      "cacheReadInputTokens": 92383,
+      "cacheCreationInputTokens": 9418,
+      "webSearchRequests": 0,
+      "costUSD": 0.0799886,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 126,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0799886,
+  "duration_ms": 16961,
+  "num_turns": 8,
+  "toolCallCount": 7,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 2,
+    "mcp__octocode__localFetch": 5
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"run_on_commit\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db\",\"goal\":\"find on_commit storage\",\"reasoning\":\"locate\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/backends/base/base.py\",\"startLine\":\"95\",\"endLine\":\"105\",\"goal\":\"read\",\"reasoning\":\"read\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/backends/base/base.py\",\"startLine\":\"255\",\"endLine\":\"265\",\"goal\":\"read\",\"reasoning\":\"read\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/backends/base/base.py\",\"startLine\":\"325\",\"endLine\":\"425\",\"goal\":\"read\",\"reasoning\":\"read\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/backends/base/base.py\",\"startLine\":\"700\",\"endLine\":\"775\",\"goal\":\"read\",\"reasoning\":\"read\"}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"run_and_clear_commit_hooks|run_commit_hooks_on_set_autocommit_on|def on_commit\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db\",\"regex\":\"rust\",\"goal\":\"find triggers\",\"reasoning\":\"find callers\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/transaction.py\",\"startLine\":\"140\",\"endLine\":\"150\",\"goal\":\"read\",\"reasoning\":\"read\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `localSearch` for `run_on_commit` over `django/db` gave me every storage, reset and append site with line numbers in one call. The second `localSearch`, a regex for `run_and_clear_commit_hooks|run_commit_hooks_on_set_autocommit_on|def on_commit`, found the trigger at `base.py:490-492` and the wrapper in `transaction.py`. The `localFetch` line-range reads were cheap and exact. I batched four of them in parallel.\n\n2. **Did not help:** I skipped `Atomic.__exit__` in `transaction.py`, so I never saw the outermost atomic block calling `commit()` and then `set_autocommit(True)`. I said that link was inferred, but I should have checked it. My `localFetch` windows also landed a little off. The 325-425 read began mid-`commit()`, so I never saw its `def`. I also pulled about 75 lines around `on_commit` when about 40 would have done. The `localSearch` result was paginated and I never opened page 2, which held the remaining matches for `run_on_commit`.\n\n3. **Next time:** I would add a `localSearch` for `set_autocommit(True)` in `transaction.py` to confirm the exit path. I would anchor reads with `matchString` instead of guessed line ranges. I would also check the test or docs for the `robust` semantics.\n\n4. **Confidence:** High for storage, discarding and running, because I read those lines directly. Medium for the link from the outermost atomic exit to `set_autocommit(True)`, because I inferred it from the flag logic and did not read it.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1136,
+      "cache_read_input_tokens": 22959,
+      "output_tokens": 1,
+      "context_tokens": 24097,
+      "total_tokens": 24098,
+      "first_request_context": 24097,
+      "fixed_overhead_tokens": 24097,
+      "research_tokens": 1,
+      "max_request_context": 24097
+    },
+    "cost_usd": 0.0944484,
+    "toolCallsAttempted": 0
+  }
+}

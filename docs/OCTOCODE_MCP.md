@@ -55,6 +55,8 @@ loadNativeBinding
 
 At startup, the Node adapter loads the platform-specific Rust N-API addon (`@octocodeai/octocode-native`), instantiates the native runtime, and validates that its ABI version and contract fingerprint match the registered schemas (`@octocodeai/config/schema`, which re-exports `@octocodeai/octocode-core`). A mismatch on either check is a startup failure, so the server never serves a schema the runtime would reject. The only escape hatch is `OCTOCODE_ALLOW_CONTRACT_DRIFT=1`, which downgrades a fingerprint mismatch to a stderr warning; it is ignored under `NODE_ENV=production`, and the bundled server honors it only with `NODE_ENV=development` or `test`. Startup also fails when no tool is available (for example, a `TOOLS_TO_RUN` list with only unknown names).
 
+Tool arguments pass through the runtime's `normalizeInput` before SDK validation, the same native normalization the CLI applies: a bare query is wrapped in `queries`, and a JSON-encoded or bare-scalar value for a list-only field, or an exact integer/boolean string for an integer/boolean-only field, is repaired. Fields that also accept a string are never rewritten.
+
 Configuration, security policy, providers, credentials, caches, and usage stats are owned entirely by the native runtime; the Node adapter owns only protocol framing and process lifecycle. Settings and environment tokens are resolved once at startup. Stored logins and `gh` are resolved per request, so a new `octocode auth login` takes effect without a server restart.
 
 ## Tool catalog
@@ -65,8 +67,8 @@ CLI-only and always omitted. `clasify` needs a nonblank resolved classification 
 `astTopology` needs `OCTOCODE_BETA=true` (or `local.beta:true`). Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls. The
 CLI-only exclusion is enforced twice: the native runtime never lists them for
-the MCP surface, and the adapter filters `CLI_ONLY_TOOLS` again before
-registration.
+the MCP surface, and the adapter filters core's `isCliOnlyTool` policy again
+before registration.
 
 | Family | Tools |
 |--------|-------|

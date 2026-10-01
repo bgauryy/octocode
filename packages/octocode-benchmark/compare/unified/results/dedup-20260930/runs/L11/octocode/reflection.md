@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` was the fastest step. A regex alternation of function names (`complete|try_read_output|store_output|take_output`) across `runtime/task` returned the core files and line numbers in one call. The parallel `localFetch` calls on `harness.rs` 270–400 and `core.rs` 395–445, plus the `join.rs` `localSearch` with `contextLines`, covered both the producer and consumer sides in a single round. The last `localSearch` gave exact line anchors for `store_output`, `can_read_output`, `poll_future` and `set_join_waker`.
+
+2. **Did not help:** I never read `can_read_output` (`harness.rs:422–466`) or `poll_future` (`harness.rs:523+`). I described what they do from their names and call sites. The `wake_join` call line was approximate (I wrote "~349"). I also didn't read `state.rs`, so the claim about the state bits rests on comments in `harness.rs`. The `localSearch` with `contextLines: 6` on `join.rs` returned a merged blob, so I didn't get a clean line number for the `try_read_output` call.
+
+3. **Next time:** I'd add one more `localFetch` of `harness.rs` 420–560 and `state.rs` around line 427. That would replace the inferences with verified lines and give exact citations. For `join.rs`, I'd use `matchString` or a line range instead of `contextLines`.
+
+4. **Confidence:** Medium-high. The overall flow (store output in `stage`, completion bit, join waker, `take_output`) is directly supported by code I read. The `can_read_output` and `poll_future` details are inferred, and the `wake_join` line number is approximate.

@@ -2,13 +2,18 @@
 
 pub mod generated;
 mod prepare;
+mod schema_facts;
 pub mod tool_types;
 mod validate;
 
+use crate::tools::id::{ToolId, clasify_policy};
 pub use prepare::{ContractInputError, PrepareOptions, prepare};
+pub use schema_facts::{
+    query_schema_max, query_schema_number, query_schema_value, stamp_schema_defaults,
+};
 pub use validate::{
-    ContractValidationError, ValidationIssue, format_input_error, validate, validate_output,
-    validate_query,
+    ContractValidationError, ValidationIssue, format_input_error, normalize_input, validate,
+    validate_output, validate_query,
 };
 
 /// Embedded contracts are immutable across runtime handles and requests.
@@ -78,10 +83,27 @@ pub fn prepare_and_validate(
     // Delegate to validate_query which handles the wrap/unwrap internally
     // and strips the "queries.0." prefix from any validation error paths.
     let query = validate_query(tool_name, serde_json::Value::Object(prepared.query))?;
-    if tool_name == "clasify" {
+    if tool_name == ToolId::Clasify.as_str() {
         validate_semantic_relations(&query)?;
     }
     Ok(query)
+}
+
+/// Pre-validation normalization for hosts that validate the canonical bulk
+/// envelope themselves (MCP): a non-empty bare query object becomes
+/// `{"queries":[query]}` and a query array `{"queries":array}` (the meaning
+/// native gives both), then [`normalize_input`] repairs lossless shape slips.
+/// Nothing is validated or defaulted.
+#[must_use]
+pub fn normalize_envelope(tool_name: &str, input: serde_json::Value) -> serde_json::Value {
+    let input = match input {
+        serde_json::Value::Array(queries) => serde_json::json!({ "queries": queries }),
+        serde_json::Value::Object(query) if !query.is_empty() && !query.contains_key("queries") => {
+            serde_json::json!({ "queries": [query] })
+        }
+        other => other,
+    };
+    normalize_input(tool_name, input)
 }
 
 /// One row of a batch whose envelope failed validation as a whole.
@@ -97,7 +119,7 @@ pub fn prepare_rows(
     input: &serde_json::Value,
     options: PrepareOptions<'_>,
 ) -> Option<Vec<RowValidation>> {
-    if tool_name == "clasify" {
+    if tool_name == ToolId::Clasify.as_str() {
         return None;
     }
     let (envelope, rows) = match input {
@@ -188,7 +210,7 @@ pub fn prepare_many_and_validate(
         .and_then(serde_json::Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if tool_name == "clasify" {
+    if tool_name == ToolId::Clasify.as_str() {
         // Batch query ids must be unique so every result cell stays correlatable
         // to its query. The core SemanticBatch schema refines this; mirror it in
         // the native executor rather than returning two results under one id.
@@ -213,13 +235,15 @@ pub fn prepare_many_and_validate(
             validate_semantic_relations(query)?;
             total_cells = total_cells.saturating_add(semantic_cell_count(query));
         }
-        if total_cells > 50 {
+        if total_cells > clasify_policy::MAX_TOTAL_CELLS {
             return Err(ContractValidationError {
                 issues: vec![ValidationIssue {
                     rule_id: "clasify.total-cell-limit".into(),
                     path: vec!["queries".into()],
                     message: format!(
-                        "Expanded matrices produce {total_cells} cells in total; maximum is 50."
+                        "Expanded matrices produce {total_cells} cells in total; maximum is {} {}.",
+                        clasify_policy::MAX_TOTAL_CELLS,
+                        file_chunks_cells()
                     ),
                     schema: None,
                     received: None,
@@ -230,20 +254,26 @@ pub fn prepare_many_and_validate(
     Ok(queries)
 }
 
-const SEMANTIC_FILE_CANDIDATES: usize = 5;
+/// Core `FILE_CHUNKS_CELLS`: why a fileChunks matrix hits the cell limit
+/// sooner. Cell-limit wording is core-authored; the parity fixtures pin it.
+fn file_chunks_cells() -> String {
+    format!(
+        "(a fileChunks resource counts as {} resources)",
+        clasify_policy::MAX_FILE_CANDIDATES
+    )
+}
 
+/// Core `expandedCells`: a `fileChunks` search resource expands to
+/// `maxFileCandidates` pages; every other resource is one page.
 fn semantic_cell_count(query: &serde_json::Value) -> usize {
+    use crate::tools::clasify::{CandidateEvidence, candidate_evidence};
     let expanded_resources = query["resources"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|resource| {
-            if resource
-                .pointer("/context/candidateEvidence")
-                .and_then(serde_json::Value::as_str)
-                == Some("fileChunks")
-            {
-                SEMANTIC_FILE_CANDIDATES
+            if candidate_evidence(&resource["context"]) == Some(CandidateEvidence::FileChunks) {
+                clasify_policy::MAX_FILE_CANDIDATES
             } else {
                 1
             }
@@ -258,7 +288,9 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
     for (index, resource) in resources.iter().enumerate() {
         let context = &resource["context"];
         if context.get("candidateEvidence").is_some() {
-            let supported = context["tool"] == "localSearch" || context["tool"] == "ghSearchCode";
+            let supported = context["tool"]
+                .as_str()
+                .is_some_and(crate::tools::clasify::is_candidate_search_tool);
             if !supported {
                 return Err(ContractValidationError {
                     issues: vec![ValidationIssue {
@@ -269,12 +301,36 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
                             "context".into(),
                             "candidateEvidence".into(),
                         ],
-                        message: "candidateEvidence requires localSearch or ghSearchCode.".into(),
+                        message: format!(
+                            "candidateEvidence requires {}.",
+                            policy_names(clasify_policy::CANDIDATE_SEARCH_TOOLS)
+                        ),
                         schema: None,
                         received: context.get("candidateEvidence").cloned(),
                     }],
                 });
             }
+        }
+        let prefiltered = resource
+            .get("prefilter")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|terms| !terms.is_empty());
+        let file_read = context["tool"]
+            .as_str()
+            .is_some_and(crate::tools::clasify::is_file_read_tool);
+        if prefiltered && !file_read {
+            return Err(ContractValidationError {
+                issues: vec![ValidationIssue {
+                    rule_id: "clasify.prefilter-tool".into(),
+                    path: vec!["resources".into(), index.to_string(), "prefilter".into()],
+                    message: format!(
+                        "prefilter applies only to {} file reads; remove it or narrow the search itself.",
+                        policy_names(clasify_policy::FILE_READ_TOOLS)
+                    ),
+                    schema: None,
+                    received: None,
+                }],
+            });
         }
         let nested = &context["query"];
         let start = nested.get("startLine").and_then(serde_json::Value::as_u64);
@@ -340,13 +396,15 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
         }
     }
     let cells = semantic_cell_count(query);
-    if cells > 25 {
+    if cells > clasify_policy::MAX_CELLS {
         return Err(ContractValidationError {
             issues: vec![ValidationIssue {
                 rule_id: "clasify.cell-limit".into(),
                 path: Vec::new(),
                 message: format!(
-                    "Expanded resources × questions produces {cells} cells; maximum is 25."
+                    "Expanded resources × questions produces {cells} cells; maximum is {} {}.",
+                    clasify_policy::MAX_CELLS,
+                    file_chunks_cells()
                 ),
                 schema: None,
                 received: None,
@@ -354,6 +412,15 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
         });
     }
     Ok(())
+}
+
+/// Contract tool-set names joined the way core phrases them (`a or b`).
+pub(crate) fn policy_names(tools: &[crate::tools::id::ToolId]) -> String {
+    tools
+        .iter()
+        .map(|tool| tool.as_str())
+        .collect::<Vec<_>>()
+        .join(" or ")
 }
 
 fn prepare_validation_error(error: ContractInputError) -> ContractValidationError {
@@ -390,7 +457,7 @@ pub const fn contract_provenance_json() -> &'static str {
 mod contract_owner_tests {
     use super::{
         PrepareOptions, contract_json, contract_provenance_json, isolate_row_violations,
-        prepare_and_validate, prepare_many_and_validate, validate_output,
+        normalize_envelope, prepare_and_validate, prepare_many_and_validate, validate_output,
     };
     use serde_json::{Value, json};
 
@@ -400,6 +467,38 @@ mod contract_owner_tests {
         let mut question = question.clone();
         question["id"] = Value::String(id.into());
         question
+    }
+
+    #[test]
+    fn mcp_normalization_wraps_bare_queries_and_repairs_without_validating() {
+        let row = json!({"goal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":"[\"*.ts\"]"});
+        let expected = json!({"queries":[{"goal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":["*.ts"]}]});
+        assert_eq!(normalize_envelope("localSearch", row.clone()), expected);
+        assert_eq!(
+            normalize_envelope("localSearch", json!([row.clone()])),
+            expected
+        );
+        let encoded = serde_json::to_string(&json!([row])).expect("encode");
+        let envelope = normalize_envelope(
+            "localSearch",
+            json!({"queries": encoded, "responseCharLength": "100"}),
+        );
+        assert_eq!(envelope["queries"], expected["queries"]);
+        assert_eq!(envelope["responseCharLength"], 100);
+        // Not validated or defaulted: invalid rows and empty input pass through.
+        let invalid = json!({"queries":[{"bogus":1}]});
+        assert_eq!(normalize_envelope("localSearch", invalid.clone()), invalid);
+        assert_eq!(normalize_envelope("localSearch", json!({})), json!({}));
+        assert_eq!(
+            normalize_envelope("localSearch", json!({"queries":"{}"})),
+            json!({"queries":"{}"})
+        );
+        // clasify: the bare matrix is wrapped like every other bare query.
+        let matrix = json!({"goal":"g","reasoning":"r","resources":[],"questions":[]});
+        assert_eq!(
+            normalize_envelope("clasify", matrix.clone()),
+            json!({"queries":[matrix]})
+        );
     }
 
     #[test]

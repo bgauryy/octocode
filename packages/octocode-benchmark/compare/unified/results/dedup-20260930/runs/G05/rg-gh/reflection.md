@@ -1,0 +1,7 @@
+1. **Helped:** The `gh api "repos/psf/requests/contents/src/requests/sessions.py?ref=611c6162cb"` call with the raw Accept header gave me the whole file at the pinned commit. That is why the line numbers are trustworthy. The `grep -n` for `def resolve_redirects`, `def rebuild_*` and `should_strip_auth` gave me a map of the file. The two `sed` ranges (130-395 and 798-826) then covered the redirect loop and its call site in `Session.send`. Four tool calls were enough.
+
+2. **Did not help:** My first `gh api` call failed because zsh treated the unquoted `?ref=` as a glob. That cost one call. The local working directory was empty, so the extra checkouts didn't matter. I never ran a check that 611c6162cb resolves to the expected commit. It returned content, so I assumed it did.
+
+3. **Next time:** I would quote the URL from the start. I would read `resolve_proxies`, `rewind_body` and `is_redirect` with one extra `gh api` fetch of `utils.py` and `models.py`. I left those unread and said so in the answer. I could also check the tests for the 307 and 308 body behavior.
+
+4. **Confidence:** High for the `sessions.py` behavior, because I read the code directly at the pinned ref and cited line numbers. Medium-high for the parts that depend on helpers I didn't open. I ran no code.

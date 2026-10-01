@@ -1,0 +1,118 @@
+{
+  "qid": "L03",
+  "worker": "rg-gh",
+  "started": "2026-09-30T19:57:16.671Z",
+  "promptSha256": "7b5cb6f1673cdc01471acbc346cbcbd44729895f98c218f0835b433bcdcda2c1",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 18102,
+  "status": "ok",
+  "answer": "Callbacks are stored per connection in a list. They are discarded on rollback, on savepoint rollback, on connect and on close. They run after the outermost transaction commits, when autocommit is switched back on. All line numbers below are in `django/db/backends/base/base.py` unless stated otherwise.\n\n**Storage**\n- `transaction.on_commit(func, using=None, robust=False)` only delegates to `get_connection(using).on_commit(func, robust)` (`django/db/transaction.py:142-147`).\n- Each connection has a list `self.run_on_commit = []` (`:102`).\n- `BaseDatabaseWrapper.on_commit` (`:727`) raises `TypeError` if `func` isn't callable.\n- If `in_atomic_block` is true, it appends the tuple `(set(self.savepoint_ids), func, robust)` to `run_on_commit` (`:732`). The set records which savepoints were active when the callback was registered.\n- `Atomic.__enter__` pushes a savepoint id onto `connection.savepoint_ids`, or `None` if no savepoint is made (`django/db/transaction.py:222-227`).\n- Outside an atomic block:\n  - In manual transaction management (autocommit off), it raises `TransactionManagementError` (`:733-736`).\n  - In autocommit mode, it runs `func` immediately (`:737-747`). With `robust=True`, exceptions are logged and swallowed.\n\n**Discarding**\n- **Savepoint rollback:** `savepoint_rollback(sid)` rebuilds the list and keeps only entries where `sid not in sids` (`:416-418`). Callbacks registered inside a rolled-back inner `atomic` are therefore dropped.\n- **Full rollback:** `rollback()` sets `run_on_commit = []` (`:341`).\n- **Close:** `close()` also clears the list (`:347`).\n- **Connect:** `connect()` resets it to `[]` (`:261`).\n\n**Running**\n- `commit()` calls `_commit()` and sets `run_commit_hooks_on_set_autocommit_on = True` (`:330`). It does not run the hooks itself.\n- When the outermost `Atomic.__exit__` finishes, it calls `connection.set_autocommit(True)` (`django/db/transaction.py` finally block, about `:317-318`).\n- In `set_autocommit`, if autocommit is now on and the flag is set, it calls `run_and_clear_commit_hooks()` and resets the flag (`:490-492`).\n- `run_and_clear_commit_hooks` (`:749`) first calls `validate_no_atomic_block()`. It then swaps `run_on_commit` for a fresh `[]` and pops entries from the front of the old list in registration order (FIFO).\n- A non-robust callback that raises propagates the exception, and the remaining callbacks in that batch are lost. A `robust=True` callback has its exception logged via `logger.exception` and the rest still run (`:755-766`).\n- Callbacks that register new `on_commit` hooks while running go onto the fresh list. They run immediately, because the connection is back in autocommit mode.\n\n**Uncertainty**\n- I read the `__exit__` code for the commit path only in part. The `set_autocommit(True)` call is in the `finally` block, but I didn't see the exact line number, so `:317-318` is approximate.\n- The `rollback()` and `close()` line numbers come from a line-ranged read and I didn't re-check them.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7188,
+    "cache_read_input_tokens": 13537,
+    "output_tokens": 35,
+    "context_tokens": 20731,
+    "total_tokens": 20766,
+    "first_request_context": 5122,
+    "fixed_overhead_tokens": 15366,
+    "research_tokens": 5400,
+    "max_request_context": 9125
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3185,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1362,
+      "cache_read_input_tokens": 5120,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2641,
+      "cache_read_input_tokens": 6482,
+      "output_tokens": 3
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7188,
+    "cache_read_input_tokens": 13537,
+    "output_tokens": 1680
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1680,
+      "cacheReadInputTokens": 13537,
+      "cacheCreationInputTokens": 7188,
+      "webSearchRequests": 0,
+      "costUSD": 0.048271400000000006,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 143,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.048271400000000006,
+  "duration_ms": 17041,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "Bash:cd": 1,
+    "Bash:f": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python && git rev-parse HEAD; rg -n \\\"run_on_commit|on_commit|run_commit_hooks_on_set_autocommit_on|savepoint_ids|commit_hooks\\\" django/db/backends/base/base.py django/db/transaction.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"f=django/db/backends/base/base.py; sed -n 255,262p $f; sed -n 322,348p $f; sed -n 405,422p $f; sed -n 484,493p $f; sed -n 725,770p $f; sed -n 215,262p django/db/transaction.py; sed -n 300,335p django/db/transaction.py; rg -n \\\"run_and_clear_commit_hooks\\\" django\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** My first Bash call combined `git rev-parse HEAD` with an `rg` for `on_commit|run_on_commit|savepoint_ids|commit_hooks` over `base.py` and `transaction.py`. It confirmed the pinned commit and located every storage, discard and run site in one pass. The second call printed line-numbered `sed` ranges of those sites, plus a repo-wide `rg` for `run_and_clear_commit_hooks`. That showed the method has one caller, in `set_autocommit`. Together the two calls were enough.\n\n2. **Did not help:** The `sed` ranges in the second call were guessed rather than targeted. They cut off the `savepoint_commit` and rollback branches in `Atomic.__exit__`, and the output had no line numbers. I then estimated some line numbers by counting (`rollback` at `:341`, `close` at `:347`, the `set_autocommit(True)` call at about `:317-318`). I flagged the estimates in my answer, but I should have verified them. The `sed` output also ran together with no separators, which made counting error-prone.\n\n3. **Next time:** I'd use `rg -n` with context, or `nl -ba | sed -n`, so every printed line carries its real number. I'd also grep `set_autocommit\\(True\\)` in `transaction.py` to pin the exact line.\n\n4. **Confidence:** High on the mechanism, because I read the code directly. Medium-high on the exact line numbers for `rollback`, `close` and the `Atomic.__exit__` call.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1621,
+      "cache_read_input_tokens": 9123,
+      "output_tokens": 1,
+      "context_tokens": 10746,
+      "total_tokens": 10747,
+      "first_request_context": 10746,
+      "fixed_overhead_tokens": 10746,
+      "research_tokens": 1,
+      "max_request_context": 10746
+    },
+    "cost_usd": 0.061694000000000006,
+    "toolCallsAttempted": 0
+  }
+}

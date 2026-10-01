@@ -230,16 +230,100 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
         "Repository not found: fixture-owner/fixture-repo"
     );
     assert_eq!(error.hints.len(), 1);
-    assert!(
-        error.hints[0].contains("fixture-owner/fixture-repo"),
-        "{error:?}"
-    );
+    // D8: the hint fits the 120-char guidance cap whole (the message names
+    // the repository), so the response stage never cuts it mid-sentence.
+    let long = repository_not_found(&parse_query(serde_json::json!({
+        "owner": "o".repeat(39), "repo": "r".repeat(100),
+        "goal": "test", "reasoning": "long names"
+    })));
+    for hint in [&error.hints[0], &long.hints[0]] {
+        assert!(hint.chars().count() <= 120, "{hint}");
+        assert!(hint.ends_with('.'), "{hint}");
+        assert!(hint.contains("token"), "{hint}");
+    }
     // Errors without recovery serialize exactly as before.
     let plain = CloneError::new("clone.failed", "failed");
     assert_eq!(
         serde_json::to_value(plain).expect("serialize"),
         serde_json::json!({"code": "clone.failed", "message": "failed"})
     );
+}
+
+/// D8: a clone row continues into the local tools on its checkout (the
+/// sparse subtree when one was requested), and a cache hit names its age.
+#[test]
+fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
+    let fixture = Fixture::new();
+    let root = Temp::new("next");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = RewriteRunner::new(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+    );
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    let row = |result: &CloneResult| {
+        let data = serde_json::to_value(result).expect("serialize");
+        // The runtime gives every continuation its row's brief.
+        let mut briefed = data.clone();
+        for call in briefed["next"]
+            .as_object_mut()
+            .into_iter()
+            .flat_map(|next| next.values_mut())
+        {
+            call["query"]["goal"] = serde_json::json!("test");
+            call["query"]["reasoning"] = serde_json::json!("clone fixture");
+        }
+        crate::contracts::validate_output(
+            "ghCloneRepo",
+            &serde_json::json!({"results":[{"index":0,"data":briefed}]}),
+        )
+        .expect("clone row satisfies the output contract");
+        data
+    };
+    let fresh = row(&execute_clone(&query(), &context).expect("fresh clone"));
+    let explore = &fresh["next"]["exploreClone"];
+    assert_eq!(explore["tool"], "structureSearch", "{fresh}");
+    assert_eq!(explore["query"]["path"], fresh["location"]["localPath"]);
+    assert!(fresh["location"].get("clonedAt").is_none(), "{fresh}");
+
+    let cached = row(&execute_clone(&query(), &context).expect("cached clone"));
+    assert_eq!(cached["location"]["cached"], true);
+    let cloned_at = cached["location"]["clonedAt"].as_str().expect("clonedAt");
+    let expires_at = cached["location"]["expiresAt"].as_str().expect("expiresAt");
+    assert!(
+        cloned_at.ends_with('Z') && expires_at > cloned_at,
+        "{cached}"
+    );
+
+    let sparse = row(&execute_clone(
+        &GhCloneRepoQuery {
+            sparse_path: Some("src".into()),
+            ..query()
+        },
+        &context,
+    )
+    .expect("sparse clone"));
+    let local = sparse["location"]["localPath"].as_str().expect("localPath");
+    let path = sparse["next"]["exploreClone"]["query"]["path"]
+        .as_str()
+        .expect("path");
+    assert_eq!(Path::new(path), Path::new(local).join("src"), "{sparse}");
 }
 
 #[test]

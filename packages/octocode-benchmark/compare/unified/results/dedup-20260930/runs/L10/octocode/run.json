@@ -1,0 +1,144 @@
+{
+  "qid": "L10",
+  "worker": "octocode",
+  "started": "2026-09-30T19:59:09.341Z",
+  "promptSha256": "bae053cbd28a5c7d818445b6cf4350186075c7e6fb66e9c2f037bdba2efa66d4",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 14629,
+  "status": "ok",
+  "answer": "`rate()` and `increase()` are both thin wrappers around one function, `extrapolatedRate` in `promql/functions.go:452`. The only difference is the `isRate` flag. `funcRate` (`functions.go:811`) calls `extrapolatedRate(..., true, true)` and `funcIncrease` (`functions.go:816`) calls `extrapolatedRate(..., true, false)`. The arguments are `isCounter, isRate`. `delta()` uses `(false, false)`.\n\nI read the float path in full. I did not read `histogramRate`, `extendedRate` or `extendedHistogramRate`, so histogram reset handling is only summarised below.\n\n**How it computes the result** (line numbers are in `promql/functions.go`):\n\n1. **Window bounds.** `rangeStart = enh.Ts - (Range + Offset)` and `rangeEnd = enh.Ts - Offset` (lines ~469–470).\n2. **Raw delta.** For float samples, `resultFloat = last.F - first.F` (~502).\n3. **Counter resets.** Only when `isCounter` is true, it loops over consecutive float pairs (~510–525). If `curr.F < prev.F`, it adds `prev.F` to the result. It also does this when a start-timestamp reset is detected via `isStartTimestampReset`, and it emits a start-time-overlap warning once per series.\n4. **Extrapolation to the window edges** (~528–600):\n   - It computes `durationToStart` (first sample to `rangeStart`), `durationToEnd` (last sample to `rangeEnd`), `sampledInterval` (last minus first timestamp), and the average spacing between samples.\n   - The threshold is `averageDurationBetweenSamples * 1.1`.\n   - If `durationToStart` or `durationToEnd` is at or above the threshold, that gap is replaced by half the average spacing. Otherwise the result is extrapolated all the way to the boundary.\n   - For counters, the start extrapolation is also capped at the point where the counter would reach zero: `durationToZero = sampledInterval * (first.F / resultFloat)`. `durationToStart` is lowered to it if that is shorter. This applies when `resultFloat > 0` and the first value is non-negative.\n5. **Scaling.** `factor = (sampledInterval + durationToStart + durationToEnd) / sampledInterval` (or 1.0 if `sampledInterval` is 0). For `rate`, `factor /= ms.Range.Seconds()`. The result is `resultFloat *= factor`.\n   - So `increase` is the extrapolated total increase over the window.\n   - `rate` is that same value divided by the range in seconds, not by the sampled interval.\n\n**Other cases in the same function:**\n- **Sample count.** It normally needs at least two samples (`numSamplesMinusOne == 0` returns nothing). The exception is a single sample whose start timestamp (ST) falls inside the window. Then it assumes a zero-value sample at the ST, adds the first value to the result, and sets `durationToStart = 0`. This block is at ~534–548.\n- **Mixed samples.** A window with both floats and histograms is dropped with a `NewMixedFloatsHistogramsWarning` (~478).\n- **Histograms.** These go through `histogramRate` (defined ~644) and the same extrapolation, using `Count` for the zero-point cap.\n- **Anchored or smoothed selectors.** These are routed to `extendedRate` or `extendedHistogramRate` instead (~455–468).",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9889,
+    "cache_read_input_tokens": 47956,
+    "output_tokens": 840,
+    "context_tokens": 57851,
+    "total_tokens": 58691,
+    "first_request_context": 16905,
+    "fixed_overhead_tokens": 50715,
+    "research_tokens": 7976,
+    "max_request_context": 23432
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3362,
+      "cache_read_input_tokens": 13541,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 609,
+      "cache_read_input_tokens": 16903,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5918,
+      "cache_read_input_tokens": 17512,
+      "output_tokens": 788
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9889,
+    "cache_read_input_tokens": 47956,
+    "output_tokens": 1771
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1771,
+      "cacheReadInputTokens": 47956,
+      "cacheCreationInputTokens": 9889,
+      "webSearchRequests": 0,
+      "costUSD": 0.0668692,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0668692,
+  "duration_ms": 13317,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 1,
+    "mcp__octocode__localFetch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"func extrapolatedRate|func funcRate|func funcIncrease|func instantValue\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql\",\"regex\":\"rust\",\"goal\":\"find rate impl\",\"reasoning\":\"locate\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql/functions.go\",\"startLine\":\"440\",\"endLine\":\"660\",\"goal\":\"read impl\",\"reasoning\":\"read\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql/functions.go\",\"startLine\":\"805\",\"endLine\":\"825\",\"goal\":\"read wrappers\",\"reasoning\":\"read\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** My first call was a `localSearch` for the function names (`extrapolatedRate|funcRate|funcIncrease|instantValue`) in `promql/`. It gave exact line numbers in one shot. Next, two parallel `localFetch` calls read lines 440–660 and 805–825. That covered the algorithm and the thin wrappers without any wasted reads. The whole session took three calls.\n\n2. **Did not help:** Nothing errored. The 440–660 window cut off partway through `histogramRate`. I also did not open `extendedRate`, `extendedHistogramRate`, `isStartTimestampReset` or `checkStartTimeOverlap`. The histogram and anchored/smoothed details in my answer are therefore summaries from the call sites, not verified. The line numbers I gave for the inner blocks (~502, ~510–525, ~528–600, ~534–548) were estimated from the window offset. I did not read them from numbered output. The `localFetch` output carries no line numbers, so I had to count by hand.\n\n3. **Next time:** I would use `localSearch` with `matchString` anchors, such as `durationToZero` and `factor`, to get exact line numbers for the cited blocks. I would also read `histogramRate` to the end so the histogram claims are backed by source.\n\n4. **Confidence:** High for the core float algorithm, because I read that code directly. Medium for the exact line numbers of the inner blocks and for the histogram and extended-rate behavior.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1395,
+      "cache_read_input_tokens": 23430,
+      "output_tokens": 8,
+      "context_tokens": 24827,
+      "total_tokens": 24835,
+      "first_request_context": 24827,
+      "fixed_overhead_tokens": 24827,
+      "research_tokens": 8,
+      "max_request_context": 24827
+    },
+    "cost_usd": 0.0820592,
+    "toolCallsAttempted": 0
+  }
+}

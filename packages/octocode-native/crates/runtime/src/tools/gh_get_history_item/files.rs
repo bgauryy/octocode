@@ -2,7 +2,7 @@
 //! shared patch char window.
 use super::util::{minified_view, needle, str_at, string, usize_at};
 use super::window::WindowState;
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, MAX_COLLECTION_PAGE};
+use super::{HistoryItemRequest, MAX_COLLECTION_PAGE, default_page_size};
 use crate::tools::result::remove_nulls;
 use globset::{GlobBuilder, GlobMatcher};
 use serde_json::{Map, Value, json};
@@ -126,8 +126,14 @@ impl InventoryFilter {
     }
 }
 
-/// Largest patch-free inventory page.
-pub(super) const MAX_INVENTORY_PAGE: usize = 1_000;
+/// Largest patch-free inventory page (contract pullRequest `pageSize` maximum).
+pub(super) fn max_inventory_page() -> usize {
+    crate::contracts::query_schema_max(
+        crate::tools::id::ToolId::GhGetHistoryItem,
+        Some("pullRequest"),
+        "pageSize",
+    )
+}
 /// Rendered chars budgeted per compact inventory row when sizing the default
 /// inventory page to the automatic response page.
 const INVENTORY_ROW_CHARS: usize = 60;
@@ -138,10 +144,10 @@ const INVENTORY_ROW_CHARS: usize = 60;
 pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize {
     match (query.page_size(), patches) {
         (_, true) => query.collection_page_size(),
-        (Some(size), false) => size.clamp(1, MAX_INVENTORY_PAGE),
+        (Some(size), false) => size.clamp(1, max_inventory_page()),
         (None, false) => (auto_page(query.auto_page_chars) / INVENTORY_ROW_CHARS)
-            .clamp(MAX_COLLECTION_PAGE, MAX_INVENTORY_PAGE)
-            .max(DEFAULT_PAGE_SIZE),
+            .clamp(MAX_COLLECTION_PAGE, max_inventory_page())
+            .max(default_page_size()),
     }
 }
 
@@ -667,6 +673,9 @@ pub(super) struct PatchPage {
     pub(super) rows: Vec<Value>,
     /// Files whose patch is not fully delivered yet, in page order.
     pub(super) unfinished: Vec<String>,
+    /// The `charOffset` that continues this window, in the [`PatchCursor`]
+    /// coordinate; `None` once every patch on the page is delivered.
+    pub(super) cursor: Option<usize>,
 }
 
 fn file_metadata(file: &Value) -> Value {
@@ -740,6 +749,7 @@ pub(super) fn shape_patch_page(
         return PatchPage {
             rows,
             unfinished: Vec::new(),
+            cursor: None,
         };
     }
     let views = files
@@ -841,8 +851,11 @@ pub(super) fn shape_patch_page(
                 if cut || local_start > 0 {
                     let taken = local_end.saturating_sub(local_start);
                     let mut page = json!({"charOffset":local_start,"charLength":taken,"totalChars":len,"hasMore":cut});
-                    if is_cursor && let Some(cursor) = cursor {
-                        page["nextCharOffset"] = json!(cursor);
+                    // Per-file coordinates: the cut file continues at its own
+                    // window end. The page-stream cursor a commit/compare
+                    // continuation copies rides `PatchPage::cursor` instead.
+                    if is_cursor && cursor.is_some() {
+                        page["nextCharOffset"] = json!(local_end);
                     }
                     row["patchPagination"] = page;
                 }
@@ -851,7 +864,11 @@ pub(super) fn shape_patch_page(
         remove_nulls(&mut row);
         rows.push(row);
     }
-    PatchPage { rows, unfinished }
+    PatchPage {
+        rows,
+        unfinished,
+        cursor,
+    }
 }
 
 /// The patch window row that carries the continuation cursor.
@@ -863,27 +880,36 @@ fn shaped_cursor(rows: Option<&Value>) -> Option<Value> {
         .map(|row| row["patchPagination"].clone())
 }
 
-/// Shape a commit or comparison file page (see [`shape_patch_page`]).
+/// Shape a commit or comparison file page (see [`shape_patch_page`]):
+/// the file rows and the page-stream `charOffset` that continues them.
 pub(super) fn shape_files(
     files: Vec<Value>,
     include_patch: bool,
     query: &HistoryItemRequest,
-) -> Value {
-    Value::Array(shape_patch_page(files, include_patch, query, PatchCursor::Page).rows)
+) -> (Value, Option<usize>) {
+    let page = shape_patch_page(files, include_patch, query, PatchCursor::Page);
+    (Value::Array(page.rows), page.cursor)
 }
 
-/// Patch characters one call carries across a page's files by default, and
-/// the ceiling for an explicit `charLength`, derived from the effective
-/// automatic response page (`output.pagination.defaultCharLength`, 1k–50k).
-/// Rendered text prints patches verbatim (no escaping), so a window takes
-/// most of the page (4/5 by default, 9/10 at most) less a fixed reserve for
-/// the row header and metadata, never below 2/5 and 3/5 of it. A window of patches plus row
-/// metadata then fits one response page, so responsePagination rarely splits
-/// the row; when it does, the row's `next.*` rides only its first `rowPart`.
+/// Name a commit/compare page's patch-stream cursor on its `filesPagination`
+/// (`nextPatchCharOffset`), the offset `next.continuePatch` carries.
+pub(super) fn attach_patch_cursor(files_pagination: &mut Value, cursor: Option<usize>) {
+    if let (Some(cursor), Some(page)) = (cursor, files_pagination.as_object_mut()) {
+        page.insert("nextPatchCharOffset".into(), json!(cursor));
+    }
+}
+
+/// Patch characters one call carries across a page's files by default,
+/// derived from the effective automatic response page
+/// (`output.pagination.defaultCharLength`, 1k–50k). Rendered text prints
+/// patches verbatim (no escaping), so the default window takes 4/5 of the
+/// page less a fixed reserve for the row header and metadata, never below
+/// 2/5 of it: a default window plus row metadata fits one response page.
+/// An explicit `charLength` is honoured up to the contract maximum, like
+/// body windows; response pagination splits a larger row into `rowPart`s,
+/// and the row's `next.*` rides only its first part.
 const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
-const PATCH_BUDGET_SHARE: (usize, usize) = (9, 10);
 const PATCH_DEFAULT_RESERVE: usize = 5_000;
-const PATCH_BUDGET_RESERVE: usize = 3_000;
 /// Page assumed when the runtime did not supply one (direct callers, tests).
 const FALLBACK_AUTO_PAGE: usize = 20_000;
 
@@ -894,18 +920,20 @@ fn auto_page(auto_page: Option<usize>) -> usize {
 }
 
 fn patch_window(char_length: Option<usize>, auto_page_chars: Option<usize>) -> usize {
-    let page = auto_page(auto_page_chars);
-    let share = |(num, den): (usize, usize), reserve: usize, floor: usize| {
-        (page * num / den)
-            .min(page.saturating_sub(reserve))
-            .max(page * floor / 5)
-    };
-    let default = share(PATCH_DEFAULT_SHARE, PATCH_DEFAULT_RESERVE, 2);
-    let budget = share(PATCH_BUDGET_SHARE, PATCH_BUDGET_RESERVE, 3);
-    match char_length {
-        Some(length) => length.clamp(1, budget.max(1)),
-        None => default.max(1),
+    if let Some(length) = char_length {
+        let max = crate::contracts::query_schema_max(
+            crate::tools::id::ToolId::GhGetHistoryItem,
+            None,
+            "charLength",
+        );
+        return length.clamp(1, max.max(1));
     }
+    let page = auto_page(auto_page_chars);
+    let (num, den) = PATCH_DEFAULT_SHARE;
+    (page * num / den)
+        .min(page.saturating_sub(PATCH_DEFAULT_RESERVE))
+        .max(page * 2 / 5)
+        .max(1)
 }
 
 /// Whether a file (or its pre-rename path) sits at or under `path`.
@@ -995,13 +1023,11 @@ mod tests {
                     patches.entry(name).or_default().push_str(text);
                 }
             }
-            let Some(next) = shaped_cursor(Some(&Value::Array(page.rows)))
-                .and_then(|p| p["nextCharOffset"].as_u64())
-            else {
+            let Some(next) = page.cursor else {
                 return (calls, patches, patchless);
             };
-            assert!(next as usize > offset, "cursor must advance");
-            offset = next as usize;
+            assert!(next > offset, "cursor must advance");
+            offset = next;
         }
     }
 
@@ -1024,7 +1050,8 @@ mod tests {
         let big = &first.rows[3];
         assert_eq!(big["patchPagination"]["charOffset"], 0);
         assert_eq!(big["patchPagination"]["charLength"], window_chars - 900);
-        assert_eq!(big["patchPagination"]["nextCharOffset"], window_chars);
+        assert_eq!(big["patchPagination"]["nextCharOffset"], window_chars - 900);
+        assert_eq!(first.cursor, Some(window_chars));
         // The rest of the page is listed (metadata only) on the first window.
         assert_eq!(first.rows.len(), 30);
         assert!(first.rows[4].get("patch").is_none());
@@ -1293,11 +1320,79 @@ mod tests {
     #[test]
     fn patch_window_is_one_budget_for_the_whole_page() {
         assert_eq!(patch_window(None, None), 15_000);
-        assert_eq!(patch_window(Some(50_000), None), 17_000);
         assert_eq!(patch_window(Some(2), None), 2);
         assert_eq!(patch_window(None, Some(50_000)), 40_000);
-        assert_eq!(patch_window(Some(100_000), Some(50_000)), 45_000);
         assert_eq!(100_071usize.div_ceil(patch_window(None, Some(50_000))), 3);
+    }
+
+    /// D1: an explicit `charLength` sizes the patch window up to the contract
+    /// maximum, whatever the automatic response page; response pagination
+    /// (not a silent per-patch cap) splits a window larger than one page.
+    #[test]
+    fn explicit_char_length_sizes_the_patch_window_up_to_the_contract_max() {
+        let max = crate::contracts::query_schema_max(
+            crate::tools::id::ToolId::GhGetHistoryItem,
+            None,
+            "charLength",
+        );
+        assert_eq!(max, 100_000);
+        assert_eq!(patch_window(Some(80_000), Some(20_000)), 80_000);
+        assert_eq!(patch_window(Some(50_000), None), 50_000);
+        assert_eq!(patch_window(Some(100_000), Some(50_000)), 100_000);
+        assert_eq!(patch_window(Some(150_000), Some(1_000)), max);
+        let patch = "+x\n".repeat(30_000);
+        let mut query = window(json!({"charLength":80_000}));
+        query.auto_page_chars = Some(20_000);
+        let page = shape_patch_page(
+            vec![file("big.rs", &patch)],
+            true,
+            &query,
+            PatchCursor::Page,
+        );
+        let row = &page.rows[0];
+        assert_eq!(
+            row["patch"].as_str().map(|p| p.chars().count()),
+            Some(80_000)
+        );
+        assert_eq!(row["patchPagination"]["charLength"], 80_000);
+        assert_eq!(row["patchPagination"]["nextCharOffset"], 80_000);
+    }
+
+    /// D2: a commit row's `patchPagination` speaks per-file coordinates only
+    /// (`charOffset + charLength == nextCharOffset`); the page-stream cursor
+    /// that `charOffset` continues is named separately on the page.
+    #[test]
+    fn commit_patch_rows_report_per_file_offsets_and_the_page_cursor_separately() {
+        let files = vec![file("a.rs", &"a".repeat(3)), file("b.rs", &"b".repeat(20))];
+        let first = shape_patch_page(
+            files.clone(),
+            true,
+            &window(json!({"charLength":10})),
+            PatchCursor::Page,
+        );
+        let b = &first.rows[1]["patchPagination"];
+        assert_eq!(b["charOffset"], 0);
+        assert_eq!(b["charLength"], 7);
+        assert_eq!(b["nextCharOffset"], 7, "{b}");
+        assert_eq!(first.cursor, Some(10));
+        let second = shape_patch_page(
+            files,
+            true,
+            &window(json!({"charOffset":10,"charLength":10})),
+            PatchCursor::Page,
+        );
+        let b = &second.rows[0]["patchPagination"];
+        assert_eq!(b["charOffset"], 7);
+        assert_eq!(b["charLength"], 10);
+        assert_eq!(b["nextCharOffset"], 17, "{b}");
+        assert_eq!(second.cursor, Some(20));
+        let (rows, cursor) = shape_files(
+            vec![file("a.rs", "aaa"), file("b.rs", &"b".repeat(20))],
+            true,
+            &window(json!({"charLength":10})),
+        );
+        assert_eq!(rows[1]["patchPagination"]["nextCharOffset"], 7);
+        assert_eq!(cursor, Some(10));
     }
 
     /// `matchString` narrows a patch to the matching lines plus context under
@@ -1486,7 +1581,7 @@ mod tests {
         let mut query = inventory_request(json!({}));
         query.auto_page_chars = Some(50_000);
         assert_eq!(file_page_size(&query, false), 833);
-        assert_eq!(file_page_size(&query, true), DEFAULT_PAGE_SIZE);
+        assert_eq!(file_page_size(&query, true), default_page_size());
         query.auto_page_chars = Some(1_000);
         assert_eq!(file_page_size(&query, false), MAX_COLLECTION_PAGE);
         let explicit = inventory_request(json!({"pageSize":1000}));
@@ -1505,7 +1600,6 @@ mod tests {
     #[test]
     fn patch_window_derives_from_the_effective_auto_page() {
         assert_eq!(patch_window(None, Some(1_000)), 400);
-        assert_eq!(patch_window(Some(5_000), Some(1_000)), 600);
         let mut query = patch_request(json!({"charOffset":0}));
         query.auto_page_chars = Some(1_000);
         let patch = "+x\n".repeat(2_000);

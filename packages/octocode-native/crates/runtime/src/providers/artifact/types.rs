@@ -154,7 +154,7 @@ pub struct ArtifactItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module_path: Option<String>,
     /// Commit or tag the registry says this version was published from; it
-    /// pins the `viewRepo` lead and is not a public row field.
+    /// pins the `viewReleaseSource` lead and is not a public row field.
     #[serde(skip)]
     pub source_ref: Option<String>,
 }

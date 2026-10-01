@@ -4,8 +4,17 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import {
+  contractDriftAllowed,
+  contractDriftMessage,
+  devOverridesAllowed,
+  INTERACTIVE_EXECUTION_TIMEOUT_SECS,
+  setRuntimeSurface,
+  type RuntimeSurface,
+} from '@octocodeai/config';
+import {
   getDirectToolDefinitionsWithAddons,
   getNativeContractFingerprint,
+  isCliOnlyTool,
 } from '@octocodeai/config/schema';
 import {
   buildMcpInstructions,
@@ -14,12 +23,7 @@ import {
 } from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 import packageJson from '../../package.json';
-import {
-  coerceLosslessScalars,
-  formatIssues,
-  parseStringifiedQueries,
-  type RawIssue,
-} from './validationMessages.js';
+import { formatIssues, type RawIssue } from './validationMessages.js';
 
 /**
  * A tool as reported by the native runtime catalog: runtime truth only —
@@ -44,13 +48,19 @@ export interface NativeCatalog {
 export interface NativeRuntime {
   readonly abiVersion: number;
   catalog(): NativeCatalog;
+  /**
+   * Native pre-validation normalization (bare-query wrapping, JSON-encoded
+   * `queries`/list values, bare scalars for lists, lossless integer/boolean
+   * strings). Never validates or applies defaults.
+   */
+  normalizeInput(tool: string, input: unknown): unknown;
   executeMcp(requestId: string, tool: string, input: unknown): Promise<unknown>;
   cancel(requestId: string): boolean;
   close(): Promise<void>;
 }
 
 export interface NativeRuntimeOptions {
-  surface: string;
+  surface: RuntimeSurface;
   regexWorkerPath?: string | undefined;
   timeoutSecs?: number | undefined;
   env?: Record<string, string> | undefined;
@@ -74,32 +84,18 @@ export interface NativeMcpOptions {
 
 const require = createRequire(import.meta.url);
 
-/** Tools that are CLI-only by design and never registered over MCP. */
-export const CLI_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'ghCloneRepo',
-  'astRewrite',
-]);
+const MCP_SURFACE = 'mcp' satisfies RuntimeSurface;
 
 // Replaced with `true` by the esbuild define in buildConfig.mjs; undefined when
 // running from source (vitest, tsx).
 declare const __OCTOCODE_BUNDLED__: boolean | undefined;
 
-/**
- * Dev-only overrides (`OCTOCODE_NATIVE_BINDING`, `OCTOCODE_ALLOW_CONTRACT_DRIFT`)
- * are never honoured under `NODE_ENV=production`. The shipped bundle is
- * treated as production by default — `npx octocode-mcp` and registry installs
- * leave `NODE_ENV` unset — so it honours them only when `NODE_ENV` explicitly
- * opts in with `development` or `test`.
- */
-export function devOverridesAllowed(
-  env: NodeJS.ProcessEnv,
-  bundled: boolean = typeof __OCTOCODE_BUNDLED__ !== 'undefined' &&
-    __OCTOCODE_BUNDLED__ === true
-): boolean {
-  if (env.NODE_ENV === 'production') return false;
-  if (!bundled) return true;
-  return env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
-}
+/** Dev overrides follow the shared config rule; the shipped bundle is production. */
+const overrideOptions = {
+  bundled:
+    typeof __OCTOCODE_BUNDLED__ !== 'undefined' &&
+    __OCTOCODE_BUNDLED__ === true,
+};
 
 export function loadNativeBinding(
   env: NodeJS.ProcessEnv = process.env
@@ -108,7 +104,7 @@ export function loadNativeBinding(
   // aid). Honor it only outside production so a leaked/hostile env value cannot
   // load arbitrary code into a shipped server; production always resolves the
   // packaged addon.
-  const override = devOverridesAllowed(env)
+  const override = devOverridesAllowed(env, overrideOptions)
     ? env.OCTOCODE_NATIVE_BINDING
     : undefined;
   const bindingPath =
@@ -157,23 +153,12 @@ type StandardSchema = {
   };
 };
 
-// CLI and the native runtime accept a bare single query (the envelope rule
-// wraps it); normalize the same convenience before SDK validation.
-export function wrapBareQuery(input: unknown): unknown {
-  return input &&
-    typeof input === 'object' &&
-    !Array.isArray(input) &&
-    !('queries' in input) &&
-    Object.keys(input).length > 0
-    ? { queries: [input] }
-    : input;
-}
-
 /**
- * Advertise the canonical bulk schema unchanged, but let a batch whose
+ * Preserve the schema's presentation, but let a batch whose
  * envelope is valid and that has at least one valid row reach the native
  * runtime, which executes the valid rows and returns indexed invalidInput
  * rows for the rest (CLI parity). Every other failure keeps the SDK issues.
+ * Expects an already-normalized `{ queries: [...] }` envelope.
  */
 export function rowIsolatingSchema(
   inputSchema: StandardSchema,
@@ -190,19 +175,14 @@ export function rowIsolatingSchema(
       validate: async value => {
         const result = await standard.validate(value);
         if (!result.issues) return result;
-        const envelope = wrapBareQuery(value);
-        if (
-          !envelope ||
-          typeof envelope !== 'object' ||
-          Array.isArray(envelope)
-        )
+        if (!value || typeof value !== 'object' || Array.isArray(value))
           return result;
-        const rows = (envelope as { queries?: unknown }).queries;
+        const rows = (value as { queries?: unknown }).queries;
         if (!Array.isArray(rows) || rows.length < 2) return result;
         const valid = rows.filter(row => querySchema.safeParse(row).success);
         if (valid.length === 0 || valid.length === rows.length) return result;
-        return envelopeSchema.safeParse({ ...envelope, queries: valid }).success
-          ? { value: envelope }
+        return envelopeSchema.safeParse({ ...value, queries: valid }).success
+          ? { value }
           : result;
       },
     },
@@ -231,38 +211,33 @@ export function normalizingSchema(
 }
 
 /**
- * The Standard Schema registered for a tool: bare queries are wrapped, a
- * JSON-encoded `queries` array is parsed, lossless numeric/boolean strings
- * are coerced (CLI parity), and partially invalid batches reach native row
- * isolation. Validation uses the canonical contract; agents see core's slim
- * published view of it (a superset, sized for hosts that resend tools/list
- * every request). Clasify's bare matrix is wrapped into the queries[] branch
- * before SDK validation, which resolves its root object as that branch.
+ * The Standard Schema registered for a tool: `normalize` (the native
+ * runtime's `normalizeInput`, so MCP and CLI repair the same input slips)
+ * runs first, then partially invalid batches reach native row isolation.
+ * Validation uses the canonical contract; agents see core's slim published
+ * view of it (a superset, sized for hosts that resend tools/list every
+ * request). Row isolation needs a plain `{ queries: [...] }` envelope; a
+ * union root (clasify's matrix-or-queries input) validates as one value.
  */
 export function toolInputSchema(
-  definition: Pick<ToolDefinition, 'name' | 'schema' | 'inputSchema'>
+  definition: Pick<ToolDefinition, 'name' | 'schema' | 'inputSchema'>,
+  normalize: (value: unknown) => unknown
 ): unknown {
   const canonical = z.toJSONSchema(definition.inputSchema, {
     io: 'input',
     unrepresentable: 'any',
   }) as Record<string, unknown>;
   const advertised = publishedInputSchema(definition.name, canonical);
-  const normalize = (value: unknown) =>
-    coerceLosslessScalars(
-      parseStringifiedQueries(wrapBareQuery(value)),
-      canonical
-    );
-  const bare = definition.name === 'clasify';
-  const schema = bare
-    ? (z.preprocess(
-        wrapBareQuery,
-        definition.inputSchema
-      ) as unknown as StandardSchema)
+  const properties = canonical.properties;
+  const queriesEnvelope =
+    !!properties &&
+    typeof properties === 'object' &&
+    Object.hasOwn(properties, 'queries');
+  const inputSchema = definition.inputSchema as unknown as StandardSchema;
+  const schema = !queriesEnvelope
+    ? inputSchema
     : rowIsolatingSchema(
-        z.preprocess(
-          wrapBareQuery,
-          definition.inputSchema
-        ) as unknown as StandardSchema,
+        inputSchema,
         definition.schema,
         definition.inputSchema
       );
@@ -352,13 +327,12 @@ export function createNativeMcp({
       (entry): entry is [string, string] => typeof entry[1] === 'string'
     )
   );
+  setRuntimeSurface(MCP_SURFACE);
   const runtime = new NativeRuntime({
-    surface: 'mcp',
+    surface: MCP_SURFACE,
     regexWorkerPath: env.OCTOCODE_REGEX_WORKER,
     env: runtimeEnv,
-    // Match the CLI budget and exceed cold start plus one logical LSP request:
-    // initialize, Java readiness, retries, delays, and transport overhead.
-    timeoutSecs: 300,
+    timeoutSecs: INTERACTIVE_EXECUTION_TIMEOUT_SECS,
   });
   if (runtime.abiVersion !== NATIVE_ABI_VERSION) {
     const actual = runtime.abiVersion;
@@ -369,10 +343,10 @@ export function createNativeMcp({
     );
   }
   const catalog = runtime.catalog();
-  // Second guard: CLI-only tools must never be exposed over MCP, even if the
-  // native catalog reports them available.
+  // Second guard: CLI-only tools (core tool policy) must never be exposed
+  // over MCP, even if the native catalog reports them available.
   const availableTools = catalog.tools.filter(
-    tool => tool.available && !CLI_ONLY_TOOLS.has(tool.name)
+    tool => tool.available && !isCliOnlyTool(tool.name)
   );
   if (availableTools.length === 0) {
     void runtime.close();
@@ -396,14 +370,8 @@ export function createNativeMcp({
     // start rather than serve a mismatched contract. Set
     // OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to downgrade to a warning while iterating
     // on core and native locally.
-    const message =
-      '[octocode-mcp] contract fingerprint mismatch: core ' +
-      `${coreFingerprint} (@octocodeai/octocode-core) != native ` +
-      `${nativeFingerprint}. Run \`yarn contracts:regen\` and rebuild native (or install ` +
-      'matching octocode packages). To override while iterating locally, set ' +
-      'OCTOCODE_ALLOW_CONTRACT_DRIFT=1; the bundled dist also needs ' +
-      'NODE_ENV=development, and NODE_ENV=production always fails closed.';
-    if (env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' && devOverridesAllowed(env)) {
+    const message = `[octocode-mcp] ${contractDriftMessage(coreFingerprint, nativeFingerprint)}`;
+    if (contractDriftAllowed(env, overrideOptions)) {
       // stderr, not stdout: stdout is reserved for the MCP stdio protocol.
       // The override is a local-iteration aid only; in production a fingerprint
       // mismatch always fails closed so clients never see a rejected contract.
@@ -443,7 +411,9 @@ export function createNativeMcp({
       void runtime.close();
       throw new Error(`Native catalog tool has no contract: ${tool.name}`);
     }
-    const inputSchema = toolInputSchema(definition);
+    const inputSchema = toolInputSchema(definition, value =>
+      value === undefined ? value : runtime.normalizeInput(tool.name, value)
+    );
     registerTool(
       tool.name,
       {

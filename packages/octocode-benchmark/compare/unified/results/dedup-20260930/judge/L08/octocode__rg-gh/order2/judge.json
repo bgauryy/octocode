@@ -1,0 +1,92 @@
+{
+  "qid": "L08",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "c846d824c626b90681947730320556d913963b7ad43b15dede6358e9eb0caf32",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on wrapping, counting, staleness exemption, checkAddError continuation, and metric. Omits config declaration/global inheritance, config-to-loop copy, and rollback (honestly flagged as unread)."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Hedged claim that the sampleLimitErr check at scrape.go:1988 gates the normal success path; it only gates the seriesAdded++ counter"
+      ],
+      "notes": "Adds the config-to-loop copy at scrape.go:1349 and says the whole scrape fails. Misses the global inheritance in config.go and the explicit Rollback/empty re-append (flagged as unverified). Citations are accurate."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on wrapping, counting, staleness exemption, checkAddError continuation, and metric. Omits config declaration/global inheritance, config-to-loop copy, and rollback (honestly flagged as unread)."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Hedged claim that the sampleLimitErr check at scrape.go:1988 gates the normal success path; it only gates the seriesAdded++ counter"
+      ],
+      "notes": "Adds the config-to-loop copy at scrape.go:1349 and says the whole scrape fails. Misses the global inheritance in config.go and the explicit Rollback/empty re-append (flagged as unverified). Citations are accurate."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.10019999999999998,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8321,
+    "cache_read_input_tokens": 12580,
+    "output_tokens": 12,
+    "context_tokens": 20905,
+    "total_tokens": 20917,
+    "first_request_context": 9955,
+    "fixed_overhead_tokens": 19910,
+    "research_tokens": 1007,
+    "max_request_context": 10950
+  },
+  "timedOut": false
+}

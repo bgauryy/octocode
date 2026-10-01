@@ -15,6 +15,7 @@ use super::executor::process_fetched_content;
 use super::types::*;
 use crate::security::scan::ContentScan;
 use crate::tools::cancel::CancellationCheck;
+use crate::tools::id::ToolId;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::Path;
@@ -220,7 +221,7 @@ fn line_chunk_query(q: &LocalFetchQuery, offset: usize) -> LocalFetchQuery {
 
 fn continuation(query: LocalFetchQuery, reason: &str) -> Continuation {
     Continuation {
-        tool: "localFetch".into(),
+        tool: ToolId::LocalFetch.as_str().into(),
         query,
         confidence: "exact".into(),
         reason: Some(reason.into()),

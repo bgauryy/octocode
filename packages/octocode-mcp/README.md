@@ -32,7 +32,9 @@ configuration and security policy.
 
 - `dist/index.js` is the stdio server binary.
 - `dist/public.js` is the programmatic public entry.
-- `manifest.json` describes the desktop-extension distribution.
+- `manifest.json` describes the desktop-extension distribution. Its `tools`
+  list is generated from the public catalog (`yarn sync:manifest`);
+  `check:manifest` fails `lint` and `build` when it is stale.
 - `server.json` describes the MCP registry package.
 - `README.md` is owned by this package and is never replaced during build or
   publishing.

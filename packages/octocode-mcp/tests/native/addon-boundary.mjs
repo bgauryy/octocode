@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 const [addon, regexWorker] = process.argv.slice(2);
 assert.ok(addon && regexWorker, 'usage: node addon-boundary.mjs <addon> <regex-worker>');
@@ -10,7 +11,7 @@ const runtime = new NativeRuntime({
   cwd: process.cwd(),
 });
 try {
-  assert.equal(runtime.abiVersion, 2);
+  assert.equal(runtime.abiVersion, NATIVE_ABI_VERSION);
   assert.equal(runtime.closed, false);
   await assert.rejects(
     runtime.execute('typed-error', 'localFetch', { queries: [{}] }),

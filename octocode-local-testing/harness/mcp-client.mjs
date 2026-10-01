@@ -11,16 +11,27 @@ export const REPOS = path.join(TESTING, 'repos');
 export const FIXTURES = path.join(TESTING, 'fixtures');
 export const RESULTS = path.join(TESTING, 'results');
 
-export async function startServer({ env = {}, timeoutMs = 240_000 } = {}) {
+export async function startServer({ env = {}, timeoutMs = Number(process.env.OCTOCODE_TEST_CALL_TIMEOUT_MS ?? 240_000) } = {}) {
   const server = spawn(process.execPath, [path.join(ROOT, 'packages/octocode-mcp/dist/index.js')], {
     cwd: ROOT,
     env: { ...process.env, ...env },
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
   });
   let buffer = '';
   let stderr = '';
   let id = 0;
   const pending = new Map();
+  let closed = false;
+  const terminate = () => { try { process.kill(-server.pid, 'SIGTERM'); } catch { server.kill(); } };
+  const forceTerminate = () => { terminate(); setTimeout(() => { try { process.kill(-server.pid, 'SIGKILL'); } catch { server.kill('SIGKILL'); } }, 500); };
+  const fail = error => { closed = true; for (const entry of pending.values()) entry.reject(error); pending.clear(); };
+  const onSignal = () => { process.exitCode = 1; fail(new Error('suite interrupted')); forceTerminate(); };
+  process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal);
+  const deadline = setTimeout(() => { process.exitCode = 1; fail(new Error('suite MCP deadline exceeded')); forceTerminate(); }, Number(process.env.OCTOCODE_TEST_SUITE_TIMEOUT_MS ?? 1800000));
+  deadline.unref();
+  server.on('error', error => { clearTimeout(deadline); fail(error); });
+  server.on('exit', (code, signal) => { clearTimeout(deadline); process.removeListener('SIGINT', onSignal); process.removeListener('SIGTERM', onSignal); if (!closed && (code !== 0 || signal)) process.exitCode = 1; fail(new Error(`MCP server exited ${code}/${signal}`)); });
+  server.stdin.on('error', fail);
   server.stdout.on('data', chunk => {
     buffer += chunk;
     let index;
@@ -28,21 +39,28 @@ export async function startServer({ env = {}, timeoutMs = 240_000 } = {}) {
       const line = buffer.slice(0, index);
       buffer = buffer.slice(index + 1);
       if (line.trim()) {
-        const message = JSON.parse(line);
-        pending.get(message.id)?.(message);
+        let message; try { message = JSON.parse(line); } catch { fail(new Error('invalid MCP JSON frame')); terminate(); return; }
+        pending.get(message.id)?.resolve(message);
       }
     }
   });
   server.stderr.on('data', chunk => { stderr += chunk; });
   const rpc = (method, params, timeout = timeoutMs) => new Promise((resolve, reject) => {
+    if (closed) { reject(new Error('MCP server unavailable')); return; }
     const n = ++id;
-    const timer = setTimeout(() => { pending.delete(n); reject(new Error(`timeout ${method} after ${timeout}ms`)); }, timeout);
-    pending.set(n, message => { clearTimeout(timer); pending.delete(n); resolve(message); });
+    const timer = setTimeout(() => { pending.delete(n); process.exitCode = 1; reject(new Error(`timeout ${method} after ${timeout}ms`)); }, timeout);
+    pending.set(n, { resolve: message => { clearTimeout(timer); pending.delete(n); resolve(message); }, reject: error => { clearTimeout(timer); pending.delete(n); reject(error); } });
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: n, method, params }) + '\n');
   });
-  const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'octocode-local-testing', version: '1' } });
+  let init, tools;
+  try {
+  init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'octocode-local-testing', version: '1' } });
   server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
-  const tools = (await rpc('tools/list', {})).result.tools;
+  if (init.error) throw new Error(init.error.message);
+  const listing = await rpc('tools/list', {});
+  if (listing.error || !Array.isArray(listing.result?.tools)) throw new Error('MCP tools/list failed');
+  tools = listing.result.tools;
+  } catch (error) { clearTimeout(deadline); terminate(); throw error; }
   const log = [];
 
   /** Call a tool with one query (or an array) plus optional top-level args. */
@@ -56,13 +74,13 @@ export async function startServer({ env = {}, timeoutMs = 240_000 } = {}) {
     const started = Date.now();
     let response;
     try { response = await rpc('tools/call', { name: tool, arguments: args }); } catch (error) { response = { error: { message: error.message } }; }
-    const text = response.result?.content?.map(c => c.text).join('') ?? JSON.stringify(response.error);
+    const text = response.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('') ?? JSON.stringify(response.error ?? '');
     const sc = expandShared(response.result?.structuredContent);
     const rows = sc?.results ?? [];
     const entry = {
       label, tool, args, ms: Date.now() - started, bytes: text.length, text, sc,
       isError: !!(response.error || response.result?.isError),
-      rowErrors: rows.filter(r => r?.status === 'error').length,
+      rowErrors: collect(sc, r => r.status === 'error').length,
     };
     log.push(entry);
     return entry;
@@ -71,7 +89,7 @@ export async function startServer({ env = {}, timeoutMs = 240_000 } = {}) {
   return {
     server, init: init.result, tools, log, call, raw, rpc,
     stderr: () => stderr,
-    close: () => server.kill(),
+    close: () => { closed = true; clearTimeout(deadline); fail(new Error('MCP client closed')); terminate(); const timer = setTimeout(() => { try { process.kill(-server.pid, 'SIGKILL'); } catch {} }, 3000); timer.unref(); },
   };
 }
 
@@ -102,7 +120,7 @@ export function nextHints(value, pathLabel = '') {
   const hints = [];
   const walk = (node, at) => {
     if (!node || typeof node !== 'object') return;
-    if (typeof node.tool === 'string' && node.query && typeof node.query === 'object') hints.push({ path: at, tool: node.tool, query: node.query });
+    if (typeof node.tool === 'string' && node.query && typeof node.query === 'object') hints.push({ ...node, path: at });
     for (const [key, child] of Object.entries(node)) walk(child, `${at}.${key}`);
   };
   walk(value, pathLabel);
@@ -139,6 +157,12 @@ export function inventoryRows(items = []) {
     if (item && typeof item === 'object' && !('path' in item)) return Object.entries(item).flatMap(([dir, rows]) => rows.map(row => inventoryRow(row, dir)));
     return [item];
   });
+}
+
+export function sourcePath(entry, location, fallback) {
+  const value = location?.uri ?? location?.path ?? rowData(entry)?.uri ?? rowData(entry)?.path ?? fallback;
+  if (typeof value !== 'string') throw new Error('response location has no source URI/path');
+  return value.startsWith('file:') ? fileURLToPath(value) : path.resolve(entry.sc?.base ?? ROOT, value);
 }
 
 export function rowData(entry, index = 0) {

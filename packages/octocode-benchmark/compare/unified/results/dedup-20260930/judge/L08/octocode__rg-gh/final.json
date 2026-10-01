@@ -1,0 +1,50 @@
+{
+  "qid": "L08",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 1,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8.5,
+      "correctness": 5,
+      "completeness": 1.5,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        8
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 8,
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        8,
+        8
+      ],
+      "wrongClaims": [
+        "Speculates that the sampleLimitErr check at scrape.go:1988 gates the success path; it only gates the seriesAdded increment (hedged)",
+        "Hedged claim that the sampleLimitErr check at scrape.go:1988 gates the normal success path; it only gates the seriesAdded++ counter"
+      ]
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [
+    "Minor: the reference's line cite for the staleness check (388-391) is correct; no substantive issues."
+  ],
+  "judgeCost": 0.2041836
+}

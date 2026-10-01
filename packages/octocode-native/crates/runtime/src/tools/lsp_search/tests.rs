@@ -120,11 +120,7 @@ fn semantic_pagination_continuations_cover_the_full_result_fixture() {
     let mut actual = Vec::new();
 
     loop {
-        let (page, pagination) = paginate(
-            &expected,
-            query.page().unwrap_or(1),
-            query.page_size().unwrap_or(40),
-        );
+        let (page, pagination) = paginate(&expected, query.page().unwrap_or(1), query.page_size());
         actual.extend(page);
         let response = with_next(
             &query,
@@ -1956,7 +1952,9 @@ fn typescript_builtin_lib_declarations_are_recognized_only_under_typescript_lib(
     assert!(!is_builtin_lib_declaration(&at(
         "file:///repo/node_modules/@types/node/lib.d.ts"
     )));
-    assert!(!is_builtin_lib_declaration(&at("file:///repo/src/lib.utils.d.ts")));
+    assert!(!is_builtin_lib_declaration(&at(
+        "file:///repo/src/lib.utils.d.ts"
+    )));
     assert!(!is_builtin_lib_declaration(&at(
         "file:///repo/node_modules/typescript/lib/typescript.d.ts"
     )));
@@ -1976,7 +1974,8 @@ async fn hierarchy_walk_omits_builtin_lib_items_and_discloses_the_count() {
         "uri": "file:///repo/a.ts",
         "position": {"line": 0, "character": 0}
     }));
-    let mut row = serde_json::json!({"status": "hasResults", "payload": {"kind": "callees", "items": []}});
+    let mut row =
+        serde_json::json!({"status": "hasResults", "payload": {"kind": "callees", "items": []}});
     mark_truncation(&mut row, &q, &[(Expansion::OutgoingCalls, &walk)]);
     assert_eq!(
         row["warnings"],
@@ -2039,7 +2038,8 @@ fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
         "… 140 more lines omitted (source lines 486-625); read them with localFetch startLine/endLine."
     );
     let short = "a\nb\nc";
-    let mut small = serde_json::json!({"content": short, "displayRange": {"startLine": 1, "endLine": 3}});
+    let mut small =
+        serde_json::json!({"content": short, "displayRange": {"startLine": 1, "endLine": 3}});
     cap_declaration_content(&mut small);
     assert_eq!(small["content"], short, "short bodies are untouched");
 }

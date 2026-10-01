@@ -1,0 +1,7 @@
+1. **Helped:** The first call, `gh pr view 3866 -R pallets/click --json title,body,state,mergeCommit,files,url`, gave the title, the body (which spells out the three deprecations), the merge SHA and the changed files in one step. The second call, `gh pr diff 3866 -R pallets/click` piped through awk, dropped the test files and showed the exact `core.py`, `CHANGES.md` and upgrade-guide changes. That was enough to name which declarations warn, and it took two calls.
+
+2. **Did not help:** Nothing failed and I made no repeated calls. The awk filter was a guess at the diff layout, and it happened to work. `gh pr diff` gives diff-relative lines, not line numbers at the pinned commit, so I could not cite `path:line` and said so in the answer. I also did not look at the tests. The warning examples come from the docs and code, and I never ran them. The user's local checkouts had no click repo, so I never tried a local read.
+
+3. **Next time:** I would check the merge commit in a local or cloned checkout with `rg -n` on `_check_name_is_usable` and `_check_name_is_normalized`, to get real line numbers. I would also skim `tests/test_deprecations.py` to confirm the exact warning cases.
+
+4. **Confidence:** High on what is deprecated and which declarations warn, because the diff shows it directly. Medium on the detail that derived names never trigger the lower-casing warning, since I inferred that from the code path and did not test it.

@@ -24,4 +24,4 @@ pub mod skill_install;
 pub mod tools;
 
 /// Identifies the native boundary independently of generated tool contracts.
-pub const NATIVE_ABI_VERSION: u32 = 2;
+pub const NATIVE_ABI_VERSION: u32 = 3;

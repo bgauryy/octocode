@@ -206,6 +206,38 @@ fn tool_help_uses_canonical_core_short_descriptions() {
     let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
     let root = workspace.cli().arg("--help").output().expect("root help");
     assert!(root.status.success());
+    // The tool commands are exactly the contract tools: a tool dropped from
+    // the contract must not linger as a command, and none may be missing.
+    let system = [
+        "scheme",
+        "showConfig",
+        "config",
+        "auth",
+        "graph",
+        "skill",
+        "install",
+        "help",
+    ];
+    let mut listed_tools = stdout(&root)
+        .split("Commands:")
+        .nth(1)
+        .expect("commands section")
+        .lines()
+        .skip(1)
+        .take_while(|line| !line.trim().is_empty())
+        .filter(|line| line.starts_with("  ") && !line.starts_with("   "))
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| !system.contains(name))
+        .collect::<Vec<_>>();
+    let mut contract_tools = contract["tools"]
+        .as_array()
+        .expect("contract tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    listed_tools.sort_unstable();
+    contract_tools.sort_unstable();
+    assert_eq!(listed_tools, contract_tools);
     let root_text = stdout(&root)
         .split_whitespace()
         .collect::<Vec<_>>()

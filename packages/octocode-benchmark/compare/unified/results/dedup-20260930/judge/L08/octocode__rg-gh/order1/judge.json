@@ -1,0 +1,92 @@
+{
+  "qid": "L08",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "2145e65d321148d91850d5c64a44ce9d8ae9de5c748649a3ecfd32948eac1cf2",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Speculates that the sampleLimitErr check at scrape.go:1988 gates the success path; it only gates the seriesAdded increment (hedged)"
+      ],
+      "notes": "Accurate on the wrapper, the counting rule, the stale-marker exemption and checkAddError. Covers the config-to-loop copy at 1349. Misses global inheritance and the rollback plus stale-marker re-append, though it honestly flags the rollback as unverified. Minor line offsets."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Every claim is correct and the citations are precise. Misses config inheritance, the copy onto the scrape loop, and the rollback, all acknowledged as unread."
+    },
+    "preferred": "X",
+    "reference_issues": "Minor: the reference's line cite for the staleness check (388-391) is correct; no substantive issues."
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Speculates that the sampleLimitErr check at scrape.go:1988 gates the success path; it only gates the seriesAdded increment (hedged)"
+      ],
+      "notes": "Accurate on the wrapper, the counting rule, the stale-marker exemption and checkAddError. Covers the config-to-loop copy at 1349. Misses global inheritance and the rollback plus stale-marker re-append, though it honestly flags the rollback as unverified. Minor line offsets."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Every claim is correct and the citations are precise. Misses config inheritance, the copy onto the scrape loop, and the rollback, all acknowledged as unread."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "Minor: the reference's line cite for the staleness check (388-391) is correct; no substantive issues.",
+  "cost_usd": 0.10398360000000001,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8669,
+    "cache_read_input_tokens": 12578,
+    "output_tokens": 12,
+    "context_tokens": 21251,
+    "total_tokens": 21263,
+    "first_request_context": 9953,
+    "fixed_overhead_tokens": 19906,
+    "research_tokens": 1357,
+    "max_request_context": 11298
+  },
+  "timedOut": false
+}

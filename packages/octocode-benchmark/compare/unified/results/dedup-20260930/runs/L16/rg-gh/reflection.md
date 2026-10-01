@@ -1,0 +1,7 @@
+1. **Helped:** My first Bash call did most of the work. It ran `git rev-parse HEAD`, found `LocalCache.java`, and ran one `rg` for `segmentShift|segmentMask|concurrencyLevel|maxSegmentWeight|evictsBySize` and related terms. That located the constructor logic at lines 250–320 and confirmed the pinned commit in one step. The second call used `sed` on the constructor and `initTable`, and `rg` on `DEFAULT_CONCURRENCY_LEVEL`. It gave the exact lines I cited.
+
+2. **Did not help:** Nothing errored. I never read `MAX_SEGMENTS`'s value, the `CacheBuilder.maximumSize` and `concurrencyLevel` setters, or how `maxWeight` is derived from `maximumSize`. My final answer says so. I also used `sed` for reading lines, though a dedicated file-read tool would have been cleaner.
+
+3. **Next time:** I would add `MAX_SEGMENTS` and `maximumSize(` to the first `rg` pattern. That would close the gaps I had to flag, at no extra cost in calls.
+
+4. **Confidence:** High for the mechanism. I saw the segment-count loop, the per-segment weight split and the table sizing directly in the source at the pinned commit. Medium-high for the exact line numbers, since I took them from `rg` and `sed` output and did not re-check them afterwards.

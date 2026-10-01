@@ -287,6 +287,16 @@ fn files_continuation_rejects_stale_snapshot() {
         json!("structure.snapshot.changed"),
         "got {page2}"
     );
+    let restart = &page2["next"]["restart"];
+    assert_eq!(restart["tool"], "structureSearch");
+    assert_eq!(restart["query"]["page"], 1);
+    assert!(restart["query"].get("snapshot").is_none());
+    assert_eq!(restart["query"]["entryType"], "f");
+    let fresh = execute_row(restart["query"].clone(), &paths, &security, &Active)
+        .expect("execute returned restart unchanged");
+    assert_eq!(fresh["pagination"]["currentPage"], 1);
+    assert_eq!(fresh["pagination"]["totalFiles"], 7);
+    assert_ne!(fresh["snapshot"], page1["snapshot"]);
 }
 
 #[test]
@@ -402,6 +412,15 @@ fn tree_pages_through_next_and_rejects_stale_snapshots() {
     std::fs::write(root.0.join("f9.txt"), "x").expect("mutate");
     let stale = run(&root.0, next["query"].clone()).expect("stale");
     assert_eq!(stale["errorCode"], "structure.snapshot.changed", "{stale}");
+    let restart = &stale["next"]["restart"];
+    assert_eq!(restart["tool"], "structureSearch");
+    assert_eq!(restart["query"]["operation"], "tree");
+    assert_eq!(restart["query"]["page"], 1);
+    assert!(restart["query"].get("snapshot").is_none());
+    let fresh = run(&root.0, restart["query"].clone()).expect("execute returned restart unchanged");
+    assert_eq!(fresh["pagination"]["currentPage"], 1);
+    assert_eq!(fresh["pagination"]["totalEntries"], 6);
+    assert_ne!(fresh["snapshot"], page1["snapshot"]);
 }
 
 #[test]
@@ -546,4 +565,122 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
     )
     .expect("files");
     assert_eq!(paths(&all).len(), 4, "{all}");
+}
+
+/// A path whose children are all `.gitignore`d is not empty for the caller's
+/// reasons: say ignore rules dropped the entries and offer an executable
+/// retry that includes them, instead of the generic "broaden" fallback.
+#[test]
+fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "repos/*\n").expect("gitignore");
+    std::fs::create_dir_all(root.0.join("repos/java/src")).expect("repos");
+    std::fs::write(root.0.join("repos/java/src/A.java"), "class A {}\n").expect("file");
+    std::fs::write(root.0.join("repos/notes.txt"), "x\n").expect("file");
+    let repos = root.0.join("repos");
+
+    let tree = run(
+        &root.0,
+        json!({"operation":"tree","goal":"test","reasoning":"test","path":repos}),
+    )
+    .expect("tree");
+    assert_eq!(tree["status"], "empty", "{tree}");
+    let hints = tree["hints"].as_array().expect("hints");
+    assert!(
+        hints.iter().any(|hint| hint
+            .as_str()
+            .is_some_and(|hint| hint.contains(".gitignore") && hint.contains("noIgnore"))),
+        "{tree}"
+    );
+    let retry = &tree["next"]["includeIgnored"];
+    assert_eq!(retry["tool"], "structureSearch", "{tree}");
+    assert_eq!(retry["query"]["noIgnore"], true, "{tree}");
+    assert!(retry["query"].get("snapshot").is_none(), "{tree}");
+    let listed = run(&root.0, retry["query"].clone()).expect("retry");
+    assert!(
+        listed["entries"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty()),
+        "{listed}"
+    );
+
+    let files = run(
+        &root.0,
+        json!({"operation":"files","goal":"test","reasoning":"test","path":repos,"extensions":["java"]}),
+    )
+    .expect("files");
+    assert_eq!(files["status"], "empty", "{files}");
+    assert!(
+        files["hints"]
+            .as_array()
+            .is_some_and(|hints| hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(
+                    |hint| hint.contains(".gitignore") && hint.contains("defaultExcludes")
+                ))),
+        "{files}"
+    );
+    let retry = &files["next"]["includeIgnored"];
+    assert_eq!(retry["query"]["defaultExcludes"], false, "{files}");
+    let found = run(&root.0, retry["query"].clone()).expect("retry");
+    assert_eq!(found["files"].as_array().map(Vec::len), Some(1), "{found}");
+}
+
+/// A genuinely empty directory keeps the generic empty result: no ignore
+/// rule dropped anything, so no ignore hint or retry is offered.
+#[test]
+fn empty_listing_without_ignored_entries_offers_no_ignore_retry() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "target/\n").expect("gitignore");
+    std::fs::create_dir_all(root.0.join("empty")).expect("dir");
+    let empty = root.0.join("empty");
+    for query in [
+        json!({"operation":"tree","goal":"test","reasoning":"test","path":empty}),
+        json!({"operation":"files","goal":"test","reasoning":"test","path":empty,"extensions":["java"]}),
+    ] {
+        let out = run(&root.0, query).expect("listing");
+        assert_eq!(out["status"], "empty", "{out}");
+        assert!(out.get("hints").is_none(), "{out}");
+        assert!(out["next"].get("includeIgnored").is_none(), "{out}");
+    }
+}
+
+/// A non-empty tree still says how many entries `.gitignore` hid, so a
+/// directory of ignored checkouts next to one tracked README does not read
+/// as a directory holding only the README.
+#[test]
+fn tree_summary_counts_gitignored_entries_it_left_out() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "repos/*\n!repos/README.md\n").expect("gitignore");
+    std::fs::create_dir_all(root.0.join("repos/java")).expect("repos");
+    std::fs::create_dir_all(root.0.join("repos/go")).expect("repos");
+    std::fs::write(root.0.join("repos/README.md"), "# repos\n").expect("file");
+    let out = run(
+        &root.0,
+        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0.join("repos")}),
+    )
+    .expect("tree");
+    assert_eq!(out["entries"].as_array().map(Vec::len), Some(1), "{out}");
+    assert!(
+        out["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("2 entries hidden by .gitignore")),
+        "{out}"
+    );
+    assert!(out.get("hints").is_none(), "{out}");
+    let all = run(
+        &root.0,
+        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0.join("repos"),"noIgnore":true}),
+    )
+    .expect("tree");
+    assert!(
+        !all["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(".gitignore"),
+        "{all}"
+    );
 }

@@ -244,8 +244,11 @@ for (const r of Object.values(pinned)) {
   if (prNumber) {
     const pr = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, content: { changedFiles: true } }))?.pullRequests?.[0];
     check(`PR #${prNumber}: mergeCommitSha is the pinned squash commit`, pr?.mergeCommitSha === r.sha && pr?.next?.getMergeCommit?.query?.ref === r.sha, `mergeCommitSha=${pr?.mergeCommitSha}`);
-    const found = rowData(await call('ghSearchHistory', commit?.next?.findPullRequest?.query ?? {}));
-    check(`commit ${r.sha.slice(0, 8)}: next.findPullRequest finds PR #${prNumber}`, collect(found, o => o.number === prNumber && typeof o.title === 'string').length > 0, JSON.stringify(commit?.next?.findPullRequest?.query));
+    // A squash headline `… (#N)` routes straight to next.readPullRequest; otherwise next.findPullRequest searches by SHA.
+    const prHint = commit?.next?.readPullRequest ?? commit?.next?.findPullRequest;
+    check(`commit ${r.sha.slice(0, 8)}: PR continuation exists`, !!prHint);
+    const found = prHint ? rowData(await raw(prHint.tool, prHint.query)) : null;
+    check(`commit ${r.sha.slice(0, 8)}: next.readPullRequest/findPullRequest reaches PR #${prNumber}`, collect(found, o => o.number === prNumber && typeof o.title === 'string').length > 0, JSON.stringify(prHint?.query));
     check(`PR #${prNumber}: merged, and its changed files/+/- equal the squash commit`, pr?.state === 'merged' && pr?.additions === numstat.reduce((s, n) => s + n.a, 0) && pr?.deletions === numstat.reduce((s, n) => s + n.d, 0) && numstat.every(n => inventoryRows(pr.changedFiles).some(f => f.path === n.f && f.additions === n.a && f.deletions === n.d)), JSON.stringify({ state: pr?.state, add: pr?.additions, del: pr?.deletions }));
     const patches = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, content: { patches: { mode: 'all' } } }))?.pullRequests?.[0];
     const prPatchOk = numstat.every(n => {
@@ -300,7 +303,7 @@ for (const r of Object.values(pinned)) {
       questions: [{ id: 't', questionType: 'locate', target: t.target }],
     };
     const windows = [];
-    let host = 0, calls = 0, refs = new Set(), paths = new Set();
+    let host = 0, calls = 0, refs = new Set(), paths = new Set(), sources = [];
     while (request && calls < 20) {
       calls += 1;
       const out = await raw('clasify', { queries: [request] });
@@ -308,7 +311,7 @@ for (const r of Object.values(pinned)) {
       const q = out.sc?.queries?.[0];
       for (const res of q?.resources ?? []) for (const page of res.pages ?? []) {
         if (page.source?.ref) refs.add(page.source.ref);
-        if (page.source?.path) paths.add(page.source.path);
+        if (page.source?.path) { paths.add(page.source.path); sources.push(page.source); }
         for (const m of page.answers?.t?.matches ?? []) windows.push({ exists: page.answers.t.exists, ...m });
       }
       const more = q?.next?.clasify;
@@ -322,7 +325,7 @@ for (const r of Object.values(pinned)) {
     const verified = !!verify && (fileRow(verify)?.content ?? '').split('\n').some(l => t.re.test(l));
     rows.push({ file: `${r.repo}/${path.basename(t.file)}`, KB: Math.round(bytes / 1024), calls, window: top ? `${top.startLine}-${top.endLine}` : '-', exists: top?.exists, strict, verified, hostKB: (host / 1024).toFixed(1), saving: `${Math.round(100 - 100 * host / bytes)}%` });
     check(`clasify GitHub ${r.repo}/${path.basename(t.file)}: rank-1 window shows the declaration, verified by a remote read`, strict && verified, `top=${JSON.stringify(top)}`);
-    check(`clasify GitHub ${r.repo}/${path.basename(t.file)}: receipts carry owner/repo/path and the pinned ref`, [...paths].every(p => p.includes(`${r.owner}/${r.repo}`) && p.endsWith(t.file)) && [...refs].every(ref => ref === r.sha), `paths=${[...paths]} refs=${[...refs].map(x => x.slice(0, 8))}`);
+    check(`clasify GitHub ${r.repo}/${path.basename(t.file)}: receipts carry owner/repo/path and the pinned ref`, sources.length > 0 && sources.every(s => s.path === `${r.owner}/${r.repo}/${t.file}` && s.ref === r.sha), `paths=${[...paths]} refs=${[...refs].map(x => x.slice(0, 8))}`);
   }
   console.table(rows);
   // Absent target on a remote file stays low everywhere.

@@ -1,0 +1,108 @@
+{
+  "qid": "L04",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "064f09518c70a1635b6a1ab575794494a7b9405cbe9578b1ccab040234ae4631",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Implies self/cls stripping applies on the @tool path; it only runs when filter_args is empty, and from_function always passes non-empty filter_args",
+        "Places the parser at function_calling.py 759-820; it starts at line 735"
+      ],
+      "notes": "Accurate and thorough, but most line numbers are admitted estimates. Misses the RunnableConfig filtering done by _filter_schema_args."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Lists self/cls among the filtered args without noting it only applies when filter_args is empty, which never happens on this path"
+      ],
+      "notes": "Precise citations that check out against the source. Honest about unread parts. Misses the RunnableConfig filtering done by _filter_schema_args."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Implies self/cls stripping applies on the @tool path; it only runs when filter_args is empty, and from_function always passes non-empty filter_args",
+        "Places the parser at function_calling.py 759-820; it starts at line 735"
+      ],
+      "notes": "Accurate and thorough, but most line numbers are admitted estimates. Misses the RunnableConfig filtering done by _filter_schema_args."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Lists self/cls among the filtered args without noting it only applies when filter_args is empty, which never happens on this path"
+      ],
+      "notes": "Precise citations that check out against the source. Honest about unread parts. Misses the RunnableConfig filtering done by _filter_schema_args."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1171244,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10273,
+    "cache_read_input_tokens": 14522,
+    "output_tokens": 14,
+    "context_tokens": 24799,
+    "total_tokens": 24813,
+    "first_request_context": 11897,
+    "fixed_overhead_tokens": 23794,
+    "research_tokens": 1019,
+    "max_request_context": 12902
+  },
+  "timedOut": false
+}

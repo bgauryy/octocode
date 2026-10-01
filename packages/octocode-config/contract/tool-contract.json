@@ -1,8 +1,13 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "1e749779e1ca146049447f7bc9bdf27b06e436935a90a7139e327d333cbd4a2c",
+  "fingerprint": "6918117a87e9868ef99a710a7fea870a34809c1f95dab41211bb8ea1322700ca",
+  "limits": {
+    "maxInputArrayItems": 100
+  },
   "tools": [
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [
@@ -13,6 +18,7 @@
           "when": {}
         }
       ],
+      "family": "remote",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
@@ -7725,10 +7731,44 @@
           "phase": "validate"
         }
       ],
+      "semanticPolicy": {
+        "candidateSearchTools": [
+          "localSearch",
+          "ghSearchCode"
+        ],
+        "fileReadTools": [
+          "localFetch",
+          "ghGetFileContent"
+        ],
+        "maxCells": 25,
+        "maxFileCandidates": 5,
+        "maxFileChunkChars": 12000,
+        "maxResourceChars": 80000,
+        "maxTotalCells": 50,
+        "prefilterWindowLines": 600,
+        "prefilterWindows": 3,
+        "scoutTools": [
+          "ghSearchRepo",
+          "ghSearchCode",
+          "ghStructure",
+          "ghGetFileContent",
+          "ghSearchHistory",
+          "ghGetHistoryItem",
+          "artifactSearch",
+          "localSearch",
+          "localFetch",
+          "structureSearch",
+          "astSearch",
+          "astTopology",
+          "lspSearch"
+        ]
+      },
       "shortDescription": "Classify supplied state or locate answers in unread resources without returning bodies.",
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [],
@@ -7743,6 +7783,7 @@
           "when": {}
         }
       ],
+      "family": "github",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -14274,6 +14315,8 @@
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [],
@@ -14288,6 +14331,7 @@
           "when": {}
         }
       ],
+      "family": "github",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -20919,6 +20963,8 @@
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [],
@@ -20932,6 +20978,7 @@
           "when": {}
         }
       ],
+      "family": "github",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -27326,6 +27373,8 @@
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [
@@ -27366,6 +27415,7 @@
           "when": {}
         }
       ],
+      "family": "github",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -34022,7 +34072,42 @@
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
+        {
+          "absent": [
+            "base",
+            "head"
+          ],
+          "present": [
+            "keywords"
+          ],
+          "values": {
+            "debug": false,
+            "page": 1,
+            "pageSize": 30
+          },
+          "when": {
+            "operation": "pullRequest"
+          }
+        },
+        {
+          "absent": [
+            "keywords",
+            "base",
+            "head"
+          ],
+          "present": [],
+          "values": {
+            "debug": false,
+            "page": 1,
+            "pageSize": 30
+          },
+          "when": {
+            "operation": "issue"
+          }
+        },
         {
           "absent": [
             "keywords",
@@ -34049,43 +34134,14 @@
           ],
           "values": {
             "debug": false,
-            "pageSize": 30
-          },
-          "when": {
-            "operation": "pullRequest"
-          }
-        },
-        {
-          "absent": [
-            "keywords",
-            "base",
-            "head"
-          ],
-          "present": [],
-          "values": {
-            "debug": false,
-            "pageSize": 30
-          },
-          "when": {
-            "operation": "issue"
-          }
-        },
-        {
-          "absent": [
-            "base",
-            "head"
-          ],
-          "present": [
-            "keywords"
-          ],
-          "values": {
-            "debug": false
+            "page": 1
           },
           "when": {
             "operation": "issue"
           }
         }
       ],
+      "family": "github",
       "inputSchema": {
         "$defs": {
           "HI_PageSize": {
@@ -34219,6 +34275,7 @@
                       "type": "string"
                     },
                     "page": {
+                      "default": 1,
                       "description": "Copy next history page.",
                       "maximum": 1000,
                       "minimum": 1,
@@ -34378,6 +34435,7 @@
                       "type": "string"
                     },
                     "page": {
+                      "default": 1,
                       "description": "Copy next history page.",
                       "maximum": 1000,
                       "minimum": 1,
@@ -41383,6 +41441,7 @@
                 "type": "string"
               },
               "page": {
+                "default": 1,
                 "description": "Copy next history page.",
                 "maximum": 1000,
                 "minimum": 1,
@@ -41542,6 +41601,7 @@
                 "type": "string"
               },
               "page": {
+                "default": 1,
                 "description": "Copy next history page.",
                 "maximum": 1000,
                 "minimum": 1,
@@ -41862,6 +41922,8 @@
       ]
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [
@@ -41953,6 +42015,7 @@
           }
         }
       ],
+      "family": "github",
       "inputSchema": {
         "$defs": {
           "HI_CommentPage": {
@@ -41968,7 +42031,7 @@
             "type": "integer"
           },
           "HI_CommitCharOffset": {
-            "description": "Copy patchPagination offset.",
+            "description": "Copy filesPagination.nextPatchCharOffset (or follow next.continuePatch).",
             "minimum": 0,
             "type": "integer"
           },
@@ -50759,7 +50822,7 @@
             "type": "integer"
           },
           "HI_CommitCharOffset": {
-            "description": "Copy patchPagination offset.",
+            "description": "Copy filesPagination.nextPatchCharOffset (or follow next.continuePatch).",
             "minimum": 0,
             "type": "integer"
           },
@@ -51525,6 +51588,8 @@
       ]
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [
@@ -51570,6 +51635,7 @@
           }
         }
       ],
+      "family": "remote",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -58369,6 +58435,8 @@
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": true,
       "defaults": [
         {
           "absent": [],
@@ -58379,6 +58447,7 @@
           "when": {}
         }
       ],
+      "family": "github",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -64625,6 +64694,8 @@
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [],
@@ -64633,6 +64704,7 @@
             "caseMode": "smart",
             "debug": false,
             "matchPage": 1,
+            "maxMatchesPerFile": 10,
             "multiline": "off",
             "page": 1,
             "regex": "rust",
@@ -64643,6 +64715,7 @@
           "when": {}
         }
       ],
+      "family": "local",
       "inputSchema": {
         "$defs": {
           "DefaultExcludes": {
@@ -64747,7 +64820,8 @@
                   "type": "integer"
                 },
                 "maxMatchesPerFile": {
-                  "description": "Matches per file page (default 10).",
+                  "default": 10,
+                  "description": "Matches per file page.",
                   "maximum": 100000,
                   "minimum": 1,
                   "type": "integer"
@@ -71785,7 +71859,8 @@
             "type": "integer"
           },
           "maxMatchesPerFile": {
-            "description": "Matches per file page (default 10).",
+            "default": 10,
+            "description": "Matches per file page.",
             "maximum": 100000,
             "minimum": 1,
             "type": "integer"
@@ -71997,6 +72072,8 @@
       ]
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [],
@@ -72005,6 +72082,7 @@
             "debug": false,
             "detail": "basic",
             "page": 1,
+            "pageSize": 100,
             "sort": "modified"
           },
           "when": {
@@ -72016,13 +72094,15 @@
           "present": [],
           "values": {
             "debug": false,
-            "page": 1
+            "page": 1,
+            "pageSize": 100
           },
           "when": {
             "operation": "tree"
           }
         }
       ],
+      "family": "local",
       "inputSchema": {
         "$defs": {
           "DefaultExcludes": {
@@ -72110,6 +72190,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 100,
                       "maximum": 100,
                       "minimum": 1,
                       "type": "integer"
@@ -72238,6 +72319,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 100,
                       "maximum": 100,
                       "minimum": 1,
                       "type": "integer"
@@ -79001,6 +79083,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 100,
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -79129,6 +79212,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 100,
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -79338,6 +79422,8 @@
       ]
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [],
@@ -79346,7 +79432,10 @@
             "debug": false,
             "matchContentLength": 500,
             "matchPage": 1,
+            "maxFiles": 2000,
+            "maxMatchesPerFile": 100,
             "page": 1,
+            "pageSize": 20,
             "resultView": "content",
             "sort": "path"
           },
@@ -79380,6 +79469,7 @@
           }
         }
       ],
+      "family": "local",
       "inputSchema": {
         "$defs": {
           "DefaultExcludes": {
@@ -79466,13 +79556,15 @@
                       "type": "integer"
                     },
                     "maxFiles": {
-                      "description": "File scan cap; default 2000.",
+                      "default": 2000,
+                      "description": "File scan cap.",
                       "maximum": 100000,
                       "minimum": 1,
                       "type": "integer"
                     },
                     "maxMatchesPerFile": {
-                      "description": "Matches per file page; default 100.",
+                      "default": 100,
+                      "description": "Matches per file page.",
                       "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
@@ -79493,7 +79585,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "description": "Files per page; default 20.",
+                      "default": 20,
+                      "description": "Files per page.",
                       "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
@@ -79626,13 +79719,15 @@
                       "type": "integer"
                     },
                     "maxFiles": {
-                      "description": "File scan cap; default 2000.",
+                      "default": 2000,
+                      "description": "File scan cap.",
                       "maximum": 100000,
                       "minimum": 1,
                       "type": "integer"
                     },
                     "maxMatchesPerFile": {
-                      "description": "Matches per file page; default 100.",
+                      "default": 100,
+                      "description": "Matches per file page.",
                       "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
@@ -79653,7 +79748,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "description": "Files per page; default 20.",
+                      "default": 20,
+                      "description": "Files per page.",
                       "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
@@ -88161,13 +88257,15 @@
                 "type": "integer"
               },
               "maxFiles": {
-                "description": "File scan cap; default 2000.",
+                "default": 2000,
+                "description": "File scan cap.",
                 "maximum": 100000,
                 "minimum": 1,
                 "type": "integer"
               },
               "maxMatchesPerFile": {
-                "description": "Matches per file page; default 100.",
+                "default": 100,
+                "description": "Matches per file page.",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
@@ -88188,7 +88286,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "description": "Files per page; default 20.",
+                "default": 20,
+                "description": "Files per page.",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
@@ -88321,13 +88420,15 @@
                 "type": "integer"
               },
               "maxFiles": {
-                "description": "File scan cap; default 2000.",
+                "default": 2000,
+                "description": "File scan cap.",
                 "maximum": 100000,
                 "minimum": 1,
                 "type": "integer"
               },
               "maxMatchesPerFile": {
-                "description": "Matches per file page; default 100.",
+                "default": 100,
+                "description": "Matches per file page.",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
@@ -88348,7 +88449,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "description": "Files per page; default 20.",
+                "default": 20,
+                "description": "Files per page.",
                 "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
@@ -88728,14 +88830,18 @@
       ]
     },
     {
+      "beta": true,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [],
           "present": [],
           "values": {
             "debug": false,
+            "diagnosticPageSize": 25,
             "includeTests": true,
-            "page": 1
+            "page": 1,
+            "pageSize": 50
           },
           "when": {
             "analysis": "deadCode"
@@ -88746,8 +88852,10 @@
           "present": [],
           "values": {
             "debug": false,
+            "diagnosticPageSize": 25,
             "includeTests": true,
-            "page": 1
+            "page": 1,
+            "pageSize": 50
           },
           "when": {
             "analysis": "reachability"
@@ -88759,7 +88867,9 @@
           "values": {
             "debug": false,
             "depth": 1,
-            "page": 1
+            "diagnosticPageSize": 25,
+            "page": 1,
+            "pageSize": 50
           },
           "when": {
             "analysis": "dependencies"
@@ -88771,7 +88881,9 @@
           "values": {
             "debug": false,
             "depth": 1,
-            "page": 1
+            "diagnosticPageSize": 25,
+            "page": 1,
+            "pageSize": 50
           },
           "when": {
             "analysis": "dependents"
@@ -88782,7 +88894,9 @@
           "present": [],
           "values": {
             "debug": false,
-            "page": 1
+            "diagnosticPageSize": 25,
+            "page": 1,
+            "pageSize": 50
           },
           "when": {
             "analysis": "cycles"
@@ -88793,7 +88907,9 @@
           "present": [],
           "values": {
             "debug": false,
-            "page": 1
+            "diagnosticPageSize": 25,
+            "page": 1,
+            "pageSize": 50
           },
           "when": {
             "analysis": "path"
@@ -88804,13 +88920,16 @@
           "present": [],
           "values": {
             "debug": false,
-            "page": 1
+            "diagnosticPageSize": 25,
+            "page": 1,
+            "pageSize": 50
           },
           "when": {
             "analysis": "drift"
           }
         }
       ],
+      "family": "local",
       "inputSchema": {
         "$defs": {
           "DefaultExcludes": {
@@ -88847,6 +88966,7 @@
                       "type": "integer"
                     },
                     "diagnosticPageSize": {
+                      "default": 25,
                       "description": "Coverage diagnostics per page.",
                       "maximum": 100,
                       "minimum": 1,
@@ -88918,6 +89038,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 50,
                       "description": "Edges per page, not scope.",
                       "maximum": 100,
                       "minimum": 1,
@@ -88972,6 +89093,7 @@
                       "type": "integer"
                     },
                     "diagnosticPageSize": {
+                      "default": 25,
                       "description": "Coverage diagnostics per page.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89030,6 +89152,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 50,
                       "description": "Edges per page, not scope.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89092,6 +89215,7 @@
                       "type": "integer"
                     },
                     "diagnosticPageSize": {
+                      "default": 25,
                       "description": "Coverage diagnostics per page.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89154,6 +89278,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 50,
                       "description": "Edges per page, not scope.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89216,6 +89341,7 @@
                       "type": "integer"
                     },
                     "diagnosticPageSize": {
+                      "default": 25,
                       "description": "Coverage diagnostics per page.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89278,6 +89404,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 50,
                       "description": "Edges per page, not scope.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89333,6 +89460,7 @@
                       "type": "integer"
                     },
                     "diagnosticPageSize": {
+                      "default": 25,
                       "description": "Coverage diagnostics per page.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89395,6 +89523,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 50,
                       "description": "Edges per page, not scope.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89455,6 +89584,7 @@
                       "type": "integer"
                     },
                     "diagnosticPageSize": {
+                      "default": 25,
                       "description": "Coverage diagnostics per page.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89526,6 +89656,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 50,
                       "description": "Edges per page, not scope.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89584,6 +89715,7 @@
                       "type": "integer"
                     },
                     "diagnosticPageSize": {
+                      "default": 25,
                       "description": "Coverage diagnostics per page.",
                       "maximum": 100,
                       "minimum": 1,
@@ -89642,6 +89774,7 @@
                       "type": "integer"
                     },
                     "pageSize": {
+                      "default": 50,
                       "description": "Edges per page, not scope.",
                       "maximum": 100,
                       "minimum": 1,
@@ -96729,6 +96862,7 @@
                 "type": "integer"
               },
               "diagnosticPageSize": {
+                "default": 25,
                 "description": "Coverage diagnostics per page.",
                 "maximum": 100,
                 "minimum": 1,
@@ -96800,6 +96934,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 50,
                 "description": "Edges per page, not scope.",
                 "maximum": 100,
                 "minimum": 1,
@@ -96854,6 +96989,7 @@
                 "type": "integer"
               },
               "diagnosticPageSize": {
+                "default": 25,
                 "description": "Coverage diagnostics per page.",
                 "maximum": 100,
                 "minimum": 1,
@@ -96912,6 +97048,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 50,
                 "description": "Edges per page, not scope.",
                 "maximum": 100,
                 "minimum": 1,
@@ -96974,6 +97111,7 @@
                 "type": "integer"
               },
               "diagnosticPageSize": {
+                "default": 25,
                 "description": "Coverage diagnostics per page.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97036,6 +97174,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 50,
                 "description": "Edges per page, not scope.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97098,6 +97237,7 @@
                 "type": "integer"
               },
               "diagnosticPageSize": {
+                "default": 25,
                 "description": "Coverage diagnostics per page.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97160,6 +97300,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 50,
                 "description": "Edges per page, not scope.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97215,6 +97356,7 @@
                 "type": "integer"
               },
               "diagnosticPageSize": {
+                "default": 25,
                 "description": "Coverage diagnostics per page.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97277,6 +97419,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 50,
                 "description": "Edges per page, not scope.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97337,6 +97480,7 @@
                 "type": "integer"
               },
               "diagnosticPageSize": {
+                "default": 25,
                 "description": "Coverage diagnostics per page.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97408,6 +97552,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 50,
                 "description": "Edges per page, not scope.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97466,6 +97611,7 @@
                 "type": "integer"
               },
               "diagnosticPageSize": {
+                "default": 25,
                 "description": "Coverage diagnostics per page.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97524,6 +97670,7 @@
                 "type": "integer"
               },
               "pageSize": {
+                "default": 50,
                 "description": "Edges per page, not scope.",
                 "maximum": 100,
                 "minimum": 1,
@@ -97863,6 +98010,8 @@
       ]
     },
     {
+      "beta": true,
+      "cliOnly": true,
       "defaults": [
         {
           "absent": [],
@@ -97880,6 +98029,7 @@
           }
         }
       ],
+      "family": "local",
       "inputSchema": {
         "$defs": {
           "AR_apply": {
@@ -104562,7 +104712,12 @@
                               "patch": {
                                 "type": "string"
                               },
-                              "patchOnPage": {
+                              "patchBytes": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "patchMatchCount": {
                                 "maximum": 9007199254740991,
                                 "minimum": 0,
                                 "type": "integer"
@@ -104762,7 +104917,12 @@
                               "patch": {
                                 "type": "string"
                               },
-                              "patchOnPage": {
+                              "patchBytes": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "patchMatchCount": {
                                 "maximum": 9007199254740991,
                                 "minimum": 0,
                                 "type": "integer"
@@ -104962,7 +105122,12 @@
                               "patch": {
                                 "type": "string"
                               },
-                              "patchOnPage": {
+                              "patchBytes": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "patchMatchCount": {
                                 "maximum": 9007199254740991,
                                 "minimum": 0,
                                 "type": "integer"
@@ -105162,7 +105327,12 @@
                               "patch": {
                                 "type": "string"
                               },
-                              "patchOnPage": {
+                              "patchBytes": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "patchMatchCount": {
                                 "maximum": 9007199254740991,
                                 "minimum": 0,
                                 "type": "integer"
@@ -106159,6 +106329,8 @@
       ]
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [
@@ -106212,6 +106384,7 @@
           "when": {}
         }
       ],
+      "family": "local",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -112657,6 +112830,8 @@
       "variants": []
     },
     {
+      "beta": false,
+      "cliOnly": false,
       "defaults": [
         {
           "absent": [
@@ -112670,7 +112845,8 @@
             "debug": false,
             "includeDeclaration": true,
             "orderHint": 0,
-            "page": 1
+            "page": 1,
+            "pageSize": 40
           },
           "when": {
             "operation": "definition"
@@ -112687,7 +112863,8 @@
           "values": {
             "debug": false,
             "orderHint": 0,
-            "page": 1
+            "page": 1,
+            "pageSize": 40
           },
           "when": {
             "operation": "references"
@@ -112704,7 +112881,8 @@
           "values": {
             "debug": false,
             "includeDeclaration": true,
-            "page": 1
+            "page": 1,
+            "pageSize": 40
           },
           "when": {
             "operation": "definition"
@@ -112719,7 +112897,8 @@
           "present": [],
           "values": {
             "debug": false,
-            "page": 1
+            "page": 1,
+            "pageSize": 40
           },
           "when": {
             "operation": "documentSymbols"
@@ -112734,7 +112913,8 @@
           "present": [],
           "values": {
             "debug": false,
-            "page": 1
+            "page": 1,
+            "pageSize": 40
           },
           "when": {
             "operation": "diagnostic"
@@ -112750,7 +112930,8 @@
           ],
           "values": {
             "debug": false,
-            "page": 1
+            "page": 1,
+            "pageSize": 40
           },
           "when": {
             "operation": "workspaceSymbol"
@@ -112766,13 +112947,15 @@
           ],
           "values": {
             "debug": false,
-            "page": 1
+            "page": 1,
+            "pageSize": 40
           },
           "when": {
             "operation": "workspaceSymbol"
           }
         }
       ],
+      "family": "local",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
@@ -112852,7 +113035,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "description": "Locations per page (default 40), not result scope.",
+                      "default": 40,
+                      "description": "Locations per page, not result scope.",
                       "maximum": 100,
                       "minimum": 1,
                       "type": "integer"
@@ -113017,7 +113201,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "description": "Locations per page (default 40), not result scope.",
+                      "default": 40,
+                      "description": "Locations per page, not result scope.",
                       "maximum": 100,
                       "minimum": 1,
                       "type": "integer"
@@ -113169,7 +113354,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "description": "Locations per page (default 40), not result scope.",
+                      "default": 40,
+                      "description": "Locations per page, not result scope.",
                       "maximum": 100,
                       "minimum": 1,
                       "type": "integer"
@@ -113298,7 +113484,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "description": "Locations per page (default 40), not result scope.",
+                      "default": 40,
+                      "description": "Locations per page, not result scope.",
                       "maximum": 100,
                       "minimum": 1,
                       "type": "integer"
@@ -113430,7 +113617,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "description": "Locations per page (default 40), not result scope.",
+                      "default": 40,
+                      "description": "Locations per page, not result scope.",
                       "maximum": 100,
                       "minimum": 1,
                       "type": "integer"
@@ -121039,7 +121227,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "description": "Locations per page (default 40), not result scope.",
+                "default": 40,
+                "description": "Locations per page, not result scope.",
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -121204,7 +121393,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "description": "Locations per page (default 40), not result scope.",
+                "default": 40,
+                "description": "Locations per page, not result scope.",
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -121356,7 +121546,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "description": "Locations per page (default 40), not result scope.",
+                "default": 40,
+                "description": "Locations per page, not result scope.",
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -121485,7 +121676,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "description": "Locations per page (default 40), not result scope.",
+                "default": 40,
+                "description": "Locations per page, not result scope.",
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"
@@ -121617,7 +121809,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "description": "Locations per page (default 40), not result scope.",
+                "default": 40,
+                "description": "Locations per page, not result scope.",
                 "maximum": 100,
                 "minimum": 1,
                 "type": "integer"

@@ -4,6 +4,7 @@ use crate::providers::artifact::{
     ArtifactError, ArtifactProviderContext, ArtifactSearchQuery, SystemArtifactHttp,
     execute_artifact,
 };
+use crate::tools::id::ToolId;
 use serde_json::{Value, json};
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -167,7 +168,7 @@ async fn run(
         if let Ok(next_query) = serde_json::to_value(next) {
             data["next"] = json!({
                 "nextPage": {
-                    "tool": "artifactSearch",
+                    "tool": ToolId::ArtifactSearch.as_str(),
                     "query": next_query,
                     "confidence": "exact"
                 }
@@ -182,8 +183,9 @@ async fn run(
         && let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_repo)
     {
         data["next"]["viewRepo"] = json!({
-            "tool": "ghStructure",
+            "tool": ToolId::GhStructure.as_str(),
             "confidence": "high",
+            "source": { "scope": "defaultBranch", "verification": "unverified" },
             "query": {
                 "owner": owner,
                 "repo": repo,
@@ -193,13 +195,22 @@ async fn run(
                     .or_else(|| artifact.repository.as_deref().and_then(github_repo_dir))
                     .unwrap_or_default(),
                 "maxDepth": 1,
-                "reasoning": "Inspect the package's upstream source tree.",
+                "reasoning": "Inspect upstream default-branch code; this is not evidence of the published release.",
             },
         });
-        // The published version's own commit or tag; without one the lead
-        // reads the default branch, which may be ahead of the release.
+        // The published version's own commit or tag is a separate, weaker
+        // lead: a publish can come from a commit never pushed upstream (npm
+        // `gitHead`), which GitHub answers 404/422. The default-branch lead
+        // may be ahead of the release; neither registry lead is verified here.
         if let Some(reference) = artifact.source_ref.as_deref() {
-            data["next"]["viewRepo"]["query"]["branch"] = json!(reference);
+            let mut release = data["next"]["viewRepo"].clone();
+            release["confidence"] = json!("medium");
+            release["source"]["scope"] = json!("release");
+            release["query"]["branch"] = json!(reference);
+            release["query"]["reasoning"] = json!(
+                "Inspect the registry's unverified release-ref lead; if unavailable, use next.viewRepo for default-branch code, not release evidence."
+            );
+            data["next"]["viewReleaseSource"] = release;
         }
     }
     if let Some(limit) = page.terminal_limit.as_deref() {
@@ -244,7 +255,7 @@ fn github_repo(url: &str) -> Option<(String, String)> {
 
 /// Monorepo subdirectory from a `/tree/<ref>/<dir>` or `/blob/<ref>/<file>`
 /// repository URL. The ref is dropped: refs may contain slashes, and URL refs
-/// are often stale; the viewRepo lead pins only the registry's source ref.
+/// are often stale; only viewReleaseSource pins the registry's source ref.
 fn github_repo_dir(url: &str) -> Option<String> {
     let rest = url.split_once("github.com/")?.1;
     let rest = rest.split(['#', '?']).next()?;
@@ -492,10 +503,12 @@ mod npm_auth_tests {
         assert!(error.message.contains("no-such-package-zz"), "{error:?}");
     }
 
-    /// D1: the upstream-source lead reads the commit the version was
-    /// published from (npm `gitHead`), not the default branch.
+    /// D1/H1: the upstream-source lead reads the default branch (a published
+    /// `gitHead` may never have been pushed upstream: GitHub 404/422), and a
+    /// separate lower-confidence lead reads the commit the version was
+    /// published from.
     #[tokio::test]
-    async fn view_repo_pins_the_published_git_head() {
+    async fn view_repo_reads_the_default_branch_and_the_git_head_separately() {
         let sha = "4b0051f400219f8d8855f9a5433c6df35f15a639";
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -524,9 +537,25 @@ mod npm_auth_tests {
         )
         .await
         .expect("lookup succeeds");
-        let view = &data["next"]["viewRepo"]["query"];
-        assert_eq!(view["branch"], sha, "{data}");
-        assert_eq!(view["path"], "packages/x", "{data}");
+        let view = &data["next"]["viewRepo"];
+        assert!(view["query"].get("branch").is_none(), "{data}");
+        assert_eq!(view["query"]["path"], "packages/x", "{data}");
+        assert_eq!(view["confidence"], "high", "{data}");
+        assert_eq!(view["source"]["scope"], "defaultBranch", "{data}");
+        assert_eq!(view["source"]["verification"], "unverified", "{data}");
+        assert!(
+            view["query"]["reasoning"]
+                .as_str()
+                .expect("reasoning")
+                .contains("not evidence of the published release")
+        );
+        let release = &data["next"]["viewReleaseSource"];
+        assert_eq!(release["tool"], "ghStructure", "{data}");
+        assert_eq!(release["query"]["branch"], sha, "{data}");
+        assert_eq!(release["query"]["path"], "packages/x", "{data}");
+        assert_eq!(release["confidence"], "medium", "{data}");
+        assert_eq!(release["source"]["scope"], "release", "{data}");
+        assert_eq!(release["source"]["verification"], "unverified", "{data}");
         let row = data["artifacts"][0].as_object().expect("row");
         assert!(
             row.keys().all(|key| key != "gitHead" && key != "sourceRef"),

@@ -18,7 +18,7 @@ export interface LocalConfigOptions {
   /** ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. */
   enabled?: boolean;
 
-  /** Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface. */
+  /** Enable beta features and tools; off by default on every surface. `octocode scheme` reports which tools the gate withholds. */
   beta?: boolean;
 
   /** Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). */
@@ -324,7 +324,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface.",
+    "description": "Enable beta features and tools; off by default on every surface. `octocode scheme` reports which tools the gate withholds.",
     "env": [
       {
         "name": "OCTOCODE_BETA",

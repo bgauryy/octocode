@@ -72,7 +72,8 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, ClassificationError> {
             "Context query cannot contain a bulk envelope, cursor, or response paging options.",
         ));
     }
-    if tool == "ghStructure" && query.get("materialize") == Some(&Value::Bool(true)) {
+    if tool == ToolId::GhStructure.as_str() && query.get("materialize") == Some(&Value::Bool(true))
+    {
         return Err(error(
             "invalidClassificationContext",
             "Clasify context cannot materialize a repository tree; use ghStructure directly when files are needed locally.",
@@ -115,6 +116,67 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, ClassificationError> {
         .ok_or_else(|| error("invalidClassificationContext", "Context query is missing."))
 }
 
+/// Why a clasify context tool is unavailable: the gate that enables it (from
+/// the config contract's env bindings) and the context tools that are enabled.
+pub(crate) fn unavailable_context_message(tool: &str, available: impl Fn(&str) -> bool) -> String {
+    let id = ToolId::from_name(tool);
+    let gate = id.map(ToolId::availability_env_vars).unwrap_or_default();
+    let enable = match id.and_then(ToolId::availability_config_path) {
+        Some(path) if !gate.is_empty() => format!(
+            "Enable it with {} (config {path}); tools.enabled/tools.disabled can also exclude it.",
+            gate.iter()
+                .map(|var| format!("{var}=true"))
+                .collect::<Vec<_>>()
+                .join(" or ")
+        ),
+        _ => "Check tools.enabled/tools.disabled.".to_owned(),
+    };
+    let enabled = crate::tools::id::clasify_policy::SCOUT_TOOLS
+        .iter()
+        .map(|id| id.as_str())
+        .filter(|name| available(name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "Context tool {tool} is disabled in this runtime. {enable} Enabled context tools: {enabled}."
+    )
+}
+
+/// Validation-stage availability check for a prepared clasify matrix: one
+/// issue per resource whose context tool this runtime does not enable. MCP
+/// rejects the same input through its availability-scoped schema.
+pub(crate) fn unavailable_context_issues(
+    query: &Value,
+    prefix: &[String],
+    available: impl Fn(&str) -> bool,
+) -> Vec<contracts::ValidationIssue> {
+    query["resources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(index, resource)| {
+            let tool = resource.pointer("/context/tool")?.as_str()?;
+            (is_context_tool(tool) && !available(tool)).then(|| {
+                let mut path = prefix.to_vec();
+                path.extend([
+                    "resources".to_owned(),
+                    index.to_string(),
+                    "context".to_owned(),
+                    "tool".to_owned(),
+                ]);
+                contracts::ValidationIssue {
+                    rule_id: "clasify.context-tool-available".into(),
+                    path,
+                    message: unavailable_context_message(tool, &available),
+                    schema: None,
+                    received: Some(Value::String(tool.to_owned())),
+                }
+            })
+        })
+        .collect()
+}
+
 // `ContextFailure` carries a sanitized failure envelope; boxing it would ripple
 // through every caller for no runtime benefit on this cold error path.
 #[allow(clippy::result_large_err)]
@@ -137,15 +199,14 @@ pub(super) fn resolve(
             )
         })
         .map_err(ContextFailure::from)?;
+    // Normally rejected at validation (`unavailable_context_issues`); kept for
+    // embedders that dispatch a prepared matrix directly.
     if !dispatcher.available_tools.contains(&tool) {
         let mut unavailable = error(
             "classificationContextUnavailable",
-            format!("Context tool {tool} is disabled by runtime policy."),
+            unavailable_context_message(tool, |name| dispatcher.available_tools.contains(&name)),
         );
-        // Retrying the disabled tool cannot help; name the enabled readers.
-        unavailable.hints = vec![
-            "Use an enabled read tool (localFetch, localSearch, ghGetFileContent) as this resource's context.".into(),
-        ];
+        unavailable.hints = Vec::new();
         return Err(ContextFailure::from(unavailable));
     }
     let id = ToolId::from_name(tool).ok_or_else(|| {
@@ -262,7 +323,7 @@ fn attach_requested_reference(tool: &str, request: &Value, receipt: &mut Value) 
     if receipt.pointer("/source/ref").is_some() {
         return;
     }
-    let field = if tool == "ghGetFileContent" {
+    let field = if tool == ToolId::GhGetFileContent.as_str() {
         "branch"
     } else {
         "ref"
@@ -434,8 +495,8 @@ fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
     };
     let mut source = json!({"evidenceHash":evidence_hash});
     if let Some(path) = file.get("path").and_then(Value::as_str) {
-        let identity = match tool {
-            "localFetch" | "localSearch" => state
+        let identity = match ToolId::from_name(tool) {
+            Some(ToolId::LocalFetch | ToolId::LocalSearch) => state
                 .get("base")
                 .and_then(Value::as_str)
                 .filter(|_| !Path::new(path).is_absolute())
@@ -443,7 +504,7 @@ fn page_source(tool: &str, state: &Value, evidence_hash: &str) -> Value {
                     || path.to_owned(),
                     |base| Path::new(base).join(path).to_string_lossy().into_owned(),
                 ),
-            "ghGetFileContent" | "ghSearchCode" => {
+            Some(ToolId::GhGetFileContent | ToolId::GhSearchCode) => {
                 let owner = file
                     .get("owner")
                     .or_else(|| data.get("owner"))
@@ -729,7 +790,7 @@ fn inspect(
 }
 
 fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
-    tool == "ghGetHistoryItem"
+    tool == ToolId::GhGetHistoryItem.as_str()
         && query.get("operation").and_then(Value::as_str) == Some("pullRequest")
         && matches!(
             name,

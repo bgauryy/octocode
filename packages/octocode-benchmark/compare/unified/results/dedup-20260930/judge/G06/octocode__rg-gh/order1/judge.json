@@ -1,0 +1,84 @@
+{
+  "qid": "G06",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "df9461875184804ec6184a754816a3aca1fe5dccf81e30255cc7854e44546f73",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate but shallow; no env-proxy/NO_PROXY detail, no URLPattern ordering/matching, no Proxy/transport mapping. Approximate line ranges; honest about gaps."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct NO_PROXY handling and precise, verified citations (685-686, 697-716, 760-769, 1005). Sort criteria only inferred and flagged as such; facts 4 and 5 are missing."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate but shallow; no env-proxy/NO_PROXY detail, no URLPattern ordering/matching, no Proxy/transport mapping. Approximate line ranges; honest about gaps."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct NO_PROXY handling and precise, verified citations (685-686, 697-716, 760-769, 1005). Sort criteria only inferred and flagged as such; facts 4 and 5 are missing."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.12295339999999999,
+  "num_turns": 4,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 9902,
+    "cache_read_input_tokens": 35227,
+    "output_tokens": 45,
+    "context_tokens": 45137,
+    "total_tokens": 45182,
+    "first_request_context": 10123,
+    "fixed_overhead_tokens": 40492,
+    "research_tokens": 4690,
+    "max_request_context": 12531
+  },
+  "timedOut": false
+}

@@ -12,6 +12,17 @@ async function followAll(entry, label) {
   const hints = nextHints(entry.sc).slice(0, 4);
   for (const h of hints) {
     const out = await raw(h.tool, h.query);
+    if (h.path.endsWith('.viewReleaseSource') && out.rowErrors) {
+      const unavailable = collect(out.sc, o => o.errorCode === 'notFound').length > 0;
+      check(`${label}: unavailable release lead has explicit provenance`, unavailable && h.source?.scope === 'release' && h.source?.verification === 'unverified', JSON.stringify(h.source));
+      const fallback = nextHints(entry.sc).find(x => x.path.endsWith('.viewRepo'));
+      check(`${label}: release recovery preserves default-branch provenance`, fallback?.source?.scope === 'defaultBranch' && fallback?.source?.verification === 'unverified');
+      if (fallback) {
+        const recovered = await raw(fallback.tool, fallback.query);
+        check(`${label}: unavailable release lead recovers through next.viewRepo`, !recovered.isError && !recovered.rowErrors && (rowData(recovered)?.structure ?? []).length > 0, recovered.text.slice(0, 100));
+      }
+      continue;
+    }
     check(`${label}: next${h.path.replace(/^\.results\.\d+\.data/, '')} executes`, !/Input validation error/.test(out.text) && !out.isError && !out.rowErrors, out.text.slice(0, 100).replace(/\s+/g, ' '));
   }
   return hints.length;
@@ -71,8 +82,7 @@ const judged = await raw('clasify', {
     questions: [{ id: 'q1', type: 'noul', instructions: 'Does this code define a function named add?' }],
   }],
 });
-const clasifyUnavailable = /provider|api key|not configured|unavailable/i.test(judged.text);
-check('clasify answers (or reports its provider unavailable)', !/Input validation error/.test(judged.text) && (!judged.isError || clasifyUnavailable), judged.text.slice(0, 160).replace(/\s+/g, ' '));
+check('clasify supplied-context judgment answers', !/Input validation error/.test(judged.text) && !judged.isError && !judged.rowErrors, judged.text.slice(0, 160).replace(/\s+/g, ' '));
 
 const result = summary();
 writeResults('remote', { ...result });

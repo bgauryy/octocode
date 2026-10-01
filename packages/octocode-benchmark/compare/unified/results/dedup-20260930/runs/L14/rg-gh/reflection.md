@@ -1,0 +1,7 @@
+1. **Helped:** My first Bash call did three things at once: `git rev-parse HEAD`, `ls | head -30`, and `rg -n "function debounce"`. It confirmed the checkout was at the pinned SHA. It also showed `debounce` at `lodash.js:10403` as the only match outside dist. The second call, `cat -n lodash.js | sed -n 10403,10530p`, printed the whole function with line numbers. That gave me every line I cited, so I needed no further searching.
+
+2. **Did not help:** Nothing failed and no calls were repeated. The `ls | head -30` output was not useful. I used `cat | sed` for line numbers, which the tool guidance discourages. I had no dedicated file-read tool available here. I did not check the docblock above `debounce` or the test file, so I never confirmed the documented behavior against the code. I also did not run the function.
+
+3. **Next time:** I would drop the `ls`. I would read the docblock, about 40 lines above the function, in the same call as the source. I would also run a short node script with fake timers to check the `maxWait` behavior instead of inferring it from the code.
+
+4. **Confidence:** High. The code is short and self-contained, and I read every line I cited at the verified commit. The explanation of the control flow comes from reading only, and I did not test it.

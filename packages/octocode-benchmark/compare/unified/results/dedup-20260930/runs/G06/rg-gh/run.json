@@ -1,0 +1,145 @@
+{
+  "qid": "G06",
+  "worker": "rg-gh",
+  "started": "2026-09-30T19:55:04.390Z",
+  "promptSha256": "8d7513b46b250a4395b78b60019bad1a9f95ec6edade08bc1a533c492504ebd2",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 20789,
+  "status": "ok",
+  "answer": "**Short answer:** The decision is made per request by URL-pattern matching against `Client._mounts`. `_mounts` is built once in `__init__` from the `proxy` argument or from environment variables. If a pattern matches and its mounted transport is a proxy transport, the request goes through the proxy. If it matches a `None` entry, or matches nothing, the request uses the direct `self._transport`. I read `httpx/_client.py` and `httpx/_utils.py` at b5addb64f0 through the GitHub API. There was no local checkout.\n\n**1. Building the proxy map (at construction)**\n- `Client.__init__` sets `allow_env_proxies = trust_env and transport is None` (`_client.py:685`). It then calls `self._get_proxy_map(proxy, allow_env_proxies)` (`_client.py:686`).\n- `_get_proxy_map` (`_client.py:239-251`) has three cases:\n  - An explicit `proxy` returns `{\"all://\": Proxy}`, so every request is proxied.\n  - With no `proxy` and env proxies allowed, it uses `get_environment_proxies()`.\n  - Otherwise it returns `{}`, so every request is direct.\n- `get_environment_proxies` (`_utils.py:30-75`) reads `urllib.request.getproxies()` and handles the `http`, `https` and `all` schemes, giving keys like `http://`. Each `NO_PROXY` entry becomes a pattern mapped to `None`, such as `all://*example.com` or `all://localhost`. Entries are treated as follows:\n  - A bare hostname becomes `all://*host`.\n  - An IPv4 or IPv6 address, or `localhost`, is matched exactly.\n  - `NO_PROXY=*` returns `{}` (`_utils.py:51-56`), which disables proxies entirely.\n\n**2. Building the transports**\n- `self._transport` is the direct connection pool, created by `_init_transport` (`_client.py:688`).\n- `self._mounts` (`_client.py:697-711`) maps `URLPattern(key)` to `None` when the proxy value is `None`. Otherwise it maps to a transport from `_init_proxy_transport`.\n- User-supplied `mounts=` entries are merged in and override matching keys (`_client.py:712-714`).\n- `_mounts` is then sorted (`_client.py:716`). I didn't read `URLPattern`'s ordering code, so I'm inferring that this sort puts more specific patterns first.\n\n**3. Per-request choice**\n- `_transport_for_url` (`_client.py:760-769`) loops over `_mounts`. On the first `pattern.matches(url)` it returns `self._transport` if the mounted value is `None`, and the proxy transport otherwise. If nothing matches, it returns `self._transport`.\n- `_send_single_request` calls it with `request.url` (`_client.py:1005`).\n\n**Caveats**\n- If you pass a custom `transport=`, env proxies are ignored (`_client.py:685`). An explicit `proxy=` or `mounts=` still applies.\n- I didn't open `URLPattern.matches` in `_utils.py`, so I haven't verified its matching and sort-order details.\n- `AsyncClient` mirrors this logic at `_client.py:1399-1430` and `1474`.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 7423,
+    "cache_read_input_tokens": 25270,
+    "output_tokens": 899,
+    "context_tokens": 32703,
+    "total_tokens": 33602,
+    "first_request_context": 5040,
+    "fixed_overhead_tokens": 25200,
+    "research_tokens": 8402,
+    "max_request_context": 9360
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3103,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 292,
+      "cache_read_input_tokens": 5038,
+      "output_tokens": 34
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 302,
+      "cache_read_input_tokens": 5330,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1703,
+      "cache_read_input_tokens": 5632,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2023,
+      "cache_read_input_tokens": 7335,
+      "output_tokens": 816
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 7423,
+    "cache_read_input_tokens": 25270,
+    "output_tokens": 1780
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1780,
+      "cacheReadInputTokens": 25270,
+      "cacheCreationInputTokens": 7423,
+      "webSearchRequests": 0,
+      "costUSD": 0.052566,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.052566,
+  "duration_ms": 19655,
+  "num_turns": 6,
+  "toolCallCount": 5,
+  "toolCounts": {
+    "Bash:find": 1,
+    "Bash:gh": 1,
+    "Bash:cd": 3
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"find /Users/bgaryy/code/octocode -maxdepth 4 -name httpx -not -path \\\"*/node_modules/*\\\" 2>/dev/null | head; \"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh api repos/encode/httpx/commits/b5addb64f0 --jq .sha\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; gh api repos/encode/httpx/contents/httpx/_client.py?ref=b5addb64f0 --jq .content | base64 -d > c.py; grep -n \\\"proxy\\\\|proxies\\\\|_mounts\\\\|def _transport_for_url\\\\|trust_env\\\" c.py | head -120\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; gh api \\\"repos/encode/httpx/contents/httpx/_client.py?ref=b5addb64f0\\\" --jq .content | base64 -d > c.py; grep -n \\\"proxy\\\\|proxies\\\\|_mounts\\\\|def _transport_for_url\\\\|trust_env\\\" c.py | head -120\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; sed -n 236,255p c.py; sed -n 683,718p c.py; sed -n 760,772p c.py; grep -n \\\"_transport_for_url\\\" c.py | head -3; grep -n \\\"def get_environment_proxies\\\" -A45 <(gh api \\\"repos/encode/httpx/contents/httpx/_utils.py?ref=b5addb64f0\\\" --jq .content | base64 -d)\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The `gh api repos/encode/httpx/commits/b5addb64f0 --jq .sha` call confirmed the commit exists. It ran in parallel with a `find` for a local checkout, which found nothing. Fetching `_client.py` through `gh api contents?ref=<sha>`, decoding it with base64 and saving it to /tmp gave me a file pinned to the right commit. One `grep -n` for proxy, `_mounts` and `_transport_for_url` found every relevant line. A single `sed` and `grep -A45` call then showed the code around those lines and `get_environment_proxies`.\n\n2. **Did not help:** The first `gh api` call failed because zsh treated the unquoted `?ref=` as a glob. The `find` for a local checkout was wasted, since none existed. I never opened `URLPattern` in `_utils.py`, so its matching and sort-order behaviour is unverified. I also didn't check `_send_single_request` directly. I only saw the `_transport_for_url` call site at line 1005 in a grep result.\n\n3. **Next time:** Quote the URLs from the start. Skip the local `find` when the task names a public repo. Fetch the `URLPattern` class in the same call as `_utils.py`, so the answer doesn't depend on inference.\n\n4. **Confidence:** High on the core flow: proxy map, `_mounts`, and the choice in `_transport_for_url`. I saw that code and its line numbers directly. Medium on the sort-order claim, which I marked as inferred in my answer.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1320,
+      "cache_read_input_tokens": 9358,
+      "output_tokens": 1,
+      "context_tokens": 10680,
+      "total_tokens": 10681,
+      "first_request_context": 10680,
+      "fixed_overhead_tokens": 10680,
+      "research_tokens": 1,
+      "max_request_context": 10680
+    },
+    "cost_usd": 0.06485160000000001,
+    "toolCallsAttempted": 0
+  }
+}

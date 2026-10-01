@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getNativeContractFingerprint } from '@octocodeai/config/schema';
 import { createNativeMcp } from '../../src/native/index.js';
+import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 class FakeRuntime {
-  readonly abiVersion = 2;
+  readonly abiVersion = NATIVE_ABI_VERSION;
   closed = false;
 
   constructor(private readonly fingerprint: string) {}
@@ -17,6 +18,10 @@ class FakeRuntime {
 
   cancel() {
     return true;
+  }
+
+  normalizeInput(_tool: string, input: unknown) {
+    return input;
   }
 
   async executeMcp() {

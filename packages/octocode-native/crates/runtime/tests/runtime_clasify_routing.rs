@@ -273,3 +273,35 @@ async fn a_missing_file_resource_is_not_found_like_its_read() {
     assert!(mixed.failure.is_none(), "{}", mixed.structured_content);
     runtime.close().await;
 }
+
+/// A context tool this runtime does not enable (astTopology with beta off) is
+/// rejected at validation, like MCP's availability-scoped schema, naming the
+/// gate that enables it and the context tools that are enabled.
+#[tokio::test]
+async fn a_disabled_context_tool_is_rejected_at_validation_naming_its_gate() {
+    let server = provider(0).await;
+    let workspace = Workspace::new();
+    let file = steps(&workspace);
+    let runtime = runtime(&workspace, &server);
+    let input = json!({
+        "reasoning":"Rank dependents.","goal":"Which modules import steps.",
+        "resources":[{"id":"deps","context":{"tool":"astTopology","query":{
+            "analysis":"dependents","file":file
+        }}}],
+        "questions":[{"id":"t","type":"noul","instructions":"Is this relevant?"}]
+    });
+    let error = runtime
+        .execute("disabled-context".into(), "clasify".into(), input)
+        .await
+        .expect_err("a disabled context tool fails validation");
+    assert_eq!(error.code, "invalidInput", "{error:?}");
+    let issues = error.validation_issues.clone().unwrap_or_default();
+    let issue = issues
+        .iter()
+        .find(|issue| issue.path.join(".") == "resources.0.context.tool")
+        .unwrap_or_else(|| panic!("{error:?}"));
+    assert!(issue.message.contains("OCTOCODE_BETA"), "{}", issue.message);
+    assert!(issue.message.contains("localFetch"), "{}", issue.message);
+    assert!(!issue.message.contains("astRewrite"), "{}", issue.message);
+    runtime.close().await;
+}

@@ -10,9 +10,10 @@
 //! the only place it shows up as pure-Rust latency.
 
 use std::hint::black_box;
+use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use octocode_engine::portable::structural_search_detailed;
+use octocode_engine::portable::{extract_declarations, structural_search_detailed};
 
 /// Build a realistic TypeScript module of roughly `blocks` service methods,
 /// each with a `console.log(...)` call site the pattern will match, plus enough
@@ -67,5 +68,35 @@ fn bench_structural_search(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_structural_search);
+fn bench_exported_declarations(c: &mut Criterion) {
+    let mut group = c.benchmark_group("declaration_exports");
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    for count in [1_000, 20_000] {
+        let source = (0..count)
+            .map(|i| format!("export function fn{i}(value: number) {{ return value + {i}; }}\n"))
+            .collect::<String>();
+        group.throughput(Throughput::Elements(count));
+        group.bench_with_input(BenchmarkId::from_parameter(count), &source, |b, source| {
+            b.iter(|| {
+                let result = extract_declarations(black_box(source), "exports.ts")
+                    .expect("valid exported declarations");
+                let facts: serde_json::Value = serde_json::from_str(&result).expect("facts");
+                assert_eq!(
+                    facts["declarations"].as_array().unwrap().len(),
+                    count as usize
+                );
+                black_box(result)
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_structural_search,
+    bench_exported_declarations
+);
 criterion_main!(benches);

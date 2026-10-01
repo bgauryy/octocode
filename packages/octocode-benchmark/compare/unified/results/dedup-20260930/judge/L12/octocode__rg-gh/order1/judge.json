@@ -1,0 +1,96 @@
+{
+  "qid": "L12",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "68c62e2894a9d36b9eae2bfe7b88eda5c5a620123fdd709a5a72de75cd8ed026",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on the push side, run loop, cap, budget, yield exclusion and both resets. Fact 6 is only partly covered: it names config.disable_lifo_slot but not the Builder option, its unstable gating or the Core initialisation. The 128 budget is not mentioned. The schedule_task line range is slightly off."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with precise citations: 122, 269, 297-298, 479-481, 1392, 1398-1406, 1414 and builder.rs:131/1425. Correctly says the slot is not stealable. Misses the 128 budget and the cfg_unstable gating, which are minor."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on the push side, run loop, cap, budget, yield exclusion and both resets. Fact 6 is only partly covered: it names config.disable_lifo_slot but not the Builder option, its unstable gating or the Core initialisation. The 128 budget is not mentioned. The schedule_task line range is slightly off."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with precise citations: 122, 269, 297-298, 479-481, 1392, 1398-1406, 1414 and builder.rs:131/1425. Correctly says the slot is not stealable. Misses the 128 budget and the cfg_unstable gating, which are minor."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1150034,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10538,
+    "cache_read_input_tokens": 13117,
+    "output_tokens": 13,
+    "context_tokens": 23659,
+    "total_tokens": 23672,
+    "first_request_context": 10492,
+    "fixed_overhead_tokens": 20984,
+    "research_tokens": 2688,
+    "max_request_context": 13167
+  },
+  "timedOut": false
+}

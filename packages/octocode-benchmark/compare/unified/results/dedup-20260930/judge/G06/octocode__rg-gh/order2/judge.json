@@ -1,0 +1,86 @@
+{
+  "qid": "G06",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "3484cbe4a19a1ff0545ab3348858b36771bcc6af49cd5413d7af234001891181",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3 (partial: sort criteria not stated)"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate env-proxy and NO_PROXY handling with correct citations; mounts/sort/first-match correct; lacks URLPattern matching/priority details and Proxy/HTTPTransport scheme mapping, with honest caveats."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3 (partial)",
+        "2 (minimal: None = NO_PROXY bypass)"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct but shallow; did not read get_environment_proxies or URLPattern; line citations partly approximate."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3 (partial: sort criteria not stated)"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate env-proxy and NO_PROXY handling with correct citations; mounts/sort/first-match correct; lacks URLPattern matching/priority details and Proxy/HTTPTransport scheme mapping, with honest caveats."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3 (partial)",
+        "2 (minimal: None = NO_PROXY bypass)"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct but shallow; did not read get_environment_proxies or URLPattern; line citations partly approximate."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1165544,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10911,
+    "cache_read_input_tokens": 12752,
+    "output_tokens": 6,
+    "context_tokens": 23667,
+    "total_tokens": 23673,
+    "first_request_context": 10127,
+    "fixed_overhead_tokens": 20254,
+    "research_tokens": 3419,
+    "max_request_context": 13540
+  },
+  "timedOut": false
+}

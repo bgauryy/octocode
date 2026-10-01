@@ -6,19 +6,25 @@
 //   node reflect.mjs --run-id <id> [--model sonnet]
 import fs from 'node:fs';
 import path from 'node:path';
-import { RESULTS_DIR, commonFlags, freshCwd, loadWorkers, parseArgs, parseStream, runClaude, tokenAccounting } from './lib.mjs';
+import { RESULTS_DIR, REPO_ROOT, commonFlags, freshCwd, loadWorkers, parseArgs, parseStream, runClaude, tokenAccounting, readJson } from './lib.mjs';
+import { solverBoundary, evaluatorCredentials } from './isolation.mjs';
 
 const args = parseArgs(process.argv.slice(2), { model: 'sonnet' });
-if (!args['run-id']) throw new Error('--run-id is required');
+if (!/^[\w-]+$/.test(String(args['run-id'] ?? ''))) throw new Error('valid --run-id is required');
+if (!String(args.model).startsWith('claude-')) throw new Error('concrete --model is required');
 const runDir = path.join(RESULTS_DIR, String(args['run-id']));
 const runsDir = path.join(runDir, 'runs');
+const manifest = readJson(path.join(runDir, 'manifest.json'));
+const credentials = evaluatorCredentials();
 
-for (const worker of loadWorkers('all')) {
+for (const worker of loadWorkers(manifest.workers.join(','))) {
   const notes = [];
-  for (const qid of fs.existsSync(runsDir) ? fs.readdirSync(runsDir).sort() : []) {
+  for (const qid of manifest.questionIds) {
     const p = path.join(runsDir, qid, worker.id, 'run.json');
-    if (!fs.existsSync(p)) continue;
-    const text = JSON.parse(fs.readFileSync(p, 'utf8')).reflection?.text?.trim();
+    if (!fs.existsSync(p)) throw new Error(`missing reflection input ${qid}/${worker.id}`);
+    const record = readJson(p);
+    if (!record.valid || !record.reflection?.valid) throw new Error(`invalid reflection input ${qid}/${worker.id}`);
+    const text = record.reflection.text?.trim();
     if (text) notes.push({ qid, text });
   }
   if (!notes.length) { console.log(`${worker.id}: no reflections`); continue; }
@@ -38,13 +44,18 @@ Only use what the reflections say; do not invent results.
 ${raw}
 </reflections>`;
   const cwd = freshCwd(`reflect-${worker.id}`);
-  const res = await runClaude({
-    args: ['-p', prompt, ...commonFlags({ model: String(args.model), maxTurns: 1 }), '--append-system-prompt-file', worker.docPath, '--strict-mcp-config', '--tools', ''],
-    cwd, timeoutMs: 10 * 60_000, streamPath: path.join(outDir, 'synthesis.stream.jsonl'),
-  });
-  fs.rmSync(cwd, { recursive: true, force: true });
+  let res, boundary;
+  try {
+    boundary = await solverBoundary({ cwd, corpus: [], repoRoot: REPO_ROOT, ...credentials });
+    const doc = path.join(cwd, 'WORKER.md'); fs.copyFileSync(worker.docPath, doc);
+    res = await runClaude({
+      args: ['-p', prompt, ...commonFlags({ model: String(args.model), maxTurns: 2 }), '--append-system-prompt-file', doc, '--strict-mcp-config', '--tools', ''],
+      cwd, timeoutMs: 10 * 60_000, streamPath: path.join(outDir, 'synthesis.stream.jsonl'), env: boundary.env, sandboxProfile: boundary.sandboxProfile,
+    });
+  } finally { await boundary?.close(); fs.rmSync(cwd, { recursive: true, force: true }); }
   const m = parseStream(res.stream);
+  if (res.exitCode !== 0 || res.signal || res.timedOut || m.isError || !m.costVerified || m.resultSubtype !== 'success' || m.toolCalls.length || !tokenAccounting(m).verified) throw new Error(`invalid reflection synthesis ${worker.id}`);
   fs.writeFileSync(path.join(outDir, 'REFLECT.md'), `# ${worker.id}: reflection after ${notes.length} questions\n\n${m.answer}\n\n---\n\n# Per-question reflections\n\n${raw}\n`);
-  fs.writeFileSync(path.join(outDir, 'synthesis.json'), JSON.stringify({ tokens: tokenAccounting(m.perRequest), cost_usd: m.total_cost_usd }, null, 1));
+  fs.writeFileSync(path.join(outDir, 'synthesis.json'), JSON.stringify({ tokens: tokenAccounting(m), cost_usd: m.total_cost_usd, costVerified: m.costVerified }, null, 1));
   console.log(`${worker.id}: REFLECT.md from ${notes.length} reflections ($${m.total_cost_usd.toFixed(3)})`);
 }

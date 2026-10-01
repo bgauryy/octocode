@@ -485,6 +485,7 @@
           "repo": "octocode",
           "concise": true,
           "pageSize": 5,
+          "page": 1,
           "operation": "pullRequest"
         }
       ]
@@ -519,6 +520,7 @@
           ],
           "state": "open",
           "pageSize": 5,
+          "page": 1,
           "operation": "issue"
         }
       ]
@@ -577,6 +579,7 @@
             "schema"
           ],
           "pageSize": 30,
+          "page": 1,
           "operation": "pullRequest"
         }
       ]
@@ -602,6 +605,7 @@
           "owner": "o",
           "repo": "r",
           "pageSize": 30,
+          "page": 1,
           "operation": "issue"
         }
       ]
@@ -1143,6 +1147,7 @@
           "searchText": "buildDirectToolCommandPatterns",
           "path": "/ABS/repo/src",
           "caseMode": "smart",
+          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -1174,6 +1179,7 @@
           "searchText": "toolSchemas",
           "path": ".",
           "caseMode": "smart",
+          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -1205,7 +1211,8 @@
           "operation": "tree",
           "path": "/ABS/repo",
           "maxDepth": 1,
-          "page": 1
+          "page": 1,
+          "pageSize": 100
         }
       ]
     }
@@ -1236,7 +1243,8 @@
           ],
           "detail": "basic",
           "sort": "modified",
-          "page": 1
+          "page": 1,
+          "pageSize": 100
         }
       ]
     }
@@ -1261,7 +1269,8 @@
           "operation": "tree",
           "path": ".",
           "maxDepth": 1,
-          "page": 1
+          "page": 1,
+          "pageSize": 100
         }
       ]
     }
@@ -1292,7 +1301,8 @@
           ],
           "detail": "basic",
           "sort": "modified",
-          "page": 1
+          "page": 1,
+          "pageSize": 100
         }
       ]
     }
@@ -1349,7 +1359,10 @@
           "page": 1,
           "operation": "match",
           "sort": "path",
+          "maxMatchesPerFile": 100,
+          "maxFiles": 2000,
           "resultView": "content",
+          "pageSize": 20,
           "pattern": "eval($X)"
         }
       ]
@@ -1405,7 +1418,10 @@
           "page": 1,
           "operation": "match",
           "sort": "path",
+          "maxMatchesPerFile": 100,
+          "maxFiles": 2000,
           "resultView": "content",
+          "pageSize": 20,
           "pattern": "console.log($A)"
         }
       ]
@@ -1482,6 +1498,8 @@
           "path": "/ABS/repo",
           "limit": 20,
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "includeTests": true,
           "analysis": "deadCode"
         }
@@ -1508,6 +1526,8 @@
           "path": "/ABS/repo",
           "limit": 20,
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "analysis": "cycles"
         }
       ]
@@ -1533,6 +1553,8 @@
           "debug": false,
           "path": "/ABS/repo",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "file": "src/index.ts",
           "depth": 2,
           "analysis": "dependencies"
@@ -1560,6 +1582,8 @@
           "debug": false,
           "path": "/ABS/repo",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "file": "src/index.ts",
           "depth": 2,
           "analysis": "dependents"
@@ -1587,6 +1611,8 @@
           "debug": false,
           "path": "/ABS/repo",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "file": "src/index.ts",
           "target": "src/responses.ts",
           "analysis": "path"
@@ -1614,6 +1640,8 @@
           "path": "/ABS/repo",
           "limit": 20,
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "includeTests": true,
           "analysis": "reachability"
         }
@@ -1639,6 +1667,8 @@
           "debug": false,
           "path": ".",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "file": "src/index.ts",
           "depth": 1,
           "analysis": "dependencies"
@@ -1665,6 +1695,8 @@
           "debug": false,
           "path": ".",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "file": "src/index.ts",
           "depth": 1,
           "analysis": "dependents"
@@ -1692,6 +1724,8 @@
           "debug": false,
           "path": ".",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "file": "src/index.ts",
           "target": "src/utils.ts",
           "analysis": "path"
@@ -1717,6 +1751,8 @@
           "debug": false,
           "path": ".",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "analysis": "cycles"
         }
       ]
@@ -1740,6 +1776,8 @@
           "debug": false,
           "path": ".",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "includeTests": true,
           "analysis": "reachability"
         }
@@ -1764,6 +1802,8 @@
           "debug": false,
           "path": ".",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "includeTests": true,
           "analysis": "deadCode"
         }
@@ -1789,6 +1829,8 @@
           "debug": false,
           "path": ".",
           "page": 1,
+          "pageSize": 50,
+          "diagnosticPageSize": 25,
           "baseline": "../baseline",
           "analysis": "drift"
         }
@@ -2065,7 +2107,8 @@
           "lineHint": 58,
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2095,7 +2138,8 @@
           "lineHint": 10,
           "orderHint": 0,
           "includeDeclaration": false,
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2118,7 +2162,8 @@
           "debug": false,
           "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
           "operation": "documentSymbols",
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2141,7 +2186,8 @@
           "debug": false,
           "uri": "/ABS/repo/src/index.ts",
           "operation": "diagnostic",
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2170,7 +2216,8 @@
           "lineHint": 1,
           "orderHint": 0,
           "includeDeclaration": true,
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2202,7 +2249,8 @@
             "character": 0
           },
           "includeDeclaration": true,
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2225,7 +2273,8 @@
           "debug": false,
           "uri": "src/index.ts",
           "operation": "documentSymbols",
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2250,7 +2299,8 @@
           "uri": "src/index.ts",
           "operation": "workspaceSymbol",
           "symbolName": "Schema",
-          "page": 1
+          "page": 1,
+          "pageSize": 40
         }
       ]
     }
@@ -2275,6 +2325,7 @@
           "operation": "workspaceSymbol",
           "symbolName": "Schema",
           "page": 1,
+          "pageSize": 40,
           "workspaceRoot": "."
         }
       ]
@@ -2668,6 +2719,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
+          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2701,6 +2753,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
+          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2733,6 +2786,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
+          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
@@ -2764,6 +2818,7 @@
           "searchText": "x",
           "path": "/r",
           "caseMode": "smart",
+          "maxMatchesPerFile": 10,
           "multiline": "off",
           "sort": "traversal",
           "matchPage": 1,
@@ -3011,5 +3066,414 @@
       "file": "src/a.ts"
     },
     "accepted": false
+  },
+  {
+    "id": "clasify.cell-limit",
+    "tool": "clasify",
+    "input": {
+      "goal": "Exercise the clasify parity fixture.",
+      "reasoning": "Freeze the rejection wording native repeats.",
+      "resources": [
+        {
+          "id": "r0",
+          "context": {
+            "value": "v0"
+          }
+        },
+        {
+          "id": "r1",
+          "context": {
+            "value": "v1"
+          }
+        },
+        {
+          "id": "r2",
+          "context": {
+            "value": "v2"
+          }
+        },
+        {
+          "id": "r3",
+          "context": {
+            "value": "v3"
+          }
+        },
+        {
+          "id": "r4",
+          "context": {
+            "value": "v4"
+          }
+        },
+        {
+          "id": "r5",
+          "context": {
+            "value": "v5"
+          }
+        }
+      ],
+      "questions": [
+        {
+          "id": "q0",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q1",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q2",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q3",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q4",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        }
+      ]
+    },
+    "accepted": false,
+    "messages": [
+      "Expanded resources × questions produces 30 cells; maximum is 25 (a fileChunks resource counts as 5 resources)."
+    ]
+  },
+  {
+    "id": "clasify.cell-limit-file-chunks",
+    "tool": "clasify",
+    "input": {
+      "goal": "Exercise the clasify parity fixture.",
+      "reasoning": "Freeze the rejection wording native repeats.",
+      "resources": [
+        {
+          "id": "hits",
+          "context": {
+            "tool": "localSearch",
+            "query": {
+              "goal": "Find candidates.",
+              "reasoning": "Exercise the fixture.",
+              "path": "/r",
+              "searchText": "x"
+            },
+            "candidateEvidence": "fileChunks"
+          }
+        }
+      ],
+      "questions": [
+        {
+          "id": "q0",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q1",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q2",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q3",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q4",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        },
+        {
+          "id": "q5",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        }
+      ]
+    },
+    "accepted": false,
+    "messages": [
+      "Expanded resources × questions produces 30 cells; maximum is 25 (a fileChunks resource counts as 5 resources)."
+    ]
+  },
+  {
+    "id": "clasify.total-cell-limit",
+    "tool": "clasify",
+    "input": {
+      "queries": [
+        {
+          "id": "a",
+          "goal": "Exercise the clasify parity fixture.",
+          "reasoning": "Freeze the rejection wording native repeats.",
+          "resources": [
+            {
+              "id": "r0",
+              "context": {
+                "value": "v0"
+              }
+            },
+            {
+              "id": "r1",
+              "context": {
+                "value": "v1"
+              }
+            },
+            {
+              "id": "r2",
+              "context": {
+                "value": "v2"
+              }
+            },
+            {
+              "id": "r3",
+              "context": {
+                "value": "v3"
+              }
+            },
+            {
+              "id": "r4",
+              "context": {
+                "value": "v4"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "id": "q0",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q1",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q2",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q3",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q4",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            }
+          ]
+        },
+        {
+          "id": "b",
+          "goal": "Exercise the clasify parity fixture.",
+          "reasoning": "Freeze the rejection wording native repeats.",
+          "resources": [
+            {
+              "id": "r0",
+              "context": {
+                "value": "v0"
+              }
+            },
+            {
+              "id": "r1",
+              "context": {
+                "value": "v1"
+              }
+            },
+            {
+              "id": "r2",
+              "context": {
+                "value": "v2"
+              }
+            },
+            {
+              "id": "r3",
+              "context": {
+                "value": "v3"
+              }
+            },
+            {
+              "id": "r4",
+              "context": {
+                "value": "v4"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "id": "q0",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q1",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q2",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q3",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q4",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            }
+          ]
+        },
+        {
+          "id": "c",
+          "goal": "Exercise the clasify parity fixture.",
+          "reasoning": "Freeze the rejection wording native repeats.",
+          "resources": [
+            {
+              "id": "r0",
+              "context": {
+                "value": "v0"
+              }
+            },
+            {
+              "id": "r1",
+              "context": {
+                "value": "v1"
+              }
+            },
+            {
+              "id": "r2",
+              "context": {
+                "value": "v2"
+              }
+            },
+            {
+              "id": "r3",
+              "context": {
+                "value": "v3"
+              }
+            },
+            {
+              "id": "r4",
+              "context": {
+                "value": "v4"
+              }
+            }
+          ],
+          "questions": [
+            {
+              "id": "q0",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q1",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q2",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q3",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            },
+            {
+              "id": "q4",
+              "type": "noul",
+              "instructions": "Is this relevant?"
+            }
+          ]
+        }
+      ]
+    },
+    "accepted": false,
+    "messages": [
+      "Expanded matrices produce 75 cells in total; maximum is 50 (a fileChunks resource counts as 5 resources)."
+    ]
+  },
+  {
+    "id": "clasify.prefilter-tool",
+    "tool": "clasify",
+    "input": {
+      "goal": "Exercise the clasify parity fixture.",
+      "reasoning": "Freeze the rejection wording native repeats.",
+      "resources": [
+        {
+          "id": "hits",
+          "context": {
+            "tool": "localSearch",
+            "query": {
+              "goal": "Find candidates.",
+              "reasoning": "Exercise the fixture.",
+              "path": "/r",
+              "searchText": "x"
+            }
+          },
+          "prefilter": [
+            "x"
+          ]
+        }
+      ],
+      "questions": [
+        {
+          "id": "q0",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        }
+      ]
+    },
+    "accepted": false,
+    "messages": [
+      "prefilter applies only to localFetch or ghGetFileContent file reads; remove it or narrow the search itself."
+    ]
+  },
+  {
+    "id": "clasify.candidate-evidence-tool",
+    "tool": "clasify",
+    "input": {
+      "goal": "Exercise the clasify parity fixture.",
+      "reasoning": "Freeze the rejection wording native repeats.",
+      "resources": [
+        {
+          "id": "file",
+          "context": {
+            "tool": "localFetch",
+            "query": {
+              "goal": "Read the file.",
+              "reasoning": "Exercise the fixture.",
+              "path": "/r/a.ts"
+            },
+            "candidateEvidence": "search"
+          }
+        }
+      ],
+      "questions": [
+        {
+          "id": "q0",
+          "type": "noul",
+          "instructions": "Is this relevant?"
+        }
+      ]
+    },
+    "accepted": false,
+    "messages": [
+      "candidateEvidence requires localSearch or ghSearchCode."
+    ]
   }
 ]

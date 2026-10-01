@@ -1,3 +1,4 @@
+use crate::tools::id::ToolId;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
@@ -54,7 +55,7 @@ pub fn execute_syntax(
         restart["nodeOffset"] = json!(0);
         restart.as_object_mut().map(|m| m.remove("snapshot"));
         return Ok(
-            json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false,"next":{"restart":{"tool":"astSearch","query":restart}}}),
+            json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false,"next":{"restart":{"tool":ToolId::AstSearch.as_str(),"query":restart}}}),
         );
     }
     cancel.check().map_err(super::cancelled)?;
@@ -109,7 +110,8 @@ pub fn execute_syntax(
         }
         nq["snapshot"] = json!(snapshot);
         nq["nodeOffset"] = json!(next);
-        out["next"] = json!({"nextPage":{"tool":"astSearch","query":nq,"confidence":"exact"}})
+        out["next"] =
+            json!({"nextPage":{"tool":ToolId::AstSearch.as_str(),"query":nq,"confidence":"exact"}})
     } else if r.status == "partial" {
         out["terminalLimit"] = json!(true)
     }

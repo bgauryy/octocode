@@ -13,6 +13,8 @@ It is the only owner of Octocode home-directory resolution and `.env` or
 - `propagateOctocodeEnv(options)` applies trusted global and project settings.
 - `loadOctocoderc(home?)` reads the global `.octocoderc`; `loadOctocodercLayers({ home?, cwd?, env? })` returns `[workspace, global]` for `resolveConfigFields(layers, env)` (per-field precedence). Broken files warn on stderr with their path and are ignored; nothing throws.
 - `PROTECTED_KEYS` identifies values that project configuration cannot replace.
+- `configFieldEnvNames(path)` lists a setting's env names, highest priority first; `ENV_TOKEN_VARS` lists GitHub token names.
+- `contractDriftAllowed(env, { bundled })` and `contractDriftMessage(core, native)` are the shared fail-closed core/native fingerprint gate (`devOverridesAllowed` covers every dev-only override); `INTERACTIVE_EXECUTION_TIMEOUT_SECS` is the CLI/MCP per-request budget.
 
 Do not reimplement these rules in a consuming package.
 

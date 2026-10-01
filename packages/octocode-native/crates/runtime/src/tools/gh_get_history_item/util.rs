@@ -1,5 +1,6 @@
 //! Pure-value utility helpers shared across history-item shaping functions.
 use super::{HistoryItemRequest, ItemOperation};
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
 
@@ -129,9 +130,10 @@ pub(super) fn paginate_text(
 ) -> (String, Value) {
     let total = value.chars().count();
     let start = offset.unwrap_or(0).min(total);
-    let len = length
-        .unwrap_or(super::DEFAULT_TEXT_WINDOW)
-        .clamp(1, 50_000);
+    let len = length.unwrap_or(super::DEFAULT_TEXT_WINDOW).clamp(
+        1,
+        crate::contracts::query_schema_max(ToolId::GhGetHistoryItem, None, "charLength"),
+    );
     let end = (start + len).min(total);
     let text = value.chars().skip(start).take(end - start).collect();
     (
@@ -198,6 +200,19 @@ mod tests {
         let (value, page) = paginate_text("a🦀b", Some(1), Some(1));
         assert_eq!(value, "🦀");
         assert_eq!(page["nextCharOffset"], 2);
+    }
+
+    #[test]
+    fn text_window_honours_the_contract_char_length_maximum() {
+        // Contract charLength maximum is 100000; a valid request up to it is
+        // served whole rather than silently cut to a smaller native cap.
+        let body = "x".repeat(120_000);
+        let (value, page) = paginate_text(&body, None, Some(100_000));
+        assert_eq!(value.chars().count(), 100_000);
+        assert_eq!(page["charLength"], 100_000);
+        assert_eq!(page["nextCharOffset"], 100_000);
+        let (clamped, _) = paginate_text(&body, None, Some(110_000));
+        assert_eq!(clamped.chars().count(), 100_000);
     }
 
     #[test]

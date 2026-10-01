@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use serde_json::{Map, Value};
 
 use crate::contracts::validate_query;
+use crate::tools::id::ToolId;
 
 /// Compacts every `{tool, query}` continuation nested in `value`.
 pub fn compact_continuations(value: &mut Value) {
@@ -194,7 +195,7 @@ fn compact_next(next: &mut Value, memo: &mut Memo) {
     if let Some(map) = next.as_object_mut() {
         for (name, continuation) in map.iter_mut() {
             // clasify's own `next.clasify` is a bare matrix, not `{tool, query}`.
-            if !compact_continuation(continuation, memo) && name == "clasify" {
+            if !compact_continuation(continuation, memo) && name == ToolId::Clasify.as_str() {
                 compact_clasify_contexts(continuation, memo);
             }
         }
@@ -246,13 +247,13 @@ fn compact_query_or_envelope(tool: &str, query: &mut Value, memo: &mut Memo) {
     match query.get_mut("queries").and_then(Value::as_array_mut) {
         Some(queries) => queries.iter_mut().for_each(|row| {
             compact_query(tool, row, memo);
-            if tool == "clasify" {
+            if tool == ToolId::Clasify.as_str() {
                 compact_clasify_contexts(row, memo);
             }
         }),
         None => {
             compact_query(tool, query, memo);
-            if tool == "clasify" {
+            if tool == ToolId::Clasify.as_str() {
                 compact_clasify_contexts(query, memo);
             }
         }

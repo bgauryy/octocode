@@ -1,0 +1,98 @@
+{
+  "qid": "L02",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "91074abec10c0e8d97a7345357328b5ad367286507a7da99a8c660e0bcf7cb41",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All mechanics correct. The bulk_update caller is only guessed ('probably bulk_update'), and it never says only the updated fields are checked, so fact 2 is partial. Several line numbers are 3-5 lines off (test cited at 1293 vs 1296, generic-FK loop at 1312 vs 1317) but close enough."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct and has accurate line cites. Gives the bulk_create operation name, but the call at query.py:1042 is left unnamed as bulk_update, and there is no note that only the updated fields are checked, so fact 2 is partial. Leaves out the Expression condition in the re-assignment step (minor)."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All mechanics correct. The bulk_update caller is only guessed ('probably bulk_update'), and it never says only the updated fields are checked, so fact 2 is partial. Several line numbers are 3-5 lines off (test cited at 1293 vs 1296, generic-FK loop at 1312 vs 1317) but close enough."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct and has accurate line cites. Gives the bulk_create operation name, but the call at query.py:1042 is left unnamed as bulk_update, and there is no note that only the updated fields are checked, so fact 2 is partial. Leaves out the Expression condition in the re-assignment step (minor)."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.094422,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7744,
+    "cache_read_input_tokens": 11770,
+    "output_tokens": 20,
+    "context_tokens": 19518,
+    "total_tokens": 19538,
+    "first_request_context": 9145,
+    "fixed_overhead_tokens": 18290,
+    "research_tokens": 1248,
+    "max_request_context": 10373
+  },
+  "timedOut": false
+}

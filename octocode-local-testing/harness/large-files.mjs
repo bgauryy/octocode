@@ -123,13 +123,15 @@ for (const [label, query] of [
   check('localSearch 1.9MB single line: hit clipped to window', values.length === 1 && values[0].value.length <= 400, `len=${values[0]?.value.length} ${e.bytes}B`);
 }
 {
-  const first = await call('localSearch', { path: REPOS, searchText: 'TODO', resultView: 'files', pageSize: 100, debug: true /* filesMatched */ }, {}, 'grep repos files');
-  bounded(first, 'localSearch all repos files page 1');
+  const first = await call('localSearch', { path: REPOS, searchText: 'TODO', resultView: 'files', pageSize: 10, noIgnore: true, include: ['rust/tokio/src/**/*.rs'], excludeDir: ['.git', 'node_modules', 'target', 'build', 'dist', 'out'], debug: true /* filesMatched */ }, {}, 'grep repos files');
+  bounded(first, 'localSearch ignored Rust corpus source files page 1');
   const pages = await walk(first, 'nextPage', 200, 'grep repos files');
   const files = pages.flatMap(p => (rowData(p)?.files ?? []).map(o => path.resolve(p.sc?.base ?? '/', o.path)));
   const unique = new Set(files);
   const reported = collect(rowData(first), o => typeof o.filesMatched === 'number')[0]?.filesMatched;
-  check(`localSearch 810MB of repos: ${pages.length} file pages, no duplicates`, unique.size === files.length, `files=${files.length} unique=${unique.size} filesMatched=${reported} ${first.ms}ms`);
+  const known = R('rust/tokio/src/fs/file/tests.rs');
+  const complete = pages.length >= 2 && files.length > 0 && unique.has(known) && unique.size === files.length && files.length === reported && pages.every(p => !p.isError && !p.rowErrors) && !hint(pages.at(-1), 'nextPage') && rowData(first)?.stats?.capped === false;
+  check(`localSearch ignored Rust corpus source: ${pages.length} pages, complete and duplicate-free`, complete, `known=${unique.has(known)} files=${files.length} unique=${unique.size} filesMatched=${reported} ${first.ms}ms`);
 }
 
 // ── astSearch on huge files ────────────────────────────────────────────────
@@ -183,7 +185,7 @@ for (const [label, query] of [
 
 // ── structureSearch over the whole clone set ───────────────────────────────
 {
-  const first = await call('structureSearch', { operation: 'files', path: REPOS, extensions: ['ts', 'go', 'py', 'rs', 'java', 'c', 'cpp', 'hpp', 'cs', 'scala', 'asm'], detail: 'full', sort: 'size', limit: 20 }, {}, 'biggest files');
+  const first = await call('structureSearch', { operation: 'files', path: REPOS, extensions: ['ts', 'go', 'py', 'rs', 'java', 'c', 'cpp', 'hpp', 'cs', 'scala', 'asm'], detail: 'full', sort: 'size', limit: 20, defaultExcludes: false, excludeDir: ['.git', 'node_modules', 'target'] }, {}, 'biggest files'); // repos/* is gitignored
   bounded(first, 'structureSearch biggest files');
   const files = collect(rowData(first), o => typeof o.path === 'string' && typeof o.size === 'number');
   const sorted = files.every((f, i) => i === 0 || files[i - 1].size >= f.size);

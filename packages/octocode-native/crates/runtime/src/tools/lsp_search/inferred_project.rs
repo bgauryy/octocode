@@ -15,6 +15,7 @@
 use super::LspSearchQuery;
 use super::failure::push_reason;
 use super::importers::{MAX_CANDIDATE_FILES, SCAN_CAPPED, SCAN_COMPLETE};
+use crate::tools::id::ToolId;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -130,7 +131,7 @@ fn flag_partial(
         Some(name) => {
             push_reason(row, reason, &[warning.to_owned()]);
             row["next"]["textSearch"] = json!({
-                "tool": "localSearch",
+                "tool": ToolId::LocalSearch.as_str(),
                 "confidence": "medium",
                 "why": "Find textual uses the language server's project cannot see.",
                 "query": {

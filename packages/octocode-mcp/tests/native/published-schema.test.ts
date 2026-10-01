@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
 import { publishedInputSchema } from '@octocodeai/config/mcp';
 import { toolInputSchema } from '../../src/native/index.js';
+import { wrapBareQuery } from './wrapBareQuery.js';
 
 type Standard = {
   '~standard': {
@@ -16,7 +17,7 @@ describe('advertised input schema', () => {
     '%s advertises core’s published view but validates canonically',
     async name => {
       const definition = DIRECT_TOOL_DEFINITIONS.find(d => d.name === name)!;
-      const schema = toolInputSchema(definition) as Standard;
+      const schema = toolInputSchema(definition, wrapBareQuery) as Standard;
       const canonical = z.toJSONSchema(definition.inputSchema, {
         io: 'input',
         unrepresentable: 'any',
@@ -31,7 +32,7 @@ describe('advertised input schema', () => {
     const definition = DIRECT_TOOL_DEFINITIONS.find(
       d => d.name === 'localSearch'
     )!;
-    const schema = toolInputSchema(definition) as Standard;
+    const schema = toolInputSchema(definition, wrapBareQuery) as Standard;
     const result = await schema['~standard'].validate({
       queries: [{ searchText: 'x', path: '.', pageSize: 5000 }],
     });

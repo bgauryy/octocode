@@ -8,6 +8,8 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::tools::id::ToolId;
+
 const MAX_TOKEN_BYTES: usize = 64 * 1024;
 #[cfg(test)]
 const TOKEN_LIFETIME: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
@@ -344,13 +346,17 @@ impl ReadCursor {
     /// Only localFetch / localSearch read cursors exist, and a localSearch
     /// cursor's snapshot is its source digest.
     fn checked(tool: String, query: Value, source_sha256: String) -> Result<Self, CursorError> {
-        if !matches!(tool.as_str(), "localFetch" | "localSearch")
-            || !query.is_object()
+        if !matches!(
+            ToolId::from_name(&tool),
+            Some(ToolId::LocalFetch | ToolId::LocalSearch)
+        ) || !query.is_object()
             || source_sha256.is_empty()
         {
             return Err(CursorError::Invalid);
         }
-        if tool == "localSearch" && query["snapshot"].as_str() != Some(&source_sha256) {
+        if tool == ToolId::LocalSearch.as_str()
+            && query["snapshot"].as_str() != Some(&source_sha256)
+        {
             return Err(CursorError::Invalid);
         }
         Ok(Self {
@@ -364,7 +370,7 @@ impl ReadCursor {
         &self,
         paths: &crate::policy::path::PathPolicy,
     ) -> Result<(), CursorError> {
-        if self.tool == "localSearch" {
+        if self.tool == ToolId::LocalSearch.as_str() {
             // localSearch validates its directory snapshot during execution.
             return Ok(());
         }

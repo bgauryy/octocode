@@ -1,0 +1,102 @@
+{
+  "qid": "L11",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "d81d5ae62bbb3fa11a4250d16f9d4e4dfd086f9187f199059e2c8dee4421f62b",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Cites harness.rs:508 for storing a poll panic as a JoinError; that line is cancel_task, and the poll-panic mapping is at harness.rs:546"
+      ],
+      "notes": "Flow is correct overall. It omits the coop budget check and the Stage enum definition, and it is shallow on the catch_unwind and panic mapping. One misattributed citation."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers every key fact, including the coop budget, the Stage enum, the vtable hop, the will_wake optimisation and the take_output panic, plus drop_join_handle_slow as a bonus. Citations are precise and checked. The harness.rs:508 citation points to the cancellation path rather than the poll-panic path at harness.rs:546, but it is described as cancellation, so it is acceptable."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Cites harness.rs:508 for storing a poll panic as a JoinError; that line is cancel_task, and the poll-panic mapping is at harness.rs:546"
+      ],
+      "notes": "Flow is correct overall. It omits the coop budget check and the Stage enum definition, and it is shallow on the catch_unwind and panic mapping. One misattributed citation."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers every key fact, including the coop budget, the Stage enum, the vtable hop, the will_wake optimisation and the take_output panic, plus drop_join_handle_slow as a bonus. Citations are precise and checked. The harness.rs:508 citation points to the cancellation path rather than the poll-panic path at harness.rs:546, but it is described as cancellation, so it is acceptable."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.160491,
+  "num_turns": 4,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 13529,
+    "cache_read_input_tokens": 40435,
+    "output_tokens": 23,
+    "context_tokens": 53972,
+    "total_tokens": 53995,
+    "first_request_context": 10448,
+    "fixed_overhead_tokens": 41792,
+    "research_tokens": 12203,
+    "max_request_context": 16158
+  },
+  "timedOut": false
+}

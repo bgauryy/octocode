@@ -1,0 +1,98 @@
+{
+  "qid": "G04",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "04118182b85dd996bbd77563c37d918e5aafcfbfe34055cbb1632e43317596e5",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on keyword/identifier checks, soft keyword exemption, explicit_name lower-case warning, expose_value=False paths, merged condition, _outside_click_stacklevel, 8.6.0. Misses --True/--None, hyphen/lowercase normalization and explicit-name override exemptions. No line numbers; cites PR/SHA only."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [
+        "'click.option(\"--x\", \"Foo_Bar\") warns because it names foo_bar rather than Foo_Bar' — in 8.x the name is kept as Foo_Bar; only 9.0 will lower-case it (ambiguous/misleading)"
+      ],
+      "notes": "Good examples (0foo, --0-file, --from, --True/--None, soft keywords) and migration guidance matching docs/upgrade-guides.md. Omits _outside_click_stacklevel helper. No line citations."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on keyword/identifier checks, soft keyword exemption, explicit_name lower-case warning, expose_value=False paths, merged condition, _outside_click_stacklevel, 8.6.0. Misses --True/--None, hyphen/lowercase normalization and explicit-name override exemptions. No line numbers; cites PR/SHA only."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [
+        "'click.option(\"--x\", \"Foo_Bar\") warns because it names foo_bar rather than Foo_Bar' — in 8.x the name is kept as Foo_Bar; only 9.0 will lower-case it (ambiguous/misleading)"
+      ],
+      "notes": "Good examples (0foo, --0-file, --from, --True/--None, soft keywords) and migration guidance matching docs/upgrade-guides.md. Omits _outside_click_stacklevel helper. No line citations."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.104588,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8672,
+    "cache_read_input_tokens": 22640,
+    "output_tokens": 28,
+    "context_tokens": 31318,
+    "total_tokens": 31346,
+    "first_request_context": 9812,
+    "fixed_overhead_tokens": 29436,
+    "research_tokens": 1910,
+    "max_request_context": 11301
+  },
+  "timedOut": false
+}

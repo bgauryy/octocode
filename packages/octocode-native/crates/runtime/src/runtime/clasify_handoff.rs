@@ -10,6 +10,7 @@
 //! candidates. Clasify stays the only semantic tool:
 //! this only shapes its request. Availability is not decided here; the
 //! cross-tool `next` filter drops the handoff when clasify is disabled.
+use crate::tools::id::ToolId;
 use serde_json::{Map, Value, json};
 
 /// Files a semantic search page must list before screening beats reading the
@@ -37,7 +38,7 @@ pub(super) fn row_queries<'a>(queries: &'a [Value], rejected: &[usize]) -> Vec<O
 }
 
 pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Value>]) {
-    if !matches!(tool, "ghSearchCode" | "localSearch") {
+    if !crate::tools::clasify::is_candidate_search_tool(tool) {
         return;
     }
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
@@ -59,8 +60,8 @@ pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Valu
             let next = data.entry("next").or_insert_with(|| json!({}));
             if let Some(next) = next.as_object_mut() {
                 next.insert(
-                    "clasify".into(),
-                    json!({"tool":"clasify","confidence":"medium","query":request}),
+                    ToolId::Clasify.as_str().into(),
+                    json!({"tool":ToolId::Clasify.as_str(),"confidence":"medium","query":request}),
                 );
             }
         }
@@ -96,7 +97,7 @@ fn literal_term(term: &str) -> bool {
 /// `localSearch` judges its `searchText` (a `wholeWord` search is an exact
 /// identifier); `ghSearchCode` judges its ANDed `keywords` as one phrase.
 fn semantic_search(tool: &str, query: &Value) -> bool {
-    if tool == "ghSearchCode" {
+    if tool == ToolId::GhSearchCode.as_str() {
         let words: Vec<&str> = query
             .get("keywords")
             .and_then(Value::as_array)
@@ -122,7 +123,17 @@ fn request(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value
     {
         return None;
     }
-    let goal: String = query.get("goal")?.as_str()?.chars().take(500).collect();
+    // The search brief becomes the matrix goal, cut to clasify's goal bound.
+    let goal_chars =
+        crate::contracts::query_schema_number(ToolId::Clasify, None, "goal", "maxLength")
+            .and_then(|length| usize::try_from(length).ok())
+            .unwrap_or(usize::MAX);
+    let goal: String = query
+        .get("goal")?
+        .as_str()?
+        .chars()
+        .take(goal_chars)
+        .collect();
     let files = data.get("files")?.as_array()?;
     if files.len() < WIDE_RESULT_FILES || !semantic_search(tool, query) {
         return None;
@@ -149,8 +160,9 @@ fn request(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value
     let mut context = json!({"tool": tool, "query": search});
     // Local reads are cheap and unmetered; GitHub hydration spends API budget
     // without changing the ranking (measured), so it screens snippets.
-    if tool == "localSearch" && !metadata_only {
-        context["candidateEvidence"] = json!("fileChunks");
+    if tool == ToolId::LocalSearch.as_str() && !metadata_only {
+        context["candidateEvidence"] =
+            json!(crate::tools::clasify::CandidateEvidence::FileChunks.to_string());
     }
     Some(json!({
         "goal": goal,

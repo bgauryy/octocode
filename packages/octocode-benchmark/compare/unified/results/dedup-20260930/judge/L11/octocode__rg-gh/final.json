@@ -1,0 +1,54 @@
+{
+  "qid": "L11",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 3,
+  "graderErrors": 0,
+  "tiebreak": true,
+  "orderSpread": {
+    "octocode": 3,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        7,
+        10,
+        9
+      ],
+      "wrongClaims": [
+        "Cites harness.rs:508 for storing a poll panic as a JoinError; that line is cancel_task, and the poll-panic mapping is at harness.rs:546",
+        "harness.rs:508 cited for panic storage is cancel_task (minor)",
+        "Cites harness.rs:508 for panic storage; the poll_future panic mapping is at 546 (508 is cancel_task) — minor citation imprecision"
+      ]
+    },
+    "rg-gh": {
+      "quality": 10,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        10,
+        10
+      ],
+      "wrongClaims": [
+        "harness.rs:508 cited for panic storage is actually cancel_task; poll panic mapping is at 546 (minor)"
+      ]
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.45922820000000003
+}

@@ -1,0 +1,7 @@
+1. **Helped:** My first Bash call combined `git rev-parse HEAD` with an `rg` for `on_commit|run_on_commit|savepoint_ids|commit_hooks` over `base.py` and `transaction.py`. It confirmed the pinned commit and located every storage, discard and run site in one pass. The second call printed line-numbered `sed` ranges of those sites, plus a repo-wide `rg` for `run_and_clear_commit_hooks`. That showed the method has one caller, in `set_autocommit`. Together the two calls were enough.
+
+2. **Did not help:** The `sed` ranges in the second call were guessed rather than targeted. They cut off the `savepoint_commit` and rollback branches in `Atomic.__exit__`, and the output had no line numbers. I then estimated some line numbers by counting (`rollback` at `:341`, `close` at `:347`, the `set_autocommit(True)` call at about `:317-318`). I flagged the estimates in my answer, but I should have verified them. The `sed` output also ran together with no separators, which made counting error-prone.
+
+3. **Next time:** I'd use `rg -n` with context, or `nl -ba | sed -n`, so every printed line carries its real number. I'd also grep `set_autocommit\(True\)` in `transaction.py` to pin the exact line.
+
+4. **Confidence:** High on the mechanism, because I read the code directly. Medium-high on the exact line numbers for `rollback`, `close` and the `Atomic.__exit__` call.

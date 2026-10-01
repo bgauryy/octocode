@@ -1,0 +1,100 @@
+{
+  "qid": "G03",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "d9e0ff550ceb1c098540798f452665e5658f2f193f0209b1aa5e0472d974c39d",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. It correctly says the old kRemoveClient closed clientTtl-evicted clients but didn't track them. It doesn't name the kOnDrain guard but states its effect. Citations are file names only, with no line numbers."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says clientTtl-evicted clients were removed by a bare splice and never closed; the old kRemoveClient did call client.close(() => {}) but didn't track the client",
+        "Says clientTtl eviction now calls kRetireClient directly; it still calls kRemoveClient, which hands off to kRetireClient (imprecise)"
+      ],
+      "notes": "Otherwise accurate and detailed, including the four tests. Citations are file names only, with no line numbers."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. It correctly says the old kRemoveClient closed clientTtl-evicted clients but didn't track them. It doesn't name the kOnDrain guard but states its effect. Citations are file names only, with no line numbers."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says clientTtl-evicted clients were removed by a bare splice and never closed; the old kRemoveClient did call client.close(() => {}) but didn't track the client",
+        "Says clientTtl eviction now calls kRetireClient directly; it still calls kRemoveClient, which hands off to kRetireClient (imprecise)"
+      ],
+      "notes": "Otherwise accurate and detailed, including the four tests. Citations are file names only, with no line numbers."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1483772,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 14395,
+    "cache_read_input_tokens": 12706,
+    "output_tokens": 12,
+    "context_tokens": 27105,
+    "total_tokens": 27117,
+    "first_request_context": 10081,
+    "fixed_overhead_tokens": 20162,
+    "research_tokens": 6955,
+    "max_request_context": 17024
+  },
+  "timedOut": false
+}

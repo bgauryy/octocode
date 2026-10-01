@@ -1,3 +1,4 @@
+use crate::tools::id::ToolId;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
@@ -23,9 +24,13 @@ mod staged;
 use raw::{RawByteRange, RawCapture, RawMatch, RawMetaVariables, RawPosition, RawRange};
 use staged::{StagedAnalyzer, StagedFacts, note_parses};
 
-const DEFAULT_MAX_FILES: usize = 2_000;
-const DEFAULT_MAX_MATCHES: usize = 10_000;
-const DEFAULT_PAGE_SIZE: usize = 100;
+/// Contract default of an omitted bound (validation normally stamps it); a
+/// contract without that default fails closed to the smallest bound.
+fn contract_default(field: &str) -> usize {
+    crate::contracts::query_schema_number(ToolId::AstRewrite, None, field, "default")
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(1)
+}
 const DEFAULT_MAX_PATCH_BYTES: usize = 512 * 1024;
 const MAX_FILE_BYTES: usize = 1_000_000;
 const JOURNAL_PREFIX: &str = ".octocode-ast-rewrite-journal-";
@@ -146,16 +151,16 @@ impl AstRewriteQuery {
         either_kind!(self, postconditions => postconditions.as_deref().map(Vec::as_slice))
     }
     pub fn max_files(&self) -> usize {
-        either_kind!(self, max_files => max_files.as_ref().map_or(DEFAULT_MAX_FILES, |n| usize_of(n.0)))
+        either_kind!(self, max_files => max_files.as_ref().map_or_else(|| contract_default("maxFiles"), |n| usize_of(n.0)))
     }
     pub fn max_matches(&self) -> usize {
-        either_kind!(self, max_matches => max_matches.as_ref().map_or(DEFAULT_MAX_MATCHES, |n| usize_of(n.0)))
+        either_kind!(self, max_matches => max_matches.as_ref().map_or_else(|| contract_default("maxMatches"), |n| usize_of(n.0)))
     }
     pub fn page(&self) -> usize {
-        either_kind!(self, page => page.as_ref().map_or(1, |n| usize_of(n.0)))
+        either_kind!(self, page => page.as_ref().map_or_else(|| contract_default("page"), |n| usize_of(n.0)))
     }
     pub fn page_size(&self) -> usize {
-        either_kind!(self, page_size => page_size.as_ref().map_or(DEFAULT_PAGE_SIZE, |n| usize_of(n.0)))
+        either_kind!(self, page_size => page_size.as_ref().map_or_else(|| contract_default("pageSize"), |n| usize_of(n.0)))
     }
     pub fn snapshot(&self) -> Option<&str> {
         either_kind!(self, snapshot => snapshot.as_ref().map(|snapshot| snapshot.0.as_str()))
@@ -301,7 +306,7 @@ impl RewriteError {
         restart["apply"] = json!(false);
         restart["page"] = json!(1);
         self.next = Some(Box::new(json!({"restart":{
-            "tool":"astRewrite","query":restart,"confidence":"exact"
+            "tool":ToolId::AstRewrite.as_str(),"query":restart,"confidence":"exact"
         }})));
         self
     }
@@ -2078,9 +2083,10 @@ mod tests {
     }
 
     #[test]
-    fn preview_pages_send_each_file_patch_once_and_reference_it_afterward() {
+    fn preview_pages_carry_only_the_patch_hunks_of_their_own_matches() {
         let (root, policy, security) = fixture();
-        // pageSize 1 over a.ts's two matches: both pages touch a.ts.
+        // pageSize 1 over a.ts's two matches: each page shows one match, so
+        // each page's patch holds only that match's hunk, not the whole file.
         let first = rewrite_row(
             query(&root),
             &policy,
@@ -2090,8 +2096,15 @@ mod tests {
         );
         let first_file = &first["files"][0];
         assert_eq!(first_file["path"], "a.ts", "{first}");
-        assert!(first_file["patch"].as_str().is_some(), "{first}");
-        let patch_bytes = first_file["patchBytes"].clone();
+        let first_patch = first_file["patch"].as_str().expect("page-1 patch");
+        assert!(
+            first_patch.contains("+const first = newCall(1);"),
+            "{first}"
+        );
+        assert!(!first_patch.contains("newCall(2)"), "{first}");
+        assert_eq!(first_file["matchCount"], 2, "{first}");
+        assert_eq!(first_file["patchMatchCount"], 1, "{first}");
+        assert_eq!(first_file["patchBytes"], first_patch.len(), "{first}");
 
         let second = rewrite_row(
             first["next"]["nextPage"]["query"].clone(),
@@ -2102,16 +2115,31 @@ mod tests {
         );
         let second_file = &second["files"][0];
         assert_eq!(second_file["path"], "a.ts", "{second}");
+        let second_patch = second_file["patch"].as_str().expect("page-2 patch");
         assert!(
-            second_file.get("patch").is_none(),
-            "patch must not repeat: {second}"
+            second_patch.contains("+const second = newCall(2);"),
+            "{second}"
         );
-        assert_eq!(second_file["patchOnPage"], 1, "{second}");
-        assert_eq!(second_file["patchBytes"], patch_bytes, "{second}");
-        assert!(second_file["beforeHash"].as_str().is_some(), "{second}");
-        // The guarded apply is unchanged by the patch reference.
+        assert!(!second_patch.contains("newCall(1)"), "{second}");
+        assert!(second_file.get("patchOnPage").is_none(), "{second}");
+        assert_eq!(second_file["beforeHash"], first_file["beforeHash"]);
+        assert_eq!(second_file["afterHash"], first_file["afterHash"]);
+        // The guarded apply still covers the whole file.
         let apply = &second["next"]["apply"]["query"];
         assert_eq!(apply["expectedHashes"]["a.ts"], first_file["beforeHash"]);
+
+        // One page covering every match keeps the whole-file patch.
+        let mut whole = query(&root);
+        whole["pageSize"] = json!(10);
+        let all = rewrite_row(whole, &policy, &security, &Active, &Default::default());
+        let all_patch = all["files"][0]["patch"].as_str().expect("whole patch");
+        assert!(all_patch.contains("newCall(1)") && all_patch.contains("newCall(2)"));
+        assert!(all["files"][0].get("patchMatchCount").is_none(), "{all}");
+        assert_eq!(
+            fs::read_to_string(root.join("a.ts")).expect("read"),
+            "const first = oldCall(1);\nconst second = oldCall(2);\n",
+            "preview must never write"
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { NATIVE_ABI_VERSION } from '../js/runtime.js';
 
 const require = createRequire(import.meta.url);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,7 +44,7 @@ describe('consolidated native distribution', () => {
     expect(engine.minifyContent).toBeTypeOf('function');
     expect(existsSync(resolve(packageRoot, '../octocode-engine'))).toBe(false);
     const runtimeInstance = new runtime.NativeRuntime();
-    expect(runtimeInstance.abiVersion).toBe(2);
+    expect(runtimeInstance.abiVersion).toBe(NATIVE_ABI_VERSION);
     runtimeInstance.close();
   });
 
@@ -64,7 +65,7 @@ describe('consolidated native distribution', () => {
     }
     const runtime = require(runtimePath) as { NativeRuntime: new () => { abiVersion: number; close(): void } };
     const instance = new runtime.NativeRuntime();
-    expect(instance.abiVersion).toBe(2);
+    expect(instance.abiVersion).toBe(NATIVE_ABI_VERSION);
     instance.close();
   });
 

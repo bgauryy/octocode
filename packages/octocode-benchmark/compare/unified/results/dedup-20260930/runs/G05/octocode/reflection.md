@@ -1,0 +1,7 @@
+1. **Helped:** `ghGetFileContent` with `matchString: "def resolve_redirects"` and `contextLines: 100`, pinned to branch `611c6162cb`, returned the whole loop, `get_redirect_target` and `should_strip_auth` in one call. A second call with `startLine: 286, endLine: 400` returned the loop's tail, `rebuild_auth`, `rebuild_proxies` and `rebuild_method`. Two reads were enough. I skipped search and structure calls because I already knew the file path.
+
+2. **Did not help:** My first call failed validation because `contextLines` was capped at 100, and I had passed 120. That cost one wasted round trip. The match window cut off mid-function, so the second read was needed. The output gave only a window range (86–286) and one matched line (186), so I could not cite exact lines for most of the code. I estimated some of them and said so in the answer. I also never read `Session.send`, so I couldn't say how it calls `resolve_redirects` or builds `history` for the caller.
+
+3. **Next time:** Check the `contextLines` limit before calling. Use `startLine`/`endLine` ranges from the start so every cited line is exact. Add a `matchString` on `resolve_redirects(` in `Session.send` to close the gap.
+
+4. **Confidence:** High on the behaviour I described, since I read the source directly at the pinned commit. Medium on line numbers other than 186 and 286, which are estimates.

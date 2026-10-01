@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
-import { rowIsolatingSchema, wrapBareQuery } from '../../src/native/index.js';
+import { rowIsolatingSchema } from '../../src/native/index.js';
 
 type Standard = Parameters<typeof rowIsolatingSchema>[0];
 
 const definition = DIRECT_TOOL_DEFINITIONS.find(
   tool => tool.name === 'localSearch'
 )!;
-const canonical = z.preprocess(
-  wrapBareQuery,
-  definition.inputSchema
-) as unknown as Standard;
+// Input reaching row isolation is already a native-normalized envelope.
+const canonical = definition.inputSchema as unknown as Standard;
 const schema = rowIsolatingSchema(
   canonical,
   definition.schema,
@@ -55,10 +53,5 @@ describe('MCP batch row isolation', () => {
       { queries: [row({ bogus: 1 })] },
     ])
       expect((await validate(input)).issues?.length).toBeGreaterThan(0);
-  });
-
-  it('still wraps a bare query before validation', async () => {
-    const result = await validate(row());
-    expect(result.issues).toBeUndefined();
   });
 });

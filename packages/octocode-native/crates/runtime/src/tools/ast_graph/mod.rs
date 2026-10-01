@@ -7,6 +7,19 @@ mod packages;
 pub mod store;
 mod types;
 
+/// Contract maximum of an astTopology query field; an undeclared bound stays
+/// open (validation enforces it).
+fn topology_max(field: &str) -> u32 {
+    crate::contracts::query_schema_number(
+        crate::tools::id::ToolId::AstTopology,
+        None,
+        field,
+        "maximum",
+    )
+    .and_then(|maximum| u32::try_from(maximum).ok())
+    .unwrap_or(u32::MAX)
+}
+
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
@@ -60,9 +73,7 @@ fn validate_query(query: &AstTopologyQuery) -> Result<(), AstGraphError> {
             "depth must be between 1 and 50",
         ));
     }
-    if query.page_size().is_some_and(|x| x > 100)
-        || query.diagnostic_page_size().is_some_and(|x| x > 100)
-    {
+    if query.page_size() > 100 || query.diagnostic_page_size() > 100 {
         return Err(AstGraphError::new(
             "ast.input.invalid",
             "pageSize fields must be between 1 and 100",
@@ -513,6 +524,95 @@ mod drift_tests {
             .map(|row| row["file"].as_str().unwrap_or_default())
             .collect::<Vec<_>>();
         assert_eq!(files, ["src/com/acme/Multimaps.java"], "{out}");
+    }
+
+    #[test]
+    fn java_same_package_edges_are_not_labeled_imports_and_carry_no_import_line() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        let dir = root.join("src/com/acme");
+        std::fs::create_dir_all(dir.join("util")).unwrap();
+        std::fs::write(
+            dir.join("Lists.java"),
+            "package com.acme;\n\npublic final class Lists {\n  public static int transform(int x) { return x; }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("util/Strings.java"),
+            "package com.acme.util;\n\npublic class Strings {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Multimaps.java"),
+            "package com.acme;\n\nimport com.acme.util.Strings;\n\nfinal class Multimaps {\n  int run() { return Lists.transform(1); }\n}\n",
+        )
+        .unwrap();
+        let out = run(
+            json!({"goal":"test","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/Multimaps.java"}),
+            root,
+        )
+        .expect("dependencies");
+        let rows = out["results"].as_array().expect("rows");
+        let row = |file: &str| {
+            rows.iter()
+                .find(|row| row["file"] == file)
+                .unwrap_or_else(|| panic!("missing {file}: {out}"))
+        };
+        let same = row("src/com/acme/Lists.java");
+        assert_eq!(same["edgeKinds"], json!(["java-same-package"]), "{out}");
+        assert!(same.get("importLine").is_none(), "{out}");
+        let imported = row("src/com/acme/util/Strings.java");
+        assert_eq!(imported["edgeKinds"], json!(["java-import"]), "{out}");
+        assert_eq!(imported["importLine"], 3, "{out}");
+    }
+
+    #[test]
+    fn result_page_past_the_end_is_empty_and_flagged_out_of_range() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(
+            root.join("a.ts"),
+            "import { b } from './b';\nexport const a = b;\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("b.ts"), "export const b = 1;\n").unwrap();
+        let out = run(
+            json!({"goal":"test","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"a.ts","page":2,"pageSize":100}),
+            root,
+        )
+        .expect("out-of-range page");
+        assert_eq!(out["results"], json!([]), "{out}");
+        assert_eq!(out["pagination"]["currentPage"], 2, "{out}");
+        assert_eq!(out["pagination"]["totalPages"], 1, "{out}");
+        assert_eq!(out["pagination"]["outOfRange"], true, "{out}");
+        assert_eq!(out["pagination"]["hasMore"], false, "{out}");
+        assert!(
+            out["warnings"]
+                .as_array()
+                .is_some_and(|w| w.iter().any(|w| w
+                    .as_str()
+                    .is_some_and(|w| w.contains("page:2 is out of range")))),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn relative_file_without_path_is_an_invalid_input_error() {
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        let error = run(
+            json!({"goal":"test","reasoning":"test","analysis":"dependencies","file":"src/a.ts"}),
+            root,
+        )
+        .expect_err("relative file without path");
+        assert_eq!(error.code, "ast.input.invalid", "{}", error.message);
+        assert!(
+            crate::runtime::response::is_invalid_input_code(&error.code),
+            "{}",
+            error.code
+        );
+        assert!(error.message.contains("src/a.ts"), "{}", error.message);
+        assert!(error.message.contains("path"), "{}", error.message);
     }
 
     #[test]

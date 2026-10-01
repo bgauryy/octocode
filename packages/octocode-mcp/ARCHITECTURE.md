@@ -7,7 +7,7 @@ select, sanitize, or execute tools in TypeScript.
 ## Runtime boundary
 
 - `src/index.ts` starts the native MCP adapter and reports startup failures.
-- `src/native/index.mjs` loads `NativeRuntime`, reads its catalog, registers the
+- `src/native/index.ts` loads `NativeRuntime`, reads its catalog, registers the
   enabled tools with MCP SDK v2, forwards each call to `executeMcp()`, forwards
   cancellation, and closes the transport before it closes the runtime.
 - `src/public.ts` exposes typed wrappers for embedding the same native adapter.
@@ -22,7 +22,8 @@ missing or invalid, startup fails closed.
 
 ## Tool registration
 
-The native catalog contains fourteen tools. MCP registers only the available
+The canonical/native catalog contains sixteen tools. MCP can register fourteen
+read tools when all availability gates pass; it registers only the available
 subset: `astTopology` is a beta feature requiring `OCTOCODE_BETA=true` (or
 `local.beta:true`), filtered from discovery while the gate is off.
 `ghCloneRepo` and `astRewrite` mutate the machine and are CLI-only: the native
@@ -36,13 +37,20 @@ out of MCP discovery rather than advertising unusable contracts. For every
 available tool, it:
 
 1. looks up the matching core-owned Standard Schema definition;
-2. registers its title, description, and input schema; MCP discovery intentionally
+2. registers its title, description, and core-owned published input schema; MCP discovery intentionally
    omits annotations and output schemas while tool results remain structured;
-3. forwards the unchanged MCP arguments to `NativeRuntime.executeMcp()`;
+3. runs native lossless input normalization before canonical Standard Schema
+   validation, then forwards the validated arguments to `NativeRuntime.executeMcp()`;
 4. forwards MCP cancellation to `NativeRuntime.cancel()`.
 
 A catalog entry without a matching registration schema is a startup error. This
 prevents the advertised native catalog and the MCP surface from drifting.
+
+The published input schema is a compact superset for agent discovery, not the
+validator. Canonical core schemas remain strict: malformed encoded arrays and
+invalid list items are rejected. Valid JSON-encoded arrays and supported scalar
+strings are normalized by the same native path used by CLI. Mixed bulk calls
+with valid rows preserve indexed invalid-row errors rather than dropping rows.
 
 Shared agent guidance is returned once in MCP `initialize.instructions`, built
 by core through `@octocodeai/config/mcp` for the available tools. `tools/list`
@@ -76,6 +84,10 @@ boundary checks are:
 - `tests/integration/stdio.acceptance.mjs` for the built stdio server;
 - native Rust tests under `packages/octocode-native` for tool behavior and
   safety contracts.
+
+Acceptance fixtures live in a normal workspace subtree and are removed after
+the run; placing them under a Git-ignored directory would test ignore rules
+instead of discovery and rewriting.
 
 Publish the native platform packages and native root package before publishing
 `octocode-mcp`.

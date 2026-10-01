@@ -124,21 +124,44 @@ const top1 = table.filter(r => r.top1).length;
 console.log(`locate top-1 exact: ${top1}/${table.length}`);
 console.log(`locate strict (declaration line inside the rank-1 window): ${table.filter(r => r.strict).length}/${table.length}`);
 
-// Server-side prefilter: the huge file located in ONE call (no host search).
+// Server-side prefilter: keep first-page quality visible, then follow the
+// bounded partial-result contract until the ranked answer can be verified.
+let prefilterQuality;
 {
   const truth = groundTruth('typescript', 'tsc/testdata/fixtures/compiler/checker.ts', 'function isTypeAssignableTo\\(');
-  const out = await raw('clasify', { queries: [{
+  const matrix = {
     goal: GOAL, reasoning: 'prefilter', resources: [{ id: 'f', prefilter: ['assignable'], context: { tool: 'localFetch', query: { reasoning: 'unread', path: truth.file, fullContent: true } } }],
     questions: [{ id: 't', questionType: 'locate', target: 'The function that checks whether a source type is assignable to a target type.' }],
-  }] });
+  };
+  const out = await raw('clasify', { queries: [matrix] });
   const q = out.sc?.queries?.[0];
   const windows = (q?.resources?.[0]?.pages ?? []).flatMap(p => (p.answers?.t?.matches ?? []).map(m => ({ exists: p.answers.t.exists, ...m })))
     .sort((a, b) => b.exists - a.exists || b.probability - a.probability);
   const top = windows[0];
   const lines = fs.readFileSync(truth.file, 'utf8').split('\n');
   const strict = !!top && lines.slice(top.startLine - 1, top.endLine).some(l => /function isTypeAssignableTo\(/.test(l));
-  check('prefilter: 3 MB file located in one call, declaration in the rank-1 window', strict && !q?.next, `top=${JSON.stringify(top)} bytes=${out.bytes} next=${!!q?.next}`);
-  check('prefilter: host bytes under 0.5% of the file', out.bytes < fs.statSync(truth.file).size * 0.005, `${out.bytes}B`);
+  prefilterQuality = { firstPageRankOneDeclaration: strict, firstPageComplete: !q?.next, firstPageBytes: out.bytes };
+  let current = q, last = out, calls = 1, workflowBytes = out.bytes;
+  const rankedDeclaration = row => row?.best?.t?.[0];
+  const containsDeclaration = row => {
+    const window = rankedDeclaration(row);
+    return !!window && lines.slice(window.startLine - 1, window.endLine).some(l => /function isTypeAssignableTo\(/.test(l));
+  };
+  while (!containsDeclaration(current) && current?.next?.clasify && calls < MAX_CALLS && !last.isError) {
+    last = await raw('clasify', { queries: [current.next.clasify] });
+    workflowBytes += last.bytes; calls += 1;
+    current = last.sc?.queries?.[0];
+  }
+  const read = rankedDeclaration(current)?.next?.read;
+  let verified = false;
+  if (containsDeclaration(current) && read?.tool === 'localFetch') {
+    const verification = await raw(read.tool, { queries: [read.query] });
+    workflowBytes += verification.bytes;
+    verified = !verification.isError && collect(verification.sc, o => typeof o.content === 'string').some(o => /function isTypeAssignableTo\(/.test(o.content));
+  }
+  Object.assign(prefilterQuality, { calls, workflowBytes, verified, terminal: !current?.next });
+  check('prefilter: bounded continuations reach the rank-1 declaration and its exact read verifies it', containsDeclaration(current) && verified && !last.isError, JSON.stringify(prefilterQuality));
+  check('prefilter: first-page host bytes under 0.5% of the file', out.bytes < fs.statSync(truth.file).size * 0.005, `${out.bytes}B; full workflow ${workflowBytes}B`);
 }
 
 // Carried best: across a multi-call walk, the final call's best is file-wide.
@@ -269,6 +292,6 @@ console.log(`locate strict (declaration line inside the rank-1 window): ${table.
 }
 
 const result = summary();
-writeResults('clasify', { table, ...result });
+writeResults('clasify', { table, prefilterQuality, ...result });
 client.close();
 process.exitCode = result.failed.length ? 1 : 0;

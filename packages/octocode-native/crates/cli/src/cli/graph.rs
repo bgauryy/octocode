@@ -110,7 +110,7 @@ pub(super) struct QueryArgs {
     /// Workspace whose .octocode/graph holds the snapshots.
     #[arg(long)]
     workspace: Option<PathBuf>,
-    /// Edge kinds to follow: contains, imports, calls (comma-separated).
+    /// Edge kinds to follow: contains, imports, uses, calls, inherits (comma-separated).
     #[arg(long, value_delimiter = ',')]
     edge: Vec<String>,
     /// Node kind filter: file, symbol, or package.

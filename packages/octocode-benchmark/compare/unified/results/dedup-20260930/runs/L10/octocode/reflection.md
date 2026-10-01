@@ -1,0 +1,7 @@
+1. **Helped:** My first call was a `localSearch` for the function names (`extrapolatedRate|funcRate|funcIncrease|instantValue`) in `promql/`. It gave exact line numbers in one shot. Next, two parallel `localFetch` calls read lines 440–660 and 805–825. That covered the algorithm and the thin wrappers without any wasted reads. The whole session took three calls.
+
+2. **Did not help:** Nothing errored. The 440–660 window cut off partway through `histogramRate`. I also did not open `extendedRate`, `extendedHistogramRate`, `isStartTimestampReset` or `checkStartTimeOverlap`. The histogram and anchored/smoothed details in my answer are therefore summaries from the call sites, not verified. The line numbers I gave for the inner blocks (~502, ~510–525, ~528–600, ~534–548) were estimated from the window offset. I did not read them from numbered output. The `localFetch` output carries no line numbers, so I had to count by hand.
+
+3. **Next time:** I would use `localSearch` with `matchString` anchors, such as `durationToZero` and `factor`, to get exact line numbers for the cited blocks. I would also read `histogramRate` to the end so the histogram claims are backed by source.
+
+4. **Confidence:** High for the core float algorithm, because I read that code directly. Medium for the exact line numbers of the inner blocks and for the histogram and extended-rate behavior.

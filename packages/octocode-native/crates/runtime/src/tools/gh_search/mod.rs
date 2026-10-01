@@ -3,6 +3,7 @@ mod fragments;
 mod queries;
 mod ranking;
 mod tree;
+use crate::tools::id::ToolId;
 use crate::tools::result::ToolData;
 use serde_json::{Value, json};
 
@@ -60,7 +61,11 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     }
     let q = queries::code(query);
     let current = usize_of(*page);
-    let per = usize_of(*page_size).min(100);
+    let per = usize_of(*page_size).min(crate::contracts::query_schema_max(
+        ToolId::GhSearchCode,
+        None,
+        "pageSize",
+    ));
     reject_window(current, per)?;
     let data = transport
         .search_code(
@@ -87,13 +92,13 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut) {
         page.remove("nextPage");
     }
-    add_next(&mut value, "ghSearchCode", query, current, more);
+    add_next(&mut value, ToolId::GhSearchCode, query, current, more);
     if let Some(read) = code_output::read_top_match(&value) {
         value["next"]["readTopMatch"] = read;
     }
     apply_partial(
         &mut value,
-        "ghSearchCode",
+        ToolId::GhSearchCode,
         query,
         data.incomplete_results && data.items.is_empty(),
         data.total_count > 1000,
@@ -115,7 +120,8 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
         let mut retry = serde_json::to_value(query)
             .map_err(|error| ProviderError::new(ProviderErrorKind::Decode, error.to_string()))?;
         remove_null_fields(&mut retry);
-        value["next"]["retry"] = json!({"tool":"ghSearchCode","query":retry,"confidence":"exact"});
+        value["next"]["retry"] =
+            json!({"tool":ToolId::GhSearchCode.as_str(),"query":retry,"confidence":"exact"});
         if data.items.is_empty() {
             value["next"]["retry"]["why"] =
                 json!("Retry the same query because GitHub marked the result incomplete.");
@@ -133,7 +139,7 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
             content["match"] = json!("file");
             content["page"] = json!(1);
             value["next"]["searchContent"] =
-                json!({"tool":"ghSearchCode","query":content,"confidence":"high"});
+                json!({"tool":ToolId::GhSearchCode.as_str(),"query":content,"confidence":"high"});
             value["hints"] = json!([
                 "match:\"path\" matches file paths, not code; run searchContent to search file contents."
             ]);
@@ -184,7 +190,11 @@ pub async fn execute_repositories<
     terms.extend(topics.iter().map(|x| format!("topic:{x}")));
     let q = queries::repositories(query);
     let current = usize_of(*page);
-    let per = usize_of(*page_size).min(100);
+    let per = usize_of(*page_size).min(crate::contracts::query_schema_max(
+        ToolId::GhSearchRepo,
+        None,
+        "pageSize",
+    ));
     let owner_only = terms.is_empty()
         && owner.is_some()
         && language.is_none()
@@ -297,10 +307,10 @@ pub async fn execute_repositories<
     let next_from = listing
         .as_ref()
         .map_or(current, |listing| listing.last_page);
-    add_next(&mut value, "ghSearchRepo", query, next_from, more);
+    add_next(&mut value, ToolId::GhSearchRepo, query, next_from, more);
     apply_partial(
         &mut value,
-        "ghSearchRepo",
+        ToolId::GhSearchRepo,
         query,
         provider_incomplete,
         provider_capped,
@@ -353,7 +363,7 @@ fn reject_window(page: usize, per: usize) -> Result<(), ProviderError> {
 }
 fn add_next(
     value: &mut Value,
-    tool: &str,
+    tool: ToolId,
     query: &impl serde::Serialize,
     page: usize,
     has_more: bool,
@@ -364,12 +374,12 @@ fn add_next(
     let mut next = serde_json::to_value(query).unwrap_or_default();
     remove_null_fields(&mut next);
     next["page"] = json!(page + 1);
-    value["next"] = json!({"nextPage":{"tool":tool,"query":next,"confidence":"exact"}});
+    value["next"] = json!({"nextPage":{"tool":tool.as_str(),"query":next,"confidence":"exact"}});
 }
 #[allow(clippy::too_many_arguments)]
 fn apply_partial(
     value: &mut Value,
-    tool: &str,
+    tool: ToolId,
     query: &impl serde::Serialize,
     incomplete: bool,
     capped: bool,
@@ -392,7 +402,7 @@ fn apply_partial(
         let mut retry = serde_json::to_value(query).unwrap_or_default();
         remove_null_fields(&mut retry);
         retry["page"] = json!(page);
-        value["next"]["retry"] = json!({"tool":tool,"query":retry,"why":format!("Retry the same {subject} provider page because the provider reported incomplete results."),"confidence":"exact"});
+        value["next"]["retry"] = json!({"tool":tool.as_str(),"query":retry,"why":format!("Retry the same {subject} provider page because the provider reported incomplete results."),"confidence":"exact"});
     }
     if !reasons.is_empty() {
         value["isPartial"] = json!(true);
@@ -1276,7 +1286,7 @@ mod tests {
         let mut value = json!({"pagination":{"hasMore":false}});
         apply_partial(
             &mut value,
-            "ghSearchCode",
+            ToolId::GhSearchCode,
             &query,
             true,
             true,

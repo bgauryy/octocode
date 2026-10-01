@@ -1,7 +1,8 @@
 //! `next.*` builders: exact follow-up `ghGetHistoryItem` queries derived from
 //! the public query and the page objects of a shaped response.
 use super::util::{content_flag, merge};
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation};
+use super::{HistoryItemRequest, ItemOperation, default_page_size};
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
@@ -43,7 +44,7 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
                 m.insert("filePage".into(), json!(q.file_page().unwrap_or(1)));
                 m.insert(
                     "pageSize".into(),
-                    json!(q.page_size().unwrap_or(DEFAULT_PAGE_SIZE)),
+                    json!(q.page_size().unwrap_or_else(default_page_size)),
                 );
             }
             _ => {}
@@ -53,7 +54,7 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
 }
 
 fn continuation(q: Value) -> Value {
-    json!({"tool":"ghGetHistoryItem","query":q,"confidence":"exact"})
+    json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":q,"confidence":"exact"})
 }
 
 /// Body length (chars) the metadata row's `bodyPreview` shows verbatim.
@@ -490,7 +491,7 @@ pub(super) fn attach_diff_continuations(
     remove_nulls(&mut base);
     let make = |query: Value, why: &str| {
         if with_why {
-            json!({"tool":"ghGetHistoryItem","query":query,"why":why,"confidence":"exact"})
+            json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":query,"why":why,"confidence":"exact"})
         } else {
             continuation(query)
         }
@@ -547,14 +548,8 @@ pub(super) fn attach_diff_continuations(
             make(nq, "Read the patches for this page of changed files."),
         );
     }
-    if let Some(offset) = out
-        .get("files")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .find_map(|v| v.pointer("/patchPagination/nextCharOffset"))
-        .cloned()
-    {
+    // The page-stream cursor, not a file's own `patchPagination` offset.
+    if let Some(offset) = out.pointer("/filesPagination/nextPatchCharOffset").cloned() {
         let mut nq = base;
         nq["charOffset"] = offset;
         next.insert(
@@ -572,14 +567,14 @@ pub(super) fn attach_diff_continuations(
         {
             next.insert(
                 "readPullRequest".into(),
-                json!({"tool":"ghGetHistoryItem","confidence":"high","query":{
+                json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":"high","query":{
                     "operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"number":number
                 }}),
             );
         } else if let Some(sha) = out.get("sha").and_then(Value::as_str) {
             next.insert(
                 "findPullRequest".into(),
-                json!({"tool":"ghSearchHistory","confidence":"high","query":{
+                json!({"tool":ToolId::GhSearchHistory.as_str(),"confidence":"high","query":{
                     "operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"keywords":[sha]
                 }}),
             );
@@ -609,6 +604,26 @@ mod tests {
         assert_eq!(headline_pull_request("Merge branch main"), None);
         assert_eq!(headline_pull_request("fix (#abc)"), None);
         assert_eq!(headline_pull_request("revert (#12) partially"), None);
+    }
+
+    /// D2: a commit's `continuePatch` copies the page-stream cursor named on
+    /// `filesPagination`, never a file's own per-file `nextCharOffset`.
+    #[test]
+    fn commit_continue_patch_copies_the_page_stream_cursor() {
+        let query = HistoryItemRequest::from_row(json!({
+            "operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b",
+            "ref":"abc","includeDiff":true,"charLength":10
+        }))
+        .expect("commit query");
+        let mut out = json!({
+            "files":[{"filename":"a.rs","patch":"aaa"},{"filename":"b.rs","patch":"bbbbbbb",
+                "patchPagination":{"charOffset":0,"charLength":7,"totalChars":20,"hasMore":true,"nextCharOffset":7}}],
+            "filesPagination":{"currentPage":1,"hasMore":false,"nextPatchCharOffset":10}
+        });
+        attach_diff_continuations(&mut out, &query, ItemOperation::Commit, Some("abc"), false);
+        let next = &out["next"]["continuePatch"]["query"];
+        assert_eq!(next["charOffset"], 10, "{out}");
+        assert_eq!(next["charLength"], 10);
     }
 
     #[test]

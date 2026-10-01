@@ -1,4 +1,5 @@
 pub use crate::contracts::tool_types::{AstSearchQueryMatchPattern, AstSearchQueryMatchRule};
+use crate::tools::id::ToolId;
 use crate::{
     policy::{path::PathPolicy, prune::PruneMode},
     security::ContentSecurity,
@@ -28,6 +29,14 @@ macro_rules! either_form {
 
 fn u32_of(value: std::num::NonZeroU64) -> u32 {
     u32::try_from(value.get()).unwrap_or(u32::MAX)
+}
+
+/// Contract `keyword` (`"default"`/`"maximum"`) of a match-operation field;
+/// an undeclared value leaves the bound open (validation enforces it).
+fn match_schema(field: &str, keyword: &str) -> u32 {
+    crate::contracts::query_schema_number(ToolId::AstSearch, Some("match"), field, keyword)
+        .and_then(|value| u32::try_from(value).ok())
+        .unwrap_or(u32::MAX)
 }
 
 fn non_empty(values: &[String]) -> Option<Vec<String>> {
@@ -79,11 +88,11 @@ impl MatchQuery<'_> {
     pub fn max_depth(self) -> Option<u32> {
         either_form!(self, max_depth => max_depth.map(|depth| u32::try_from(depth.max(0)).unwrap_or(u32::MAX)))
     }
-    pub fn max_files(self) -> Option<u32> {
-        either_form!(self, max_files => max_files.map(u32_of))
+    pub fn max_files(self) -> u32 {
+        either_form!(self, max_files => u32_of(*max_files))
     }
-    pub fn max_matches_per_file(self) -> Option<u32> {
-        either_form!(self, max_matches_per_file => max_matches_per_file.map(u32_of))
+    pub fn max_matches_per_file(self) -> u32 {
+        either_form!(self, max_matches_per_file => u32_of(*max_matches_per_file))
     }
     pub fn match_content_length(self) -> Option<u32> {
         either_form!(self, match_content_length => Some(u32_of(*match_content_length)))
@@ -103,8 +112,8 @@ impl MatchQuery<'_> {
     pub fn match_page(self) -> u32 {
         either_form!(self, match_page => u32_of(*match_page))
     }
-    pub fn page_size(self) -> Option<u32> {
-        either_form!(self, page_size => page_size.map(u32_of))
+    pub fn page_size(self) -> u32 {
+        either_form!(self, page_size => u32_of(*page_size))
     }
     pub fn snapshot(self) -> Option<String> {
         either_form!(self, snapshot => snapshot.as_ref().map(ToString::to_string))
@@ -262,7 +271,7 @@ fn execute_match_inner(
                     hidden: q.hidden(),
                     no_ignore: q.no_ignore(),
                     max_depth: q.max_depth().map(|depth| depth.saturating_add(1)),
-                    max_files: Some(q.max_files().unwrap_or(2_000)),
+                    max_files: Some(q.max_files()),
                     max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
                 },
                 &|path| {
@@ -342,9 +351,10 @@ fn execute_match_inner(
         q.max_depth(),
         q.lang_type(),
         q.reverse(),
-        q.sort().as_deref().unwrap_or("relevance"),
-        q.result_view().as_deref().unwrap_or("content"),
-        q.max_files().unwrap_or(2_000),
+        // Always present: validation stamps the contract defaults.
+        q.sort().as_deref().unwrap_or_default(),
+        q.result_view().as_deref().unwrap_or_default(),
+        q.max_files(),
         ordered
     ]));
     if (q.page() > 1 || q.match_page() > 1) && q.snapshot().as_deref() != Some(&snapshot) {
@@ -354,10 +364,15 @@ fn execute_match_inner(
     let mut all_diagnostics = vec![];
     let mut total_matches = 0_u64;
     let file_list = matches!(q.result_view().as_deref(), Some("files" | "countMatches"));
-    let matches_per_page = q.max_matches_per_file().unwrap_or(100).clamp(1, 1_000) as usize;
+    let matches_per_page = q
+        .max_matches_per_file()
+        .clamp(1, match_schema("maxMatchesPerFile", "maximum")) as usize;
     let match_page = q.match_page().max(1) as usize;
     let match_start = (match_page - 1).saturating_mul(matches_per_page);
-    let content_length = q.match_content_length().unwrap_or(500).clamp(1, 100_000) as usize;
+    let content_length = q
+        .match_content_length()
+        .unwrap_or_else(|| match_schema("matchContentLength", "default"))
+        .clamp(1, match_schema("matchContentLength", "maximum")) as usize;
     // Per-file coverage: files that parsed, files whose query failed to
     // compile, and files cut short (execution limit, unreadable, unsupported).
     let mut parsed_files = 0_u32;
@@ -469,7 +484,7 @@ fn execute_match_inner(
     all_diagnostics.extend(scan_diagnostics.into_iter().map(diag));
     let (skipped_unsupported, skipped_unreadable, skipped_large) = scan_skips;
     if scan_truncated {
-        let limit = q.max_files().unwrap_or(2_000);
+        let limit = q.max_files();
         all_diagnostics.push(json!({
             "code":"structural.scan.truncated",
             "severity":"warning",
@@ -479,7 +494,7 @@ fn execute_match_inner(
             "recovery":"Narrow the scope with include globs or excludeDir, or raise maxFiles, then re-run."
         }));
     }
-    let size = q.page_size().unwrap_or(20).clamp(1, 1_000) as usize;
+    let size = q.page_size().clamp(1, match_schema("pageSize", "maximum")) as usize;
     let page = q.page().max(1) as usize;
     let start = (page - 1) * size;
     let page_groups = groups
@@ -718,12 +733,11 @@ fn continuation(q: MatchQuery<'_>, page: usize, snapshot: &str) -> Value {
 
 fn continuation_with(q: MatchQuery<'_>, changes: Value, snapshot: &str) -> Value {
     let mut query = q.to_value();
-    query["maxFiles"] = json!(q.max_files().unwrap_or(2_000));
     query["snapshot"] = json!(snapshot);
     if let (Some(target), Some(changes)) = (query.as_object_mut(), changes.as_object()) {
         target.extend(changes.clone());
     }
-    json!({"tool":"astSearch","query":query,"confidence":"exact"})
+    json!({"tool":ToolId::AstSearch.as_str(),"query":query,"confidence":"exact"})
 }
 
 pub(super) fn language_extensions(language: &str) -> Option<std::collections::BTreeSet<String>> {

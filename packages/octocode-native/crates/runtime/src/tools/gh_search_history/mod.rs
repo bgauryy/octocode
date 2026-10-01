@@ -16,6 +16,7 @@ use crate::providers::github::{
     resolve_date_window, validate_qualifier_value, validate_search_name,
 };
 use crate::security::scan::ContentScan;
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_null_fields;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -135,8 +136,9 @@ impl GhSearchHistoryQuery {
     }
     pub fn page(&self) -> Option<usize> {
         match self {
-            Self::PullRequest { page, .. } | Self::Issue { page, .. } => page.map(usize_of),
-            Self::Commit { page, .. } => Some(usize_of(*page)),
+            Self::PullRequest { page, .. }
+            | Self::Issue { page, .. }
+            | Self::Commit { page, .. } => Some(usize_of(*page)),
         }
     }
     pub fn page_size(&self) -> Option<usize> {
@@ -186,7 +188,22 @@ pub async fn execute<R: CredentialResolver>(
     security: &impl ContentScan,
 ) -> Result<Value, ProviderError> {
     let page = query.page().unwrap_or(1);
-    let per = query.page_size().unwrap_or(30).min(100);
+    // Validation stamps the contract default; a bare typed query falls back
+    // to the same schema default. Both stay within the schema maximum.
+    let max_page_size =
+        crate::contracts::query_schema_max(ToolId::GhSearchHistory, None, "pageSize");
+    let per = query
+        .page_size()
+        .or_else(|| {
+            crate::contracts::query_schema_number(
+                ToolId::GhSearchHistory,
+                None,
+                "pageSize",
+                "default",
+            )
+            .and_then(|size| usize::try_from(size).ok())
+        })
+        .map_or(max_page_size, |size| size.min(max_page_size));
     let mut query = query.clone();
     // Issues always use search: GitHub's REST /issues list interleaves pull
     // requests, so filtering them out of provider pages underfills pages and
@@ -357,7 +374,16 @@ pub async fn execute<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
-                v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"minify":"standard"},"confidence":"low"});
+                let mut read = json!({"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":crate::tools::gh_get_history_item::default_page_size()});
+                if let Some(read) = read.as_object_mut() {
+                    crate::contracts::stamp_schema_defaults(
+                        ToolId::GhGetHistoryItem,
+                        Some("pullRequest"),
+                        read,
+                        &["minify"],
+                    );
+                }
+                v["next"]["readPr"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":read,"confidence":"low"});
             }
             v
         }
@@ -389,7 +415,7 @@ pub async fn execute<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
             {
-                v["next"]["readIssue"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
+                v["next"]["readIssue"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
             }
             v
         }
@@ -431,7 +457,7 @@ pub async fn execute<R: CredentialResolver>(
             read["path"] = json!(path);
         }
         value["next"]["readCommit"] =
-            json!({"tool":"ghGetHistoryItem","query":read,"confidence":"low"});
+            json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":read,"confidence":"low"});
     }
     if !result.warnings.is_empty() {
         value["warnings"] = json!(result.warnings);
@@ -466,7 +492,7 @@ pub async fn execute<R: CredentialResolver>(
         // directly-executable continuation.
         next["pageSize"] = json!(per);
         value["next"]["nextPage"] =
-            json!({"tool":"ghSearchHistory","query":next,"confidence":"exact"});
+            json!({"tool":ToolId::GhSearchHistory.as_str(),"query":next,"confidence":"exact"});
     }
     remove_null_fields(&mut value);
     mark_empty(&mut value, more);

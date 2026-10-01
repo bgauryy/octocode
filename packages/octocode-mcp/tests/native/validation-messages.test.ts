@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
 import { toolInputSchema } from '../../src/native/index.js';
+import { wrapBareQuery } from './wrapBareQuery.js';
 
 type Issue = {
   message: string;
@@ -19,7 +20,7 @@ type Standard = {
 // Mirrors the MCP SDK's validateStandardSchema/formatIssue rendering.
 const sdkMessage = async (tool: string, args: unknown) => {
   const definition = DIRECT_TOOL_DEFINITIONS.find(d => d.name === tool)!;
-  const schema = toolInputSchema(definition) as Standard;
+  const schema = toolInputSchema(definition, wrapBareQuery) as Standard;
   const result = await schema['~standard'].validate(args);
   if (!result.issues?.length) return undefined;
   return result.issues
@@ -107,7 +108,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
     const definition = DIRECT_TOOL_DEFINITIONS.find(
       d => d.name === 'localSearch'
     )!;
-    const schema = toolInputSchema(definition) as Standard;
+    const schema = toolInputSchema(definition, wrapBareQuery) as Standard;
     const result = await schema['~standard'].validate({
       path: '.',
       searchText: 'a',
@@ -153,7 +154,7 @@ describe('ghGetHistoryItem mixed batch (09-24 opaque failure regression)', () =>
     const definition = DIRECT_TOOL_DEFINITIONS.find(
       d => d.name === 'ghGetHistoryItem'
     )!;
-    const schema = toolInputSchema(definition) as Standard;
+    const schema = toolInputSchema(definition, wrapBareQuery) as Standard;
     const input = { queries: [issueRow(), issueRow({ charOffset: 1.5 })] };
     const result = await schema['~standard'].validate(input);
     expect(result.issues).toBeUndefined();
@@ -196,6 +197,33 @@ describe('shape slips found in agent transcripts', () => {
     );
   });
 
+  it('asks for a JSON array, not a wrap, for a malformed encoded list', async () => {
+    const message = await sdkMessage('localSearch', {
+      queries: [
+        {
+          goal: 'g',
+          reasoning: 'r',
+          path: '.',
+          searchText: 'x',
+          include: '["*.go"',
+        },
+      ],
+    });
+    expect(message).toBe(
+      'queries.0.include: Expected array; send a JSON array, not a JSON-encoded string'
+    );
+  });
+
+  it('never suggests wrapping a string into a list of objects', async () => {
+    const message = await sdkMessage('clasify', {
+      goal: 'g',
+      reasoning: 'r',
+      resources: 'a',
+      questions: [{ type: 'noul', instructions: 'x' }],
+    });
+    expect(message).not.toContain('wrap the value');
+  });
+
   it('names both forms when a clasify question mixes preset and custom fields', async () => {
     const message = await sdkMessage(
       'clasify',
@@ -223,6 +251,60 @@ describe('shape slips found in agent transcripts', () => {
     expect(message).toContain('`value`');
   });
 
+  it('asks for one shape when a clasify batch also carries matrix fields', async () => {
+    const message = await sdkMessage('clasify', {
+      queries: [clasify({ value: 'x' })],
+      goal: 'x',
+    });
+    expect(message).toContain(
+      "Remove 'goal' from the request: it applies only with reasoning and resources and questions"
+    );
+    expect(message).toContain('send one shape');
+    // Never name the rejected field as valid in the same breath.
+    expect(message).not.toMatch(/Valid fields: .*\bgoal\b/);
+    expect(message).toContain('Valid fields: queries');
+  });
+
+  it('names the cell count and the fileChunks rule over the cell limit (CLI parity)', async () => {
+    const message = await sdkMessage('clasify', {
+      ...clasify({ value: 'x' }),
+      resources: Array.from({ length: 6 }, (_, i) => ({
+        id: `r${i}`,
+        context: { value: 'x' },
+      })),
+      questions: Array.from({ length: 5 }, (_, i) => ({
+        id: `q${i}`,
+        type: 'noul',
+        instructions: 'x',
+      })),
+    });
+    expect(message).toBe(
+      'queries.0: Expanded resources × questions produces 30 cells; maximum is 25 (a fileChunks resource counts as 5 resources).'
+    );
+  });
+
+  it('rejects prefilter on a search at validation with the CLI wording', async () => {
+    const message = await sdkMessage('clasify', {
+      ...clasify({
+        tool: 'localSearch',
+        query: { path: '/r', searchText: 'x' },
+      }),
+      resources: [
+        {
+          id: 'a',
+          prefilter: ['x'],
+          context: {
+            tool: 'localSearch',
+            query: { path: '/r', searchText: 'x' },
+          },
+        },
+      ],
+    });
+    expect(message).toBe(
+      'queries.0.resources.0.prefilter: prefilter applies only to localFetch or ghGetFileContent file reads; remove it or narrow the search itself.'
+    );
+  });
+
   it('lists allowed context tools for a non-read tool', async () => {
     const message = await sdkMessage(
       'clasify',
@@ -231,100 +313,6 @@ describe('shape slips found in agent transcripts', () => {
     expect(message).toContain('context.tool: Value "astRewrite" is outside');
     expect(message).toContain('localFetch');
     expect(message).not.toContain("Remove unknown field 'tool'");
-  });
-});
-
-describe('lossless scalar strings and stringified batches (benchmark input slips)', () => {
-  const brief = { goal: 'g', reasoning: 'r' };
-  const validate = async (tool: string, args: unknown) => {
-    const definition = DIRECT_TOOL_DEFINITIONS.find(d => d.name === tool)!;
-    const schema = toolInputSchema(definition) as Standard;
-    return schema['~standard'].validate(args);
-  };
-
-  it('coerces exact integer and lowercase boolean strings on integer/boolean fields', async () => {
-    const result = await validate('localSearch', {
-      queries: [
-        {
-          ...brief,
-          path: '.',
-          searchText: '10',
-          contextLines: '3',
-          wholeWord: 'true',
-          invertMatch: 'false',
-        },
-      ],
-    });
-    expect(result.issues).toBeUndefined();
-    expect(result.value).toMatchObject({
-      queries: [
-        {
-          searchText: '10',
-          contextLines: 3,
-          wholeWord: true,
-          invertMatch: false,
-        },
-      ],
-    });
-  });
-
-  it('coerces inside a bare query and a union-variant row', async () => {
-    const bare = await validate('structureSearch', {
-      ...brief,
-      path: '.',
-      maxDepth: '2',
-    });
-    expect(bare.issues).toBeUndefined();
-    expect(bare.value).toMatchObject({ queries: [{ maxDepth: 2 }] });
-    const variant = await validate('ghGetHistoryItem', {
-      queries: [
-        {
-          ...brief,
-          operation: 'issue',
-          owner: 'o',
-          repo: 'r',
-          number: '12',
-        },
-      ],
-    });
-    expect(variant.issues).toBeUndefined();
-    expect(variant.value).toMatchObject({ queries: [{ number: 12 }] });
-  });
-
-  it.each([' 3', '3.0', '1e2', '+3', '03', '-0', '0x10', ''])(
-    'keeps rejecting the non-canonical integer string %j',
-    async contextLines => {
-      const message = await sdkMessage('localSearch', {
-        queries: [{ ...brief, path: '.', searchText: 'x', contextLines }],
-      });
-      expect(message).toMatch(/^queries\.0\.contextLines: /);
-    }
-  );
-
-  it.each(['True', 'TRUE', '1', 'yes'])(
-    'keeps rejecting the non-canonical boolean string %j',
-    async wholeWord => {
-      const message = await sdkMessage('localSearch', {
-        queries: [{ ...brief, path: '.', searchText: 'x', wholeWord }],
-      });
-      expect(message).toMatch(/^queries\.0\.wholeWord: /);
-    }
-  );
-
-  it('accepts queries sent as a JSON-encoded array', async () => {
-    const result = await validate('localSearch', {
-      queries: JSON.stringify([{ ...brief, path: '.', searchText: 'x' }]),
-    });
-    expect(result.issues).toBeUndefined();
-    expect(result.value).toMatchObject({
-      queries: [{ path: '.', searchText: 'x' }],
-    });
-  });
-
-  it('never suggests wrapping a JSON string that is not an array', async () => {
-    const message = await sdkMessage('localSearch', { queries: '{"a":1}' });
-    expect(message).not.toContain('wrap the value');
-    expect(message).toContain('queries: Expected an array of query objects');
   });
 });
 

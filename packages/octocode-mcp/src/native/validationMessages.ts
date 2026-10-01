@@ -27,6 +27,9 @@ export interface FormattedIssue {
 
 type JsonNode = Record<string, unknown>;
 
+/** `["…`, `[{…` or `[[…`: an attempted JSON array, not a literal value. */
+const JSON_ARRAY_TEXT = /^\s*\[\s*["{[]/;
+
 const segment = (p: PathSegment): PropertyKey =>
   typeof p === 'object' ? p.key : (p as PropertyKey);
 
@@ -83,6 +86,18 @@ const didYouMean = (input: unknown, candidates: readonly string[]) => {
   const guess = nearest(input, candidates);
   return guess && guess !== input ? ` (did you mean '${guess}'?)` : '';
 };
+
+/** `queries[0].context`, or "the request" at the root (native wording). */
+const location = (path: readonly PropertyKey[]) =>
+  path.length
+    ? path
+        .map((key, position) =>
+          typeof key === 'number'
+            ? `[${key}]`
+            : `${position ? '.' : ''}${String(key)}`
+        )
+        .join('')
+    : 'the request';
 
 const display = (value: unknown) =>
   typeof value === 'string' ? JSON.stringify(value) : String(value);
@@ -157,6 +172,39 @@ class FieldIndex {
     return nodes;
   }
 
+  /**
+   * When `key` is declared only by some branches at `path` (a sibling form),
+   * the fields that form requires and `value` lacks, and the fields of the
+   * forms that do not declare it. `undefined` when every branch or none declares it.
+   */
+  siblingForm(
+    path: readonly PropertyKey[],
+    key: string,
+    value: unknown
+  ): { requires: string[]; others: string[] } | undefined {
+    const nodes = this.nodesAt(path).filter(node => node.properties);
+    const declares = (node: JsonNode) =>
+      Object.hasOwn(node.properties as JsonNode, key);
+    const owner = nodes.find(declares);
+    const others = nodes.filter(node => !declares(node));
+    if (!owner || !others.length) return undefined;
+    const required = Array.isArray(owner.required)
+      ? (owner.required as unknown[]).filter(
+          (field): field is string => typeof field === 'string'
+        )
+      : [];
+    return {
+      requires: required.filter(
+        field => field !== key && valueAt(value, [field]) === undefined
+      ),
+      others: [
+        ...new Set(
+          others.flatMap(node => Object.keys(node.properties as JsonNode))
+        ),
+      ],
+    };
+  }
+
   /** Field names valid at `path`, narrowed to the branches `value` selects. */
   fields(path: readonly PropertyKey[], value: unknown): string[] {
     const nodes = this.nodesAt(path).filter(node => node.properties);
@@ -180,7 +228,7 @@ class FieldIndex {
 }
 
 export interface IssueContext {
-  /** The value the issue paths are relative to (after bare-query wrapping). */
+  /** The value the issue paths are relative to (after native normalization). */
   value: unknown;
   /** JSON Schema (input io) of the tool input, for valid-field lists. */
   jsonSchema: () => JsonNode | undefined;
@@ -192,86 +240,43 @@ export interface IssueContext {
   advertisedSchema?: () => JsonNode | undefined;
 }
 
-const LOSSLESS_INTEGER = /^-?(0|[1-9]\d*)$/;
-
-/** Every leaf alternative accepts `type` (or null) and nothing else. */
-const onlyType = (nodes: readonly JsonNode[], type: string) =>
-  nodes.length > 0 &&
-  nodes.some(node => node.type === type) &&
-  nodes.every(node => node.type === type || node.type === 'null');
-
-/**
- * Agents often send `"10"` / `"true"` for integer and boolean fields. Convert
- * a string only where every schema alternative at that path is an integer
- * (exact canonical base-10 integer that round-trips) or a boolean (lowercase
- * `true`/`false`); fields that accept strings are never touched.
- */
-export function coerceLosslessScalars(
-  value: unknown,
-  jsonSchema: JsonNode | undefined
-): unknown {
-  if (!jsonSchema) return value;
-  const index = new FieldIndex(jsonSchema);
-  const walk = (node: unknown, path: PropertyKey[]): unknown => {
-    if (Array.isArray(node))
-      return node.map((item, i) => walk(item, [...path, i]));
-    if (node && typeof node === 'object')
-      return Object.fromEntries(
-        Object.entries(node).map(([key, child]) => [
-          key,
-          walk(child, [...path, key]),
-        ])
-      );
-    if (typeof node !== 'string') return node;
-    if (
-      LOSSLESS_INTEGER.test(node) &&
-      Number.isSafeInteger(Number(node)) &&
-      String(Number(node)) === node &&
-      onlyType(index.nodesAt(path), 'integer')
-    )
-      return Number(node);
-    if (
-      (node === 'true' || node === 'false') &&
-      onlyType(index.nodesAt(path), 'boolean')
-    )
-      return node === 'true';
-    return node;
-  };
-  return walk(value, []);
-}
-
-/** `queries` sent as a JSON-encoded array string is the array itself. */
-export function parseStringifiedQueries(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const queries = (value as { queries?: unknown }).queries;
-  if (typeof queries !== 'string') return value;
-  try {
-    const parsed: unknown = JSON.parse(queries);
-    return Array.isArray(parsed) ? { ...value, queries: parsed } : value;
-  } catch {
-    return value;
-  }
-}
-
 export function formatIssues(
   issues: readonly RawIssue[],
   context: IssueContext
 ): FormattedIssue[] {
   let index: FieldIndex | undefined | null = null;
   let shown: FieldIndex | undefined | null = null;
-  const validFields = (path: readonly PropertyKey[], value: unknown) => {
+  const canonical = () => {
     if (index === null) {
       const root = context.jsonSchema();
       index = root ? new FieldIndex(root) : undefined;
     }
+    return index;
+  };
+  const visibleOnly = (path: readonly PropertyKey[], all: string[]) => {
     if (shown === null) {
       const root = context.advertisedSchema?.();
       shown = root ? new FieldIndex(root) : undefined;
     }
-    const all = index?.fields(path, value) ?? [];
-    const visible = new Set(shown?.fields(path, value) ?? []);
+    const visible = new Set(
+      shown?.fields(path, valueAt(context.value, path)) ?? []
+    );
     const kept = all.filter(field => visible.has(field));
     return kept.length ? kept : all;
+  };
+  const validFields = (path: readonly PropertyKey[], value: unknown) =>
+    visibleOnly(path, canonical()?.fields(path, value) ?? []);
+  const itemsAcceptString = (path: readonly PropertyKey[]) => {
+    if (index === null) {
+      const root = context.jsonSchema();
+      index = root ? new FieldIndex(root) : undefined;
+    }
+    return (
+      index
+        ?.nodesAt([...path, 0])
+        .some(node => node.type === undefined || node.type === 'string') ??
+      false
+    );
   };
   /** Allowed values of a union discriminator, gathered across every branch. */
   const discriminators = new Map<string, unknown[]>();
@@ -301,8 +306,23 @@ export function formatIssues(
         if (issue.errors?.length) return visitUnion(issue, path);
         break;
       case 'unrecognized_keys': {
-        const valid = validFields(path, supplied);
+        let valid = validFields(path, supplied);
         for (const key of issue.keys ?? []) {
+          // A field another form of this union declares: the input mixes
+          // shapes (e.g. clasify matrix fields beside queries[]). Native CLI
+          // wording, plus the fields of the form actually sent.
+          const sibling = canonical()?.siblingForm(path, key, supplied);
+          if (sibling) {
+            valid = visibleOnly(path, sibling.others);
+            const needs = sibling.requires.length
+              ? `: it applies only with ${sibling.requires.join(' and ')}`
+              : '';
+            out.push({
+              path,
+              message: `Remove '${key}' from ${location(path)}${needs} (send one shape)`,
+            });
+            continue;
+          }
           out.push({
             path,
             message: `Remove unknown field '${key}'${didYouMean(key, valid)}`,
@@ -330,8 +350,9 @@ export function formatIssues(
         }
         break;
       case 'invalid_type':
-        // A lone string where a list is expected (`include:"src/**"`) is the
-        // most common shape slip; show the exact corrected value.
+        // Native normalization already turned JSON-encoded lists and scalars
+        // the items accept into arrays; name the fix for what is left, and
+        // never suggest wrapping an encoded list or an item the list rejects.
         if (issue.expected === 'array' && typeof supplied === 'string') {
           if (path.length === 1 && path[0] === 'queries') {
             out.push({
@@ -343,7 +364,11 @@ export function formatIssues(
           }
           out.push({
             path,
-            message: `Expected array; wrap the value: ${JSON.stringify([supplied])}`,
+            message: JSON_ARRAY_TEXT.test(supplied)
+              ? 'Expected array; send a JSON array, not a JSON-encoded string'
+              : itemsAcceptString(path)
+                ? `Expected array; wrap the value: ${JSON.stringify([supplied])}`
+                : 'Expected array',
           });
           return;
         }

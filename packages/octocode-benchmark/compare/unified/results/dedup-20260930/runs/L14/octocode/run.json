@@ -1,0 +1,156 @@
+{
+  "qid": "L14",
+  "worker": "octocode",
+  "started": "2026-09-30T20:00:10.769Z",
+  "promptSha256": "3fe27a110a54f023ee3b90d161874220b01b6baeb29c602e194c3e5b773687cf",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 13976,
+  "status": "ok",
+  "answer": "`debounce` (`lodash.js:10403`) calls `func` on a timer, at the leading edge, the trailing edge, or when `maxWait` forces it. The decision logic is `shouldInvoke` plus the timer callbacks. Line numbers below are computed from the function start at 10403, so they are approximate.\n\n**Setup (10403–10421)**\n- `wait` is coerced with `toNumber(wait) || 0`.\n- `leading` defaults to false and `trailing` defaults to true. Options override them: `leading = !!options.leading`, and `trailing` is read only if `'trailing' in options`.\n- `maxing = 'maxWait' in options`. Then `maxWait = nativeMax(toNumber(options.maxWait) || 0, wait)`, so `maxWait` can never be smaller than `wait`.\n\n**The decision: `shouldInvoke(time)` (about 10449–10458)**\nIt returns true if any of these holds:\n- There has been no previous call (`lastCallTime === undefined`).\n- The quiet period has elapsed (`timeSinceLastCall >= wait`).\n- The clock went backwards (`timeSinceLastCall < 0`).\n- `maxing && timeSinceLastInvoke >= maxWait`.\n\n**Flow**\n- **Calling `debounced()` (about 10499):**\n  - It records `lastArgs`, `lastThis` and `lastCallTime`.\n  - If `shouldInvoke` is true and no timer is running, it calls `leadingEdge`. That sets `lastInvokeTime` and starts `setTimeout(timerExpired, wait)`. It invokes `func` immediately only if `leading` is true; otherwise it returns the previous `result`.\n  - If `shouldInvoke` is true, a timer is already running, and `maxing` is set (the \"tight loop\" case), it restarts the timer and invokes `func` right away.\n  - Otherwise it starts a timer if none is running and returns the last `result`.\n- **`timerExpired` (about 10460):** It re-checks `shouldInvoke`. If true, it calls `trailingEdge`. If not, it reschedules with `remainingWait(time)`.\n- **`trailingEdge` (about 10469):** It clears `timerId` and invokes `func` only if `trailing && lastArgs`. `lastArgs` is set only when `debounced` was called since the last invocation, so `func` is never called twice for the same call.\n- **`remainingWait` (about 10441):** It returns `wait - timeSinceLastCall`. When `maxing`, it returns the smaller of that and `maxWait - timeSinceLastInvoke`.\n\n**What `maxWait` does:** Without it, continuous calls keep pushing the trailing call back, because each call resets the quiet-period check, so `func` never runs while calls keep arriving. With it, `func` is guaranteed to run at least once every `maxWait` ms. The `maxing && timeSinceLastInvoke >= maxWait` clause in `shouldInvoke` and the capped `remainingWait` are what enforce this. `lastInvokeTime` is reset on each invocation.\n\n**Helpers:**\n- `cancel` clears the timer and all state.\n- `flush` runs `trailingEdge` immediately if a timer is pending.\n\nI read the source directly, so there is no uncertainty about the behavior. Only the line numbers are approximate, except the function start at 10403 and `debounced` at 10499, which the search returned.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 5788,
+    "cache_read_input_tokens": 65179,
+    "output_tokens": 895,
+    "context_tokens": 70975,
+    "total_tokens": 71870,
+    "first_request_context": 16917,
+    "fixed_overhead_tokens": 67668,
+    "research_tokens": 4202,
+    "max_request_context": 19331
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3374,
+      "cache_read_input_tokens": 13541,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 296,
+      "cache_read_input_tokens": 16915,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 301,
+      "cache_read_input_tokens": 17211,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1817,
+      "cache_read_input_tokens": 17512,
+      "output_tokens": 819
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 5788,
+    "cache_read_input_tokens": 65179,
+    "output_tokens": 1635
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1635,
+      "cacheReadInputTokens": 65179,
+      "cacheCreationInputTokens": 5788,
+      "webSearchRequests": 0,
+      "costUSD": 0.0525538,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0525538,
+  "duration_ms": 12691,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 2,
+    "mcp__octocode__localFetch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"function debounce\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/javascript\",\"goal\":\"find debounce source\",\"reasoning\":\"locate file\",\"excludeDir\":\"[\\\"node_modules\\\",\\\"dist\\\"]\"}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"queries\":[{\"searchText\":\"function debounce\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/javascript\",\"goal\":\"find debounce source\",\"reasoning\":\"locate file\",\"include\":[\"debounce.js\",\"lodash.js\"]}]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/javascript/lodash.js\",\"startLine\":10403,\"endLine\":10525,\"goal\":\"read debounce\",\"reasoning\":\"source\"}]}"
+    }
+  ],
+  "toolErrorCount": 1,
+  "toolErrors": [
+    {
+      "tool_use_id": "toolu_01BhZzYYUqmsnNPAn5rtrU3w",
+      "text": "Input validation error: Invalid arguments for tool localSearch: queries.0.excludeDir: Expected array; wrap the value: [\"[\\\"node_modules\\\",\\\"dist\\\"]\"]"
+    }
+  ],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The `localSearch` for `function debounce`, restricted with `include: [\"debounce.js\",\"lodash.js\"]`, returned line 10403 and 10499 in one call. One `localFetch` with `startLine`/`endLine` then returned the whole function. Two successful calls were enough.\n\n2. **Did not help:**\n   - My first `localSearch` failed validation. I passed `excludeDir` as a JSON-encoded string, and the error message was confusing because it suggested wrapping the value in an odd way.\n   - `localFetch` returned content without line numbers. I had to work out line numbers by counting from the start line, so most of my citations are approximate. I should have asked for a narrower read, or used `matchString` on `function shouldInvoke`, to get exact anchors.\n   - I did not verify that `lodash.js` is the right file for this commit. `debounce.js` was in my `include` list but did not appear in the results.\n\n3. **Next time:**\n   - Pass array parameters correctly from the start.\n   - Read the function in small windows, or use `matchString` with a line-number-bearing view, so I can cite exact lines.\n   - Skip the `excludeDir` parameter unless I need it.\n\n4. **Confidence:** High on the behavior, because I read the source directly. Medium-high on the citations: the function start (10403) and `debounced` (10499) are exact, and the rest are approximate and labeled as such.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1363,
+      "cache_read_input_tokens": 19329,
+      "output_tokens": 1,
+      "context_tokens": 20694,
+      "total_tokens": 20695,
+      "first_request_context": 20694,
+      "fixed_overhead_tokens": 20694,
+      "research_tokens": 1,
+      "max_request_context": 20694
+    },
+    "cost_usd": 0.0665456,
+    "toolCallsAttempted": 0
+  }
+}

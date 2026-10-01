@@ -1,3 +1,4 @@
+use crate::tools::id::ToolId;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt::{Display, Formatter};
@@ -82,12 +83,12 @@ pub fn prepare(
             return Err(ContractInputError::new("tool input must be an object"));
         }
     };
-    if tool_name != "clasify" {
+    if tool_name != ToolId::Clasify.as_str() {
         object
             .entry("debug".to_owned())
             .or_insert(Value::Bool(false));
     }
-    if tool_name == "artifactSearch" {
+    if tool_name == ToolId::ArtifactSearch.as_str() {
         trim_string(&mut object, "packageName");
         if let Some(Value::Array(keywords)) = object.get_mut("keywords") {
             for keyword in keywords {

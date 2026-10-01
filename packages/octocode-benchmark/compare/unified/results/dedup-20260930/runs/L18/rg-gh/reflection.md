@@ -1,0 +1,7 @@
+1. **Helped:** The first `rg` call on `json_sax.hpp` was the most useful. It used a pattern covering `json_sax_dom_callback_parser`, `keep_stack`, `ref_stack` and `discarded`. One call showed the class layout and all the rejection paths. The second Bash call then read `key()` and `handle_value` (lines 620-650, 1006-1100). The same call read the `parser.hpp` result handling (lines 100-140), and the third call read `remove_discarded_value`. Reading the code directly was faster than searching history.
+
+2. **Did not help:** Nothing errored. The `head -150` cap on the first `rg` was arbitrary, but it didn't cut off anything I needed. I never opened `resolve_duplicate_key_stash`, so the duplicate-key part of my answer rests on call sites and comments. I also didn't run the code or check the tests, so I had no runtime check.
+
+3. **Next time:** I'd add `rg -n "resolve_duplicate_key_stash"` with a short `sed` of its body in the same call as the `handle_value` read. I'd also look at the callback tests in `tests/` to confirm the observed behavior.
+
+4. **Confidence:** High for the main flow. `handle_value` and the `parser.hpp` top-level handling were read in full. Medium for the duplicate-key details, because I didn't read `resolve_duplicate_key_stash`.

@@ -108,6 +108,16 @@ impl NativeRuntime {
     pub fn closed(&self) -> bool {
         self.runtime.requests.is_closed()
     }
+    /// The native pre-validation normalization for an MCP host that validates
+    /// the canonical envelope itself: bare-query wrapping, a JSON-encoded
+    /// `queries` array, JSON-encoded or bare-scalar list values, and lossless
+    /// integer/boolean strings. Nothing is validated or defaulted.
+    #[napi]
+    pub fn normalize_input(&self, tool: String, input: Value) -> napi::Result<Value> {
+        boundary_guard("normalize_input", || {
+            Ok(octocode_native::contracts::normalize_envelope(&tool, input))
+        })
+    }
     #[napi]
     pub fn catalog(&self) -> napi::Result<Value> {
         boundary_guard("catalog", || self.runtime.catalog().map_err(boundary_error))

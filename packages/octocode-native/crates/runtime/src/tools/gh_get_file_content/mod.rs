@@ -177,7 +177,7 @@ where
         content.hints = vec![crate::tools::local_fetch::no_match_hint(
             query.match_string_is_regex.unwrap_or(false),
             query.match_string_case_sensitive.unwrap_or(false),
-            "ghSearchCode",
+            crate::tools::id::ToolId::GhSearchCode.as_str(),
         )];
         content.pagination = Some(crate::tools::local_fetch::Pagination {
             chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),
@@ -383,7 +383,10 @@ fn rewrite_continuations(
         let Value::Object(fields) = continuation else {
             continue;
         };
-        fields.insert("tool".into(), Value::String("ghGetFileContent".into()));
+        fields.insert(
+            "tool".into(),
+            Value::String(crate::tools::id::ToolId::GhGetFileContent.as_str().into()),
+        );
         if let Some(Value::Object(query)) = fields.get_mut("query") {
             query.insert("owner".into(), Value::String(source.owner.to_string()));
             query.insert("repo".into(), Value::String(source.repo.to_string()));

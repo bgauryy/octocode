@@ -5,10 +5,11 @@ import { getNativeContractFingerprint } from '@octocodeai/config/schema';
 // Raw-node boundary smoke test: exercises the SHIPPED artifact under plain node
 // (no vitest transform). Requires a prior `yarn build` so dist/public.js exists.
 import { createNativeMcp, loadNativeBinding } from '../../dist/public.js';
+import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 class FakeRuntime {
   static instance;
-  abiVersion = 2;
+  abiVersion = NATIVE_ABI_VERSION;
   executions = [];
   closed = false;
   constructor() {
@@ -25,6 +26,9 @@ class FakeRuntime {
   }
   cancel() {
     return true;
+  }
+  normalizeInput(_tool, input) {
+    return input;
   }
   async executeMcp(requestId, tool, input) {
     this.executions.push({ requestId, tool, input });

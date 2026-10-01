@@ -1,5 +1,6 @@
 //! Response-shaping helpers: build the tool output Value from prepared rewrite data.
 use super::{ExecutableReceipt, PreparedFile, PreparedMatch, RewriteError, RewriteRequest};
+use crate::tools::id::ToolId;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -29,33 +30,28 @@ pub(super) fn success_value(
     };
     let has_more = !apply && offset.saturating_add(page_size) < matches.len();
     let total_pages = matches.len().div_ceil(page_size).max(1);
-    // A preview page carries only the files its matches touch. A file whose
-    // matches span pages sends its whole-file patch once, on the first page
-    // touching it; later pages reference that page (`patchOnPage`) instead of
-    // resending it. `affectedFiles` stays the full count and the final page's
-    // `next.apply` still guards every affected file.
-    let page_paths = shown
+    // A preview page carries only the files its matches touch, and each
+    // file's patch holds only the hunks of this page's matches, so pageSize
+    // bounds the patch too. The patch applies to the original file on its
+    // own; `beforeHash`/`afterHash` and `matchCount` still describe the whole
+    // file, and the final page's `next.apply` guards every affected file.
+    let shown_ids = shown
         .iter()
-        .filter_map(|matched| matched.public["path"].as_str())
+        .map(|matched| matched.id.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    let mut first_page = std::collections::BTreeMap::<&str, usize>::new();
-    for (index, matched) in matches.iter().enumerate() {
-        if let Some(path) = matched.public["path"].as_str() {
-            first_page.entry(path).or_insert(index / page_size + 1);
-        }
-    }
     let page_files = files
         .iter()
-        .filter(|file| apply || page_paths.contains(file.path.as_str()))
+        .filter(|file| {
+            apply
+                || file
+                    .matches
+                    .iter()
+                    .any(|matched| shown_ids.contains(matched.id.as_str()))
+        })
         .map(|file| {
             let mut value = public_file(file);
-            if let Some(&first) = first_page
-                .get(file.path.as_str())
-                .filter(|first| !apply && **first < page)
-                && let Some(object) = value.as_object_mut()
-            {
-                object.remove("patch");
-                object.insert("patchOnPage".to_owned(), json!(first));
+            if !apply {
+                page_patch(&mut value, file, &shown_ids);
             }
             value
         })
@@ -77,7 +73,7 @@ pub(super) fn success_value(
         next["pageSize"] = json!(page_size);
         next["snapshot"] = json!(snapshot);
         value["next"] = json!({"nextPage":{
-            "tool":"astRewrite","query":next,"confidence":"exact"
+            "tool":ToolId::AstRewrite.as_str(),"query":next,"confidence":"exact"
         }});
     }
     // A complete preview carries its own guarded apply: the same query with the
@@ -95,7 +91,7 @@ pub(super) fn success_value(
                 .collect(),
         );
         value["next"]["apply"] = json!({
-            "tool":"astRewrite","query":next,"confidence":"exact",
+            "tool":ToolId::AstRewrite.as_str(),"query":next,"confidence":"exact",
             "why":"Apply exactly this preview; changed sources or selections are rejected."
         });
     }
@@ -162,6 +158,34 @@ pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) 
         }
     }
     Value::Object(value)
+}
+
+/// Narrow a preview file's whole-file patch to the hunks of the page's
+/// matches. A page showing every match of the file keeps the whole patch.
+fn page_patch(value: &mut Value, file: &PreparedFile, shown: &std::collections::BTreeSet<&str>) {
+    let on_page = file
+        .matches
+        .iter()
+        .filter(|matched| shown.contains(matched.id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if on_page.len() == file.matches.len() {
+        return;
+    }
+    // The full edit set already applied cleanly; a subset of it cannot fail.
+    let Ok(after) = super::apply_edits(&file.before, &on_page) else {
+        return;
+    };
+    let (Ok(before), Ok(after)) = (
+        std::str::from_utf8(&file.before),
+        std::str::from_utf8(&after),
+    ) else {
+        return;
+    };
+    let patch = super::create_unified_patch(&file.path, before, after);
+    value["patchBytes"] = json!(patch.len());
+    value["patch"] = json!(patch);
+    value["patchMatchCount"] = json!(on_page.len());
 }
 
 pub(super) fn public_file(file: &PreparedFile) -> Value {

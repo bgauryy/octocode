@@ -400,6 +400,7 @@ async function runWorkspaceScriptParallel(workspaces, scriptName, preferScript) 
 
 function runVerify(workspaces) {
   checkRequiredScripts(workspaces);
+  runCommand('node', ['--test', 'skills-dev/octocode-dev/scripts/workspace-health.test.mjs']);
   runCommand('node', ['skills-dev/octocode-dev/scripts/dedupe-deps.mjs']);
   runCommand('node', ['skills-dev/octocode-dev/scripts/docs-verify.mjs']);
 
@@ -412,12 +413,19 @@ function runVerify(workspaces) {
     runCommand('yarn', ['workspace', workspace.name, 'run', 'verify']);
   }
 
-  const nonVerifyWorkspaces = workspaces.filter(
+  const remaining = workspaces.filter(
     workspace => !VERIFY_ORDER.includes(workspace.name)
   );
+  const nonVerifyWorkspaces = remaining.filter(workspace => !workspace.packageJson.scripts?.verify);
 
   for (const scriptName of SKILL_SCRIPT_POLICY) {
     runWorkspaceScript(nonVerifyWorkspaces, scriptName);
+  }
+
+  // A workspace owns its complete gate, including checks beyond build/lint/test.
+  for (const workspace of remaining.filter(workspace => workspace.packageJson.scripts?.verify)) {
+    console.log(`\n==> ${workspace.location}: verify`);
+    runCommand('yarn', ['workspace', workspace.name, 'run', 'verify']);
   }
 
   checkBuildOutputs(workspaces);

@@ -319,18 +319,25 @@ impl PathPolicy {
         }
     }
 
-    pub fn redact(&self, path: impl AsRef<Path>) -> String {
+    /// `path` relative to the workspace root (`.` for the root itself), or
+    /// `None` when it lies outside the workspace or none is configured.
+    pub fn workspace_relative(&self, path: impl AsRef<Path>) -> Option<String> {
         let normalized = normalize(path.as_ref());
-        if let Some(relative) = [&self.workspace_root, &self.workspace_real]
+        let relative = [&self.workspace_root, &self.workspace_real]
             .into_iter()
             .flatten()
-            .find_map(|root| normalized.strip_prefix(root).ok())
-        {
-            return if relative.as_os_str().is_empty() {
-                ".".to_owned()
-            } else {
-                relative.to_string_lossy().into_owned()
-            };
+            .find_map(|root| normalized.strip_prefix(root).ok())?;
+        Some(if relative.as_os_str().is_empty() {
+            ".".to_owned()
+        } else {
+            relative.to_string_lossy().into_owned()
+        })
+    }
+
+    pub fn redact(&self, path: impl AsRef<Path>) -> String {
+        let normalized = normalize(path.as_ref());
+        if let Some(relative) = self.workspace_relative(&normalized) {
+            return relative;
         }
         if let Some(home) = &self.home_dir
             && let Ok(relative) = normalized.strip_prefix(home)

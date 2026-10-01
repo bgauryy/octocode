@@ -10,56 +10,41 @@
 //
 // Resumable: judge calls whose judge.json exists are reused.
 import fs from 'node:fs';
+import { scrub, parseVerdict } from './verdict.mjs';
+import { solverBoundary, evaluatorCredentials } from './isolation.mjs';
 import path from 'node:path';
 import { randomInt } from 'node:crypto';
 import {
   REFERENCES_DIR, RESULTS_DIR, commonFlags, corpusPaths, freshCwd, loadQuestions, median, parseArgs, parseStream,
-  pool, readJson, runClaude, selectQuestions, sha256, tokenAccounting, writeJson,
+  pool, readJson, runClaude, selectQuestions, sha256, tokenAccounting, toolCounts, writeJson, hashFile, UNIFIED_DIR, REPO_ROOT,
 } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2), { questions: 'all', concurrency: '4', model: 'opus', 'max-turns': '30', 'timeout-min': '20' });
 if (!args['run-id']) throw new Error('--run-id is required');
 const runDir = path.join(RESULTS_DIR, String(args['run-id']));
 const manifest = readJson(path.join(runDir, 'manifest.json'));
+if (hashFile(path.join(UNIFIED_DIR, 'questions/questions.json')) !== manifest.hashes.questionsJson) throw new Error('frozen questions changed');
+const credentials = evaluatorCredentials();
 const all = loadQuestions();
 const questions = selectQuestions(all, args.questions).filter((q) => manifest.questionIds.includes(q.id));
 const corpus = corpusPaths(all);
 const concurrency = Math.min(4, Number(args.concurrency));
 const model = String(args.model);
+if (!model.startsWith('claude-')) throw new Error('concrete versioned judge --model required');
 const DISAGREE = 2;
-
-// Remove wording that reveals which tool set produced an answer.
-const TOOL_WORDS = [
-  'localSearch', 'localFetch', 'lspSearch', 'astSearch', 'structureSearch', 'artifactSearch', 'clasify',
-  'ghSearchCode', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'ghSearchRepo', 'ghStructure',
-  'matchString', 'contextLines',
-];
-export function scrub(text) {
-  let t = String(text ?? '');
-  t = t.replace(/mcp__[\w-]+/g, '[tool]');
-  t = t.replace(new RegExp(`\\b(${TOOL_WORDS.join('|')})\\b`, 'g'), '[tool]');
-  t = t.replace(/\bnext\.\w+/g, '[tool]');
-  t = t.replace(/\b[Oo]ctocode\b/g, '[tool]');
-  t = t.replace(/\bripgrep\b/gi, '[tool]');
-  t = t.replace(/\b(?:Bash|MCP|LSP|AST)\b/g, '[tool]');
-  t = t.replace(/`(?:rg|gh|git)\s[^`\n]*`/g, '`[command]`');
-  t = t.replace(/^(\s*\$?\s*)(?:rg|gh)\s.+$/gm, '$1[command]');
-  t = t.replace(/\b(?:rg|gh)\b(?!\/)(?=[\s,.;:)])/g, '[tool]');
-  return t;
-}
 
 function judgePrompt(q, reference, answerX, answerY) {
   const local = (q.repos ?? []).filter((r) => r.path);
   const where = local.length
     ? `Local checkout(s), read-only, at the pinned commit:\n${local.map((r) => `- ${r.repo} @ ${r.sha}: ${r.path}`).join('\n')}`
-    : `The question is about public GitHub repositories (${(q.repos ?? []).map((r) => `${r.repo}@${r.sha}`).join(', ')}). Inspect them with gh (for example gh api -H "Accept: application/vnd.github.raw" "repos/O/R/contents/PATH?ref=SHA", gh pr view, gh pr diff).`;
+    : `The question is about public GitHub repositories (${(q.repos ?? []).map((r) => `${r.repo}@${r.sha}`).join(', ')}). Inspect them with gh api REST GET requests (for example gh api -H "Accept: application/vnd.github.raw" "repos/O/R/contents/PATH?ref=SHA", gh api repos/O/R/pulls/NUMBER, or gh api -H "Accept: application/vnd.github.diff" repos/O/R/pulls/NUMBER).`;
   return `You are grading two answers to a code-research question. You do not know how either answer was produced.
 
 ${where}
 
 You have an evaluator-only REFERENCE answer with verified key facts. Treat it as strong but not infallible evidence: if an answer contradicts the reference, check the source yourself before penalizing, and if the reference is wrong or incomplete, grade against the source and say so in "reference_issues".
 
-Verify claims with your read-only tools: the Read tool, and single Bash commands that start with rg, gh, or a read-only git subcommand (git -C <checkout> log/show/blame/grep/ls-files). Pipes, chains and other commands are denied. Spot-check cited path:line locations and SHAs, especially where the two answers disagree with each other or with the reference. Do not modify anything.
+Verify claims with your read-only tools: the Read tool, and single Bash commands that start with rg, gh, or a read-only git subcommand (git -C <checkout> log/show/blame/grep/ls-files). Use one command per Bash call. GitHub access supports REST GET/HEAD only; GraphQL POST and mutations are unavailable, so prefer gh api over subcommands that use GraphQL. Spot-check cited path:line locations and SHAs, especially where the two answers disagree with each other or with the reference. Do not modify anything.
 
 Score each answer independently:
 - correctness 0–5: 5 = every stated claim relevant to the question is right; subtract for each wrong claim, weighted by importance (a wrong core fact caps correctness at 2).
@@ -91,29 +76,6 @@ End your reply with exactly one JSON object in a \`\`\`json fenced block:
  "reference_issues": "none or description"}`;
 }
 
-const RANGES = { correctness: 5, completeness: 3, evidence: 2 };
-export function parseVerdict(text) {
-  const blocks = [...String(text).matchAll(/```json\s*([\s\S]*?)```/g)].map((m) => m[1]).reverse();
-  for (const c of blocks) {
-    try {
-      const v = JSON.parse(c.trim());
-      for (const k of ['X', 'Y']) {
-        let sum = 0;
-        for (const [dim, max] of Object.entries(RANGES)) {
-          const s = Number(v?.[k]?.[dim]);
-          if (!Number.isFinite(s) || s < 0 || s > max) throw new Error(`bad ${dim} for ${k}`);
-          sum += s;
-        }
-        if (Number(v[k].quality) !== sum) { v[k].qualityAsWritten = v[k].quality; v[k].quality = sum; }
-        v[k].wrong_claims ??= [];
-      }
-      if (!['X', 'Y', 'tie'].includes(v.preferred)) v.preferred = 'tie';
-      return v;
-    } catch { /* try the next block */ }
-  }
-  return null;
-}
-
 const JUDGE_FLAGS = [
   '--strict-mcp-config', '--tools', 'Bash,Read',
   '--allowedTools', 'Read', 'Bash(rg:*)', 'Bash(gh:*)',
@@ -130,28 +92,31 @@ const JUDGE_FLAGS = [
 async function judgeCall(q, pairKey, label, xWorker, yWorker, answers, reference) {
   const dir = path.join(runDir, 'judge', q.id, pairKey, label);
   const out = path.join(dir, 'judge.json');
-  if (fs.existsSync(out)) return readJson(out);
-  fs.mkdirSync(dir, { recursive: true });
   const prompt = judgePrompt(q, reference, scrub(answers[xWorker]), scrub(answers[yWorker]));
-  let verdict = null; let m = null; let attempts = 0; let res = null;
+  const subjectSha = sha256(JSON.stringify({ prompt, model, turns: args['max-turns'], timeout: args['timeout-min'], judge: hashFile(path.join(UNIFIED_DIR, 'judge.mjs')), harness: manifest.hashes }));
+  if (fs.existsSync(out)) { const cached = readJson(out); if (cached.subjectSha !== subjectSha) throw new Error('stale judge cache'); return cached; }
+  fs.mkdirSync(dir, { recursive: true });
+  let verdict = null; let m = null; let attempts = 0; let res = null; const attemptUsage = [];
   while (!verdict && attempts < 2) {
     attempts++;
     const cwd = freshCwd(`judge-${q.id}-${label}`);
-    res = await runClaude({
-      args: ['-p', prompt, ...commonFlags({ model, maxTurns: Number(args['max-turns']) }), ...JUDGE_FLAGS],
-      cwd, timeoutMs: Number(args['timeout-min']) * 60_000, streamPath: path.join(dir, `stream${attempts}.jsonl`),
-    });
-    fs.rmSync(cwd, { recursive: true, force: true });
-    m = parseStream(res.stream);
-    verdict = parseVerdict(m.answer);
+    let boundary;
+    try {
+      boundary = await solverBoundary({ cwd, corpus, repoRoot: REPO_ROOT, ...credentials });
+      res = await runClaude({ args: ['-p', prompt, ...commonFlags({ model, maxTurns: Number(args['max-turns']) }), ...JUDGE_FLAGS], cwd, timeoutMs: Number(args['timeout-min']) * 60000, streamPath: path.join(dir, `stream${attempts}.jsonl`), env: boundary.env, sandboxProfile: boundary.sandboxProfile });
+      m = parseStream(res.stream);
+      attemptUsage.push({ attempt: attempts, tokens: tokenAccounting(m), actualModels: m.actualModels, toolCalls: m.toolCalls.length, toolCounts: toolCounts(m.toolCalls), toolErrors: m.toolErrors.length, cost_usd: m.total_cost_usd, costVerified: m.costVerified, exitCode: res.exitCode, signal: res.signal, timedOut: res.timedOut });
+      if (res.exitCode === 0 && !res.timedOut && !res.signal && m.resultSubtype === 'success' && !m.isError && tokenAccounting(m).verified) verdict = parseVerdict(m.answer);
+    } finally { await boundary?.close(); fs.rmSync(cwd, { recursive: true, force: true }); }
+
   }
   const record = {
-    qid: q.id, pairKey, label, X: xWorker, Y: yWorker, attempts, promptSha256: sha256(prompt),
+    qid: q.id, pairKey, label, subjectSha, model, X: xWorker, Y: yWorker, attempts, promptSha256: sha256(prompt),
     ok: !!verdict, verdict,
     byWorker: verdict ? { [xWorker]: verdict.X, [yWorker]: verdict.Y } : null,
     preferredWorker: verdict ? (verdict.preferred === 'X' ? xWorker : verdict.preferred === 'Y' ? yWorker : 'tie') : null,
     reference_issues: verdict?.reference_issues ?? null,
-    cost_usd: m?.total_cost_usd ?? 0, num_turns: m?.num_turns ?? 0, tokens: m ? tokenAccounting(m.perRequest) : null,
+    cost_usd: attemptUsage.reduce((sum, a) => sum + (a.cost_usd ?? 0), 0), costVerified: attemptUsage.every(a => a.tokens.verified && a.costVerified), attemptUsage, num_turns: m?.num_turns ?? 0, tokens: m ? tokenAccounting(m) : null,
     timedOut: res?.timedOut ?? null, rawTail: verdict ? undefined : String(m?.answer ?? '').slice(-1500),
   };
   writeJson(out, record);
@@ -164,9 +129,14 @@ async function judgeQuestion(q, a, b) {
   const answers = {};
   for (const w of [a, b]) {
     const p = path.join(runDir, 'runs', q.id, w, 'run.json');
-    answers[w] = fs.existsSync(p) ? readJson(p).answer : '';
+    if (!fs.existsSync(p)) throw new Error('missing worker record');
+    const record = readJson(p);
+    if (!record.valid || record.status !== 'ok' || !record.isolation.ok || !record.tokens.verified) throw new Error('invalid worker cannot be judged');
+    answers[w] = record.answer;
   }
-  const reference = fs.readFileSync(path.join(REFERENCES_DIR, `${q.id}.md`), 'utf8');
+  const refPath = path.join(REFERENCES_DIR, `${q.id}.md`);
+  if (hashFile(refPath) !== manifest.hashes.references?.[q.id]) throw new Error('reference changed');
+  const reference = fs.readFileSync(refPath, 'utf8');
   const finalPath = path.join(runDir, 'judge', q.id, pairKey, 'final.json');
   // Random first order, then swapped; stored so a resume keeps the same orders.
   const orderPath = path.join(runDir, 'judge', q.id, pairKey, 'order.json');
@@ -194,7 +164,7 @@ async function judgeQuestion(q, a, b) {
     return xs.length === 2 ? (xs[0] + xs[1]) / 2 : median(xs);
   };
   const final = {
-    qid: q.id, pairKey, workers: [a, b], judgments: calls.length, graderErrors: calls.length - good.length, tiebreak,
+    qid: q.id, pairKey, workers: [a, b], valid: good.length >= 2 && j1.ok && j2.ok && calls.every(c => c.costVerified), costVerified: calls.every(c => c.costVerified), model, judgments: calls.length, graderErrors: calls.length - good.length, tiebreak,
     orderSpread: { [a]: Number.isFinite(spread(a)) ? spread(a) : null, [b]: Number.isFinite(spread(b)) ? spread(b) : null },
     scores: Object.fromEntries([a, b].map((w) => [w, {
       quality: agg(w, 'quality'), correctness: agg(w, 'correctness'), completeness: agg(w, 'completeness'), evidence: agg(w, 'evidence'),
@@ -204,6 +174,8 @@ async function judgeQuestion(q, a, b) {
     preferred: good.map((c) => c.preferredWorker),
     referenceIssues: good.map((c) => c.reference_issues).filter((r) => r && !/^none\b/i.test(String(r))),
     judgeCost: calls.reduce((s, c) => s + (c.cost_usd ?? 0), 0),
+    judgeTokens: calls.flatMap(c => c.attemptUsage).reduce((sum, a) => sum + a.tokens.total_tokens, 0),
+    judgeAttempts: calls.flatMap(c => c.attemptUsage),
   };
   writeJson(finalPath, final);
   return final;
@@ -220,6 +192,7 @@ async function main() {
   for (const r of results) if (r?.error) console.error('judge job error:', r.error);
   const cost = results.reduce((s, r) => s + (r?.judgeCost ?? 0), 0);
   console.log(`judge done: $${cost.toFixed(2)}`);
+  if (results.some(r => r?.error || !r.valid) || results.length !== jobs.length) throw new Error('judge gate incomplete/invalid');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

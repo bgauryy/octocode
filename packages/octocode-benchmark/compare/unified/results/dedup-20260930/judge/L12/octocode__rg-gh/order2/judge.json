@@ -1,0 +1,96 @@
+{
+  "qid": "L12",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "305f5d3953215ab128bf13cc9969e079e313de155d97d194b458efe8073fca71",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on schedule_local, should_notify semantics, run loop, cap, reset, budget, yield exclusion, non-stealable slot (479-481), and builder config. Omits the unstable gating and the budget value of 128. Citations are precise."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Mechanism and limits are all correct. Fact 6 is only partly covered: it mentions config.disable_lifo_slot but not the Builder API or Core initialisation. The schedule_task line range (~1350-1358) is a little early; the actual lines are 1360-1368. It does not address stealing."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on schedule_local, should_notify semantics, run loop, cap, reset, budget, yield exclusion, non-stealable slot (479-481), and builder config. Omits the unstable gating and the budget value of 128. Citations are precise."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Mechanism and limits are all correct. Fact 6 is only partly covered: it mentions config.disable_lifo_slot but not the Builder API or Core initialisation. The schedule_task line range (~1350-1358) is a little early; the actual lines are 1360-1368. It does not address stealing."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.12326020000000001,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 11135,
+    "cache_read_input_tokens": 13121,
+    "output_tokens": 16,
+    "context_tokens": 24260,
+    "total_tokens": 24276,
+    "first_request_context": 10496,
+    "fixed_overhead_tokens": 20992,
+    "research_tokens": 3284,
+    "max_request_context": 13764
+  },
+  "timedOut": false
+}

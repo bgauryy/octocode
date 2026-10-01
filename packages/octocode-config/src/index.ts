@@ -75,10 +75,19 @@ export {
 } from './config/defaults.js';
 export {
   type RuntimeSurface,
+  RUNTIME_SURFACES,
+  INTERACTIVE_EXECUTION_TIMEOUT_SECS,
   setRuntimeSurface,
   getRuntimeSurface,
   _resetRuntimeSurface,
 } from './config/runtimeSurface.js';
+export {
+  CONTRACT_DRIFT_OVERRIDE_ENV,
+  type DevOverrideOptions,
+  devOverridesAllowed,
+  contractDriftAllowed,
+  contractDriftMessage,
+} from './config/devOverrides.js';
 export { validateConfig } from './config/validator.js';
 export {
   getConfigFilePath,
@@ -123,6 +132,18 @@ import {
   getProjectConfigFilePath,
   loadConfigFileSync,
 } from './config/loader.js';
+
+/**
+ * Env var names bound to a config field (e.g. `classification.api`), highest
+ * priority first. Empty for an unknown path or an env-less field.
+ */
+export function configFieldEnvNames(fieldPath: string): readonly string[] {
+  const field = CONFIG_FIELDS.find(candidate => candidate.path === fieldPath);
+  return (field?.env ?? [])
+    .slice()
+    .sort((a, b) => a.priority - b.priority)
+    .map(binding => binding.name);
+}
 
 /** Keys restricted by the shared dotenv policy (infrastructure and security controls). */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);

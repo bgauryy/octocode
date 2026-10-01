@@ -6,40 +6,54 @@ use super::types::*;
 use super::validation::{decode_text, is_binary, validate_request};
 use crate::security::scan::ContentScan;
 use crate::tools::cancel::CancellationCheck;
+use crate::tools::id::ToolId;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-/// Hard ceiling on source bytes read into memory for ANY localFetch path.
-/// Plain, matchString, and line-range reads all slurp the whole source file
-/// before extraction, so without this cap a single pathologically large file
-/// would be read (and secret-scanned) entirely into memory. This is a
-/// memory-safety bound distinct from — and larger than — the 100KB full-content
-/// *return* cap below: files under this ceiling still page normally via
-/// next.continue; files over it are refused outright with `fileTooLarge`.
+/// In-memory read guard. Larger sources use bounded streaming windows up to
+/// `MAX_STREAM_SOURCE_BYTES`; a growing small-file read stops at this guard.
 pub(super) const MAX_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
 
-/// Build the shared `fileTooLarge` result for a source that exceeds
-/// [`MAX_SOURCE_BYTES`]. Terminal: there is no bounded continuation past the
-/// hard ceiling.
-fn source_too_large(path: &str, len: u64) -> LocalFetchResult {
-    let mut result = LocalFetchResult::error(
-        path.to_owned(),
-        "fileTooLarge",
-        format!(
-            "File too large: {}KB (hard limit: {}KB). This source exceeds the maximum size localFetch will read into memory. Use astSearch or localSearch to locate the relevant symbol, then read a bounded startLine/endLine range of a smaller source.",
-            len / 1024,
-            MAX_SOURCE_BYTES / 1024
+#[derive(Clone, Copy)]
+enum SourceSizeLimit {
+    Streaming,
+    InMemoryGrowth,
+}
+
+fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> LocalFetchResult {
+    let (message, hint) = match limit {
+        SourceSizeLimit::Streaming => (
+            format!(
+                "File too large: {len} bytes (streaming source ceiling: {} bytes / 1 GiB). localFetch cannot read this path, including bounded ranges.",
+                super::large_source::MAX_STREAM_SOURCE_BYTES
+            ),
+            "Changing ranges, matchString, or fullContent cannot lift this ceiling. Choose a smaller text source or split the source outside localFetch.",
         ),
-    );
+        SourceSizeLimit::InMemoryGrowth => (
+            format!(
+                "Source grew beyond the in-memory read guard: observed at least {len} bytes (guard: {MAX_SOURCE_BYTES} bytes / 10 MiB). The bounded read stopped before extraction."
+            ),
+            "Retry a fresh bounded line-window query after the source stops changing; sources above 10 MiB use streaming, up to the 1 GiB source ceiling.",
+        ),
+    };
+    let mut result = LocalFetchResult::error(path.to_owned(), "fileTooLarge", message);
     result.resolved_path = Some(path.to_owned());
     result.source_bytes = Some(len as usize);
     result.is_partial = Some(true);
     result.terminal_limit = Some(true);
     result.partial_reasons = vec![PartialReason::FullContentSourceSizeLimit];
+    result.hints = vec![hint.into()];
     result
 }
+
+fn read_in_memory_source(reader: impl Read) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.take(MAX_SOURCE_BYTES + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 pub fn execute_local_fetch(
     q: &LocalFetchQuery,
     paths: &impl PathAccess,
@@ -105,7 +119,7 @@ pub fn execute_local_fetch_with_regex(
     // Past the whole-file ceiling, only a streamed line window is served
     // (see `large_source`); past the streaming ceiling nothing is read.
     if meta.len() > super::large_source::MAX_STREAM_SOURCE_BYTES {
-        return source_too_large(&q.path, meta.len());
+        return source_too_large(&q.path, meta.len(), SourceSizeLimit::Streaming);
     }
     let mut sample = [0_u8; 8192];
     let sample_len = match fs::File::open(&path).and_then(|mut file| file.read(&mut sample)) {
@@ -165,14 +179,9 @@ pub fn execute_local_fetch_with_regex(
     };
     // Read at most the cap (+1 sentinel byte). Re-check the length in case the
     // file grew past the ceiling between the stat above and this read (TOCTOU).
-    let bytes = match fs::File::open(&path).and_then(|file| {
-        let mut buf = Vec::new();
-        file.take(MAX_SOURCE_BYTES + 1)
-            .read_to_end(&mut buf)
-            .map(|_| buf)
-    }) {
+    let bytes = match fs::File::open(&path).and_then(read_in_memory_source) {
         Ok(b) if b.len() as u64 > MAX_SOURCE_BYTES => {
-            return source_too_large(&q.path, b.len() as u64);
+            return source_too_large(&q.path, b.len() as u64, SourceSizeLimit::InMemoryGrowth);
         }
         Ok(b) => b,
         Err(e) => {
@@ -307,7 +316,7 @@ pub fn process_fetched_content(
                 no_match_hint(
                     q.match_string_is_regex.unwrap_or(false),
                     q.match_string_case_sensitive.unwrap_or(false),
-                    "localSearch",
+                    ToolId::LocalSearch.as_str(),
                 )
             }],
             total_lines: Some(total_lines),
@@ -414,7 +423,7 @@ pub fn process_fetched_content(
                     r#continue: None,
                     restart: None,
                     read_bounded_lines: Some(Continuation {
-                        tool: "localFetch".into(),
+                        tool: ToolId::LocalFetch.as_str().into(),
                         query,
                         confidence: "exact".into(),
                         reason: Some("The selected view is too large to scan safely. Read one source line; this starts a different source-line view, not a…".into()),
@@ -475,7 +484,7 @@ pub fn process_fetched_content(
             r#continue: None,
             read_bounded_lines: None,
             restart: Some(Continuation {
-                tool: "localFetch".into(),
+                tool: ToolId::LocalFetch.as_str().into(),
                 query,
                 confidence: "exact".into(),
                 reason: Some(
@@ -633,7 +642,7 @@ fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
         r#continue: None,
         read_bounded_lines: None,
         restart: Some(Continuation {
-            tool: "localFetch".into(),
+            tool: ToolId::LocalFetch.as_str().into(),
             query,
             confidence: "exact".into(),
             reason: Some("The source changed; restart this view on the current version.".into()),
@@ -772,8 +781,26 @@ mod source_size_tests {
         assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
         assert_eq!(result.source_bytes, Some(len as usize));
         assert_eq!(result.terminal_limit, Some(true));
+        assert!(result.error.as_deref().expect("error").contains("1073741824 bytes / 1 GiB"));
+        assert!(!result.error.as_deref().expect("error").contains("10 MiB"));
+        assert!(!result.hints.is_empty());
+        assert!(!result.hints.join(" ").contains("remove matchString"));
+        assert!(result.next.is_none());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn growing_in_memory_source_stops_at_guard_with_specific_recovery() {
+        let source = vec![b'x'; (MAX_SOURCE_BYTES + 100) as usize];
+        let bytes = read_in_memory_source(std::io::Cursor::new(source)).expect("bounded read");
+        assert_eq!(bytes.len() as u64, MAX_SOURCE_BYTES + 1);
+        let result = source_too_large("growing.txt", bytes.len() as u64, SourceSizeLimit::InMemoryGrowth);
+        assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
+        assert!(result.error.as_deref().expect("error").contains("in-memory read guard"));
+        assert!(result.hints.join(" ").contains("fresh bounded line-window"));
+        assert!(!result.hints.join(" ").contains("remove matchString"));
+        assert_eq!(result.terminal_limit, Some(true));
     }
 
     // Past the whole-file ceiling a plain read streams a bounded line window:

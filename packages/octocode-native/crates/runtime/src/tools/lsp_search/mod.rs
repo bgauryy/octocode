@@ -161,8 +161,8 @@ impl LspSearchQuery {
     pub fn page(&self) -> Option<u32> {
         each_shape!(self, page => Some(u32_of(page.get())))
     }
-    pub fn page_size(&self) -> Option<u32> {
-        each_shape!(self, page_size => page_size.map(|size| u32_of(size.get())))
+    pub fn page_size(&self) -> u32 {
+        each_shape!(self, page_size => u32_of(page_size.get()))
     }
     pub fn snapshot(&self) -> Option<&str> {
         each_shape!(self, snapshot => snapshot.as_ref().map(|snapshot| snapshot.as_str()))

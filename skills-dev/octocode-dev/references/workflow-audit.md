@@ -8,7 +8,7 @@ Load when judging whether an agent will chain this tool into a smart research wo
 - **Hints are specific and earned.** A hint names the tool + fields to call next with values from this result (path, line, SHA, symbol). Flag generic advice, hints repeated on every row, and hints pointing to disabled tools.
 - **Cross-tool handoffs line up.** Producer fields feed consumer inputs without reshaping: search → fetch (`path` + line/anchor), ghSearchCode/ghStructure → ghGetFileContent (owner/repo/ref), history → item (number/SHA), astSearch topology → lspSearch confirmation. Check against `<repo>/docs/TOOL_DATA_CONTRACT.md` "Connections between tools".
 - **Routing text matches behavior.** Instructions' locate cascade (anchor → search → fetch → rerank/clasify → lsp) reflects what tools actually return; flag guidance that asks for a field the tool does not emit.
-- **Reasoning/goal fields.** Optional `goal`/`reasoning` must not be required to get correct results, and output should not echo them back as filler.
+- **Reasoning/goal fields.** Every query or classification matrix requires nonblank `goal` and `reasoning`. Verify rejection before provider access when either is missing. Executable continuations carry the originating brief; successful output need not echo it as filler.
 - **Confidence vocabulary.** `kind`, `confidence`, coverage, and `lowSignal` states are consistent across tools and tell the agent when to verify.
 - **Batching.** Instructions tell agents when to batch independent queries (1–5) and when a dependent query must wait.
 

@@ -1,0 +1,7 @@
+1. **Helped:** The first parallel pair of Bash calls was the most useful. `gh pr view 16403 --json ...` gave the file list, merge state, head SHA and PR body. `gh pr diff` showed the code changes. Saving the diff to `/tmp/pr.diff` let me slice it with `sed -n` and `awk` ranges by file, so I could read `_api.py`, `_asgi.py`, `_runtime.py` and `pyproject.toml` without refetching.
+
+2. **Did not help:** `head -c 30000` on the first diff cut it off inside `_api.py`, so that call was partly wasted and I had to refetch. My `sed | head -330` slice of `_asgi.py` cut off before the end of `NativeTelemetry.__call__`, so I never saw `finish()`, the status-code handling or the send/receive wrapping. I did not open any test files. Line references are diff positions, not `path:line` at a commit, because there was no checkout.
+
+3. **Next time:** Save the diff to a file on the first call. Then read the diff file by file, without truncating, including the end of `_asgi.py`. Use `gh api` to fetch files at the head SHA for real line numbers. Skim the key tests, such as `test_integrations.py`, to check my guesses about contrib double-instrumentation.
+
+4. **Confidence:** Medium-high. The description of what the PR changes is solid, because it comes straight from the diff. The reviewer concerns are my own judgment, and I did not run any code. The part of `_asgi.py` I skipped could hide issues, for example in status handling.

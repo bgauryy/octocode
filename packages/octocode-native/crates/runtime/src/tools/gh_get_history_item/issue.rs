@@ -5,7 +5,7 @@ use super::util::{
     array, content_flag, history_body_view, map_comments, merge, paginate_text, str_at, string,
     window_body,
 };
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch, validation};
+use super::{HistoryItemRequest, default_page_size, fetch, validation};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
     RequestContext,
@@ -86,7 +86,7 @@ pub(super) async fn issue<R: CredentialResolver>(
     }
     if want_comments {
         let page_no = query.comment_page().unwrap_or(1);
-        let per = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE);
+        let per = query.page_size().unwrap_or_else(default_page_size);
         let (raw_comments, more) = if page_no == 0 {
             (json!([]), false)
         } else {

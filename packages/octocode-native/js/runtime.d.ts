@@ -12,6 +12,13 @@ export declare class NativeRuntime {
   readonly abiVersion: number;
   readonly closed: boolean;
   catalog(): unknown;
+  /**
+   * Native pre-validation normalization for hosts that validate the canonical
+   * envelope themselves (MCP): bare-query wrapping, JSON-encoded `queries` and
+   * list values, bare scalars for lists, lossless integer/boolean strings.
+   * Never validates or applies defaults.
+   */
+  normalizeInput(tool: string, input: unknown): unknown;
   execute(requestId: string, tool: string, input: unknown): Promise<unknown>;
   executeMcp(requestId: string, tool: string, input: unknown): Promise<unknown>;
   cancel(requestId: string): boolean;

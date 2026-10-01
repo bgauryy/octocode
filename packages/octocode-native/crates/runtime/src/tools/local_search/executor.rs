@@ -6,6 +6,7 @@ use crate::policy::prune::DefaultsFlag;
 use crate::policy::prune::PruneMode;
 use crate::security::ContentSecurity;
 use crate::tools::cancel::CancellationCheck;
+use crate::tools::id::ToolId;
 use octocode_engine::{
     portable::{RipgrepPathFilter, search_ripgrep_cancellable},
     types::RipgrepSearchOptions,
@@ -38,7 +39,6 @@ const MIN_MATCH_VALUE_CHARS: usize = 40;
 const DEFAULT_MATCH_CONTENT_LENGTH: u32 = 200;
 /// Cap on the context-scaled default; an explicit matchContentLength may exceed it.
 const MAX_DEFAULT_MATCH_CONTENT_LENGTH: u32 = 4000;
-const DEFAULT_MAX_MATCHES_PER_FILE: u32 = 10;
 /// Files per page for snippet views; path-only list views stay at 100.
 const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
 const DEFAULT_LIST_PAGE_SIZE: u32 = 100;
@@ -275,7 +275,7 @@ pub fn execute_local_search(
             hints: vec![],
             next: Some(Box::new(json!({
                 "restart": {
-                    "tool": "localSearch",
+                    "tool": ToolId::LocalSearch.as_str(),
                     "query": restart,
                     "why": "Start a new search against the current source.",
                     "confidence": "exact"
@@ -364,10 +364,7 @@ pub fn execute_local_search(
     {
         parsed.files.reverse();
     }
-    let matches_per = query
-        .max_matches_per_file()
-        .unwrap_or(DEFAULT_MAX_MATCHES_PER_FILE)
-        .max(1);
+    let matches_per = query.max_matches_per_file().max(1);
     // A file with more hits than one match page shows its deciding rows
     // first: declarations, then assignments/branches/returns, then other
     // code, then comments and strings (stable by line within a rank). A row
@@ -716,7 +713,7 @@ pub fn execute_local_search(
             vec![]
         },
         next,
-        is_partial: coverage_gap,
+        is_partial: coverage_gap || capped,
         terminal_limit,
         warnings,
         source_snapshot: Some(result_identity),
@@ -1080,7 +1077,7 @@ fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError 
             "Use regex:\"literal\" for exact text, or escape metacharacters/fix searchText to keep regex matching.".into(),
         ],
         next: Some(Box::new(json!({"repair":{
-            "tool":"localSearch",
+            "tool":ToolId::LocalSearch.as_str(),
             "query":repaired,
             "why":"Search searchText as literal text."
         }}))),
@@ -1217,7 +1214,7 @@ fn build_next(
         };
         map.insert(
             "nextPage".into(),
-            json!({"tool":"localSearch","query":n,"confidence":"exact"}),
+            json!({"tool":ToolId::LocalSearch.as_str(),"query":n,"confidence":"exact"}),
         );
     }
     if leftover_matches {
@@ -1228,7 +1225,7 @@ fn build_next(
         };
         map.insert(
             "nextMatchPage".into(),
-            json!({"tool":"localSearch","query":n,"confidence":"exact"}),
+            json!({"tool":ToolId::LocalSearch.as_str(),"query":n,"confidence":"exact"}),
         );
     }
     (!map.is_empty()).then_some(Value::Object(map))

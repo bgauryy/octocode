@@ -49,6 +49,7 @@ const buildResult = await esbuild.build({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     'process.env.NODE_ENV': '"production"',
+    __OCTOCODE_BUNDLED__: 'true',
   },
   logLevel: 'info',
 });

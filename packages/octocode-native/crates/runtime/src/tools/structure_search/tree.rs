@@ -10,8 +10,6 @@ use serde_json::json;
 use super::files::{format_size, walk_warnings};
 use crate::contracts::tool_types::StructureSearchQueryTree;
 
-const MAX_WALK: u32 = 10_000;
-
 /// Engine-unit views over the generated `tree` query.
 impl StructureSearchQueryTree {
     /// Levels below `path`; the engine counts immediate children as depth 1.
@@ -22,20 +20,18 @@ impl StructureSearchQueryTree {
     }
     fn limit(&self) -> usize {
         self.limit
-            .map_or(MAX_WALK as usize, |limit| {
+            .map_or(super::max_walk() as usize, |limit| {
                 usize::try_from(limit.get()).unwrap_or(usize::MAX)
             })
-            .min(MAX_WALK as usize)
+            .min(super::max_walk() as usize)
     }
     fn page(&self) -> usize {
         usize::try_from(self.page.get()).unwrap_or(usize::MAX)
     }
     fn page_size(&self) -> usize {
-        self.page_size
-            .map_or(100, |size| {
-                usize::try_from(size.get()).unwrap_or(usize::MAX)
-            })
-            .clamp(1, 100)
+        usize::try_from(self.page_size.get())
+            .unwrap_or(usize::MAX)
+            .clamp(1, super::structure_max("pageSize") as usize)
     }
 }
 
@@ -60,6 +56,7 @@ pub fn execute_tree(
         .then(|| crate::policy::gitignore::GitignoreFilter::new(&validated.canonical));
     let show_hidden = q.hidden.unwrap_or(false);
     let withheld = std::sync::atomic::AtomicUsize::new(0);
+    let ignored = std::sync::atomic::AtomicUsize::new(0);
     let native = octocode_engine::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
@@ -73,20 +70,25 @@ pub fn execute_tree(
                 PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults()),
             ),
             stop_at_limit: Some(true),
-            limit: Some(MAX_WALK),
+            limit: Some(super::max_walk()),
             ..Default::default()
         },
         &|path| {
+            // Dot entries out of view (no `hidden`) are neither listed nor
+            // counted as withheld or ignored.
+            let dot = path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with('.'));
             if gitignore
                 .as_ref()
                 .is_some_and(|filter| filter.is_ignored(path))
             {
+                if show_hidden || !dot {
+                    ignored.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 return Ok(false);
             }
             let allowed = super::allow_discovery(path, paths, cancel)?;
-            let dot = path
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with('.'));
             if !allowed && (show_hidden || !dot) && paths.is_sensitive(path) {
                 withheld.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
@@ -96,6 +98,7 @@ pub fn execute_tree(
     .map_err(super::walk_error)?;
     cancel.check().map_err(super::cancelled)?;
     let withheld = withheld.into_inner();
+    let ignored = ignored.into_inner();
 
     let mut files = 0_usize;
     let mut dirs = 0_usize;
@@ -137,7 +140,7 @@ pub fn execute_tree(
         rows
     ]));
     if q.page() > 1 && q.snapshot.as_deref().map(String::as_str) != Some(snapshot.as_str()) {
-        return Ok(super::snapshot_changed(&snapshot));
+        return Ok(super::snapshot_changed(q, &snapshot));
     }
     let page_size = q.page_size();
     let page = q.page().max(1);
@@ -150,7 +153,7 @@ pub fn execute_tree(
     let has_more = page < total_pages;
     let limit_cut = available > total;
     let scan_cut = native.was_capped;
-    let can_expand = limit_cut && requested < MAX_WALK as usize;
+    let can_expand = limit_cut && requested < super::max_walk() as usize;
     let terminal = (has_more && page >= 1000) || ((limit_cut || scan_cut) && !can_expand);
 
     let mut out = json!({
@@ -158,6 +161,7 @@ pub fn execute_tree(
         "entries": entries,
         "summary": withheld_note(
             format!("{available} entries ({files} files, {dirs} dirs, {})", format_size(bytes)),
+            ignored,
             withheld,
         ),
         "snapshot": snapshot,
@@ -175,7 +179,7 @@ pub fn execute_tree(
     if can_expand {
         out["next"]["expandLimit"] = super::continuation(
             q,
-            json!({"limit":requested.saturating_mul(2).min(MAX_WALK as usize),"page":1}),
+            json!({"limit":requested.saturating_mul(2).min(super::max_walk() as usize),"page":1}),
         );
     }
     if terminal {
@@ -200,17 +204,35 @@ pub fn execute_tree(
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings);
     }
+    super::note_ignored_empty(
+        &mut out,
+        q,
+        ignored,
+        json!({"noIgnore":true,"page":1}),
+        format!(
+            "{ignored} entries here are .gitignore'd; retry with noIgnore:true (next.includeIgnored) to list them."
+        ),
+    );
     Ok(out)
 }
 
-/// The summary, plus how many entries the sensitive-file policy withheld
-/// (credentials such as `.env.production` or `.npmrc`): their names and
-/// contents stay out of the listing, but their absence is not silent.
-fn withheld_note(summary: String, withheld: usize) -> String {
-    if withheld == 0 {
-        summary
-    } else {
-        let entries = if withheld == 1 { "entry" } else { "entries" };
-        format!("{summary}; {withheld} sensitive {entries} withheld by path policy")
+/// The summary, plus how many entries `.gitignore` hid and how many the
+/// sensitive-file policy withheld (credentials such as `.env.production` or
+/// `.npmrc`): their names stay out of the listing, but their absence is not
+/// silent.
+fn withheld_note(mut summary: String, ignored: usize, withheld: usize) -> String {
+    let entries = |count: usize| if count == 1 { "entry" } else { "entries" };
+    if ignored > 0 {
+        summary.push_str(&format!(
+            "; {ignored} {} hidden by .gitignore (noIgnore:true lists them)",
+            entries(ignored)
+        ));
     }
+    if withheld > 0 {
+        summary.push_str(&format!(
+            "; {withheld} sensitive {} withheld by path policy",
+            entries(withheld)
+        ));
+    }
+    summary
 }

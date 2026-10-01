@@ -20,6 +20,7 @@ use super::{
 use crate::policy::path::PathPolicy;
 use crate::providers::classification::gate::{self, GateLease};
 use crate::tools::clasify::{self, transport::ClassificationError};
+use crate::tools::id::ToolId;
 use futures_util::{StreamExt, stream, stream::FuturesUnordered};
 use secrecy::SecretString;
 use serde_json::{Value, json};
@@ -38,13 +39,14 @@ use std::{
 const MAX_CALL_CAPTURES: usize = 4;
 /// Delegated reads across every concurrent clasify call in this process.
 const MAX_PROCESS_CAPTURES: usize = 16;
-/// One unread search resource may hydrate at most this many files. Five also
-/// fits the public 25-cell matrix when all five questions are used.
-const MAX_HYDRATED_CANDIDATES: usize = 5;
-/// Hard cap on sanitized candidate evidence sent to the provider.
-const MAX_HYDRATED_CHARS: usize = 12_000;
+// Contract `clasify.semanticPolicy`: one unread search resource hydrates at
+// most `maxFileCandidates` files of `maxFileChunkChars` sanitized evidence each,
+// and a matrix judges at most `maxCells` expanded pages × questions.
+use crate::tools::id::clasify_policy::{
+    MAX_CELLS as MAX_EXPANDED_CELLS, MAX_FILE_CANDIDATES as MAX_HYDRATED_CANDIDATES,
+    MAX_FILE_CHUNK_CHARS as MAX_HYDRATED_CHARS, MAX_RESOURCE_CHARS, PREFILTER_WINDOWS,
+};
 const HYDRATED_LINE_RADIUS: u64 = 60;
-const MAX_EXPANDED_CELLS: usize = 25;
 /// Row `data` fields that route the host (continuations, scan diagnostics,
 /// follow-up hints) rather than carry evidence. They are withheld from the
 /// provider and excluded from the `maxChars` evidence budget.
@@ -279,10 +281,10 @@ fn file_evidence(state: &Value) -> Option<Value> {
 }
 
 fn is_file_read(source: &Value) -> bool {
-    matches!(
-        source.get("tool").and_then(Value::as_str),
-        Some("localFetch" | "ghGetFileContent")
-    )
+    source
+        .get("tool")
+        .and_then(Value::as_str)
+        .is_some_and(clasify::is_file_read_tool)
 }
 
 /// A direct file read's own call, pinned to the returned ref when the caller
@@ -294,7 +296,7 @@ fn file_read_template(source: &Value, receipt: &Value) -> Option<Value> {
         .get("query")
         .filter(|query| query.is_object())?
         .clone();
-    if tool == "ghGetFileContent"
+    if tool == ToolId::GhGetFileContent.as_str()
         && query.get("branch").is_none()
         && let Some(reference) = receipt.pointer("/source/ref").filter(|r| r.is_string())
     {
@@ -395,23 +397,27 @@ fn candidate_state(source: &Value, state: Value) -> Value {
 }
 
 fn is_candidate_search(source: &Value) -> bool {
-    matches!(
-        source.get("tool").and_then(Value::as_str),
-        Some("localSearch" | "ghSearchCode")
-    )
+    source
+        .get("tool")
+        .and_then(Value::as_str)
+        .is_some_and(clasify::is_candidate_search_tool)
 }
 
 fn file_chunks(source: &Value) -> bool {
-    source.get("candidateEvidence").and_then(Value::as_str) == Some("fileChunks")
+    clasify::candidate_evidence(source) == Some(clasify::CandidateEvidence::FileChunks)
 }
 
 fn candidate_identity(source: &Value, file: &Value) -> Option<String> {
     let path = file.get("path")?.as_str()?;
-    match source.get("tool").and_then(Value::as_str)? {
+    match source
+        .get("tool")
+        .and_then(Value::as_str)
+        .and_then(ToolId::from_name)?
+    {
         // Rows are workspace-relative (base is the workspace root) or
         // absolute outside it, so either form reads back through localFetch.
-        "localSearch" => Some(path.to_owned()),
-        "ghSearchCode" => Some(format!(
+        ToolId::LocalSearch => Some(path.to_owned()),
+        ToolId::GhSearchCode => Some(format!(
             "{}/{}/{}",
             file.get("owner")?.as_str()?.to_ascii_lowercase(),
             file.get("repo")?.as_str()?.to_ascii_lowercase(),
@@ -432,7 +438,7 @@ fn search_candidate_states(source: &Value, state: &Value) -> Option<Vec<Value>> 
         .iter()
         .filter_map(|file| {
             let file = if let Some(row) = file.as_str() {
-                if source["tool"] == "ghSearchCode" {
+                if source["tool"] == ToolId::GhSearchCode.as_str() {
                     let (repo, path) = row.split_once(':')?;
                     let (owner, repo) = repo.split_once('/')?;
                     json!({"owner":owner, "repo":repo, "path":path})
@@ -555,7 +561,7 @@ fn merge_near_windows(windows: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
 
 fn local_window_read(path: &str, (start, end): (u64, u64), max_bytes: usize) -> Value {
     json!({
-        "tool":"localFetch",
+        "tool":ToolId::LocalFetch.as_str(),
         "query":{
             "reasoning":"Read a bounded search candidate for classification.",
             "path":path,
@@ -571,7 +577,7 @@ fn local_window_read(path: &str, (start, end): (u64, u64), max_bytes: usize) -> 
 /// One bounded read per hit cluster of a local candidate, densest first.
 fn local_candidate_reads(candidate: &Value, max_bytes: usize) -> Option<Vec<Value>> {
     let file = candidate.pointer("/results/0/data/files/0")?;
-    let path = candidate_identity(&json!({"tool":"localSearch"}), file)?;
+    let path = candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)?;
     Some(
         hit_cluster_windows(candidate_hit_lines(file))
             .into_iter()
@@ -682,13 +688,20 @@ fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Option<(Value, 
         query["startLine"] = json!(1);
         query["endLine"] = json!(HYDRATED_LINE_RADIUS * 2 + 1);
     }
-    Some((json!({"tool":"ghGetFileContent","query":query}), anchored))
+    Some((
+        json!({"tool":ToolId::GhGetFileContent.as_str(),"query":query}),
+        anchored,
+    ))
 }
 
 fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option<(Value, bool)> {
-    let (mut read, anchored) = match source.get("tool").and_then(Value::as_str) {
-        Some("localSearch") => (local_candidate_read(candidate, max_bytes)?, true),
-        Some("ghSearchCode") => github_candidate_read(candidate, max_bytes)?,
+    let (mut read, anchored) = match source
+        .get("tool")
+        .and_then(Value::as_str)
+        .and_then(ToolId::from_name)
+    {
+        Some(ToolId::LocalSearch) => (local_candidate_read(candidate, max_bytes)?, true),
+        Some(ToolId::GhSearchCode) => github_candidate_read(candidate, max_bytes)?,
         _ => return None,
     };
     inherit_search_goal(&mut read, source);
@@ -711,7 +724,7 @@ fn inherit_search_goal(read: &mut Value, source: &Value) {
 }
 
 fn pin_github_read(read: &mut Value, state: &Value) {
-    if read.get("tool").and_then(Value::as_str) != Some("ghGetFileContent") {
+    if read.get("tool").and_then(Value::as_str) != Some(ToolId::GhGetFileContent.as_str()) {
         return;
     }
     if let Some(commit) = state
@@ -723,7 +736,7 @@ fn pin_github_read(read: &mut Value, state: &Value) {
 }
 
 fn default_search_page_size(source: &Value) -> u64 {
-    if source.get("tool").and_then(Value::as_str) == Some("ghSearchCode") {
+    if source.get("tool").and_then(Value::as_str) == Some(ToolId::GhSearchCode.as_str()) {
         return 30;
     }
     match source.pointer("/query/resultView").and_then(Value::as_str) {
@@ -777,7 +790,7 @@ fn bounded_search_source(
     }
     query.insert("pageSize".into(), json!(limit));
     // artifactSearch pages by cursor and has no page field to rewrite.
-    if source.get("tool").and_then(Value::as_str) != Some("artifactSearch") {
+    if source.get("tool").and_then(Value::as_str) != Some(ToolId::ArtifactSearch.as_str()) {
         query.insert("page".into(), json!(offset / limit + 1));
     }
     Ok(bounded)
@@ -1002,7 +1015,7 @@ fn candidate_jobs(
     max_bytes: usize,
     page_budget: usize,
 ) -> Vec<Option<Vec<HydrationJob>>> {
-    if source.get("tool").and_then(Value::as_str) != Some("localSearch") {
+    if source.get("tool").and_then(Value::as_str) != Some(ToolId::LocalSearch.as_str()) {
         return candidates
             .iter()
             .map(|candidate| {
@@ -1015,7 +1028,7 @@ fn candidate_jobs(
         .iter()
         .map(|candidate| {
             let file = candidate.pointer("/results/0/data/files/0")?;
-            let path = candidate_identity(&json!({"tool":"localSearch"}), file)?;
+            let path = candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)?;
             Some((path, hit_cluster_windows(candidate_hit_lines(file))))
         })
         .collect::<Vec<_>>();
@@ -1110,16 +1123,12 @@ fn hydrate_candidates(
     })
 }
 
-/// Contract default for a resource's `maxChars`. The generated contract has no
-/// named constant for it (typify inlines it), so a test pins this value to the
-/// embedded contract.
-const DEFAULT_MAX_CHARS: u64 = 80_000;
-
+/// A resource's `maxChars`; the contract default is `maxResourceChars`.
 fn max_chars(resource: &Value) -> usize {
     resource
         .get("maxChars")
         .and_then(Value::as_u64)
-        .unwrap_or(DEFAULT_MAX_CHARS) as usize
+        .map_or(MAX_RESOURCE_CHARS, |chars| chars as usize)
 }
 
 fn capture_resource(
@@ -1217,7 +1226,8 @@ fn capture_pages(
             Ok((state, receipt)) => {
                 if let Some(candidates) = search_candidate_states(&source, &state) {
                     let mut next = if hydrated
-                        && source.get("tool").and_then(Value::as_str) == Some("localSearch")
+                        && source.get("tool").and_then(Value::as_str)
+                            == Some(ToolId::LocalSearch.as_str())
                     {
                         super::clasify_context::continuation_named(
                             &receipt.clone().unwrap_or_else(|| fallback_context(&source)),
@@ -1269,14 +1279,28 @@ fn capture_pages(
                     remaining = next;
                     break;
                 }
+                let (state, outline_next) = if items::is_symbol_outline(&source, &state) {
+                    whole_outline_files(
+                        &source,
+                        state,
+                        receipt.as_ref(),
+                        dispatcher,
+                        execution,
+                        reads,
+                    )?
+                } else {
+                    (state, None)
+                };
                 // Split only when every candidate fits the cell budget; a
                 // larger list falls through and is judged as one page.
                 if let Some(items) = items::split(&source, &state)
                     .filter(|items| items.len() <= candidate_limit.max(1))
                 {
-                    remaining = receipt
-                        .as_ref()
-                        .and_then(super::clasify_context::continuation);
+                    remaining = outline_next.unwrap_or_else(|| {
+                        receipt
+                            .as_ref()
+                            .and_then(super::clasify_context::continuation)
+                    });
                     pages.extend(items.into_iter().map(|item| item_page(&source, item)));
                     break;
                 }
@@ -1332,6 +1356,13 @@ fn capture_pages(
                     break;
                 }
                 let state = provider_state(&source, state);
+                // An outline page that read ahead for its last file resumes
+                // after those rows, not at its own next page.
+                if let Some(next) = outline_next {
+                    pages.push(CapturedPage::Ready { state, context });
+                    remaining = next;
+                    break;
+                }
                 let Some(next) = super::clasify_context::continuation(&context) else {
                     pages.push(CapturedPage::Ready { state, context });
                     break;
@@ -1376,6 +1407,69 @@ fn capture_pages(
         pages
     };
     Ok((pages, remaining, captured_chars))
+}
+
+/// Extra outline pages one call may read to finish its last file.
+const MAX_OUTLINE_FOLLOW_PAGES: usize = 20;
+
+/// Page a symbols outline by file: a file's rows are judged together, on the
+/// page that holds its first row. That page reads the following pages for
+/// the rest of its last file and resumes after them; the resumed page skips
+/// the rows of the file an earlier page started. Returns the page state and,
+/// when following pages were read, the continuation that replaces the page's
+/// own (`Some(None)`: the outline is exhausted).
+#[allow(clippy::type_complexity)]
+fn whole_outline_files(
+    source: &Value,
+    mut state: Value,
+    receipt: Option<&Value>,
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+    reads: &ReadLimiter,
+) -> Result<(Value, Option<Option<Value>>), ExecutionError> {
+    let page = source
+        .pointer("/query/page")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    if page > 1 {
+        let mut previous = source.clone();
+        previous["query"]["page"] = json!(page - 1);
+        if let Ok((prior, _)) = resolve_limited(&previous, dispatcher, execution, reads)?
+            && items::last_outline_path(&prior).is_some()
+            && items::last_outline_path(&prior) == items::first_outline_path(&state)
+        {
+            items::drop_first_outline_file(&mut state);
+        }
+    }
+    let mut next = receipt.and_then(super::clasify_context::continuation);
+    let mut followed = false;
+    for _ in 0..MAX_OUTLINE_FOLLOW_PAGES {
+        let Some(candidate) = next.clone() else {
+            break;
+        };
+        let Ok((following, following_receipt)) =
+            resolve_limited(&candidate, dispatcher, execution, reads)?
+        else {
+            break;
+        };
+        match items::extend_last_outline_file(&mut state, &following) {
+            // The last file ends inside that page: resume there.
+            Some(true) => {
+                followed = true;
+                break;
+            }
+            // That page held only the last file: resume after it.
+            Some(false) => {
+                followed = true;
+                next = following_receipt
+                    .as_ref()
+                    .and_then(super::clasify_context::continuation);
+            }
+            // The next page starts a new file: the page's own continuation.
+            None => break,
+        }
+    }
+    Ok((state, followed.then_some(next)))
 }
 
 fn page_context(page: &CapturedPage) -> &Value {
@@ -1452,9 +1546,8 @@ fn capture_prefiltered(
     ))
 }
 
-/// Lines per prefilter window and windows kept.
-const PREFILTER_WINDOW_LINES: u64 = 600;
-const PREFILTER_WINDOWS: usize = 3;
+/// Lines per prefilter window (contract `prefilterWindowLines`, as a line number).
+const PREFILTER_WINDOW_LINES: u64 = crate::tools::id::clasify_policy::PREFILTER_WINDOW_LINES as u64;
 /// Match pages the prefilter probe follows before it stops collecting hits.
 const PREFILTER_PROBE_PAGES: usize = 20;
 
@@ -1496,7 +1589,7 @@ fn prefilter_windows(
         .map(regex::escape)
         .collect::<Vec<_>>();
     let tool = resource["context"]["tool"].as_str().unwrap_or_default();
-    if terms.is_empty() || !matches!(tool, "localFetch" | "ghGetFileContent") {
+    if terms.is_empty() || !clasify::is_file_read_tool(tool) {
         return Ok(None);
     }
     let mut query = resource["context"]["query"].clone();
@@ -2280,7 +2373,8 @@ fn execute_query(
         } = captured_resource;
         let mut outcomes = Vec::with_capacity(pages.len());
         let resource_id = resource["id"].as_str().unwrap_or_default();
-        for (page_index, page) in pages.into_iter().enumerate() {
+        for (page_index, mut page) in pages.into_iter().enumerate() {
+            clasify_output::host_receipt(page_context_mut(&mut page), &dispatcher.paths);
             match page {
                 CapturedPage::Failed { error, context } => {
                     read_failures.push(error.failure);
@@ -2396,19 +2490,19 @@ fn execute_query(
                 public
             })
             .collect::<Vec<_>>();
-        output["next"] = json!({"clasify":{
+        output["next"] = json!({(ToolId::Clasify.as_str()):{
             "id":query["id"],
             "reasoning":query["reasoning"],
             "resources":continuation_resources,
             "questions":public_questions
         }});
         if let Some(best) = best {
-            output["next"]["clasify"]["carry"] = best;
+            output["next"][ToolId::Clasify.as_str()]["carry"] = best;
         }
-        copy_goal(&mut output["next"]["clasify"], query);
+        copy_goal(&mut output["next"][ToolId::Clasify.as_str()], query);
     }
     if let Some(literal) = literal {
-        output["next"]["localSearch"] = literal;
+        output["next"][ToolId::LocalSearch.as_str()] = literal;
     }
     let mut result = dispatch::value_result(output);
     // Nothing judged and every read failed alike (e.g. every file missing):
@@ -2454,7 +2548,7 @@ fn literal_route(query: &Value) -> Option<Value> {
         "queryId":query["id"],
         "hints":hints,
         "resources":[],
-        "next":{"localSearch":search}
+        "next":{(ToolId::LocalSearch.as_str()):search}
     }))
 }
 
@@ -2667,7 +2761,11 @@ mod tests {
         let mut defaults = Vec::new();
         walk(clasify, &mut defaults);
         assert!(!defaults.is_empty(), "clasify maxChars default not found");
-        assert!(defaults.iter().all(|default| *default == DEFAULT_MAX_CHARS));
+        assert!(
+            defaults
+                .iter()
+                .all(|default| *default == MAX_RESOURCE_CHARS as u64)
+        );
     }
 
     #[test]

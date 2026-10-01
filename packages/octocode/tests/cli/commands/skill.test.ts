@@ -8,7 +8,8 @@ vi.mock('node:os', async importOriginal => ({
   ...(await importOriginal<typeof import('node:os')>()),
   homedir: () => isolated.home,
 }));
-vi.mock('@octocodeai/config', () => ({
+vi.mock('@octocodeai/config', async importOriginal => ({
+  ...(await importOriginal<typeof import('@octocodeai/config')>()),
   getOctocodeHome: () => path.join(isolated.home, '.octocode'),
 }));
 

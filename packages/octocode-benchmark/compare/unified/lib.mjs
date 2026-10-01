@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getConfigFilePath, getProjectConfigFilePath } from '@octocodeai/config';
 
 export const UNIFIED_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(UNIFIED_DIR, '../../../..');
@@ -16,10 +17,40 @@ export const WORKERS_DIR = path.join(UNIFIED_DIR, 'workers');
 export const QUESTIONS_DIR = path.join(UNIFIED_DIR, 'questions');
 export const REFERENCES_DIR = path.join(UNIFIED_DIR, 'references');
 export const RESULTS_DIR = path.join(UNIFIED_DIR, 'results');
-export const HARNESS_FILES = ['lib.mjs', 'run.mjs', 'judge.mjs', 'report.mjs', 'reflect.mjs', 'REFLECT.md'];
+export const HARNESS_FILES = ['lib.mjs', 'isolation.mjs', 'verdict.mjs', 'run.mjs', 'judge.mjs', 'report.mjs', 'reflect.mjs', 'REFLECT.md'];
 
 export const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 export const hashFile = (p) => { try { return sha256(fs.readFileSync(p)); } catch { return null; } };
+// Freeze the same canonical global/workspace files loaded by @octocodeai/config.
+// Store only hashes; dotenv content and credentials never enter the manifest.
+export function configurationHashes(repoRoot, home) {
+  return {
+    userOctocoderc: hashFile(getConfigFilePath(home)),
+    userEnv: hashFile(path.join(home, '.env')),
+    workspaceOctocoderc: hashFile(getProjectConfigFilePath(repoRoot)),
+    workspaceEnv: hashFile(path.join(path.dirname(getProjectConfigFilePath(repoRoot)), '.env')),
+  };
+}
+// Includes tracked, untracked and ignored readable content; follows no symlinks.
+// Symlink targets outside corpus are denied by the solver/native path boundary.
+export function hashTree(root) {
+  const entries = [];
+  const visit = (dir, rel = '') => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const name = path.join(rel, e.name), full = path.join(dir, e.name);
+      if (e.isDirectory()) visit(full, name);
+      else if (e.isSymbolicLink()) entries.push([name, 'symlink', fs.readlinkSync(full)]);
+      else if (e.isFile()) {
+        const hash = createHash('sha256'), fd = fs.openSync(full, 'r'), buffer = Buffer.allocUnsafe(1024 * 1024);
+        try { let n; while ((n = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, n)); }
+        finally { fs.closeSync(fd); }
+        entries.push([name, fs.statSync(full).mode, hash.digest('hex')]);
+      }
+    }
+  };
+  visit(root);
+  return { files: entries.length, sha256: sha256(JSON.stringify(entries)) };
+}
 
 export function parseArgs(argv, defaults = {}) {
   const out = { ...defaults };
@@ -130,25 +161,45 @@ export function commonFlags({ model, maxTurns, persist = false }) {
 
 /** A fresh empty working directory outside the repository (no CLAUDE.md, no project memory). */
 export function freshCwd(label) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `ocbench-${label.replace(/[^\w-]/g, '_')}-`));
+  const prefix = `ocbench-${sha256(label).slice(0, 8)}-`;
+  let root = fs.realpathSync(os.tmpdir());
+  // macOS sockaddr_un has a 104-byte path buffer including its terminator.
+  // Reserve mkdtemp's suffix and github.sock, even with a long TMPDIR or label.
+  if (Buffer.byteLength(path.join(root, prefix)) + 6 + '/github.sock'.length >= 104) root = fs.realpathSync('/tmp');
+  return fs.mkdtempSync(path.join(root, prefix));
 }
 
 /** Run `claude` and tee stdout (stream-json) to streamPath. */
-export function runClaude({ args, cwd, timeoutMs, streamPath, env = process.env }) {
-  return new Promise((resolve) => {
+export const activeChildren = new Set();
+export function stopChildren(signal = 'SIGTERM') {
+  for (const child of activeChildren) {
+    try { process.kill(-child.pid, signal); } catch { child.kill(signal); }
+  }
+}
+export function runClaude({ args, cwd, timeoutMs, streamPath, env = process.env, sandboxProfile }) {
+  return new Promise((resolve, reject) => {
     const start = Date.now();
     const out = fs.createWriteStream(streamPath);
-    const child = spawn('claude', args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(sandboxProfile ? '/usr/bin/sandbox-exec' : 'claude', sandboxProfile ? ['-f', sandboxProfile, 'claude', ...args] : args, { cwd, env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    activeChildren.add(child);
     let stdout = '';
     let stderr = '';
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 5000); }, timeoutMs);
+    const kill = signal => { try { process.kill(-child.pid, signal); } catch { child.kill(signal); } };
+    let hardKill;
+    const timer = setTimeout(() => { timedOut = true; kill('SIGTERM'); hardKill = setTimeout(() => kill('SIGKILL'), 5000); }, timeoutMs);
+    out.on('error', error => { kill('SIGTERM'); reject(error); });
+    child.on('error', error => { clearTimeout(timer); activeChildren.delete(child); out.end(); reject(error); });
     child.stdout.on('data', (d) => { stdout += d; out.write(d); });
     child.stderr.on('data', (d) => { stderr += d; });
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       clearTimeout(timer);
-      out.end();
-      resolve({ stream: stdout, stderr, exitCode: code, timedOut, wallMs: Date.now() - start });
+      clearTimeout(hardKill);
+      // A terminated parent can close its pipes before an ignoring descendant
+      // exits. Kill the residual process group before clearing its ownership.
+      if (timedOut || signal) kill('SIGKILL');
+      activeChildren.delete(child);
+      out.end(() => resolve({ stream: stdout, stderr, exitCode: code, signal, timedOut, wallMs: Date.now() - start }));
     });
   });
 }
@@ -173,6 +224,9 @@ export function parseStream(stream) {
   const requests = new Map();
   const toolCalls = [];
   const toolErrors = [];
+  const rowErrors = [];
+  const seenCalls = new Set();
+  const seenResults = new Set();
   let lastAssistantText = '';
   for (const e of events) {
     if (e.type === 'assistant' && e.message) {
@@ -184,15 +238,25 @@ export function parseStream(stream) {
       requests.set(id, prev);
       const texts = [];
       for (const c of e.message.content ?? []) {
-        if (c.type === 'tool_use') toolCalls.push({ id: c.id, name: c.name, input: c.input ?? {} });
+        if (c.type === 'tool_use' && !seenCalls.has(c.id)) { seenCalls.add(c.id); toolCalls.push({ id: c.id, name: c.name, input: c.input ?? {} }); }
         else if (c.type === 'text') texts.push(c.text);
       }
       if (texts.length) lastAssistantText = texts.join('\n');
     } else if (e.type === 'user') {
       for (const c of e.message?.content ?? []) {
-        if (c.type === 'tool_result' && c.is_error) {
+        if (c.type !== 'tool_result' || seenResults.has(c.tool_use_id)) continue;
+        seenResults.add(c.tool_use_id);
+        if (c.is_error) {
           const text = typeof c.content === 'string' ? c.content : JSON.stringify(c.content);
           toolErrors.push({ tool_use_id: c.tool_use_id, text: text.slice(0, 400) });
+        }
+        const walk = value => {
+          if (!value || typeof value !== 'object') return;
+          if (value.status === 'error') rowErrors.push({ tool_use_id: c.tool_use_id, errorCode: value.errorCode ?? value.data?.errorCode ?? null });
+          for (const v of Object.values(value)) walk(v);
+        };
+        for (const text of typeof c.content === 'string' ? [c.content] : (c.content ?? []).filter(v => v.type === 'text').map(v => v.text)) {
+          try { walk(JSON.parse(text)); } catch { /* non-JSON shell output */ }
         }
       }
     }
@@ -206,13 +270,18 @@ export function parseStream(stream) {
     isError: result?.is_error ?? true,
     resultUsage: result?.usage ? Object.fromEntries(USAGE_KEYS.map((k) => [k, Number(result.usage[k] ?? 0)])) : null,
     modelUsage: result?.modelUsage ?? null,
+    cacheCreation: result?.usage?.cache_creation ?? null,
+    finalUsageValid: result?.usage ? USAGE_KEYS.every(k => Number.isSafeInteger(result.usage[k]) && result.usage[k] >= 0) : !!result?.modelUsage,
+    actualModels: Object.keys(result?.modelUsage ?? {}),
     total_cost_usd: result?.total_cost_usd ?? 0,
+    costVerified: typeof result?.total_cost_usd === 'number' && Number.isFinite(result.total_cost_usd) && result.total_cost_usd >= 0,
     duration_ms: result?.duration_ms ?? 0,
     num_turns: result?.num_turns ?? 0,
     permission_denials: result?.permission_denials ?? [],
     perRequest,
     toolCalls,
     toolErrors,
+    rowErrors,
   };
 }
 
@@ -223,35 +292,95 @@ export function parseStream(stream) {
  *   overhead   = context_1 (system prompt + tool definitions + worker doc + question) × requests
  *   research   = total − overhead
  */
-export function tokenAccounting(perRequest) {
+export function tokenAccounting(parsed) {
+  const perRequest = Array.isArray(parsed) ? parsed : parsed.perRequest;
   const ctx = (r) => r.input_tokens + r.cache_creation_input_tokens + r.cache_read_input_tokens;
   const sum = (k) => perRequest.reduce((s, r) => s + r[k], 0);
   const requests = perRequest.length;
-  const context = perRequest.reduce((s, r) => s + ctx(r), 0);
-  const output = sum('output_tokens');
+  const provisional = Object.fromEntries(USAGE_KEYS.map(k => [k, sum(k)]));
+  const modelUsage = Array.isArray(parsed) ? null : parsed.modelUsage;
+  const modelFields = { input_tokens: 'inputTokens', cache_creation_input_tokens: 'cacheCreationInputTokens', cache_read_input_tokens: 'cacheReadInputTokens', output_tokens: 'outputTokens' };
+  const modelUsageValid = modelUsage && Object.keys(modelUsage).length > 0 && Object.values(modelUsage).every(m => Object.values(modelFields).every(field => Number.isSafeInteger(m[field]) && m[field] >= 0));
+  const modelTotals = modelUsage && Object.keys(modelUsage).length ? Object.fromEntries(Object.entries(modelFields).map(([k, field]) => [k, Object.values(modelUsage).reduce((s, m) => s + Number(m[field] ?? 0), 0)])) : null;
+  const final = Array.isArray(parsed) ? null : parsed.resultUsage ?? modelTotals;
+  const usage = final ?? provisional;
+  const context = ctx(usage);
+  const output = usage.output_tokens;
   const firstContext = requests ? ctx(perRequest[0]) : 0;
   const overhead = firstContext * requests;
   const total = context + output;
   return {
     requests,
-    input_tokens: sum('input_tokens'),
-    cache_creation_input_tokens: sum('cache_creation_input_tokens'),
-    cache_read_input_tokens: sum('cache_read_input_tokens'),
+    input_tokens: usage.input_tokens,
+    cache_creation_input_tokens: usage.cache_creation_input_tokens,
+    cache_read_input_tokens: usage.cache_read_input_tokens,
     output_tokens: output,
     context_tokens: context,
     total_tokens: total,
     first_request_context: firstContext,
     fixed_overhead_tokens: overhead,
     research_tokens: total - overhead,
+    verified: !!final && parsed.finalUsageValid !== false && USAGE_KEYS.every(k => Number.isSafeInteger(final[k]) && final[k] >= 0) && (!modelTotals || (modelUsageValid && USAGE_KEYS.every(k => modelTotals[k] === final[k]))),
+    source: final ? (parsed.resultUsage ? 'result.usage' : 'result.modelUsage') : 'provisional; incomplete',
+    provisional_usage: provisional,
+    usage_gaps: final ? Object.fromEntries(USAGE_KEYS.map(k => [k, provisional[k] - final[k]])) : null,
+    model_usage_gaps: final && modelTotals ? Object.fromEntries(USAGE_KEYS.map(k => [k, final[k] - modelTotals[k]])) : null,
+    cache_creation: Array.isArray(parsed) ? null : parsed.cacheCreation,
+    overhead_research_estimated: true,
+    weighted_tokens: null,
+    weighted_reason: 'No versioned tariff; use reported cost and cache TTL breakdown.',
     max_request_context: perRequest.reduce((m, r) => Math.max(m, ctx(r)), 0),
   };
 }
 
-/** Group tool calls by name; Bash calls by their first command word (rg, gh, ...). */
+
+// Claude --resume reports current-invocation result.usage but cumulative
+// modelUsage/cost. Reconcile the incremental totals against the original receipt.
+export function resumedAccounting(baseline, resumed) {
+  const fields = ['inputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens', 'outputTokens'];
+  const reasons = [];
+  const before = baseline.modelUsage, after = resumed.modelUsage;
+  const modelsValid = models => models && Object.keys(models).length > 0 && Object.values(models).every(row => fields.every(k => Number.isSafeInteger(row[k]) && row[k] >= 0) && typeof row.costUSD === 'number' && Number.isFinite(row.costUSD) && row.costUSD >= 0);
+  const close = (a, b) => Math.abs(a - b) <= Math.max(1e-8, Math.abs(b) * 1e-9);
+  if (!baseline.sessionId || baseline.sessionId !== resumed.sessionId) reasons.push('resumed session does not match baseline');
+  if (!tokenAccounting(baseline).verified) reasons.push('baseline usage is not verified');
+  if (!baseline.costVerified || !resumed.costVerified) reasons.push('baseline or cumulative cost is invalid');
+  if (!modelsValid(before) || !modelsValid(after)) reasons.push('baseline or cumulative model accounting is incomplete');
+  let modelUsageDelta = null, cost = null;
+  if (modelsValid(before) && modelsValid(after)) {
+    modelUsageDelta = {};
+    for (const model of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      if (!after[model]) { reasons.push(`baseline model absent from cumulative receipt: ${model}`); continue; }
+      const delta = {};
+      for (const field of [...fields, 'costUSD']) {
+        delta[field] = after[model][field] - (before[model]?.[field] ?? 0);
+        if (delta[field] < 0 || !Number.isFinite(delta[field]) || (field !== 'costUSD' && !Number.isSafeInteger(delta[field]))) reasons.push(`regressive or invalid cumulative ${model}.${field}`);
+      }
+      modelUsageDelta[model] = delta;
+    }
+    const baselineCost = Object.values(before).reduce((sum, row) => sum + row.costUSD, 0);
+    const cumulativeCost = Object.values(after).reduce((sum, row) => sum + row.costUSD, 0);
+    if (!close(baselineCost, baseline.total_cost_usd) || !close(cumulativeCost, resumed.total_cost_usd)) reasons.push('reported model cost disagrees with aggregate cost');
+    cost = resumed.total_cost_usd - baseline.total_cost_usd;
+    if (!Number.isFinite(cost) || cost < 0) reasons.push('regressive or invalid cumulative aggregate cost');
+    const deltaCost = Object.values(modelUsageDelta).reduce((sum, row) => sum + row.costUSD, 0);
+    if (!close(deltaCost, cost)) reasons.push('incremental model cost disagrees with aggregate delta');
+  }
+  const tokens = tokenAccounting({ ...resumed, modelUsage: modelUsageDelta });
+  if (!modelUsageDelta || !tokens.verified) reasons.push('current result.usage disagrees with cumulative model delta');
+  const verified = reasons.length === 0;
+  if (!verified) tokens.verified = false;
+  return { tokens, cost_usd: cost, costVerified: verified, modelUsageDelta, verified, reasons,
+    baseline: { modelUsage: before, cost_usd: baseline.total_cost_usd },
+    reportedCumulative: { modelUsage: after, cost_usd: resumed.total_cost_usd },
+    resultUsage: resumed.resultUsage, cacheCreation: resumed.cacheCreation };
+}
+
+/** Count Bash invocations without mislabeling compound shell commands. */
 export function toolCounts(toolCalls) {
   const counts = {};
   for (const c of toolCalls) {
-    const key = c.name === 'Bash' ? `Bash:${/^\s*([\w.-]+)/.exec(String(c.input?.command ?? ''))?.[1] ?? 'other'}` : c.name;
+    const key = c.name === 'Bash' ? 'Bash:invocation' : c.name;
     counts[key] = (counts[key] ?? 0) + 1;
   }
   return counts;
@@ -306,6 +435,29 @@ export function isolationCheck(profile, m) {
   const touched = m.toolCalls.filter((c) => /octocode-benchmark|compare\/unified|references\/[GL]\d/.test(JSON.stringify(c.input)));
   if (touched.length) problems.push(`tool input touched benchmark files: ${touched.map((c) => c.name).join(',')}`);
   return { ok: problems.length === 0, problems, offeredTools: offered, mcpServers: servers };
+}
+
+
+// Never drop pre-stream/setup exceptions or put evaluator credentials in receipts.
+export function safeError(error, secrets = []) {
+  let message = String(error?.message ?? error);
+  for (const secret of secrets.filter(s => typeof s === 'string' && s.length > 0).sort((a, b) => b.length - a.length)) message = message.split(secret).join('[REDACTED]');
+  message = message.replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, '$1 [REDACTED]')
+    .replace(/((?:api[_-]?key|token|secret|password|authorization|cookie)\s*[=:]\s*)[^\s,;]+/gi, '$1[REDACTED]');
+  return { name: String(error?.name ?? 'Error'), code: error?.code == null ? null : String(error.code), message: message.slice(0, 4000) };
+}
+export async function recordedProbe({ recordPath, worker, probe, secrets = [] }, execute) {
+  const started = new Date().toISOString();
+  let record;
+  try { record = await execute(); }
+  catch (error) {
+    record = { worker, probe, started, status: 'error', error: safeError(error, secrets), costVerified: false, tokens: { verified: false }, isolation: { ok: false, problems: ['probe execution failed before a complete receipt'] } };
+  }
+  writeJson(recordPath, record);
+  return record;
+}
+export function failedProbeDetails(records) {
+  return records.filter(r => r?.error || r?.status !== 'ok' || !r?.costVerified || !r?.isolation?.ok).map(r => ({ worker: r?.worker ?? null, probe: r?.probe ?? null, status: r?.status ?? 'missing', error: r?.error ?? null, costVerified: r?.costVerified === true, isolation: r?.isolation ?? null }));
 }
 
 // ---------------------------------------------------------------- pool

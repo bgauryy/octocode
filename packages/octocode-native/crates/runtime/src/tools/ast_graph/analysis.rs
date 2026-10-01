@@ -1,4 +1,5 @@
 use super::{algorithms::*, graph::normalize, types::*};
+use crate::tools::id::ToolId;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
@@ -87,6 +88,7 @@ pub(crate) fn analyze(
     }
     let results_digest = digest(&items);
     let (page, pagination, limit_truncated, total) = paginate(items, q);
+    warnings.extend(out_of_range_warning(&pagination));
     base.insert("results".into(), Value::Array(page));
     base.insert("pagination".into(), pagination);
     base.insert("summary".into(), summary);
@@ -1091,18 +1093,20 @@ pub(crate) fn drift(
     }
     let (page, pagination, limit_truncated, total) = paginate(items, q);
     let has_more = pagination["hasMore"] == json!(true);
+    let mut warnings = Vec::new();
+    if !diff.comparable {
+        base_map.insert("confidence".into(), json!("low"));
+        warnings.push("graphs are not comparable — see summary.incompatibilities".to_owned());
+    }
+    warnings.extend(out_of_range_warning(&pagination));
     base_map.insert("results".into(), Value::Array(page));
     base_map.insert("pagination".into(), pagination);
     base_map.insert("summary".into(), summary);
+    if !warnings.is_empty() {
+        base_map.insert("warnings".into(), json!(warnings));
+    }
 
     let mut reasons: Vec<&str> = Vec::new();
-    if !diff.comparable {
-        base_map.insert("confidence".into(), json!("low"));
-        base_map.insert(
-            "warnings".into(),
-            json!(["graphs are not comparable — see summary.incompatibilities"]),
-        );
-    }
     if limit_truncated {
         base_map.insert("totalAvailable".into(), json!(total));
         reasons.push("limit");
@@ -1156,26 +1160,41 @@ fn paginate(items: Vec<Value>, q: &AstTopologyQuery) -> (Vec<Value>, Value, bool
         items
     };
     let truncated = limited.len() < total;
-    let size = q.page_size().unwrap_or(50).clamp(1, 100) as usize;
+    let size = q.page_size().clamp(1, super::topology_max("pageSize")) as usize;
     let pages = usize::max(1, limited.len().div_ceil(size));
-    let current = (q.page().max(1) as usize).min(pages);
-    let start = (current - 1) * size;
+    // A page past the end is empty, terminal and flagged — never clamped to
+    // the last page, which would repeat rows the caller already has.
+    let current = q.page().max(1) as usize;
+    let out_of_range = current > pages;
+    let start = (current - 1).saturating_mul(size);
     let mut pagination = json!({
         "currentPage": current,
         "totalPages": pages,
         "entriesPerPage": size,
         "totalEntries": limited.len(),
-        "hasMore": current < pages
+        "hasMore": !out_of_range && current < pages
     });
-    if q.page() as usize > pages {
+    if out_of_range {
         pagination["outOfRange"] = json!(true);
     }
     (
-        limited.iter().skip(start).take(size).cloned().collect(),
+        limited.into_iter().skip(start).take(size).collect(),
         pagination,
         truncated,
         total,
     )
+}
+
+/// The warning for a result page past the end, naming the valid range.
+fn out_of_range_warning(pagination: &Value) -> Option<String> {
+    (pagination["outOfRange"] == true).then(|| {
+        let pages = pagination["totalPages"].as_u64().unwrap_or(1);
+        format!(
+            "page:{} is out of range (only {pages} page(s), {} result(s)) — returned 0 results. Use page:1..{pages}.",
+            pagination["currentPage"],
+            pagination["totalEntries"]
+        )
+    })
 }
 
 /// Stable identity of a JSON sequence.
@@ -1205,7 +1224,7 @@ fn restart_continuation(q: &AstTopologyQuery) -> Value {
         query.remove("diagnosticSnapshot");
         query.remove("diagnosticPage");
     }
-    json!({"tool":"astTopology","query":query,"why":"Restart pagination from the current graph snapshot.","confidence":"exact"})
+    json!({"tool":ToolId::AstTopology.as_str(),"query":query,"why":"Restart pagination from the current graph snapshot.","confidence":"exact"})
 }
 
 /// Attach coverage and diagnostics. The snapshot id binds both the diagnostic
@@ -1245,7 +1264,9 @@ fn add_coverage(
         base.insert("coverage".into(), coverage);
         return true;
     }
-    let size = q.diagnostic_page_size().unwrap_or(25).clamp(1, 100) as usize;
+    let size = q
+        .diagnostic_page_size()
+        .clamp(1, super::topology_max("diagnosticPageSize")) as usize;
     let pages = usize::max(1, b.diagnostics.len().div_ceil(size));
     let current = (q.diagnostic_page().max(1) as usize).min(pages);
     let more = current < pages;
@@ -1313,11 +1334,11 @@ fn add_next(
     if base["coverage"]["diagnosticsPagination"]["hasMore"] == true && q.diagnostic_page() < 1000 {
         let mut value = clean_query(q);
         value["diagnosticPage"] = json!(q.diagnostic_page() + 1);
-        value["diagnosticPageSize"] = json!(q.diagnostic_page_size().unwrap_or(25));
+        value["diagnosticPageSize"] = json!(q.diagnostic_page_size());
         value["diagnosticSnapshot"] = base["coverage"]["diagnosticsPagination"]["resultId"].clone();
         next.insert(
             "nextDiagnostics".into(),
-            json!({"tool":"astTopology","query":value,"why":"Continue coverage diagnostics from the same diagnostic snapshot.","confidence":"exact"}),
+            json!({"tool":ToolId::AstTopology.as_str(),"query":value,"why":"Continue coverage diagnostics from the same diagnostic snapshot.","confidence":"exact"}),
         );
     }
     if base["coverage"]["diagnosticsPagination"]["outOfRange"] == true {
@@ -1328,32 +1349,34 @@ fn add_next(
         }
         next.insert(
             "restartDiagnostics".into(),
-            json!({"tool":"astTopology","query":value,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}),
+            json!({"tool":ToolId::AstTopology.as_str(),"query":value,"why":"Restart diagnostic pagination from the current diagnostic snapshot.","confidence":"exact"}),
         );
     }
-    if scan_truncated && q.max_files().unwrap_or(20_000) < 50_000 {
+    let max_files = super::topology_max("maxFiles");
+    if scan_truncated && q.max_files().unwrap_or(20_000) < max_files {
         let cur = q.max_files().unwrap_or(20_000);
         next.insert(
             "expandScan".into(),
             continuation(
                 q,
                 Some(1),
-                Some((cur * 2).max(cur + 1).min(50_000)),
+                Some((cur * 2).max(cur + 1).min(max_files)),
                 "Re-run with a larger file-scan bound because this graph is partial.",
             ),
         );
     }
-    if let Some(limit) = q.limit().filter(|limit| *limit < 5_000)
+    let max_limit = super::topology_max("limit");
+    if let Some(limit) = q.limit().filter(|limit| *limit < max_limit)
         && limit_truncated
     {
         let mut value = clean_query(q);
-        value["limit"] = json!((limit * 2).max(limit + 1).min(5_000));
+        value["limit"] = json!((limit * 2).max(limit + 1).min(max_limit));
         value["page"] = json!(1);
         value["diagnosticPage"] = json!(1);
         if let Some(query) = value.as_object_mut() {
             query.remove("diagnosticSnapshot");
         }
-        next.insert("expandLimit".into(),json!({"tool":"astTopology","query":value,"why":"Re-run with a larger result limit because additional graph results exist.","confidence":"exact"}));
+        next.insert("expandLimit".into(),json!({"tool":ToolId::AstTopology.as_str(),"query":value,"why":"Re-run with a larger result limit because additional graph results exist.","confidence":"exact"}));
     }
     if q.analysis() == GraphAnalysis::DeadCode
         && let Some(c) = base["results"].as_array().and_then(|x| x.first())
@@ -1365,7 +1388,7 @@ fn add_next(
         // against the lspSearch anchored-query schema, whose serialization
         // requires every defaulted field; emit exactly those contract fields.
         let uri = root.join(file).to_string_lossy().into_owned();
-        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":uri,"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"debug":false},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
+        next.insert("verifyReferences".into(),json!({"tool":ToolId::LspSearch.as_str(),"query":{"operation":"references","uri":uri,"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"debug":false},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
     }
     if !next.is_empty() {
         base.insert("next".into(), Value::Object(next));
@@ -1393,7 +1416,7 @@ fn continuation(q: &AstTopologyQuery, page: Option<u32>, max: Option<u32>, why: 
         }
         v["diagnosticPage"] = json!(1)
     }
-    json!({"tool":"astTopology","query":v,"why":why,"confidence":"exact"})
+    json!({"tool":ToolId::AstTopology.as_str(),"query":v,"why":why,"confidence":"exact"})
 }
 /// `file` resolves relative to the scanned `path`; name that rule and, when a
 /// scanned file shares the requested suffix, the spelling that would match.
@@ -1427,7 +1450,7 @@ fn missing_file_error(
         let mut query = clean_query(q);
         query["file"] = json!(candidate);
         error.next = Some(Box::new(json!({"retry": {
-            "tool": "astTopology",
+            "tool": ToolId::AstTopology.as_str(),
             "query": query,
             "why": "Retry with the scanned file that shares this path suffix.",
             "confidence": "medium"

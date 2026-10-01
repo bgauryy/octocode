@@ -263,6 +263,24 @@ pub(super) fn valid_clone(path: &Path, ttl: Duration) -> Option<CacheMeta> {
     (path.is_dir() && now_millis() < effective_expiry).then_some(meta)
 }
 
+/// A served cache hit's age: when it was cloned and when it stops being
+/// reused (the earlier of its written expiry and the current TTL).
+pub(super) struct CacheAge {
+    pub cloned_at: String,
+    pub expires_at: String,
+}
+
+impl CacheAge {
+    pub fn of(meta: &CacheMeta, ttl: Duration) -> Option<Self> {
+        let cloned = parse_iso_millis(&meta.cloned_at)?;
+        let expires = parse_iso_millis(&meta.expires_at)?;
+        Some(Self {
+            cloned_at: meta.cloned_at.clone(),
+            expires_at: iso_millis(cloned.saturating_add(ttl.as_millis() as i64).min(expires)),
+        })
+    }
+}
+
 pub(super) fn write_meta(path: &Path, meta: &CacheMeta) -> Result<(), CloneError> {
     let bytes = serde_json::to_vec_pretty(meta)
         .map_err(|error| CloneError::new("clone.cache.invalid", error.to_string()))?;

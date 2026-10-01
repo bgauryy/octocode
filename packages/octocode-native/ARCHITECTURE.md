@@ -67,6 +67,15 @@ unpublished Cargo packages. `check:crate-boundaries` validates these boundaries.
 
 `crates/engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. Its N-API bindings are published at `@octocodeai/octocode-native/engine` but are not an alternate Octocode tool runtime.
 
+AST declaration extraction indexes local export aliases by symbol name in the engine
+and polls cancellation during outline construction. Runtime owns a bounded cache of
+private declaration JSON for single-file symbol requests (128 entries, 32 MiB,
+120-second TTL). Each request validates workspace access and reads current source
+before lookup; the key includes canonical path, parser choice, and a source-content
+hash. Source edits invalidate pagination snapshots, and policy shaping runs on every
+request. Directory extraction is not cached. Parsing occurs outside the cache lock;
+failed or cancelled extraction is never retained.
+
 ## GitHub authentication
 
 `providers/github/auth` owns one lazy credential-selection flow shared by tool

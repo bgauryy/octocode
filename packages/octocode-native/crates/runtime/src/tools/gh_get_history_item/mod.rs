@@ -32,7 +32,21 @@ mod pull_request;
 mod util;
 mod window;
 
-const DEFAULT_PAGE_SIZE: usize = 30;
+/// Items per page of a provider collection (comments, reviews, commits,
+/// patch file pages) when `pageSize` is omitted: the contract default the
+/// issue, commit and compare variants declare. The pull-request variant
+/// declares none (an omitted patch-free inventory sizes itself to the
+/// response page) and pages its collections by the same default.
+pub(crate) fn default_page_size() -> usize {
+    crate::contracts::query_schema_number(
+        crate::tools::id::ToolId::GhGetHistoryItem,
+        Some("issue"),
+        "pageSize",
+        "default",
+    )
+    .and_then(|size| usize::try_from(size).ok())
+    .unwrap_or(1)
+}
 /// Largest page of a provider collection (GitHub's `per_page` maximum).
 const MAX_COLLECTION_PAGE: usize = 100;
 const DEFAULT_TEXT_WINDOW: usize = 12_000;
@@ -194,7 +208,7 @@ impl GhGetHistoryItemQuery {
     /// patch file pages): `pageSize` capped at one provider batch.
     pub fn collection_page_size(&self) -> usize {
         self.page_size()
-            .unwrap_or(DEFAULT_PAGE_SIZE)
+            .unwrap_or_else(default_page_size)
             .clamp(1, MAX_COLLECTION_PAGE)
     }
     /// The pull-request changed-file narrowing (`fileFilter`).

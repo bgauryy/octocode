@@ -2,7 +2,7 @@
 // full pagination, and cross-tool correlation (text ⊇ syntax ⊇ identity).
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, checks, collect, nextHints, rowData, sourcePath, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('repo-sweep');
 const client = await startServer();
@@ -111,7 +111,7 @@ for (const r of REPOS_BY_LANG) {
     // call site may legitimately resolve to a same-named local function).
     let lands = false;
     for (const l of locs) {
-      const target = path.resolve(def.sc?.base ?? '/', l.path ?? path.basename(site.file));
+      const target = sourcePath(def, l, site.file);
       const decl = await call('astSearch', { operation: 'symbols', path: target, name: S.name, ...(r.langType ? { langType: r.langType } : {}) });
       if (collect(rowData(decl), o => o.name === S.name && Math.abs(o.line - (l.displayRange?.startLine ?? 0)) <= 1).length) lands = true;
       // Nested declarations (inside functions) are not outline rows: prove
@@ -129,7 +129,7 @@ for (const r of REPOS_BY_LANG) {
     check(`${r.lang}: lspSearch definition from a call site = an astSearch declaration${explainedNoDatabase ? ' (clangd: no compile database, explained)' : ''}`, lands || explainedNoDatabase, row.lspDefinition);
     const refs = await call('lspSearch', { uri: L, symbolName: S.name, lineHint: S.line, operation: 'references', pageSize: 100 });
     const refPages = await walk(refs, 'nextPage', 50);
-    const refFiles = [...new Set(refPages.flatMap(p => collect(rowData(p)?.payload, o => typeof o.path === 'string').map(o => path.resolve(p.sc?.base ?? '/', o.path))))];
+    const refFiles = [...new Set(refPages.flatMap(p => (rowData(p)?.payload?.locations ?? []).map(o => sourcePath(p, o, L))))];
     const outside = refFiles.filter(f => !textFiles.includes(f));
     row.lspRefs = `${refFiles.length} files`;
     check(`${r.lang}: LSP reference files ⊆ text hits`, !refs.isError && outside.length === 0, `outside=${outside.slice(0, 2).join(',')}`);

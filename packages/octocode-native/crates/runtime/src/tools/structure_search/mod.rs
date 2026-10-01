@@ -5,6 +5,24 @@ mod files;
 mod tests;
 mod tree;
 
+/// Contract maximum of a structureSearch query field (both operations agree);
+/// an undeclared bound stays open (validation enforces it).
+fn structure_max(field: &str) -> u32 {
+    crate::contracts::query_schema_number(
+        crate::tools::id::ToolId::StructureSearch,
+        None,
+        field,
+        "maximum",
+    )
+    .and_then(|maximum| u32::try_from(maximum).ok())
+    .unwrap_or(u32::MAX)
+}
+
+/// Entries one walk may visit: the contract `limit` maximum.
+fn max_walk() -> u32 {
+    structure_max("limit")
+}
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -90,13 +108,18 @@ fn digest(value: &Value) -> String {
 
 /// Emitted when a page>1 request carries a snapshot that no longer matches the
 /// digest of the query shape and ordered result set.
-fn snapshot_changed(snapshot: &str) -> Value {
+fn snapshot_changed(query: &impl serde::Serialize, snapshot: &str) -> Value {
+    let mut restart = continuation(query, json!({"page":1}));
+    if let Some(query) = restart["query"].as_object_mut() {
+        query.remove("snapshot");
+    }
     json!({
         "status":"error",
         "errorCode":"structure.snapshot.changed",
         "error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
         "snapshot":snapshot,
-        "complete":false
+        "complete":false,
+        "next":{"restart":restart}
     })
 }
 
@@ -106,7 +129,28 @@ fn continuation(query: &impl serde::Serialize, changes: Value) -> Value {
     if let (Some(to), Some(from)) = (query.as_object_mut(), changes.as_object()) {
         to.extend(from.clone())
     }
-    json!({"tool":"structureSearch","query":query,"confidence":"exact"})
+    json!({"tool":crate::tools::id::ToolId::StructureSearch.as_str(),"query":query,"confidence":"exact"})
+}
+
+/// An empty listing whose walk pruned `.gitignore`d entries is empty because
+/// of ignore rules, not the caller's filters: say so and offer the retry that
+/// includes them (`retry` holds the query changes). No-op otherwise.
+fn note_ignored_empty(
+    out: &mut Value,
+    query: &impl serde::Serialize,
+    ignored: usize,
+    retry: Value,
+    hint: String,
+) {
+    if ignored == 0 || out["status"] != "empty" {
+        return;
+    }
+    let mut call = continuation(query, retry);
+    if let Some(query) = call["query"].as_object_mut() {
+        query.remove("snapshot");
+    }
+    out["hints"] = json!([hint]);
+    out["next"]["includeIgnored"] = call;
 }
 
 /// Execute one typed row. The runtime parses the validated row with its

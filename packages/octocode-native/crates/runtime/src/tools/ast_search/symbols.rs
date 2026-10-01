@@ -1,5 +1,6 @@
 pub use crate::contracts::tool_types::AstSearchQuerySymbols;
 use crate::policy::prune::DefaultsFlag;
+use crate::tools::id::ToolId;
 use crate::{
     policy::{path::PathPolicy, prune::PruneMode},
     security::ContentSecurity,
@@ -109,7 +110,7 @@ pub fn execute_symbols(
                 object.remove("langType");
             }
             error.next = Some(Box::new(json!({
-                "repair": {"tool": "astSearch", "confidence": "exact", "query": repaired}
+                "repair": {"tool": ToolId::AstSearch.as_str(), "confidence": "exact", "query": repaired}
             })));
         }
         return Err(error);
@@ -130,15 +131,18 @@ pub fn execute_symbols(
             .decode_source_bytes(&b, super::MAX_PARSE_SOURCE_BYTES)
             .map_err(super::AstError::from)?;
         let source_path = p.canonical.to_string_lossy();
-        let raw = if super::cpp_header_override(&p.canonical, q.lang_type().as_deref()) {
-            octocode_engine::portable::extract_graph_facts_with_extension(
-                &source,
-                &source_path,
-                "cpp",
-            )
-        } else {
-            octocode_engine::portable::extract_declarations(&source, &source_path)
-        };
+        let cpp_header = super::cpp_header_override(&p.canonical, q.lang_type().as_deref());
+        let raw = super::declarations_cache::extract(&source, &source_path, cpp_header, || {
+            if cpp_header {
+                octocode_engine::portable::extract_graph_facts_with_extension(
+                    &source,
+                    &source_path,
+                    "cpp",
+                )
+            } else {
+                octocode_engine::portable::extract_declarations(&source, &source_path)
+            }
+        });
         match raw {
             Some(raw) => (
                 vec![(super::display_name(&p.canonical), raw)],
@@ -182,7 +186,7 @@ pub fn execute_symbols(
         (
             r.entries
                 .into_iter()
-                .map(|e| (rooted(&e.relative_path), e.facts_json))
+                .map(|e| (rooted(&e.relative_path), std::sync::Arc::new(e.facts_json)))
                 .collect(),
             r.truncated,
             r.files_skipped,
@@ -291,7 +295,12 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
     } = set;
     let (skipped, truncated) = (*skipped, *truncated);
     if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
-        return json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false});
+        let mut restart = serde_json::to_value(q).unwrap_or_default();
+        if let Some(query) = restart.as_object_mut() {
+            query.retain(|key, value| key != "snapshot" && !value.is_null());
+        }
+        restart["page"] = json!(1);
+        return json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false,"next":{"restart":{"tool":ToolId::AstSearch.as_str(),"query":restart,"confidence":"exact"}}});
     }
     let size = q.page_size().clamp(1, 1000) as usize;
     let page = q.page().max(1) as usize;
@@ -326,7 +335,8 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         nq["maxFiles"] = json!(q.max_files());
         nq["snapshot"] = json!(snapshot);
         nq["page"] = json!(page + 1);
-        out["next"] = json!({"nextPage":{"tool":"astSearch","query":nq,"confidence":"exact"}})
+        out["next"] =
+            json!({"nextPage":{"tool":ToolId::AstSearch.as_str(),"query":nq,"confidence":"exact"}})
     }
     if declarations.is_empty() && !incomplete {
         out["status"] = json!("empty")

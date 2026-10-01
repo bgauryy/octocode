@@ -425,7 +425,10 @@ mod tests {
             .unwrap()
             .remove("debug");
         assert_eq!(outcome.structured_content["queries"], expected);
-        assert!(outcome.content.is_empty(), "non-MCP receipts are not rendered");
+        assert!(
+            outcome.content.is_empty(),
+            "non-MCP receipts are not rendered"
+        );
     }
 
     #[test]

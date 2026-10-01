@@ -1,0 +1,7 @@
+1. **Helped:** My first `ghGetFileContent` call, with `matchString: "_transport_for_url"` and `contextLines: 25`, was the fastest step. It returned `_transport_for_url` and the call site in `_send_single_request` in one pass. That was already the core of the answer. The second batch, `matchString: "proxy_map"` plus `"def _get_proxy_map"`, gave me the `__init__` mount-building code and `_get_proxy_map`. Pinning the branch to the commit SHA worked.
+
+2. **Did not help:** The `proxy_map` match returned merged windows with large "lines omitted" gaps. That cut out the exact lines where the direct-versus-proxy transport is chosen in `__init__` (693–702), so I had to hedge on that part. The sync and async matches also came back interleaved. That made it hard to tell which line numbers belonged to the sync client, so my line numbers are approximate. The two calls in that batch overlapped, since `def _get_proxy_map` was already in the first result.
+
+3. **Next time:** I would read explicit line ranges, for example `startLine`/`endLine` around 680–720. I would also read `URLPattern.matches` in `httpx/_utils.py` and `get_environment_proxies`. I never opened either.
+
+4. **Confidence:** Medium-high. The routing mechanism is well supported by what I read. The ordering and pattern-matching details, and the exact line numbers in `__init__`, are unverified.

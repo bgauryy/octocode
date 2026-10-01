@@ -1,0 +1,92 @@
+{
+  "qid": "G05",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "620b47abeeb2dd214f40234da2a2d8ffb5f28fb214b8aba1fcbf8183a92021c4",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All claims verified. Send/history/_next handling correct with accurate lines (801-824). Some early loop line cites off by ~10 (190-199, 201-214), but the key cites are accurate. Omits default=30 value and latin1 re-encoding."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate loop and rebuild details, including latin1 re-encoding. Did not read Session.send, so no history shuffle or _next; no default 30. Only two exact line numbers (186, 286, both correct); the rest are acknowledged estimates."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All claims verified. Send/history/_next handling correct with accurate lines (801-824). Some early loop line cites off by ~10 (190-199, 201-214), but the key cites are accurate. Omits default=30 value and latin1 re-encoding."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate loop and rebuild details, including latin1 re-encoding. Did not read Session.send, so no history shuffle or _next; no default 30. Only two exact line numbers (186, 286, both correct); the rest are acknowledged estimates."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1391262,
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 12089,
+    "cache_read_input_tokens": 25051,
+    "output_tokens": 32,
+    "context_tokens": 37146,
+    "total_tokens": 37178,
+    "first_request_context": 10627,
+    "fixed_overhead_tokens": 31881,
+    "research_tokens": 5297,
+    "max_request_context": 14718
+  },
+  "timedOut": false
+}

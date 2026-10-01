@@ -1,0 +1,52 @@
+{
+  "qid": "G10",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 1,
+    "rg-gh": 1
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8.5,
+      "correctness": 4.5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        9,
+        8
+      ],
+      "wrongClaims": [
+        "Calls #7010 a 'Miri issue'; it is tokio#7010 (minor)"
+      ]
+    },
+    "rg-gh": {
+      "quality": 8.5,
+      "correctness": 4.5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        9,
+        8
+      ],
+      "wrongClaims": [
+        "Describes tcp_stream readv exclusion as 'a test guarded by cfg(not(miri))' — it is a block inside try_read_write (minor imprecision)"
+      ]
+    }
+  },
+  "preferred": [
+    "octocode",
+    "octocode"
+  ],
+  "referenceIssues": [
+    "The reference omits the tcp_socket.rs ignores added for the keepalive, reuseaddr, reuseport and send/recv buffer-size socket options. Both answers correctly report them.",
+    "The reference leaves out the tcp_socket.rs ignores for keepalive, reuseaddr, reuseport, send buffer size and receive buffer size, each with a 'Miri doesn't support ...' reason. It also leaves out the uds_cred.rs rewording to 'No getsockopt for Unix domain sockets'."
+  ],
+  "judgeCost": 0.44484599999999996
+}

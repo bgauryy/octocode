@@ -152,14 +152,14 @@ impl AstTopologyQuery {
     pub fn page(&self) -> u32 {
         every_analysis!(self, page => u32_of(*page))
     }
-    pub fn page_size(&self) -> Option<u32> {
-        every_analysis!(self, page_size => page_size.map(u32_of))
+    pub fn page_size(&self) -> u32 {
+        every_analysis!(self, page_size => u32_of(*page_size))
     }
     pub fn diagnostic_page(&self) -> u32 {
         every_analysis!(self, diagnostic_page => diagnostic_page.map_or(1, u32_of))
     }
-    pub fn diagnostic_page_size(&self) -> Option<u32> {
-        every_analysis!(self, diagnostic_page_size => diagnostic_page_size.map(u32_of))
+    pub fn diagnostic_page_size(&self) -> u32 {
+        every_analysis!(self, diagnostic_page_size => u32_of(*diagnostic_page_size))
     }
     pub fn diagnostic_snapshot(&self) -> Option<&str> {
         every_analysis!(self, diagnostic_snapshot => diagnostic_snapshot.as_deref().map(String::as_str))

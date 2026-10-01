@@ -9,12 +9,12 @@ const { call, raw } = client;
 const UA = { 'user-agent': 'octocode-local-testing (bench; contact: maintainers)' };
 
 async function json(url) {
-  const response = await fetch(url, { headers: UA });
+  const response = await fetch(url, { headers: UA, signal: AbortSignal.timeout(60000) });
   if (!response.ok) throw new Error(`${url} → ${response.status}`);
   return response.json();
 }
 async function text(url) {
-  const response = await fetch(url, { headers: UA });
+  const response = await fetch(url, { headers: UA, signal: AbortSignal.timeout(60000) });
   if (!response.ok) throw new Error(`${url} → ${response.status}`);
   return response.text();
 }
@@ -59,6 +59,9 @@ for (const c of CASES) {
     check(`${c.type} ${c.name}: next.viewRepo names that repository`, viewSlug === truth.repo, `viewRepo=${viewSlug}`);
   }
   if (view) {
+    check(`${c.type}: repository provenance is explicit`, viewHint.source?.scope === 'defaultBranch' && viewHint.source?.verification === 'unverified', JSON.stringify(viewHint.source));
+    const release = data?.next?.viewReleaseSource;
+    if (release) check(`${c.type}: release lead is explicitly unverified`, release.source?.scope === 'release' && release.source?.verification === 'unverified', JSON.stringify(release.source));
     // Replay the continuation verbatim (tool + query, followUp included).
     const tree = await raw(viewHint.tool, viewHint.query);
     check(`${c.type} ${c.name}: next.viewRepo opens the repository`, !tree.isError && (rowData(tree)?.structure ?? []).length > 0, tree.text.slice(0, 120));

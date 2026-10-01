@@ -723,8 +723,12 @@ async fn gh_clone_repo_missing_repository_reports_repo_not_found() {
         Some("Repository not found: ghost/nope"),
         "{data}"
     );
+    // D8: the full access hint, never cut mid-sentence by the guidance cap.
     let hint = data["hints"][0].as_str().expect("repo hint");
-    assert!(hint.contains("ghost/nope"), "{hint}");
+    assert!(
+        !hint.ends_with('…') && hint.ends_with("token access."),
+        "{hint}"
+    );
     runtime.close().await;
 }
 
@@ -1192,6 +1196,83 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
         "{data}"
     );
     assert_eq!(data["next"]["viewTree"]["confidence"], "exact", "{data}");
+    runtime.close().await;
+}
+
+/// D9: a ghStructure listing of a missing path recovers like
+/// ghGetFileContent: `next.viewTree` lists the nearest existing directory
+/// (case-corrected), never another missing path.
+#[tokio::test]
+async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+        .mount(&server)
+        .await;
+    let listing = |entries: serde_json::Value| ResponseTemplate::new(200).set_body_json(entries);
+    for (dir, entries) in [
+        ("", json!([{"name":"src","path":"src","type":"dir"}])),
+        (
+            "/src",
+            json!([{"name":"Tools","path":"src/Tools","type":"dir"}]),
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents{dir}")))
+            .respond_with(listing(entries))
+            .mount(&server)
+            .await;
+    }
+    let not_found = || ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"}));
+    for missing in [
+        "src%2Fnope",
+        "src%2Ftools",
+        "no",
+        "no%2Fsuch",
+        "no%2Fsuch%2Fdir",
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents/{missing}")))
+            .respond_with(not_found())
+            .mount(&server)
+            .await;
+    }
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let tree = |dir: &str| json!({"owner":"a","repo":"b","path":dir,"branch":"main"});
+    for (requested, nearest) in [
+        ("src/nope", "src"),
+        ("src/tools", "src/Tools"),
+        ("no/such/dir", "."),
+    ] {
+        let outcome = call(&runtime, "ghStructure", tree(requested))
+            .await
+            .expect("error row, not a contract violation");
+        assert_eq!(
+            row_status(&outcome),
+            "error",
+            "{}",
+            outcome.structured_content
+        );
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{data}");
+        assert_eq!(data["next"]["viewTree"]["tool"], "ghStructure", "{data}");
+        assert_eq!(data["next"]["viewTree"]["query"]["path"], nearest, "{data}");
+        assert_eq!(
+            data["next"]["viewTree"]["query"]["branch"], "main",
+            "{data}"
+        );
+        assert_eq!(data["next"]["viewTree"]["confidence"], "exact", "{data}");
+        assert!(
+            data["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains(requested),
+            "{data}"
+        );
+    }
     runtime.close().await;
 }
 

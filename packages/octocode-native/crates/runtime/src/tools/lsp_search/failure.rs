@@ -3,6 +3,7 @@
 
 use super::LspSearchQuery;
 use super::render::uri_to_path;
+use crate::tools::id::ToolId;
 use octocode_engine::error::{Error as EngineError, ErrorCode, ErrorKind};
 use serde_json::{Value, json};
 
@@ -220,7 +221,7 @@ pub(super) fn query_value(query: &LspSearchQuery) -> Value {
 
 /// An exact, executable `lspSearch` continuation.
 pub(super) fn continuation(query: Value) -> Value {
-    json!({ "tool": "lspSearch", "query": query, "confidence": "exact" })
+    json!({ "tool": ToolId::LspSearch.as_str(), "query": query, "confidence": "exact" })
 }
 
 /// Mark a row partial with `reason` and warnings, without a continuation
@@ -328,7 +329,7 @@ pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
         read["contextLines"] = json!(3);
     }
     value["next"]["readFile"] = json!({
-        "tool": "localFetch",
+        "tool": ToolId::LocalFetch.as_str(),
         "why": "Read the source directly to confirm the symbol and its anchor.",
         "query": read,
         "confidence": "exact"
@@ -350,7 +351,7 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
     let hint = query.line_hint().filter(|line| *line > 0);
     if let Some(line) = hint {
         value["next"]["readFile"] = json!({
-            "tool": "localFetch",
+            "tool": ToolId::LocalFetch.as_str(),
             "why": format!("`{name}` was not found near line {line}; read the lines around it."),
             "query": {
                 "path": path,
@@ -373,7 +374,7 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
         object.remove("orderHint");
     }
     value["next"]["didYouMean"] = json!({
-        "tool": "lspSearch",
+        "tool": ToolId::LspSearch.as_str(),
         "query": retry,
         "confidence": "medium"
     });

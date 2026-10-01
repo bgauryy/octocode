@@ -26,6 +26,7 @@ use oxc_parser::Parser;
 use oxc_semantic::{ScopeFlags, SemanticBuilder};
 use oxc_span::{GetSpan, SourceType, Span};
 use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::text::file_extension::is_js_ts_extension;
 
@@ -107,31 +108,22 @@ struct GraphDeclaration {
     parent: Option<String>,
 }
 
-/// Module exports keyed by local binding: `(local name, public name)`.
+/// Module exports indexed by local binding, with sorted distinct public names.
 /// Re-exports (`export … from`) bind no local and are not listed.
 #[derive(Default)]
 struct LocalExports {
-    bindings: Vec<(String, String)>,
+    bindings: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl LocalExports {
     fn push(&mut self, local: String, public: String) {
-        self.bindings.push((local, public));
+        self.bindings.entry(local).or_default().insert(public);
     }
 
     fn public_names(&self, local: &str) -> Option<Vec<String>> {
-        let mut names: Vec<String> = self
-            .bindings
-            .iter()
-            .filter(|(name, _)| name == local)
-            .map(|(_, public)| public.clone())
-            .collect();
-        if names.is_empty() {
-            return None;
-        }
-        names.sort();
-        names.dedup();
-        Some(names)
+        self.bindings
+            .get(local)
+            .map(|names| names.iter().cloned().collect())
     }
 }
 
@@ -384,6 +376,9 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
             &mut declarations,
             &mut edges,
         );
+        if job_cancelled() {
+            return None;
+        }
         attach_doc_lines(content, &mut declarations);
 
         let mut calls = Vec::new();
@@ -560,6 +555,9 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> 
             &mut edges,
         );
         attach_doc_lines(content, &mut declarations);
+        if job_cancelled() {
+            return None;
+        }
         serde_json::to_string(&GraphFacts {
             kind: "graphFacts",
             schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
@@ -975,6 +973,9 @@ fn declaration_names(decl: &Declaration) -> Vec<String> {
 fn attach_doc_lines(content: &str, declarations: &mut [GraphDeclaration]) {
     let lines = content.lines().collect::<Vec<_>>();
     for declaration in declarations {
+        if job_cancelled() {
+            return;
+        }
         declaration.doc_line =
             super::leading_doc_line(&lines, declaration.range.start.line as usize, "ts");
     }
@@ -1041,6 +1042,9 @@ fn flatten_symbols(
     edges: &mut Vec<GraphEdge>,
 ) {
     for symbol in symbols {
+        if job_cancelled() {
+            return;
+        }
         let id = format!(
             "declaration:{}#{}@{}:{}:{}",
             file_path,
@@ -1094,6 +1098,24 @@ fn flatten_symbols(
 
 #[cfg(test)]
 mod graph_occurrence_tests {
+    #[test]
+    fn exported_declaration_outline_scales_without_losing_aliases() {
+        let mut source = (0..20_000)
+            .map(|i| format!("export function fn{i}() {{ return {i}; }}\n"))
+            .collect::<String>();
+        source.push_str("export { fn42 as alias, fn42 as another };\n");
+        let raw = super::extract_declarations(&source, "many-exports.ts").unwrap();
+        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let declarations = value["declarations"].as_array().unwrap();
+        assert_eq!(declarations.len(), 20_000);
+        assert!(declarations.iter().all(|row| row["exported"] == true));
+        assert_eq!(
+            declarations[42]["exportedAs"],
+            serde_json::json!(["alias", "another", "fn42"])
+        );
+        assert_eq!(declarations.last().unwrap()["name"], "fn19999");
+    }
+
     #[test]
     fn import_ranges_do_not_invent_synthetic_name_tokens() {
         let value: serde_json::Value = serde_json::from_str(&super::extract_graph_facts("import value from './a'; import * as namespace from './b'; import { plain } from './c'; import './side';", "imports.ts").unwrap()).unwrap();

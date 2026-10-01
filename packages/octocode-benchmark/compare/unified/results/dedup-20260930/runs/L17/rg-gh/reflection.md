@@ -1,0 +1,7 @@
+1. **Helped:** The first `rg` call over `JsonSerializerInternalReader.cs`, `Required.cs` and `JsonProperty.cs` found `EndProcessProperty` at `:2677-2705` right away. The messages and `Required` checks there answered most of the question. The second call printed `:2655-2725` and listed every `EndProcessProperty` and `Required` hit in the reader. That showed the two call sites (`:2280` and `:2588`). The third call printed `SetPropertyPresence` and the `HasRequiredOrDefaultValueProperties` and `Required` hits in `JsonObjectContract.cs` and `DefaultContractResolver.cs`. The final `rg` hits also confirmed how `Required` values get assigned.
+
+2. **Did not help:** My first `rg` pattern was too broad and named files by guess. It missed the caller that builds the presence dictionary, so I needed a second search. I never read `:2100-2270`, which covers the constructor-creator path, or the `:2467` setup in context. I described those from grep hits only and said so in the answer. I did not read `Required.cs` itself, so I did not quote the enum definition.
+
+3. **Next time:** I would search `PropertyPresence|EndProcessProperty` first, then read `:2460-2590` and `:2080-2150` with a line-range print. That would verify the constructor path directly instead of inferring it.
+
+4. **Confidence:** High for the main flow (missing versus null checks, error messages, `ItemRequired` fallback). Medium for the constructor-based path, since I did not read the full code.

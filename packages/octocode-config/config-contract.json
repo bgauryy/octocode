@@ -91,7 +91,7 @@
         "beta": {
           "type": "boolean",
           "default": false,
-          "description": "Enable beta features. Gates the astRewrite (preview and apply) and astTopology tools; off by default on every surface.",
+          "description": "Enable beta features and tools; off by default on every surface. `octocode scheme` reports which tools the gate withholds.",
           "env": {
             "OCTOCODE_BETA": { "priority": 0, "dotenv": "home" }
           }

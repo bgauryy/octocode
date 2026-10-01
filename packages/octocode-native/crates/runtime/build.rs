@@ -854,6 +854,155 @@ fn generate_config_contract() -> Result<(), Box<dyn Error>> {
 /// Embeds the tool contract that `@octocodeai/config` generates (its
 /// `generate:tool-contract` script is the only generator). Native keeps no copy:
 /// regenerating in config is the whole change, and cargo rebuilds from it.
+/// `ToolId` identity and policy, generated from the contract's `tools[]`
+/// (`name`, `family`, `cliOnly`, `beta` are authored once in core
+/// `TOOL_POLICIES`). Nothing in native re-spells a tool list.
+fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
+    let tools = contract
+        .get("tools")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("tool contract has no tools[]"))?;
+    let mut variants = Vec::new();
+    let (mut names, mut families, mut cli_only, mut beta) =
+        (String::new(), String::new(), Vec::new(), Vec::new());
+    for (index, tool) in tools.iter().enumerate() {
+        let path = format!("tools[{index}]");
+        let name = string(
+            tool.get("name")
+                .ok_or_else(|| invalid(format!("{path} has no name")))?,
+            &format!("{path}.name"),
+        )?;
+        let variant = rust_enum_variant(name)?;
+        let family = match string(
+            tool.get("family")
+                .ok_or_else(|| invalid(format!("{path} has no family")))?,
+            &format!("{path}.family"),
+        )? {
+            "local" => "Local",
+            "github" => "GitHub",
+            "remote" => "Remote",
+            other => {
+                return Err(invalid(format!(
+                    "{path}.family {other:?} is not local|github|remote"
+                )));
+            }
+        };
+        names.push_str(&format!("            ToolId::{variant} => {name:?},\n"));
+        families.push_str(&format!(
+            "            ToolId::{variant} => ToolFamily::{family},\n"
+        ));
+        if bool_value(tool.get("cliOnly"), false, &format!("{path}.cliOnly"))? {
+            cli_only.push(format!("ToolId::{variant}"));
+        }
+        if bool_value(tool.get("beta"), false, &format!("{path}.beta"))? {
+            beta.push(format!("ToolId::{variant}"));
+        }
+        variants.push(variant);
+    }
+    let set = |members: &[String]| {
+        if members.is_empty() {
+            "false".to_owned()
+        } else {
+            format!("matches!(self, {})", members.join(" | "))
+        }
+    };
+    let mut policy = String::new();
+    let max_items = contract
+        .pointer("/limits/maxInputArrayItems")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| invalid("tool contract has no limits.maxInputArrayItems"))?;
+    policy.push_str(&format!(
+        "/// Contract `limits.maxInputArrayItems`: native input-security array ceiling.\n\
+         pub const MAX_INPUT_ARRAY_ITEMS: usize = {max_items};\n\n"
+    ));
+    for tool in tools {
+        let Some(entries) = tool.get("semanticPolicy").and_then(Value::as_object) else {
+            continue;
+        };
+        let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
+        let module = to_snake(name);
+        policy.push_str(&format!(
+            "/// Contract `{name}.semanticPolicy`: tool sets and limits enforced outside its schema.\n\
+             pub mod {module}_policy {{\n    use super::ToolId;\n"
+        ));
+        for (key, value) in entries {
+            let constant = to_screaming_snake(key);
+            match value {
+                Value::Array(items) => {
+                    let members = items
+                        .iter()
+                        .map(|item| {
+                            let member = item.as_str().filter(|member| {
+                                tools.iter().any(|tool| {
+                                    tool.get("name").and_then(Value::as_str) == Some(member)
+                                })
+                            });
+                            member
+                                .map(|member| {
+                                    rust_enum_variant(member).map(|v| format!("ToolId::{v}"))
+                                })
+                                .unwrap_or_else(|| {
+                                    Err(invalid(format!(
+                                        "{name}.semanticPolicy.{key} names an unknown tool {item}"
+                                    )))
+                                })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    policy.push_str(&format!(
+                        "    pub const {constant}: &[ToolId] = &[{}];\n",
+                        members.join(", ")
+                    ));
+                }
+                Value::Number(number) if number.is_u64() => {
+                    policy.push_str(&format!("    pub const {constant}: usize = {number};\n"));
+                }
+                other => {
+                    return Err(invalid(format!(
+                        "{name}.semanticPolicy.{key} must be a tool list or unsigned integer, got {other}"
+                    )));
+                }
+            }
+        }
+        policy.push_str("}\n\n");
+    }
+    Ok(format!(
+        "// @generated by crates/runtime/build.rs from packages/octocode-config/contract/tool-contract.json.\n\
+         {policy}\
+         /// Every tool the native runtime can execute, in contract order.\n\
+         #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]\n\
+         pub enum ToolId {{\n{variants_decl}}}\n\n\
+         impl ToolId {{\n\
+         \x20   /// All tool identities in contract order.\n\
+         \x20   pub const ALL: [ToolId; {count}] = [{all}];\n\n\
+         \x20   /// The wire name exactly as it appears in the contract and in tool-call envelopes.\n\
+         \x20   #[must_use]\n\
+         \x20   pub const fn as_str(self) -> &'static str {{\n        match self {{\n{names}        }}\n    }}\n\n\
+         \x20   /// Cursor-scope / policy family (contract `family`).\n\
+         \x20   #[must_use]\n\
+         \x20   pub const fn family(self) -> ToolFamily {{\n        match self {{\n{families}        }}\n    }}\n\n\
+         \x20   /// Mutating tools the CLI runs on the user's machine; MCP never lists or\n\
+         \x20   /// executes them (contract `cliOnly`).\n\
+         \x20   #[must_use]\n\
+         \x20   pub const fn is_cli_only(self) -> bool {{\n        {cli_only}\n    }}\n\n\
+         \x20   /// Tools hidden and refused unless the shared beta gate is enabled (contract `beta`).\n\
+         \x20   #[must_use]\n\
+         \x20   pub const fn is_beta(self) -> bool {{\n        {beta}\n    }}\n\
+         }}\n",
+        variants_decl = variants
+            .iter()
+            .map(|v| format!("    {v},\n"))
+            .collect::<String>(),
+        count = variants.len(),
+        all = variants
+            .iter()
+            .map(|v| format!("ToolId::{v}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        cli_only = set(&cli_only),
+        beta = set(&beta),
+    ))
+}
+
 fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let dir = fs::canonicalize(config_path(&manifest_dir, "contract"))?;
@@ -898,6 +1047,10 @@ fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
             "octocode-config contract/tool_types.rs was generated from a different contract; run `yarn workspace @octocodeai/config generate:tool-contract`",
         ));
     }
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR")?).join("tool_ids.rs"),
+        render_tool_ids(&contract)?,
+    )?;
     let include = |name: &str| format!("include_str!({:?})", file(name).display().to_string());
     let output = format!(
         "// @generated by crates/runtime/build.rs from packages/octocode-config/contract/.\n\

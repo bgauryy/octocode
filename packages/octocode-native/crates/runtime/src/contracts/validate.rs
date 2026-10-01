@@ -179,7 +179,7 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
             (&tool["inputSchema"], item_schema),
         ];
         for (index, query) in queries.iter_mut().enumerate() {
-            coerce::coerce_scalar_strings(&typed, query);
+            coerce::coerce_lossless(&typed, query);
             apply_observed_defaults(&tool["defaults"], query);
             let mut path = vec!["queries".to_owned(), index.to_string()];
             let parsed =
@@ -215,6 +215,48 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
         &mut Vec::new(),
     )?;
     Ok(input)
+}
+
+/// Lossless, schema-driven input repair shared by every host before
+/// validation: a JSON-encoded `queries` array, JSON-encoded or bare-scalar
+/// values in list-only fields, and exact integer/boolean strings in
+/// integer/boolean-only fields (see `coerce`). The input keeps its shape (flat
+/// query, query array, or envelope); nothing is validated or defaulted, and
+/// an unknown tool is returned unchanged.
+#[must_use]
+pub fn normalize_input(tool_name: &str, mut input: Value) -> Value {
+    let Some(tool) = super::parsed_contract().ok().and_then(|contract| {
+        contract["tools"]
+            .as_array()?
+            .iter()
+            .find(|tool| tool["name"] == tool_name)
+    }) else {
+        return input;
+    };
+    let item_schema = tool["inputSchema"]
+        .pointer("/properties/queries/items")
+        .unwrap_or(&tool["querySchema"]);
+    let typed = [
+        (&tool["querySchema"], &tool["querySchema"]),
+        (&tool["inputSchema"], item_schema),
+    ];
+    let envelope = input.get("queries").is_some();
+    if envelope {
+        coerce::coerce_lossless(&[(&tool["inputSchema"], &tool["inputSchema"])], &mut input);
+    }
+    let rows: Vec<&mut Value> = match &mut input {
+        Value::Object(object) if envelope => object
+            .get_mut("queries")
+            .and_then(Value::as_array_mut)
+            .map(|queries| queries.iter_mut().collect())
+            .unwrap_or_default(),
+        Value::Array(queries) => queries.iter_mut().collect(),
+        flat => vec![flat],
+    };
+    for row in rows {
+        coerce::coerce_lossless(&typed, row);
+    }
+    input
 }
 
 /// Validates a single flat query object and returns the validated, defaulted
@@ -1057,7 +1099,7 @@ mod tests {
         );
     }
 
-    use super::{format_input_error, validate};
+    use super::{format_input_error, normalize_input, validate};
     use crate::contracts::{PrepareOptions, prepare_and_validate};
     use serde_json::{Value, json};
 
@@ -1386,6 +1428,78 @@ mod tests {
     }
 
     #[test]
+    fn list_fields_sent_json_encoded_or_bare_are_repaired_before_validation() {
+        let brief = json!({"goal":"test","reasoning":"Repair host encodings."});
+        let row = |extra: Value| {
+            let mut row = brief.clone();
+            row.as_object_mut()
+                .expect("row")
+                .extend(extra.as_object().expect("extra").clone());
+            row
+        };
+        let search = row(json!({"path":"/tmp","searchText":"x",
+            "include":"[\"*.go\"]","exclude":"[\"*_test.go\"]",
+            "excludeDir":"[\"node_modules\",\"dist\"]","contextLines":"2"}));
+        let normalized = normalize_input(
+            "localSearch",
+            json!({"queries": serde_json::to_string(&json!([search])).expect("encode")}),
+        );
+        let query = &normalized["queries"][0];
+        assert_eq!(query["include"], json!(["*.go"]));
+        assert_eq!(query["exclude"], json!(["*_test.go"]));
+        assert_eq!(query["excludeDir"], json!(["node_modules", "dist"]));
+        assert_eq!(query["contextLines"], 2);
+        validate("localSearch", normalized).expect("repaired input validates");
+
+        let structure = normalize_input(
+            "structureSearch",
+            row(json!({"path":"/tmp","extensions":"[\"go\"]"})),
+        );
+        assert_eq!(structure["extensions"], json!(["go"]));
+        let code = normalize_input(
+            "ghSearchCode",
+            json!({"queries":[row(json!({"owner":"o","keywords":"wrap_app_handling_exceptions"}))]}),
+        );
+        assert_eq!(
+            code["queries"][0]["keywords"],
+            json!(["wrap_app_handling_exceptions"])
+        );
+        let rows = normalize_input(
+            "ghSearchCode",
+            json!([row(json!({"owner":"o","keywords":"k"}))]),
+        );
+        assert_eq!(rows[0]["keywords"], json!(["k"]));
+
+        // A field that also accepts a string keeps it; unknown tools pass through.
+        let lsp = normalize_input(
+            "lspSearch",
+            row(
+                json!({"uri":"/tmp/a.rs","symbolName":"main","lineHint":1,"rustContext":{"features":"all"}}),
+            ),
+        );
+        assert_eq!(lsp["rustContext"]["features"], "all");
+        let untouched = json!({"queries":"[\"*.go\"]"});
+        assert_eq!(normalize_input("noSuchTool", untouched.clone()), untouched);
+    }
+
+    #[test]
+    fn unrepairable_list_values_get_honest_array_hints() {
+        let reject = |include: Value| {
+            let error = validate(
+                "localSearch",
+                json!({"queries":[{"path":"/tmp","searchText":"x","include":include,"goal":"test","reasoning":"Hint."}]}),
+            )
+            .expect_err("not an array");
+            error.issues[0].message.clone()
+        };
+        assert_eq!(
+            reject(json!("[\"*.go\"")),
+            "Expected array; send a JSON array, not a JSON-encoded string"
+        );
+        assert_eq!(reject(json!({"a":1})), "Expected array");
+    }
+
+    #[test]
     fn names_the_selector_a_sibling_branch_needs_for_a_rejected_literal() {
         let error = validate(
             "localSearch",
@@ -1449,6 +1563,37 @@ mod tests {
                 "{name}: {formatted}"
             );
         }
+    }
+
+    /// Core authors the wording of cross-field clasify rejections; native
+    /// must render the same text for the same input (fixture `messages`).
+    #[test]
+    fn renders_core_rejection_wording_for_parity_fixtures() {
+        let fixtures: Value =
+            serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
+                .expect("generated fixture JSON");
+        let mut checked = 0;
+        for fixture in fixtures.as_array().expect("fixture array") {
+            let Some(expected) = fixture.get("messages") else {
+                continue;
+            };
+            let error = crate::contracts::prepare_many_and_validate(
+                fixture["tool"].as_str().expect("tool"),
+                fixture["input"].clone(),
+                PrepareOptions {
+                    source_label: "fixture",
+                },
+            )
+            .expect_err("a fixture with messages is rejected");
+            let messages = error
+                .issues
+                .iter()
+                .map(|issue| Value::String(issue.message.clone()))
+                .collect::<Vec<_>>();
+            assert_eq!(&Value::Array(messages), expected, "{}", fixture["id"]);
+            checked += 1;
+        }
+        assert!(checked >= 5, "clasify wording fixtures: {checked}");
     }
 
     #[test]

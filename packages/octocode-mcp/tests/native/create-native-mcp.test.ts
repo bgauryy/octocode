@@ -2,9 +2,12 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
+import { INTERACTIVE_EXECUTION_TIMEOUT_SECS } from '@octocodeai/config';
 import {
   getNativeContractFingerprint,
+  isCliOnlyTool,
   TOOL_NAMES,
+  TOOL_POLICIES,
 } from '@octocodeai/config/schema';
 
 // startNativeMcp constructs a real StdioServerTransport (reads process.stdin and
@@ -20,7 +23,6 @@ vi.mock('@modelcontextprotocol/server/stdio', () => ({
 
 import {
   createNativeMcp,
-  devOverridesAllowed,
   loadNativeBinding,
   startNativeMcp,
   type NativeCatalog,
@@ -28,6 +30,8 @@ import {
   type NativeRuntime,
   type NativeRuntimeOptions,
 } from '../../src/native/index.js';
+import { wrapBareQuery } from './wrapBareQuery.js';
+import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 const fixture = (name: string) =>
   fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
@@ -45,11 +49,9 @@ interface RecordedExecution {
   input: unknown;
 }
 
-// Matches NATIVE_ABI_VERSION without importing @octocodeai/octocode-native/runtime
-// (that import loads the native addon — slow, and it races a native rebuild).
-// The sibling native tests (fingerprint-drift.test.ts, node-boundary.mjs) pin
-// the same literal; they move together if the ABI is ever bumped.
-const FAKE_ABI_VERSION = 2;
+// The fake speaks the ABI the MCP expects; src/native/index.ts already imports
+// this module, so importing it here loads nothing extra.
+const FAKE_ABI_VERSION = NATIVE_ABI_VERSION;
 
 class FakeRuntime implements NativeRuntime {
   static last: FakeRuntime | undefined;
@@ -69,6 +71,13 @@ class FakeRuntime implements NativeRuntime {
 
   catalog(): NativeCatalog {
     return this.makeCatalog();
+  }
+
+  readonly normalized: { tool: string; input: unknown }[] = [];
+
+  normalizeInput(tool: string, input: unknown): unknown {
+    this.normalized.push({ tool, input });
+    return wrapBareQuery(input);
   }
 
   readonly cancelled: string[] = [];
@@ -151,7 +160,7 @@ describe('createNativeMcp registration + execution', () => {
 
     expect(FakeRuntime.last?.options).toMatchObject({
       surface: 'mcp',
-      timeoutSecs: 300,
+      timeoutSecs: INTERACTIVE_EXECUTION_TIMEOUT_SECS,
       env: {},
     });
 
@@ -258,6 +267,11 @@ describe('createNativeMcp registration + execution', () => {
       arguments: matrix,
     });
     expect(response.isError).toBe(false);
+    // The runtime's own normalizeInput runs before SDK validation.
+    expect(FakeRuntime.last?.normalized).toContainEqual({
+      tool: TOOL_NAMES.CLASIFY,
+      input: matrix,
+    });
     expect(FakeRuntime.last?.executions.at(-1)).toMatchObject({
       tool: TOOL_NAMES.CLASIFY,
       input: { queries: [matrix] },
@@ -449,14 +463,15 @@ describe('createNativeMcp registration + execution', () => {
   });
 
   it('never registers CLI-only tools even when native reports them available', async () => {
+    const cliOnly = Object.keys(TOOL_POLICIES).filter(isCliOnlyTool);
+    expect(cliOnly.length).toBeGreaterThan(0);
     const instance = createNativeMcp({
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
         tools: [
           tool('localFetch', true),
-          tool('ghCloneRepo', true),
-          tool('astRewrite', true),
+          ...cliOnly.map(name => tool(name, true)),
         ],
       })),
     });
@@ -563,24 +578,6 @@ describe('createNativeMcp registration + execution', () => {
       })
     ).toThrow(/does not expose a contract fingerprint/i);
     expect(FakeRuntime.last!.closed).toBe(true);
-  });
-});
-
-describe('devOverridesAllowed', () => {
-  it('never honours overrides under NODE_ENV=production', () => {
-    expect(devOverridesAllowed({ NODE_ENV: 'production' }, false)).toBe(false);
-    expect(devOverridesAllowed({ NODE_ENV: 'production' }, true)).toBe(false);
-  });
-
-  it('honours overrides from source unless production', () => {
-    expect(devOverridesAllowed({}, false)).toBe(true);
-  });
-
-  it('treats the bundle as production unless NODE_ENV opts in', () => {
-    expect(devOverridesAllowed({}, true)).toBe(false);
-    expect(devOverridesAllowed({ NODE_ENV: 'staging' }, true)).toBe(false);
-    expect(devOverridesAllowed({ NODE_ENV: 'development' }, true)).toBe(true);
-    expect(devOverridesAllowed({ NODE_ENV: 'test' }, true)).toBe(true);
   });
 });
 

@@ -8,9 +8,10 @@ const mocks = vi.hoisted(() => ({
   printInstructions: vi.fn(() => 0),
 }));
 
-vi.mock('../../src/cli/native-delegate.js', () => ({
-  shouldDelegateToNative: (command: string | null | undefined) =>
-    command !== 'skill' && command !== 'scheme',
+vi.mock('../../src/cli/native-delegate.js', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('../../src/cli/native-delegate.js')
+  >()),
   resolveNativeBin: mocks.resolve,
   delegateToNative: mocks.delegate,
 }));

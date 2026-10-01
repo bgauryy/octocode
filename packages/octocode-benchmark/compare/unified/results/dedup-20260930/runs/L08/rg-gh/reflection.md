@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call did most of the work. It printed the pinned commit SHA and ran a case-insensitive `rg` for `sampleLimit|errSampleLimit` across `scrape/*.go`. That gave me every definition and call site at once, and it confirmed the checkout matched `ea954809ce`. The second call printed targeted `sed -n` line ranges, so I could cite exact lines from `target.go` and `scrape.go`.
+
+2. **Did not help:** The first `rg` output was noisy. Most of it was `scrape_test.go` hits, and I should have excluded `_test.go` files. Some ranges in the second call were guesses, for example `target.go:510-530`, so they showed a little irrelevant code. I never read the code after `scrape.go:1988`, so what happens to already-appended samples when the limit is hit is unverified, and I said so in the answer. The V2 line numbers for `limitAppenderV2` and `scrape_append_v2.go:374-379` came from grep hits and partial output. I did not read them in full.
+
+3. **Next time:** I would run `rg -n "type limitAppender"` to get exact anchors, then read `scrape.go:1980-2060` to close the open question. I would also run `git status` first to confirm the checkout is clean.
+
+4. **Confidence:** Medium-high. The limit mechanism, the error handling and the cited lines were all read directly. The behaviour after the limit is hit is the one part I did not check.

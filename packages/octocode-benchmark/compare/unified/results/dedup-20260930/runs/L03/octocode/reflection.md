@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` for `run_on_commit` over `django/db` gave me every storage, reset and append site with line numbers in one call. The second `localSearch`, a regex for `run_and_clear_commit_hooks|run_commit_hooks_on_set_autocommit_on|def on_commit`, found the trigger at `base.py:490-492` and the wrapper in `transaction.py`. The `localFetch` line-range reads were cheap and exact. I batched four of them in parallel.
+
+2. **Did not help:** I skipped `Atomic.__exit__` in `transaction.py`, so I never saw the outermost atomic block calling `commit()` and then `set_autocommit(True)`. I said that link was inferred, but I should have checked it. My `localFetch` windows also landed a little off. The 325-425 read began mid-`commit()`, so I never saw its `def`. I also pulled about 75 lines around `on_commit` when about 40 would have done. The `localSearch` result was paginated and I never opened page 2, which held the remaining matches for `run_on_commit`.
+
+3. **Next time:** I would add a `localSearch` for `set_autocommit(True)` in `transaction.py` to confirm the exit path. I would anchor reads with `matchString` instead of guessed line ranges. I would also check the test or docs for the `robust` semantics.
+
+4. **Confidence:** High for storage, discarding and running, because I read those lines directly. Medium for the link from the outermost atomic exit to `set_autocommit(True)`, because I inferred it from the flag logic and did not read it.

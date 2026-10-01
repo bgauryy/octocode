@@ -1,0 +1,167 @@
+{
+  "qid": "L15",
+  "worker": "octocode",
+  "started": "2026-09-30T20:00:21.659Z",
+  "promptSha256": "43fe500895570416767f949060ab97a13035260c0d433ee6a14687ffaac53d07",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 16145,
+  "status": "ok",
+  "answer": "Guava's immutable hash sets detect hash flooding while they are being built. If they find it, they switch to a `java.util.HashSet`, which has its own flooding protection. All line numbers below are in `java/guava/src/com/google/common/collect/ImmutableSet.java`.\n\n**How the set is built.** `ImmutableSet.Builder` uses `RegularSetBuilderImpl` (class doc at ~line 664), an open-addressed, linear-probing hash table. The class doc says it \"attempts to detect hash flooding, and if it's identified, falls back to JdkBackedSetBuilderImpl.\"\n\n**Two checks:**\n\n1. **Online check on every insert** (`insertInHashTable`, ~lines 700–720):\n   - The probe loop runs `for (int i = i0; i - i0 < maxRunBeforeFallback; i++)`.\n   - If it finds no empty slot and no equal element within that many probes, it executes `return new JdkBackedSetBuilderImpl<E>(this).add(e);`.\n   - This catches many elements with identical or clustered hash codes, which would otherwise make construction O(n²).\n   - The run limit is `maxRunBeforeFallback(tableSize) = MAX_RUN_MULTIPLIER * log2(tableSize)` (~line 876), with `MAX_RUN_MULTIPLIER = 13` (~line 814). The source comment says 13 was \"determined experimentally\" to match the desired false-positive probability.\n\n2. **Whole-table check when the builder is finalized.**\n   - `review()` ends with `return hashFloodingDetected(hashTable) ? new JdkBackedSetBuilderImpl<E>(this) : this;` (~line 744).\n   - `hashFloodingDetected` (~line 835) scans the table for any run of filled slots longer than the limit.\n   - It exists because the online check can't catch hash codes adversarially designed to land in ascending table slots. That pattern keeps construction O(n) but can make queries O(n).\n   - The javadoc says that if it returns false, no query takes more than O(log n). It runs in O(n) worst case and O(n/log n) on average, and may rarely report a false positive on random input.\n\n**The fallback.** `JdkBackedSetBuilderImpl` (~line 882) copies the deduplicated elements into a `HashSet` made with `newHashSetWithExpectedSize`. Its doc says \"uses a JDK HashSet, which has built in hash flooding protection.\" That protection is HashMap's tree bins, which I'm stating from general knowledge. I didn't read JDK code.\n\n**Not verified.** I did not read the `RegularImmutableSet`/`JdkBackedImmutableSet` build path beyond `build()`, or the tests. `RegularImmutableMap` has a separate mechanism, `MAX_HASH_BUCKET_LENGTH = 8` (line 70), which I only saw in search hits and did not read. The same approach applies to maps, but I haven't confirmed the details.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 10231,
+    "cache_read_input_tokens": 89667,
+    "output_tokens": 904,
+    "context_tokens": 99908,
+    "total_tokens": 100812,
+    "first_request_context": 16901,
+    "fixed_overhead_tokens": 84505,
+    "research_tokens": 16307,
+    "max_request_context": 23774
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3358,
+      "cache_read_input_tokens": 13541,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 441,
+      "cache_read_input_tokens": 16899,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1580,
+      "cache_read_input_tokens": 17340,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4047,
+      "cache_read_input_tokens": 18920,
+      "output_tokens": 48
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 805,
+      "cache_read_input_tokens": 22967,
+      "output_tokens": 780
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 10231,
+    "cache_read_input_tokens": 89667,
+    "output_tokens": 1859
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1859,
+      "cacheReadInputTokens": 89667,
+      "cacheCreationInputTokens": 10231,
+      "webSearchRequests": 0,
+      "costUSD": 0.07746739999999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.07746739999999999,
+  "duration_ms": 14910,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 2,
+    "mcp__octocode__localFetch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 1,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"MAX_RUN_LENGTH|hashFloodingDetected|MAX_HASH_BUCKET_LENGTH\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java\",\"goal\":\"find flooding defense\",\"reasoning\":\"locate\",\"include\":\"[\\\"**/ImmutableSet.java\\\",\\\"**/RegularImmutableSet.java\\\",\\\"**/ImmutableMap.java\\\",\\\"**/RegularImmutableMap.java\\\"]\"}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"queries\":[{\"searchText\":\"MAX_RUN_LENGTH|hashFloodingDetected|MAX_HASH_BUCKET_LENGTH|flooding\",\"regex\":\"rust\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java\",\"goal\":\"find flooding defense\",\"reasoning\":\"locate\",\"include\":[\"ImmutableSet.java\",\"RegularImmutableSet.java\",\"ImmutableMap.java\",\"RegularImmutableMap.java\",\"ImmutableCollection.java\"],\"excludeDir\":[\"android\"]}]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/ImmutableSet.java\",\"startLine\":660,\"endLine\":880,\"goal\":\"read\",\"reasoning\":\"read defense\"}]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/ImmutableSet.java\",\"matchString\":\"class JdkBackedSetBuilderImpl\",\"contextLines\":12,\"goal\":\"fallback\",\"reasoning\":\"cite\"}]}"
+    }
+  ],
+  "toolErrorCount": 1,
+  "toolErrors": [
+    {
+      "tool_use_id": "toolu_01NxAuGLtfninGfZuM3Q8WDu",
+      "text": "Input validation error: Invalid arguments for tool localSearch: queries.0.include: Expected array; wrap the value: [\"[\\\"**/ImmutableSet.java\\\",\\\"**/RegularImmutableSet.java\\\",\\\"**/ImmutableMap.java\\\",\\\"**/RegularImmutableMap.java\\\"]\"], queries.0.include: Too big: expected string to have <=100 characters"
+    }
+  ],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The second `localSearch` call, with a regex alternation over flooding-related identifiers and `include` restricted to five filenames, located the defense in one step. It returned `ImmutableSet.java:664–835` and `RegularImmutableMap.java:70`. The `localFetch` of lines 660–880 then gave the full mechanism: `insertInHashTable`, `review`, `hashFloodingDetected`, `maxRunBeforeFallback` and `MAX_RUN_MULTIPLIER`. A final `localFetch` with `matchString` and `contextLines` confirmed the `JdkBackedSetBuilderImpl` fallback.\n\n2. **Did not help:** My first `localSearch` failed validation because I passed `include` as a JSON string instead of an array. That cost one call. The search output was paginated (page 1 of 2, 12 matches), and I never fetched page 2. I also never read `RegularImmutableSet` or the tests. The `JdkBackedSetBuilderImpl` read ended before the constructor closed, so I saw only part of it.\n\n3. **Next time:** I would pass array parameters correctly from the start. I would also read the `RegularImmutableSet` and `JdkBackedImmutableSet` classes, and the map mechanism at `RegularImmutableMap.java:250`, to back up the claims I made without evidence.\n\n4. **Confidence:** Medium-high. The builder mechanism (probe limit, `review()` check, `HashSet` fallback) is directly supported by source I read. My comment that `HashSet` has tree bins comes from general knowledge, not from code I read, and the map claims are only from search hits.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1211,
+      "cache_read_input_tokens": 23772,
+      "output_tokens": 1,
+      "context_tokens": 24985,
+      "total_tokens": 24986,
+      "first_request_context": 24985,
+      "fixed_overhead_tokens": 24985,
+      "research_tokens": 1,
+      "max_request_context": 24985
+    },
+    "cost_usd": 0.0925998,
+    "toolCallsAttempted": 0
+  }
+}

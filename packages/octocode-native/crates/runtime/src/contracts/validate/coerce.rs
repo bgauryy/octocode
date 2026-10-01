@@ -1,12 +1,19 @@
-//! Lossless string-to-scalar coercion for typed query fields.
+//! Lossless, schema-driven input repair applied before validation.
 //!
-//! Agents and shells often send `startLine:"10"` or `fullContent:"true"`. A
-//! string is coerced only when every schema that can hold the field types it
-//! `integer` or `boolean`; a field any branch leaves untyped or accepts as a
-//! string is untouched. Integer: the string is exactly the decimal rendering
-//! of a safe integer (JS: `Number.isSafeInteger(n) && String(n) === s`), so
-//! `"02"`, `"+2"`, `"-0"`, `"2.0"`, `"1e3"` and padded values stay strings.
-//! Boolean: exactly `"true"` or `"false"`.
+//! Scalars: agents and shells often send `startLine:"10"` or
+//! `fullContent:"true"`. A string is coerced only when every schema that can
+//! hold the field types it `integer` or `boolean`; a field any branch leaves
+//! untyped or accepts as a string is untouched. Integer: the string is exactly
+//! the decimal rendering of a safe integer (JS: `Number.isSafeInteger(n) &&
+//! String(n) === s`), so `"02"`, `"+2"`, `"-0"`, `"2.0"`, `"1e3"` and padded
+//! values stay strings. Boolean: exactly `"true"` or `"false"`.
+//!
+//! Arrays: MCP hosts send list fields JSON-encoded (`include:"[\"*.go\"]"`)
+//! or as a bare scalar (`keywords:"term"`). Where every schema that can hold
+//! the value is an array (a `null` alternative is neutral), a string that
+//! parses as a JSON array becomes that array, and a scalar every array
+//! alternative's items accept becomes a one-element array. Any string,
+//! untyped, or other alternative vetoes the repair.
 
 use serde_json::Value;
 
@@ -22,13 +29,13 @@ enum Scalar {
     Boolean,
 }
 
-pub(super) fn coerce_scalar_strings(candidates: &[Typed<'_>], value: &mut Value) {
-    let mut schemas = Vec::new();
-    for &(root, schema) in candidates {
-        flatten(root, schema, 0, &mut schemas);
-    }
+pub(super) fn coerce_lossless(candidates: &[Typed<'_>], value: &mut Value) {
+    let schemas = flatten_all(candidates);
     if schemas.is_empty() {
         return;
+    }
+    if let Some(array) = array_form(&schemas, value) {
+        *value = array;
     }
     match value {
         Value::String(text) => {
@@ -47,20 +54,129 @@ pub(super) fn coerce_scalar_strings(candidates: &[Typed<'_>], value: &mut Value)
                             .map(|child| (root, child))
                     })
                     .collect::<Vec<_>>();
-                coerce_scalar_strings(&children, field);
+                coerce_lossless(&children, field);
             }
         }
         Value::Array(items) => {
-            let children = schemas
-                .iter()
-                .filter_map(|&(root, schema)| schema.get("items").map(|child| (root, child)))
-                .collect::<Vec<_>>();
+            let children = item_schemas(&schemas);
             for item in items {
-                coerce_scalar_strings(&children, item);
+                coerce_lossless(&children, item);
             }
         }
         _ => {}
     }
+}
+
+/// Whether `schema` (an array schema at any `$ref`/union depth) has items
+/// that accept `value`, e.g. to decide if wrapping a scalar is sound advice.
+pub(super) fn items_accept(root: &Value, schema: &Value, value: &Value) -> bool {
+    let schemas = flatten_all(&[(root, schema)]);
+    let arrays = schemas
+        .iter()
+        .filter(|(_, schema)| types(schema).is_some_and(|names| names.contains(&"array")))
+        .collect::<Vec<_>>();
+    !arrays.is_empty()
+        && arrays.iter().all(|&&(root, schema)| {
+            schema.get("items").is_none_or(|items| {
+                flatten_all(&[(root, items)])
+                    .iter()
+                    .any(|(_, item)| accepts(item, value))
+            })
+        })
+}
+
+/// The array a list-only position means by a JSON-encoded array string or a
+/// bare scalar; `None` when the value is not repaired.
+fn array_form(schemas: &[Typed<'_>], value: &Value) -> Option<Value> {
+    if matches!(value, Value::Null | Value::Array(_) | Value::Object(_)) || !only_arrays(schemas) {
+        return None;
+    }
+    if let Value::String(text) = value
+        && text.trim_start().starts_with('[')
+    {
+        if let Ok(parsed @ Value::Array(_)) = serde_json::from_str::<Value>(text) {
+            return Some(parsed);
+        }
+        // A malformed encoded list is not one literal item; leave it for the
+        // validator to report. Glob classes such as `[ab]*.ts` still wrap.
+        if looks_like_json_array(text) {
+            return None;
+        }
+    }
+    let mut item = value.clone();
+    coerce_lossless(&item_schemas(schemas), &mut item);
+    schemas
+        .iter()
+        .all(|&(root, schema)| {
+            types(schema).is_some_and(|names| names == ["null"])
+                || items_accept(root, schema, &item)
+        })
+        .then(|| Value::Array(vec![item]))
+}
+
+/// `["…`, `[{…` or `[[…`: the text is an attempted JSON array, not a literal.
+pub(super) fn looks_like_json_array(text: &str) -> bool {
+    let mut chars = text.trim_start().chars();
+    chars.next() == Some('[')
+        && chars
+            .find(|c| !c.is_whitespace())
+            .is_some_and(|c| matches!(c, '"' | '{' | '['))
+}
+
+/// Every alternative that can hold the value is an array; `null` is neutral.
+fn only_arrays(schemas: &[Typed<'_>]) -> bool {
+    let mut array = false;
+    for (_, schema) in schemas {
+        let Some(names) = types(schema) else {
+            return false;
+        };
+        for name in names {
+            match name {
+                "null" => {}
+                "array" => array = true,
+                _ => return false,
+            }
+        }
+    }
+    array
+}
+
+/// Whether a flattened item schema's declared type admits `value`; an untyped
+/// schema admits anything.
+fn accepts(schema: &Value, value: &Value) -> bool {
+    types(schema).is_none_or(|names| {
+        names.iter().any(|name| match *name {
+            "string" => value.is_string(),
+            "boolean" => value.is_boolean(),
+            "number" => value.is_number(),
+            "integer" => value.is_i64() || value.is_u64(),
+            "null" => value.is_null(),
+            _ => false,
+        })
+    })
+}
+
+fn types(schema: &Value) -> Option<Vec<&str>> {
+    match schema.get("type") {
+        Some(Value::String(name)) => Some(vec![name.as_str()]),
+        Some(Value::Array(names)) => Some(names.iter().filter_map(Value::as_str).collect()),
+        _ => None,
+    }
+}
+
+fn item_schemas<'a>(schemas: &[Typed<'a>]) -> Vec<Typed<'a>> {
+    schemas
+        .iter()
+        .filter_map(|&(root, schema)| schema.get("items").map(|child| (root, child)))
+        .collect()
+}
+
+fn flatten_all<'a>(candidates: &[Typed<'a>]) -> Vec<Typed<'a>> {
+    let mut schemas = Vec::new();
+    for &(root, schema) in candidates {
+        flatten(root, schema, 0, &mut schemas);
+    }
+    schemas
 }
 
 /// Resolve `$ref`s and expand union branches into the concrete schemas a
@@ -104,12 +220,7 @@ fn flatten<'a>(root: &'a Value, schema: &'a Value, depth: usize, out: &mut Vec<T
 fn agreed_scalar(schemas: &[Typed<'_>]) -> Option<Scalar> {
     let mut agreed = None;
     for (_, schema) in schemas {
-        let types = match schema.get("type") {
-            Some(Value::String(name)) => vec![name.as_str()],
-            Some(Value::Array(names)) => names.iter().filter_map(Value::as_str).collect(),
-            _ => return None,
-        };
-        for name in types {
+        for name in types(schema)? {
             let kind = match name {
                 "null" => continue,
                 "integer" => Scalar::Integer,
@@ -144,13 +255,13 @@ fn parse(kind: Scalar, text: &str) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::coerce_scalar_strings;
+    use super::coerce_lossless;
     use serde_json::{Value, json};
 
     fn coerced(schema: &Value, value: Value) -> Value {
         let mut value = json!({"field": value});
         let object = json!({"type":"object","properties":{"field":schema}});
-        coerce_scalar_strings(&[(&object, &object)], &mut value);
+        coerce_lossless(&[(&object, &object)], &mut value);
         value["field"].take()
     }
 
@@ -192,5 +303,67 @@ mod tests {
         ] {
             assert_eq!(coerced(&integer, json!(text)), json!(text), "{text}");
         }
+    }
+
+    #[test]
+    fn json_encoded_arrays_parse_where_only_arrays_are_accepted() {
+        let strings = json!({"type":"array","items":{"type":"string"}});
+        assert_eq!(
+            coerced(&strings, json!(r#"["*.go","*.rs"]"#)),
+            json!(["*.go", "*.rs"])
+        );
+        assert_eq!(coerced(&strings, json!(r#" [ "a" ] "#)), json!(["a"]));
+        assert_eq!(coerced(&strings, json!("[]")), json!([]));
+        let integers =
+            json!({"anyOf":[{"type":"array","items":{"type":"integer"}},{"type":"null"}]});
+        assert_eq!(coerced(&integers, json!(r#"["3",4]"#)), json!([3, 4]));
+        let nested = json!({"type":"object","properties":{"include":strings}});
+        assert_eq!(
+            coerced(&nested, json!({"include": r#"["*.ts"]"#})),
+            json!({"include":["*.ts"]})
+        );
+    }
+
+    #[test]
+    fn bare_scalars_wrap_when_every_array_alternative_accepts_them() {
+        let strings = json!({"type":"array","items":{"type":"string"}});
+        assert_eq!(coerced(&strings, json!("term")), json!(["term"]));
+        assert_eq!(coerced(&strings, json!("[ab]*.ts")), json!(["[ab]*.ts"]));
+        let integers = json!({"type":"array","items":{"type":"integer"}});
+        assert_eq!(coerced(&integers, json!(5)), json!([5]));
+        assert_eq!(coerced(&integers, json!("5")), json!([5]));
+        assert_eq!(coerced(&integers, json!("five")), json!("five"));
+        assert_eq!(coerced(&integers, json!(true)), json!(true));
+        let untyped = json!({"type":"array"});
+        assert_eq!(coerced(&untyped, json!(false)), json!([false]));
+        let referenced = json!({"$ref":"#/properties/field/$defs/list","$defs":{"list":strings}});
+        assert_eq!(coerced(&referenced, json!("x")), json!(["x"]));
+    }
+
+    #[test]
+    fn string_untyped_and_non_array_alternatives_veto_array_repair() {
+        let widened =
+            json!({"anyOf":[{"type":"array","items":{"type":"string"}},{"type":"string"}]});
+        assert_eq!(coerced(&widened, json!("term")), json!("term"));
+        assert_eq!(coerced(&widened, json!(r#"["a"]"#)), json!(r#"["a"]"#));
+        let open = json!({"anyOf":[{"type":"array"},{}]});
+        assert_eq!(coerced(&open, json!("term")), json!("term"));
+        let objects = json!({"type":"array","items":{"type":"object"}});
+        assert_eq!(coerced(&objects, json!("term")), json!("term"));
+        let strings = json!({"type":"array","items":{"type":"string"}});
+        for text in [r#"["a""#, r#"[{"a":1}"#, r#"{"a":1}"#] {
+            let expected = if text.starts_with('{') {
+                json!([text])
+            } else {
+                json!(text)
+            };
+            assert_eq!(coerced(&strings, json!(text)), expected, "{text}");
+        }
+        assert_eq!(coerced(&strings, Value::Null), Value::Null);
+        assert_eq!(coerced(&strings, json!({"a":1})), json!({"a":1}));
+        assert_eq!(
+            coerced(&json!({"type":"string"}), json!(r#"["a"]"#)),
+            json!(r#"["a"]"#)
+        );
     }
 }

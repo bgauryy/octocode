@@ -7,7 +7,6 @@ use crate::{
 use octocode_engine::types::{FileSystemEntry, FileSystemQueryOptions};
 use serde_json::{Value, json};
 
-const MAX_WALK: u32 = 10_000;
 use crate::contracts::tool_types::{StructureSearchQueryFiles, StructureSearchQueryFilesTime};
 
 /// Engine-unit views over the generated `files` query.
@@ -56,8 +55,7 @@ impl StructureSearchQueryFiles {
         u32::try_from(self.page.get()).unwrap_or(u32::MAX)
     }
     pub fn page_size(&self) -> u32 {
-        self.page_size
-            .map_or(100, |size| u32::try_from(size.get()).unwrap_or(u32::MAX))
+        u32::try_from(self.page_size.get()).unwrap_or(u32::MAX)
     }
     pub fn snapshot(&self) -> Option<&str> {
         self.snapshot.as_deref().map(String::as_str)
@@ -93,6 +91,7 @@ pub fn execute_files(
         .default_excludes
         .defaults()
         .then(|| crate::policy::gitignore::GitignoreFilter::new(&validated.canonical));
+    let ignored = std::sync::atomic::AtomicUsize::new(0);
     let native = octocode_engine::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
@@ -120,13 +119,14 @@ pub fn execute_files(
                 PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults()),
             ),
             stop_at_limit: Some(true),
-            limit: Some(MAX_WALK),
+            limit: Some(super::max_walk()),
         },
         &|path| {
             if gitignore
                 .as_ref()
                 .is_some_and(|filter| filter.is_ignored(path))
             {
+                ignored.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 return Ok(false);
             }
             super::allow_discovery(path, paths, cancel)
@@ -155,7 +155,10 @@ pub fn execute_files(
         .collect::<Result<Vec<_>, super::StructureError>>()?;
     sort_rows(&mut rows, &sort);
     let available = rows.len();
-    let requested = q.limit().unwrap_or(MAX_WALK).min(MAX_WALK) as usize;
+    let requested = q
+        .limit()
+        .unwrap_or_else(super::max_walk)
+        .min(super::max_walk()) as usize;
     rows.truncate(requested);
     let total = rows.len();
     // Snapshot fingerprint over the query shape plus the ordered result set, so
@@ -182,9 +185,9 @@ pub fn execute_files(
         rows.iter().map(|r| &r.path).collect::<Vec<_>>()
     ]));
     if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
-        return Ok(super::snapshot_changed(&snapshot));
+        return Ok(super::snapshot_changed(q, &snapshot));
     }
-    let page_size = q.page_size().clamp(1, 100) as usize;
+    let page_size = q.page_size().clamp(1, super::structure_max("pageSize")) as usize;
     let page = q.page().max(1) as usize;
     let total_pages = total.div_ceil(page_size).max(1);
     let start = (page - 1).saturating_mul(page_size);
@@ -198,7 +201,7 @@ pub fn execute_files(
     let has_more = page < total_pages;
     let limit_cut = available > total;
     let scan_cut = native.was_capped;
-    let can_expand = limit_cut && requested < MAX_WALK as usize;
+    let can_expand = limit_cut && requested < super::max_walk() as usize;
     let terminal = (has_more && page >= 1000) || ((limit_cut || scan_cut) && !can_expand);
     let mut out = json!({"path":super::display_name(&validated.canonical),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":total_pages,"filesPerPage":page_size,"totalFiles":total,"hasMore":has_more}});
     if total == 0 {
@@ -211,7 +214,7 @@ pub fn execute_files(
     if can_expand {
         out["next"]["expandLimit"] = super::continuation(
             q,
-            json!({"limit":requested.saturating_mul(2).max(requested+1).min(MAX_WALK as usize),"page":1}),
+            json!({"limit":requested.saturating_mul(2).max(requested+1).min(super::max_walk() as usize),"page":1}),
         )
     }
     if terminal {
@@ -241,6 +244,16 @@ pub fn execute_files(
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings)
     }
+    let ignored = ignored.into_inner();
+    super::note_ignored_empty(
+        &mut out,
+        q,
+        ignored,
+        json!({"defaultExcludes":false,"page":1}),
+        format!(
+            "{ignored} entries here are .gitignore'd; retry with defaultExcludes:false (next.includeIgnored) to walk them."
+        ),
+    );
     Ok(out)
 }
 fn make_row(

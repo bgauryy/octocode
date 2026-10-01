@@ -1,6 +1,6 @@
 //! Opt-in session-stats aggregation (`<home>/stats.json`).
 //!
-//! Records classification provider calls and provider-billed tokens for
+//! Records successful classification provider responses and reported tokens for
 //! session accounting. Gated on `is_stats_enabled` (persistent storage +
 //! OCTOCODE_ENABLE_STATS). Recording is strictly best-effort: a stats failure
 //! never fails the tool.
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 /// Section key under `stats` that classification usage accumulates into.
-const SECTION: &str = "clasify";
+const SECTION: &str = crate::tools::id::ToolId::Clasify.as_str();
 const LOCK_WAIT: Duration = Duration::from_secs(2);
 const LOCK_POLL: Duration = Duration::from_millis(10);
 
@@ -28,6 +28,8 @@ const LOCK_POLL: Duration = Duration::from_millis(10);
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ClassificationUsage {
     pub calls: u64,
+    pub known_usage_calls: u64,
+    pub unknown_usage_calls: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
@@ -35,10 +37,19 @@ pub struct ClassificationUsage {
 impl ClassificationUsage {
     /// Fold one provider usage record (`{input_tokens, output_tokens}`) in.
     pub fn add_record(&mut self, usage: &Value) {
-        let tokens = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let tokens = |key: &str| usage.get(key).and_then(Value::as_u64);
+        let input = tokens("input_tokens");
+        let output = tokens("output_tokens");
         self.calls = self.calls.saturating_add(1);
-        self.input_tokens = self.input_tokens.saturating_add(tokens("input_tokens"));
-        self.output_tokens = self.output_tokens.saturating_add(tokens("output_tokens"));
+        if input.is_some() && output.is_some() {
+            self.known_usage_calls = self.known_usage_calls.saturating_add(1);
+        } else {
+            self.unknown_usage_calls = self.unknown_usage_calls.saturating_add(1);
+        }
+        // Retain reported directional totals, but never call them complete
+        // when either counter was absent. A reported zero is known usage.
+        self.input_tokens = self.input_tokens.saturating_add(input.unwrap_or(0));
+        self.output_tokens = self.output_tokens.saturating_add(output.unwrap_or(0));
     }
 }
 
@@ -122,7 +133,15 @@ pub fn record_classification(home: &Path, enabled: bool, usage: ClassificationUs
     let Some(section) = section.as_object_mut() else {
         return;
     };
+    // Old files did not distinguish absent usage from reported zero. Retain
+    // their token totals and classify unaccounted historical calls as unknown.
+    let prior = |key: &str| section.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let legacy_unknown = prior("calls")
+        .saturating_sub(prior("known_usage_calls").saturating_add(prior("unknown_usage_calls")));
+    bump(section, "unknown_usage_calls", legacy_unknown);
     bump(section, "calls", usage.calls);
+    bump(section, "known_usage_calls", usage.known_usage_calls);
+    bump(section, "unknown_usage_calls", usage.unknown_usage_calls);
     bump(section, "input_tokens", usage.input_tokens);
     bump(section, "output_tokens", usage.output_tokens);
     let tmp = unique_tmp(&path);
@@ -141,6 +160,8 @@ mod tests {
     fn usage(calls: u64, input_tokens: u64, output_tokens: u64) -> ClassificationUsage {
         ClassificationUsage {
             calls,
+            known_usage_calls: calls,
+            unknown_usage_calls: 0,
             input_tokens,
             output_tokens,
         }
@@ -159,7 +180,7 @@ mod tests {
         let stats = read(dir.path());
         assert_eq!(
             stats["stats"]["clasify"],
-            json!({"calls": 1, "input_tokens": 10, "output_tokens": 2})
+            json!({"calls": 1, "known_usage_calls": 1, "unknown_usage_calls": 0, "input_tokens": 10, "output_tokens": 2})
         );
         assert!(stats["stats"]["clasify"].get("gates_skipped").is_none());
     }
@@ -170,7 +191,44 @@ mod tests {
         total.add_record(&json!({"input_tokens": 3, "output_tokens": 1}));
         total.add_record(&json!({"input_tokens": 4}));
         total.add_record(&Value::Null);
-        assert_eq!(total, usage(3, 7, 1));
+        assert_eq!(total.calls, 3);
+        assert_eq!(total.known_usage_calls, 1);
+        assert_eq!(total.unknown_usage_calls, 2);
+        assert_eq!(total.input_tokens, 7);
+        assert_eq!(total.output_tokens, 1);
+    }
+
+    #[test]
+    fn reported_zero_is_known_but_invalid_or_missing_usage_is_unknown() {
+        let mut total = ClassificationUsage::default();
+        total.add_record(&json!({"input_tokens": 0, "output_tokens": 0}));
+        total.add_record(&json!({"input_tokens": -1, "output_tokens": 2}));
+        total.add_record(&json!({"input_tokens": "3", "output_tokens": 2}));
+        assert_eq!(total.calls, 3);
+        assert_eq!(total.known_usage_calls, 1);
+        assert_eq!(total.unknown_usage_calls, 2);
+        assert_eq!(total.input_tokens, 0);
+        assert_eq!(total.output_tokens, 4);
+    }
+
+    #[test]
+    fn historical_calls_without_completeness_metadata_remain_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("stats.json"),
+            r#"{"version":1,"stats":{"clasify":{"calls":3,"input_tokens":7,"output_tokens":1}}}"#,
+        )
+        .unwrap();
+        record_classification(dir.path(), true, usage(1, 9, 2));
+        let stats = read(dir.path());
+        assert_eq!(stats["stats"]["clasify"]["calls"], 4);
+        assert_eq!(stats["stats"]["clasify"]["known_usage_calls"], 1);
+        assert_eq!(stats["stats"]["clasify"]["unknown_usage_calls"], 3);
+        assert_eq!(stats["stats"]["clasify"]["input_tokens"], 16);
+        record_classification(dir.path(), true, usage(1, 1, 1));
+        let stats = read(dir.path());
+        assert_eq!(stats["stats"]["clasify"]["known_usage_calls"], 2);
+        assert_eq!(stats["stats"]["clasify"]["unknown_usage_calls"], 3);
     }
 
     #[test]
@@ -224,7 +282,7 @@ mod tests {
         let total = (threads * per_thread) as u64;
         assert_eq!(
             read(dir.path())["stats"]["clasify"],
-            json!({"calls": total, "input_tokens": total * 2, "output_tokens": total})
+            json!({"calls": total, "known_usage_calls": total, "unknown_usage_calls": 0, "input_tokens": total * 2, "output_tokens": total})
         );
         let leftovers = fs::read_dir(dir.path())
             .unwrap()

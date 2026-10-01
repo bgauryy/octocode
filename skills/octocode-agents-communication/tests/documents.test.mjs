@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from './helpers.mjs';
+import { execFile, execFileSync, spawn } from './helpers.mjs';
+import { promisify } from 'node:util';
 import { rmSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,11 +13,18 @@ function fixture(t) {
   const database = join(workspace, 'audit.sqlite');
   const args = (command, session) => [command, '-', '--workspace', workspace, '--database', database, ...(session ? ['--session', session] : [])];
   const call = (command, input = {}, session) => JSON.parse(execFileSync(binary, args(command, session), {
-    input: JSON.stringify(withReasoning(command,input)), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024,
+    input: JSON.stringify(withReasoning(command,input)), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024, timeout: 30_000,
   }));
+  const callAsync = async (command, input = {}, session) => {
+    const child = promisify(execFile)(binary, args(command, session), {
+      encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 30_000,
+    });
+    child.child.stdin.end(JSON.stringify(withReasoning(command, input)));
+    return JSON.parse((await child).stdout);
+  };
   const a = call('join', { name: 'author', vendor: 'any-vendor' });
   const b = call('join', { name: 'reader', vendor: 'no-sdk' });
-  return { workspace, database, args, call, a, b };
+  return { workspace, database, args, call, callAsync, a, b };
 }
 
 test('document intent is required before filesystem writes and immutable in the audit', t => {
@@ -130,15 +138,15 @@ test('context validates bounds and containment and preserves canonical path alia
   }
 });
 
-test('large document stays on disk once, compact messages reference it, audit retains attribution', t => {
+test('large document stays on disk once, compact messages reference it, audit retains attribution', async t => {
   const f = fixture(t), content = 'large shared evidence\n'.repeat(20000), name = 'research.md';
-  const result = f.call('share_document', { name, content }, f.a.id);
+  const result = await f.callAsync('share_document', { name, content }, f.a.id);
   assert.equal(result.created, true);
   assert.equal(result.document.author, f.a.id);
   assert.equal(result.document.bytes, Buffer.byteLength(content));
   assert.equal(readFileSync(join(f.workspace, result.document.path), 'utf8'), content);
-  assert.deepEqual(f.call('share_document', { name, content }, f.b.id), { created: false, document: result.document });
-  assert.throws(() => f.call('share_document', { name, content: 'replacement' }, f.a.id), /immutable/);
+  assert.deepEqual(await f.callAsync('share_document', { name, content }, f.b.id), { created: false, document: result.document });
+  await assert.rejects(f.callAsync('share_document', { name, content: 'replacement' }, f.a.id), /immutable/);
   const sent = f.call('send_message', { to: f.b.id, body: `Review ${result.document.path}`, key: name }, f.a.id);
   assert.ok(sent.id > 0);
   const db = new DatabaseSync(f.database); t.after(() => db.close());

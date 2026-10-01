@@ -1,0 +1,7 @@
+1. **Helped:** I made one Bash call, `gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files` chained with `gh pr diff 5881`, and it gave me everything. The PR body described the symptom. The diff showed the mechanism (`kRetiring`, `kRetireClient`, `closeClients`, the `kDrainQueue` additions) and had comments explaining the intent. The new test file confirmed the intended behaviours. The local checkouts were irrelevant, so I skipped them.
+
+2. **Did not help:** Nothing failed and I made no repeated calls. The diff output was long because the 228-line test file was included. My answer cites the PR diff, not `path:line` at a pinned commit, because I never looked at the merged source. I also didn't follow the `kOnDrain` code. My claim that a closed client stops draining rests on the diff comments, and I flagged that as uncertain.
+
+3. **Next time:** I'd add a second call with `gh api` to fetch `lib/dispatcher/pool-base.js` at the merge commit, `da911f0`. That would give me real line numbers and let me check the `kOnDrain` logic. I'd also pipe the diff through `head` or filter out the test file. A check of the linked issue or review comments might show whether the author hit a specific user-reported bug.
+
+4. **Confidence:** High on what the bug is and how the fix works, because the diff is primary evidence. Medium on the drain-exclusion detail and on line-level citations, which I didn't verify.

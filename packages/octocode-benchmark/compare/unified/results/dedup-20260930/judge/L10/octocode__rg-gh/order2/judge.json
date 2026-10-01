@@ -1,0 +1,98 @@
+{
+  "qid": "L10",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "d5695f4602765d4f0b9b90a5063e1a4e781ef45e680881b561e56f43b52b0883",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Algorithm fully correct. Function start lines exact; body line citations consistently ~5-13 lines early (e.g. threshold cited :543 vs 549, end-gap :602-604 vs 615-616), though the answer says they are approximate. Omits delta sharing the helper."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Fully correct and slightly more complete: covers delta (false,false), the histogram Count zero cap and the ST overlap warning. Body line citations marked ~ and off by ~6-17 lines (raw delta ~502 vs 512, ST block ~534-548 vs 551-575)."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Algorithm fully correct. Function start lines exact; body line citations consistently ~5-13 lines early (e.g. threshold cited :543 vs 549, end-gap :602-604 vs 615-616), though the answer says they are approximate. Omits delta sharing the helper."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Fully correct and slightly more complete: covers delta (false,false), the histogram Count zero cap and the ST overlap warning. Body line citations marked ~ and off by ~6-17 lines (raw delta ~502 vs 512, ST block ~534-548 vs 551-575)."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1363252,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11746,
+    "cache_read_input_tokens": 26266,
+    "output_tokens": 29,
+    "context_tokens": 38018,
+    "total_tokens": 38047,
+    "first_request_context": 9959,
+    "fixed_overhead_tokens": 29877,
+    "research_tokens": 8170,
+    "max_request_context": 14375
+  },
+  "timedOut": false
+}

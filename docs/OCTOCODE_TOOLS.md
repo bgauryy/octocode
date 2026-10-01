@@ -251,7 +251,8 @@ Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `page`,
 `pageSize` (1-200), `include` (`sizes`, `languages`, `contributors`,
 `branches`, `tags`), `metadataPage`, `materialize`, and `materializeOffset`.
 A `branch` that does not exist is an error; it never falls back to the default
-branch.
+branch. A missing `path` is a not-found error whose `next.viewTree` lists the
+nearest existing directory (case-corrected).
 For exact field types and branch rules, inspect `scheme ghStructure --view query`.
 
 ### `ghGetFileContent`
@@ -433,7 +434,12 @@ Nested `content.commits.includeFiles` reads fetch one file batch for each
 displayed commit and return at most `pageSize` files per commit. Each commit's
 `next.nextFilePage` and `next.continuePatch` call `ghGetHistoryItem` with its
 exact SHA. Exact commit reads page files with `filePage` and retain independent
-file and patch (`charOffset`/`charLength`) windows. History reads are never cached. Provider caps and omitted patches remain explicit
+file and patch (`charOffset`/`charLength`) windows. An explicit `charLength`
+sizes the patch window up to the schema maximum (larger rows split across
+response pages); omitted, the window fits one automatic response page. Each
+file's `patchPagination` uses that file's own offsets; a commit or compare
+page's stream cursor is `filesPagination.nextPatchCharOffset`, which
+`next.continuePatch` carries. History reads are never cached. Provider caps and omitted patches remain explicit
 terminal limits; a provider cap does not establish completeness.
 
 A commit read that stops at its file-batch cap reports
@@ -459,8 +465,10 @@ Key fields:
 | `forceRefresh` | Bypass the clone cache and re-clone. |
 
 Returns a location with an absolute path, requested-scope completeness, commit
-identity, and cache/verification state. Use `location.localPath` with
-`structureSearch operation:"tree"` to inspect the checkout.
+identity, and cache/verification state. `next.exploreClone` lists the checkout
+(the sparse subtree when requested) with `structureSearch operation:"tree"`.
+A cache hit adds `location.clonedAt` and `location.expiresAt`; its commit may
+lag the branch until then, so pass `forceRefresh` for the current head.
 
 Examples:
 
@@ -481,7 +489,7 @@ Rules:
 
 ### `artifactSearch`
 
-Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof; for an exact lookup whose source is on GitHub, `next.viewRepo` opens that tree.
+Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. Exact GitHub-backed lookups offer `next.viewRepo` for default-branch code and, when the registry names a commit or tag, `next.viewReleaseSource` for that release-ref lead. Each labels `source.scope` (`defaultBranch` or `release`) and `source.verification:"unverified"`. Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
 
 | Field | Meaning |
 |-------|---------|
@@ -951,7 +959,7 @@ Declaration IDs identify scoped source occurrences; unresolved call references
 are not proof of symbol identity. Value-reference counts are conservative
 retention evidence and still require LSP confirmation for deletion decisions.
 
-One bounded repository graph provides seven analyses: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, and `drift` (compares `path`, the head, against an absolute `baseline` root). Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds`: `static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`, `commonjs-require`, `create-require`, `python-import`, `go-import`, `java-import`, `rust-module`, `rust-use`, and `c-include`. Only `static-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `commonjs-require`, `create-require`, and `python-import` edges are runtime import candidates; type-only, Go, Java, Rust module/use, and C include edges do not establish runtime import cycles.
+One bounded repository graph provides seven analyses: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, and `drift` (compares `path`, the head, against an absolute `baseline` root). Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds`: `static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`, `commonjs-require`, `create-require`, `python-import`, `go-import`, `java-import`, `java-same-package` (a same-package class use; no import, so no `importLine`), `rust-module`, `rust-use`, and `c-include`. Only `static-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `commonjs-require`, `create-require`, and `python-import` edges are runtime import candidates; type-only, Go, Java, Rust module/use, and C include edges do not establish runtime import cycles.
 
 Cross-file resolution covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Literal CommonJS loads link only when `require`, `module.require`, or an imported `createRequire(import.meta.url)` binding is not shadowed or reassigned. Dynamic and ambiguous loaders remain explicit diagnostics. Python wildcard and ambiguous package-attribute imports remain diagnostics, as do C/C++ system and macro includes. Data, style, and asset imports (including `package.json`) are counted as `imports.nonCode`, not linked or reported as unresolved. Namespace-style imports conservatively retain target exports during dead-code analysis.
 
@@ -1065,7 +1073,7 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 | `rule`, `fix`, `constraints`, `utils`, `transform` | Full ast-grep rule object and fix for the `rule` form; inspect the live schema. |
 | `include`, `exclude`, `defaultExcludes` | Optional file filters. |
 | `maxFiles`, `maxMatches` | Scan bounds; defaults are 2,000 files (max 50,000) and 10,000 matches (max 100,000). |
-| `page`, `pageSize`, `snapshot` | Preview pagination (`pageSize` default 100, max 1000); copy executable continuations and their snapshot. A page lists only the files its matches touch; a file's whole-file `patch` is sent once, on the first page touching it, and later pages carry `patchOnPage` instead. |
+| `page`, `pageSize`, `snapshot` | Preview pagination (`pageSize` default 100, max 1000); copy executable continuations and their snapshot. A page lists only the files its matches touch, and each file's `patch` holds only the hunks of that page's matches (`patchMatchCount` of `matchCount` when the file spans pages); `beforeHash`/`afterHash` and the final page's `next.apply` still cover the whole file. |
 | `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`; a complete preview returns `next.apply` with both filled in. |
 | `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
 | `postconditions` | 1–10 checks, `{kind:"remainingMatches", equals:n}`, evaluated in the staged rewritten files before commit. |

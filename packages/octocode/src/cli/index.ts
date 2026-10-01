@@ -1,6 +1,7 @@
 import { setRuntimeSurface } from '@octocodeai/config';
 import {
   delegateToNative,
+  NODE_OWNED_COMMANDS,
   resolveNativeBin,
   shouldDelegateToNative,
 } from './native-delegate.js';
@@ -35,7 +36,11 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   const rawArgv = argv ?? process.argv.slice(2);
   const args = parseArgs(rawArgv);
   if (args.options['no-color']) process.env.NO_COLOR = '1';
-  if (args.command === 'help' && ['scheme', 'skill'].includes(args.args[0])) {
+  if (
+    args.command === 'help' &&
+    args.args[0] !== undefined &&
+    NODE_OWNED_COMMANDS.has(args.args[0])
+  ) {
     args.command = args.args.shift() ?? null;
     args.options.help = true;
   }

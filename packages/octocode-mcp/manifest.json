@@ -35,36 +35,40 @@
   },
   "tools": [
     {
+      "name": "clasify",
+      "description": "Classify supplied state or locate answers in unread resources without returning bodies (conditional: requires OCTOCODE_CLASSIFICATION_API)"
+    },
+    {
       "name": "ghSearchRepo",
       "description": "Discover GitHub repositories by keywords, owner, or filters"
     },
     {
       "name": "ghSearchCode",
-      "description": "Search indexed code or file paths in a GitHub owner or repository"
+      "description": "Find indexed code or file paths in a GitHub owner or repo"
     },
     {
       "name": "ghStructure",
-      "description": "Browse a GitHub repository's directory tree"
+      "description": "Browse a known GitHub repository's directory tree"
     },
     {
       "name": "ghGetFileContent",
-      "description": "Fetch file content from GitHub repositories"
+      "description": "Read a known GitHub file or exact source region"
     },
     {
       "name": "ghSearchHistory",
-      "description": "Search GitHub pull requests, issues, or commits"
+      "description": "Find GitHub pull requests, issues, or commits"
     },
     {
       "name": "ghGetHistoryItem",
-      "description": "Read one GitHub pull request, issue, commit, or ref comparison"
+      "description": "Read a known pull request, issue, commit, or comparison"
     },
     {
       "name": "artifactSearch",
-      "description": "Find packages by capability or resolve dependency metadata and upstream source across eight ecosystems"
+      "description": "Find packages, dependency metadata, or upstream source"
     },
     {
       "name": "localSearch",
-      "description": "Search local text with literal or regex matching"
+      "description": "Find literal or regex matches in local files"
     },
     {
       "name": "structureSearch",
@@ -76,19 +80,15 @@
     },
     {
       "name": "astTopology",
-      "description": "Analyze local dependency topology, cycles, reachability, dead code, and drift (beta: requires OCTOCODE_BETA)"
+      "description": "Analyze local dependency and reachability topology (beta: requires OCTOCODE_BETA)"
     },
     {
       "name": "localFetch",
-      "description": "Read local file content with minification and exact slices"
+      "description": "Read a known local file or exact source region"
     },
     {
       "name": "lspSearch",
-      "description": "Run LSP semantic navigation over local files"
-    },
-    {
-      "name": "clasify",
-      "description": "Apply typed questions to unread resources without returning their bodies (conditional: requires OCTOCODE_CLASSIFICATION_API)"
+      "description": "Resolve symbols, references, calls, types, or diagnostics"
     }
   ],
   "keywords": [

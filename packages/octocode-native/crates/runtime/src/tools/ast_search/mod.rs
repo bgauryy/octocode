@@ -1,3 +1,4 @@
+mod declarations_cache;
 mod matches;
 #[cfg(test)]
 mod policy_tests;

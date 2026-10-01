@@ -138,8 +138,10 @@ fn only_located(answers: &[Result<Value, ClassificationError>]) -> bool {
         })
 }
 
-/// Query fields that select a different slice than an explicit line range.
-const SLICE_FIELDS: [&str; 9] = [
+/// Query fields that select a different slice than an explicit line range
+/// (`chunkType` is only the unit of `offset`/`chunkSize`).
+const SLICE_FIELDS: [&str; 10] = [
+    "chunkType",
     "fullContent",
     "matchString",
     "matchStringIsRegex",
@@ -161,6 +163,65 @@ pub(super) fn read_template(receipt: &Value) -> Option<&Value> {
         .filter(|read| read.is_object())
 }
 
+/// Host-facing page receipt: local paths workspace-relative (TOOL_DATA_CONTRACT
+/// "Paths"), and every read (`read`, the `fileRead` template best rows narrow)
+/// in one shape — the file, its line range clamped to the file or its anchor,
+/// and the version pin when the page had one. The response stage adds the
+/// matrix brief. Pages, `best`, and `carry` all key on these paths.
+pub(super) fn host_receipt(receipt: &mut Value, paths: &crate::policy::path::PathPolicy) {
+    let relative = |value: &mut Value| {
+        let shown = value
+            .as_str()
+            .filter(|path| std::path::Path::new(path).is_absolute())
+            .and_then(|path| paths.workspace_relative(path));
+        if let Some(shown) = shown {
+            *value = Value::String(shown);
+        }
+    };
+    if let Some(path) = receipt.pointer_mut("/source/path") {
+        relative(path);
+    }
+    let total_lines = receipt.pointer("/scope/totalLines").and_then(Value::as_u64);
+    for key in ["read", "fileRead"] {
+        let Some(read) = receipt.get_mut(key) else {
+            continue;
+        };
+        let local = read["tool"] == crate::tools::id::ToolId::LocalFetch.as_str();
+        // A read replays the judged bytes; search host reads say "high".
+        if let Some(read) = read.as_object_mut() {
+            read.entry("confidence").or_insert_with(|| json!("exact"));
+        }
+        let Some(query) = read.get_mut("query").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        if local && let Some(path) = query.get_mut("path") {
+            relative(path);
+        }
+        // The capture brief; the response stage adds the matrix brief.
+        query.remove("goal");
+        query.remove("reasoning");
+        // The provider byte budget, unless an `offset` page is addressed in
+        // chunk units.
+        if !query.contains_key("offset") {
+            query.remove("chunkType");
+            query.remove("chunkSize");
+        }
+        if query.get("minify").and_then(Value::as_str) == Some("none") {
+            // Both file reads default to unminified source.
+            query.remove("minify");
+        }
+        if let (Some(total), Some(start), Some(end)) = (
+            total_lines,
+            query.get("startLine").and_then(Value::as_u64),
+            query.get("endLine").and_then(Value::as_u64),
+        ) && start <= total
+            && end > total
+        {
+            query.insert("endLine".into(), json!(total));
+        }
+    }
+}
+
 /// `template` narrowed to exactly `startLine..=endLine`. `None` unless it is a
 /// line-addressable file read (`localFetch` / `ghGetFileContent`).
 pub(super) fn window_read(template: &Value, start: u64, end: u64) -> Option<Value> {
@@ -168,10 +229,10 @@ pub(super) fn window_read(template: &Value, start: u64, end: u64) -> Option<Valu
         return None;
     }
     let mut read = template.clone();
-    if !matches!(
-        read["tool"].as_str(),
-        Some("localFetch" | "ghGetFileContent")
-    ) {
+    if !read["tool"]
+        .as_str()
+        .is_some_and(crate::tools::clasify::is_file_read_tool)
+    {
         return None;
     }
     let query = read.get_mut("query")?.as_object_mut()?;
@@ -468,6 +529,81 @@ pub(super) fn coalesce(pages: Vec<(Value, Value)>, max_bytes: usize) -> Vec<(Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workspace_paths() -> crate::policy::path::PathPolicy {
+        crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some("/ws".into()),
+            ..Default::default()
+        })
+        .expect("path policy")
+    }
+
+    #[test]
+    fn host_receipts_use_workspace_paths_and_one_read_shape() {
+        let mut receipt = json!({
+            "source":{"path":"/ws/src/gate.rs"},
+            "scope":{"startLine":284,"endLine":484,"totalLines":484},
+            "read":{"tool":"localFetch","confidence":"exact","query":{
+                "reasoning":"Read a bounded search candidate for classification.",
+                "goal":"throttle handling","path":"/ws/src/gate.rs",
+                "startLine":284,"endLine":485,"chunkType":"bytes","chunkSize":12000,
+                "minify":"none"
+            }},
+            "fileRead":{"tool":"localFetch","query":{"path":"/ws/src/gate.rs","snapshot":"s"}}
+        });
+        host_receipt(&mut receipt, &workspace_paths());
+        assert_eq!(receipt["source"]["path"], "src/gate.rs");
+        assert_eq!(
+            receipt["read"],
+            json!({"tool":"localFetch","confidence":"exact","query":{
+                "path":"src/gate.rs","startLine":284,"endLine":484
+            }})
+        );
+        assert_eq!(
+            receipt["fileRead"],
+            json!({"tool":"localFetch","confidence":"exact","query":{"path":"src/gate.rs","snapshot":"s"}})
+        );
+    }
+
+    #[test]
+    fn a_window_read_from_a_chunk_page_keeps_only_the_line_range_and_pin() {
+        let page = json!({"tool":"localFetch","query":{
+            "path":"src/a.rs","offset":600,"chunkType":"lines","chunkSize":100,"snapshot":"s"
+        }});
+        assert_eq!(
+            window_read(&page, 643, 650),
+            Some(json!({"tool":"localFetch","query":{
+                "path":"src/a.rs","snapshot":"s","startLine":643,"endLine":650
+            }}))
+        );
+    }
+
+    #[test]
+    fn host_receipts_keep_chunk_pages_outside_paths_and_remote_paths() {
+        let mut receipt = json!({
+            "source":{"path":"/elsewhere/a.rs"},
+            "read":{"tool":"localFetch","confidence":"exact","query":{
+                "path":"/elsewhere/a.rs","offset":600,"chunkType":"lines","chunkSize":100
+            }}
+        });
+        let before = receipt.clone();
+        host_receipt(&mut receipt, &workspace_paths());
+        assert_eq!(receipt, before);
+        let mut remote = json!({
+            "source":{"path":"o/r/src/a.rs","ref":"abc"},
+            "read":{"tool":"ghGetFileContent","confidence":"high","query":{
+                "owner":"o","repo":"r","path":"src/a.rs","branch":"abc",
+                "matchString":"x","contextLines":20,"chunkType":"bytes","chunkSize":9,"minify":"none"
+            }}
+        });
+        host_receipt(&mut remote, &workspace_paths());
+        assert_eq!(remote["source"]["path"], "o/r/src/a.rs");
+        assert_eq!(
+            remote["read"]["query"],
+            json!({"owner":"o","repo":"r","path":"src/a.rs","branch":"abc",
+                "matchString":"x","contextLines":20})
+        );
+    }
 
     fn provider_error(code: &str) -> ClassificationError {
         ClassificationError {

@@ -11,7 +11,8 @@ const MAX_STRING_LENGTH: usize = 10_000;
 /// (self-review drafts and supplied excerpts routinely exceed 10k chars).
 /// Secret redaction still applies to every leaf.
 const MAX_EVIDENCE_STRING_LENGTH: usize = 1_000_000;
-const MAX_ARRAY_LENGTH: usize = 100;
+/// Contract `limits.maxInputArrayItems`.
+const MAX_ARRAY_LENGTH: usize = crate::tools::id::MAX_INPUT_ARRAY_ITEMS;
 const MAX_DEPTH: usize = 20;
 
 /// Secret label recorded when the split-private-key window guard fires.

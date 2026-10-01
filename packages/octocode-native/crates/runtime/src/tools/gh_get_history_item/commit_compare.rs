@@ -1,13 +1,15 @@
 //! `operation: "commit"` and `operation: "compare"`: commit metadata or a
 //! ref comparison, each with one page of changed files.
 use super::continuations::attach_diff_continuations;
-use super::files::{in_path_scope, scope_files, shape_files};
+use super::files::{attach_patch_cursor, in_path_scope, scope_files, shape_files};
 use super::util::{array, compare_identity, str_at, string, usize_at};
 use super::window::{
     MAX_FILE_BATCHES, WindowSpec, commit_file_items, commit_files_pagination, load_window_with,
     mark_capped, paginate_collection, paginate_window,
 };
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, fetch, validation};
+use super::{
+    HistoryItemRequest, ItemOperation, MAX_COLLECTION_PAGE, default_page_size, fetch, validation,
+};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
@@ -34,7 +36,10 @@ pub(super) async fn commit<R: CredentialResolver>(
         WindowSpec {
             max_batches: MAX_FILE_BATCHES,
             page: query.file_page().unwrap_or(1),
-            page_size: query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100),
+            page_size: query
+                .page_size()
+                .unwrap_or_else(default_page_size)
+                .clamp(1, MAX_COLLECTION_PAGE),
             filtered: path.is_some(),
             provider_total: None,
         },
@@ -94,7 +99,9 @@ pub(super) async fn commit<R: CredentialResolver>(
     mark_capped(&mut page, state.capped);
     // Without includeDiff the page still lists paths and line stats (no
     // patches) so the agent can pick files before paying for diffs.
-    out["files"] = shape_files(files, query.include_diff(), query);
+    let (files, cursor) = shape_files(files, query.include_diff(), query);
+    attach_patch_cursor(&mut page, cursor);
+    out["files"] = files;
     out["filesPagination"] = page;
     attach_diff_continuations(&mut out, query, ItemOperation::Commit, Some(&sha), false);
     Ok(out)
@@ -106,7 +113,10 @@ pub(super) async fn compare<R: CredentialResolver>(
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
     let page = query.page().unwrap_or(1);
-    let per = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 100);
+    let per = query
+        .page_size()
+        .unwrap_or_else(default_page_size)
+        .clamp(1, MAX_COLLECTION_PAGE);
     let base = query.base().ok_or_else(|| validation("base is required"))?;
     let head = query.head().ok_or_else(|| validation("head is required"))?;
     // The head commit is the last of the comparison, often past this commit
@@ -171,7 +181,9 @@ pub(super) async fn compare<R: CredentialResolver>(
         if file_limit {
             page["countScope"] = json!("partial");
         }
-        out["files"] = shape_files(files, include_diff, query);
+        let (files, cursor) = shape_files(files, include_diff, query);
+        attach_patch_cursor(&mut page, cursor);
+        out["files"] = files;
         out["filesPagination"] = page;
     }
     // Continuations read the same two commits.

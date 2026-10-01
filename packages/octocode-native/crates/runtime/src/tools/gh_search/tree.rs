@@ -1,5 +1,6 @@
 //! GitHub repository tree and independently paged metadata execution.
 use super::{GhStructureQuery, GhStructureQueryIncludeItem};
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use crate::{
     providers::github::{
@@ -12,10 +13,15 @@ use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::path::Path;
 
-const MAX_PAGE: usize = 1000;
-/// Largest listing page (the contract's `pageSize` maximum). Path-only rows
-/// stay compact: 500 entries of a deep tree render in about 13k chars.
-const MAX_ENTRIES_PER_PAGE: usize = 500;
+/// Last metadata page a continuation may name (contract `metadataPage` maximum).
+fn max_metadata_page() -> usize {
+    crate::contracts::query_schema_max(ToolId::GhStructure, None, "metadataPage")
+}
+/// Largest listing page (contract `pageSize` maximum). Path-only rows stay
+/// compact: 500 entries of a deep tree render in about 13k chars.
+fn max_entries_per_page() -> usize {
+    crate::contracts::query_schema_max(ToolId::GhStructure, None, "pageSize")
+}
 const CONTENTS_LIMIT: usize = 1000;
 /// Upper bound on Contents API directory reads for one fallback walk (git
 /// trees API truncated or unavailable). Past it the listing is a typed
@@ -117,7 +123,7 @@ pub(super) async fn execute<
     });
 
     let current_page = super::usize_of(*page);
-    let per_page = super::usize_of(*page_size).clamp(1, MAX_ENTRIES_PER_PAGE);
+    let per_page = super::usize_of(*page_size).clamp(1, max_entries_per_page());
     let total_entries = traversal.entries.len();
     let total_pages = total_entries.div_ceil(per_page).max(1);
     let start = current_page.saturating_sub(1).saturating_mul(per_page);
@@ -492,13 +498,18 @@ fn root_is_directory(
     tree: &crate::providers::github::TreeResponse,
     root: &str,
 ) -> Result<(), ProviderError> {
-    match tree
-        .tree
-        .iter()
-        .find(|entry| !root.is_empty() && entry.path == root && entry.kind != "tree")
-    {
-        Some(entry) => Err(not_a_directory(root, &entry.kind)),
-        None => Ok(()),
+    if root.is_empty() {
+        return Ok(());
+    }
+    match tree.tree.iter().find(|entry| entry.path == root) {
+        Some(entry) if entry.kind != "tree" => Err(not_a_directory(root, &entry.kind)),
+        Some(_) => Ok(()),
+        // A complete tree without the root: the path does not exist at this
+        // commit, as the contents API would answer (404).
+        None => Err(ProviderError::new(
+            ProviderErrorKind::NotFound,
+            format!("Path \"{root}\" not found"),
+        )),
     }
 }
 
@@ -804,11 +815,11 @@ fn add_metadata_page(
         "perPage": per,
         "returned": returned,
         "hasMore": more,
-        "terminalLimit": (more && page >= MAX_PAGE).then_some(true)
+        "terminalLimit": (more && page >= max_metadata_page()).then_some(true)
     });
     remove_nulls(&mut value["metadataPagination"][kind]);
     if more {
-        if page >= MAX_PAGE {
+        if page >= max_metadata_page() {
             push_reason(partial_reasons, "metadataPageLimit");
             value["terminalLimit"] = json!(true);
             output.diagnostics.add(
@@ -964,7 +975,7 @@ fn public_query(query: &GhStructureQuery) -> Result<Value, ProviderError> {
 }
 fn continuation(query: Value, why: impl Into<String>, confidence: &str) -> Value {
     json!({
-        "tool": "ghStructure",
+        "tool": ToolId::GhStructure.as_str(),
         "query": query,
         "why": why.into(),
         "confidence": confidence
@@ -1135,6 +1146,24 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// D9: a recursive git-tree listing of a path the tree lacks is a
+    /// missing path (not an empty listing), so the viewTree recovery runs.
+    #[test]
+    fn a_root_missing_from_the_git_tree_is_not_found() {
+        let tree: crate::providers::github::TreeResponse = serde_json::from_value(json!({
+            "sha":"s","truncated":false,"tree":[
+                {"path":"src","type":"tree"},{"path":"src/lib.rs","type":"blob"}
+            ]
+        }))
+        .expect("tree");
+        assert!(root_is_directory(&tree, "").is_ok());
+        assert!(root_is_directory(&tree, "src").is_ok());
+        let missing = root_is_directory(&tree, "no/such").expect_err("missing");
+        assert_eq!(missing.kind, ProviderErrorKind::NotFound);
+        assert_eq!(missing.reason, None);
+        let file = root_is_directory(&tree, "src/lib.rs").expect_err("file");
+        assert_eq!(file.kind, ProviderErrorKind::Validation);
+    }
     #[test]
     fn skips_symlinks_and_submodules() {
         for kind in ["symlink", "submodule"] {

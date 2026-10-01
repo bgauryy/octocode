@@ -14,9 +14,9 @@
   },
   "scripts": {
     "build": "echo 'Source-only benchmark package; no build artifacts required'",
-    "lint": "node --check compare/unified/run.mjs && node --check compare/unified/judge.mjs && node --check compare/unified/report.mjs && node --check compare/unified/lib.mjs",
+    "lint": "node --check compare/unified/run.mjs && node --check compare/unified/judge.mjs && node --check compare/unified/report.mjs && node --check compare/unified/lib.mjs && node --check compare/unified/isolation.mjs && node --check compare/unified/verdict.mjs && node --check compare/unified/reflect.mjs && node --check compare/unified/smoke.mjs && node --check compare/unified/harness.test.mjs",
     "typecheck": "echo 'No TypeScript sources; see lint'",
-    "test": "node --check compare/unified/lib.mjs && node compare/unified/lib.mjs --self-test",
+    "test": "node compare/unified/lib.mjs --self-test && node --test compare/unified/harness.test.mjs",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "type": "module",

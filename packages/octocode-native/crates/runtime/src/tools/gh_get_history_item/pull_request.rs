@@ -22,6 +22,7 @@ use super::{HistoryItemRequest, fetch, validation};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
 
@@ -444,7 +445,7 @@ fn attach_unsearched_read(out: &mut Value, query: &HistoryItemRequest, path: &st
         out["next"] = json!({});
     }
     out["next"]["searchUnpatchedFile"] = json!({
-        "tool": "ghGetFileContent",
+        "tool": ToolId::GhGetFileContent.as_str(),
         "confidence": "high",
         "query": {
             "owner": query.owner(),

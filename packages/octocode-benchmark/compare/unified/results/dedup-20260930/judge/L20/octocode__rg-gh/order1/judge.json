@@ -1,0 +1,94 @@
+{
+  "qid": "L20",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "02bbae60c84a3acebe5a79aa212675be749fe8d2fa84b7217a68bbb8fe32380a",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Gets the getter logic right, including the node20/nodenext rule, the TODO and the bundler fallback. Lists all four direct callers and the indirect users of the supported-extensions helper, plus the showConfig dependency list and the explicit TSTrue in project.go. The checker call site is described somewhat vaguely ('needs resolveJsonModule' error) but is not wrong. Misses the fileloader shouldAddFile gating. Citations are accurate."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Same coverage as X, with more precise wording for the checker's 'Consider using resolveJsonModule' hint and for the util.go diagnostic. Adds the static DefaultValueDescription at declscompiler.go:969-975, which I verified at line 974. Also misses the fileloader shouldAddFile gating. Citations are accurate."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Gets the getter logic right, including the node20/nodenext rule, the TODO and the bundler fallback. Lists all four direct callers and the indirect users of the supported-extensions helper, plus the showConfig dependency list and the explicit TSTrue in project.go. The checker call site is described somewhat vaguely ('needs resolveJsonModule' error) but is not wrong. Misses the fileloader shouldAddFile gating. Citations are accurate."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Same coverage as X, with more precise wording for the checker's 'Consider using resolveJsonModule' hint and for the util.go diagnostic. Adds the static DefaultValueDescription at declscompiler.go:969-975, which I verified at line 974. Also misses the fileloader shouldAddFile gating. Citations are accurate."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.16002159999999999,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 16440,
+    "cache_read_input_tokens": 12928,
+    "output_tokens": 15,
+    "context_tokens": 29372,
+    "total_tokens": 29387,
+    "first_request_context": 10303,
+    "fixed_overhead_tokens": 20606,
+    "research_tokens": 8781,
+    "max_request_context": 19069
+  },
+  "timedOut": false
+}

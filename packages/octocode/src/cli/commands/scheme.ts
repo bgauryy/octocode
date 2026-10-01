@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import type { ParsedArgs } from '../types.js';
 import { EXIT } from '../exit-codes.js';
 import { resolveNativeBin } from '../native-delegate.js';
+import { contractDriftAllowed, contractDriftMessage } from '@octocodeai/config';
 import type { GrammarCapability } from '@octocodeai/config/mcp';
 import {
   projectSelected,
@@ -19,6 +20,10 @@ import {
 export { project, projectSelected } from './scheme-projection.js';
 
 const execFileAsync = promisify(execFile);
+
+// Replaced with `true` by the esbuild define in build.mjs; undefined when
+// running from source (vitest, tsx).
+declare const __OCTOCODE_BUNDLED__: boolean | undefined;
 
 interface MachineToolEntry {
   name: string;
@@ -153,18 +158,16 @@ async function loadPresentation(
 
   // Discovery content is composed by config while validation runs against the
   // native enforcement embed; refuse to describe tools a drifted runtime
-  // would reject. Same gate and escape hatch as the MCP server.
+  // would reject. Same gate, message, and escape hatch as the MCP server.
   if (catalog.fingerprint !== machine.fingerprint) {
-    const drift =
-      `Contract drift: @octocodeai/octocode-core fingerprint ${catalog.fingerprint.slice(0, 12)}… ` +
-      `does not match the native runtime fingerprint ${machine.fingerprint.slice(0, 12)}…. ` +
-      'Reinstall matching octocode packages (in the repo: `yarn contracts:regen` and rebuild native), or set OCTOCODE_ALLOW_CONTRACT_DRIFT=1 to bypass (ignored in production builds, including the bundled CLI, which is compiled with NODE_ENV=production).';
-    // Same gate as the MCP server: the override is a local-iteration aid and
-    // never applies in production.
-    if (
-      process.env.OCTOCODE_ALLOW_CONTRACT_DRIFT === '1' &&
-      process.env.NODE_ENV !== 'production'
-    ) {
+    const drift = contractDriftMessage(
+      catalog.fingerprint,
+      machine.fingerprint
+    );
+    const bundled =
+      typeof __OCTOCODE_BUNDLED__ !== 'undefined' &&
+      __OCTOCODE_BUNDLED__ === true;
+    if (contractDriftAllowed(process.env, { bundled })) {
       console.error(`WARNING: ${drift}`);
     } else {
       emitError(drift, jsonErrors);
@@ -252,9 +255,7 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
 
   const presentation = await loadPresentation(jsonErrors);
   if (!presentation.ok) return presentation.exitCode;
-  const { machine, catalog, enabled } = presentation;
-  const { getDirectToolDefinitionsWithAddons } =
-    await import('@octocodeai/config/schema');
+  const { machine, catalog } = presentation;
 
   const machineByName = new Map(machine.tools.map(tool => [tool.name, tool]));
 
@@ -300,16 +301,10 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     emitError(`Unknown tool: ${toolName}. Known tools: ${known}`, jsonErrors);
     return EXIT.USAGE;
   }
+  // The catalog already carries the availability-scoped description.
   let value: JsonObject;
   try {
-    const definition = getDirectToolDefinitionsWithAddons({
-      availableTools: enabled,
-    }).find(candidate => candidate.name === toolName);
-    value = projectSelected(
-      { ...tool, description: definition?.description ?? tool.description },
-      view,
-      select
-    );
+    value = projectSelected(tool, view, select);
   } catch (error) {
     emitError(
       error instanceof Error ? error.message : String(error),

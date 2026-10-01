@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -25,20 +26,22 @@ const { values } = parseArgs({
     'cli-mcp-parity': { type: 'boolean', default: false },
   },
 });
+const acceptanceCwd = path.resolve(values.cwd);
+// Discovery honors .gitignore. The fixture must be a normal workspace subtree,
+// not under .octocode/tmp (ignored by this repository).
 const fixture = values.fixture
   ? path.resolve(values.fixture)
-  : await createLocalAcceptanceFixture(path.resolve('.octocode/tmp'));
-const acceptanceCwd = path.resolve(values.cwd);
+  : await createLocalAcceptanceFixture(acceptanceCwd);
 const acceptanceEnv = {
   ...process.env,
   ENABLE_LOCAL: 'true',
   OCTOCODE_BETA: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
-const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES, getDirectToolDefinitionsWithAddons } = await import('@octocodeai/config/schema');
+const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES, getDirectToolDefinitionsWithAddons, isCliOnlyTool } = await import('@octocodeai/config/schema');
+const { publishedInputSchema } = await import('@octocodeai/config/mcp');
 const canonicalTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
 // Mutating tools run only from the CLI; MCP never lists or executes them.
-const CLI_ONLY_TOOLS = new Set(['ghCloneRepo', 'astRewrite']);
 let expectedTools = [];
 const receipt = {
   server: path.resolve(values.server),
@@ -91,7 +94,9 @@ const withTrace = queries =>
 const invoke = async (name, rawArgs) => {
   const args = Array.isArray(rawArgs?.queries)
     ? { ...rawArgs, queries: withTrace(rawArgs.queries) }
-    : rawArgs;
+    : name === TOOL_NAMES.CLASIFY && rawArgs?.resources && rawArgs?.questions
+      ? withTrace([rawArgs])[0]
+      : rawArgs;
   const startedAt = performance.now();
   const response = await client.callTool({ name, arguments: args });
   const durationMs = Number((performance.now() - startedAt).toFixed(2));
@@ -234,7 +239,7 @@ try {
   await check('initialize and list every available canonical direct tool', () =>
     assert.deepEqual(
       expectedTools.filter(name => name !== TOOL_NAMES.CLASIFY).sort(),
-      canonicalTools.filter(name => name !== TOOL_NAMES.CLASIFY && !CLI_ONLY_TOOLS.has(name)).sort()
+      canonicalTools.filter(name => name !== TOOL_NAMES.CLASIFY && !isCliOnlyTool(name)).sort()
     )
   );
   await check('MCP tool catalog stays below the production transport budget', () =>
@@ -267,7 +272,7 @@ try {
       assert.match(JSON.stringify(response), /unknown field 'model'/i);
     });
   }
-  await check('CLI catalog and MCP input schemas match the canonical contracts', () => {
+  await check('CLI canonical contracts and MCP published input schemas agree', () => {
     const definitions = new Map(getDirectToolDefinitionsWithAddons({
     }).map(definition => [definition.name, definition]));
     for (const tool of list.tools) {
@@ -280,15 +285,17 @@ try {
       );
       assert.equal(cli.name, tool.name);
       assert.equal(cli.availability.enabled, true);
-      assert.deepEqual(cli.inputSchema, tool.inputSchema, `${tool.name} CLI and MCP input schemas differ`);
       assert.equal(Object.hasOwn(cli, 'querySchema'), false);
       assert.equal(Object.hasOwn(cli, 'outputSchema'), false);
       const definition = definitions.get(tool.name);
       assert.ok(definition, `${tool.name} has no canonical contract`);
-      assert.deepEqual(tool.inputSchema, z.toJSONSchema(definition.inputSchema, {
+      const canonical = z.toJSONSchema(definition.inputSchema, {
         target: 'draft-2020-12',
         io: 'input',
-      }), `${tool.name} MCP input schema differs from the canonical contract`);
+        unrepresentable: 'any',
+      });
+      assert.deepEqual(cli.inputSchema, canonical, `${tool.name} CLI input schema differs from the canonical contract`);
+      assert.deepEqual(tool.inputSchema, publishedInputSchema(tool.name, canonical), `${tool.name} MCP input schema differs from the published contract`);
     }
   });
   await check(
@@ -337,7 +344,7 @@ try {
     assert.ok(rows[1].data.content.includes('import'));
   });
   await check('localFetch line and byte chunks preserve selected views through real MCP', async () => {
-    const directory = await mkdtemp(path.join(path.resolve('.octocode/tmp'), 'fetch-chunks-'));
+    const directory = await mkdtemp(path.join(fixture, 'fetch-chunks-'));
     const file = path.join(directory, 'source.txt');
     const source = 'skip\r\nneedle 🌍\r\n\r\nneedle café\nlast\n';
     try {
@@ -448,7 +455,7 @@ try {
       .callTool({ name: 'astRewrite', arguments: { queries: [{ reasoning: 'Verify MCP never rewrites.', path: fixture, langType: 'typescript', ruleKind: 'pattern', pattern: 'oldCall($A)', rewrite: 'newCall($A)' }] } })
       .then(result => result.isError === true, error => /not found|not available/i.test(String(error?.message)));
     assert.ok(rejected, 'MCP must reject astRewrite');
-    const directory = await mkdtemp(path.join(path.resolve('.octocode/tmp'), 'cli-rewrite-'));
+    const directory = await mkdtemp(path.join(fixture, 'cli-rewrite-'));
     const file = path.join(directory, 'source.ts');
     try {
       await writeFile(file, 'oldCall(1);\noldCall(2);\n');
@@ -536,8 +543,8 @@ try {
         );
       }
     );
-    await check('changed whole-response snapshots restart through MCP', async () => {
-      const parent = path.resolve('.octocode/tmp');
+    await check('whole-response pages replay captured output; fresh queries observe source edits', async () => {
+      const parent = fixture;
       await mkdir(parent, { recursive: true });
       const directory = await mkdtemp(path.join(parent, 'mcp-snapshot-'));
       const file = path.join(directory, 'source.ts');
@@ -555,16 +562,24 @@ try {
         const before = first.structuredContent.responsePagination;
         assert.ok(before.next);
         await writeFile(file, 'export const value = 200;\n');
-        const changed = await invoke(before.next.tool, before.next.query);
-        const restart = changed.structuredContent.responsePagination;
-        assert.equal(restart.restart, true);
-        assert.equal(restart.changed, true);
-        assert.equal(restart.expectedSnapshot, before.snapshot);
-        assert.equal(restart.charLength, 0);
-        assert.equal(restart.next.query.responseCharOffset, 0);
-        const restarted = await invoke(restart.next.tool, restart.next.query);
-        assert.equal(restarted.structuredContent.responsePagination.charOffset, 0);
-        assert.notEqual(restarted.structuredContent.responsePagination.snapshot, before.snapshot);
+        let current = first;
+        let rendered = '';
+        let pages = 0;
+        for (;;) {
+          assert.ok(++pages < 100);
+          const pagination = current.structuredContent.responsePagination;
+          assert.equal(pagination.snapshot, before.snapshot);
+          assert.notEqual(pagination.restart, true);
+          rendered += current.content.filter(block => block.type === 'text')
+            .map(block => block.text.replace(/^# Response page[^\n]*\n/, '')).join('');
+          if (!pagination.next) break;
+          current = await invoke(pagination.next.tool, pagination.next.query);
+        }
+        assert.ok(pages > 1);
+        assert.match(rendered, /export const value = 1;/);
+        assert.doesNotMatch(rendered, /export const value = 200;/);
+        const fresh = await call('localFetch', { path: file, minify: 'none' });
+        assert.equal(fresh.content, 'export const value = 200;\n');
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
@@ -629,7 +644,7 @@ try {
       assert.ok(
         data.payload.locations.some(
           location =>
-            location.path.endsWith('math.ts') &&
+            (location.path ?? fileURLToPath(location.uri)).endsWith('math.ts') &&
             location.displayRange.startLine === 2
         )
       );
@@ -802,7 +817,7 @@ try {
       const full = await call('ghGetFileContent', { ...repo, path: remotePath, fullContent: true });
       const source = full.files[0].content;
       assert.ok(source.includes('module.exports'));
-      const parent = path.resolve('.octocode/tmp');
+      const parent = fixture;
       const directory = await mkdtemp(path.join(parent, 'remote-local-fetch-'));
       const file = path.join(directory, 'index.js');
       try {
@@ -810,7 +825,7 @@ try {
         const localFound = await call('localSearch', { path: directory, searchText: 'module.exports', regex: 'literal' });
         assert.ok(localFound.files?.length > 0);
         for (const chunkType of ['lines', 'bytes']) {
-          const selector = { matchString: 'module.exports', contextLines: 2, minify: 'standard', chunkType, chunkSize: chunkType === 'lines' ? 1 : 7 };
+          const selector = { matchString: 'module.exports', contextLines: 2, minify: 'standard', chunkType, chunkSize: chunkType === 'lines' ? 1 : 7, debug: true };
           const contents = [];
           const anchors = [];
           for (const remote of [false, true]) {

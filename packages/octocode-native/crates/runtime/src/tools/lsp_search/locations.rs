@@ -93,11 +93,7 @@ pub(super) async fn locations(
     } else {
         locations.clone()
     };
-    let (page, mut pagination) = paginate(
-        &entries,
-        query.page().unwrap_or(1),
-        query.page_size().unwrap_or(40),
-    );
+    let (page, mut pagination) = paginate(&entries, query.page().unwrap_or(1), query.page_size());
     pagination["snapshot"] = json!(snapshot);
     let mut payload = if grouped {
         json!({ "kind": kind, "byFile": page })
@@ -462,11 +458,7 @@ pub(super) fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) ->
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query, snapshot);
     }
-    let (page, mut pagination) = paginate(
-        &raw_items,
-        query.page().unwrap_or(1),
-        query.page_size().unwrap_or(40),
-    );
+    let (page, mut pagination) = paginate(&raw_items, query.page().unwrap_or(1), query.page_size());
     pagination["snapshot"] = json!(snapshot);
     json!({
         "type": query.operation(),
@@ -499,11 +491,7 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value]) -> Valu
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query, snapshot);
     }
-    let (page, mut pagination) = paginate(
-        &symbols,
-        query.page().unwrap_or(1),
-        query.page_size().unwrap_or(40),
-    );
+    let (page, mut pagination) = paginate(&symbols, query.page().unwrap_or(1), query.page_size());
     pagination["snapshot"] = json!(snapshot);
     let mut kinds = serde_json::Map::new();
     for symbol in &symbols {

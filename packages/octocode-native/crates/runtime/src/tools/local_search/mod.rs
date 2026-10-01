@@ -1361,7 +1361,7 @@ mod tests {
     }
 
     #[test]
-    fn relevance_ranks_a_hot_file_beyond_the_path_sorted_cap() {
+    fn relevance_cap_keeps_hot_file_and_marks_first_and_final_pages_partial() {
         let root = tempfile::tempdir().expect("fixture directory");
         for i in 0..=10_000 {
             fs::write(root.path().join(format!("a{i:05}.txt")), "hit\n").expect("fixture");
@@ -1379,6 +1379,8 @@ mod tests {
         assert_eq!(stats.files_searched, 10_002);
         assert_eq!(stats.files_matched, 10_002);
         assert_eq!(stats.total_occurrences, 10_001 + 40);
+        assert!(result.is_partial);
+        assert_eq!(result.status, SearchStatus::Partial);
         assert!(
             stats
                 .cap_reason
@@ -1386,6 +1388,17 @@ mod tests {
                 .is_some_and(|r| r.contains("maxCollectedFiles")),
             "{stats:?}"
         );
+        let last_page = result.pagination.as_ref().expect("file pages").total_pages;
+        let last_request = ls_query(
+            serde_json::json!({"page": last_page, "snapshot": result.source_snapshot.as_ref().expect("snapshot")}),
+            Some(&request),
+        );
+        let last = execute_local_search(&last_request, &policy, &security, &NeverCancel, None)
+            .expect("last collected page");
+        assert!(last.is_partial);
+        assert!(last.terminal_limit);
+        assert!(last.next.is_none());
+        assert_eq!(last.stats.cap_reason.as_deref(), Some("maxCollectedFiles"));
     }
 
     #[test]

@@ -4,13 +4,14 @@
 //   node report.mjs --run-id <id>
 import fs from 'node:fs';
 import path from 'node:path';
-import { RESULTS_DIR, loadQuestions, mean, median, parseArgs, readJson, writeJson } from './lib.mjs';
+import { RESULTS_DIR, UNIFIED_DIR, hashFile, loadQuestions, mean, median, parseArgs, readJson, writeJson } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 if (!args['run-id']) throw new Error('--run-id is required');
 const runId = String(args['run-id']);
 const runDir = path.join(RESULTS_DIR, runId);
 const manifest = readJson(path.join(runDir, 'manifest.json'));
+if (hashFile(path.join(UNIFIED_DIR, 'questions/questions.json')) !== manifest.hashes.questionsJson) throw new Error('frozen questions changed');
 const workers = manifest.workers;
 const questions = loadQuestions().filter((q) => manifest.questionIds.includes(q.id));
 const maybe = (p) => (fs.existsSync(p) ? readJson(p) : null);
@@ -22,12 +23,7 @@ const k = (n) => (n == null ? '—' : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : 
 const f1 = (n) => (n == null ? '—' : n.toFixed(1));
 const f2 = (n) => (n == null ? '—' : n.toFixed(2));
 const usd = (n) => (n == null ? '—' : `$${n.toFixed(3)}`);
-// Claude price multiples relative to fresh input (same for every current model):
-// cache write (5-minute TTL) 1.25×, cache read 0.1×, output 5×. Weighted tokens are
-// input-token equivalents, proportional to cost; raw totals count a cache read like
-// a fresh input token, which overstates a large, cached tool-definition prefix.
-const WEIGHTS = { input_tokens: 1, cache_creation_input_tokens: 1.25, cache_read_input_tokens: 0.1, output_tokens: 5 };
-const weightedTokens = (t) => (t ? Object.entries(WEIGHTS).reduce((s, [key, w]) => s + (t[key] ?? 0) * w, 0) : null);
+const weightedTokens = t => t?.weighted_tokens ?? null;
 const surfaceOf = (q) => q.surface ?? ((q.repos ?? []).some((r) => r.dir) ? 'local' : 'github');
 const catKey = (q) => q.category ?? surfaceOf(q);
 
@@ -37,6 +33,8 @@ const rows = questions.map((q) => {
   const finals = pairs.map(([a, b]) => maybe(path.join(runDir, 'judge', q.id, `${a}__${b}`, 'final.json'))).filter(Boolean);
   for (const w of workers) {
     const r = maybe(path.join(runDir, 'runs', q.id, w, 'run.json'));
+    if (!r || !r.valid || r.status !== 'ok' || !r.isolation?.ok || !r.tokens?.verified) throw new Error(`invalid/missing worker ${q.id}/${w}`);
+    if (finals.length !== pairs.length || finals.some(f => !f.valid || f.graderErrors || !Number.isFinite(f.scores?.[w]?.quality))) throw new Error(`incomplete/invalid judgment ${q.id}/${w}`);
     const scores = finals.map((f) => f.scores?.[w]?.quality).filter((x) => x != null);
     const quality = scores.length ? mean(scores) : null;
     const t = r?.tokens;
@@ -49,6 +47,12 @@ const rows = questions.map((q) => {
       wrongClaims: finals.flatMap((f) => f.scores?.[w]?.wrongClaims ?? []),
       totalTokens: t.total_tokens, weightedTokens: weightedTokens(t), contextTokens: t.context_tokens, overheadTokens: t.fixed_overhead_tokens,
       researchTokens: t.research_tokens, outputTokens: t.output_tokens, requests: t.requests,
+      actualUsage: { input_tokens: t.input_tokens, cache_creation_input_tokens: t.cache_creation_input_tokens, cache_read_input_tokens: t.cache_read_input_tokens, output_tokens: t.output_tokens }, cacheCreationTTL: t.cache_creation ?? null, accountingSource: t.source,
+      provisionalUsage: t.provisional_usage, usageReconciliation: { provisional: t.usage_gaps, modelUsage: t.model_usage_gaps },
+      classificationProvider: r.classificationProvider ?? null, providerUsageStatus: r.providerUsageStatus,
+      classificationAccounting: r.classificationAccounting ?? null,
+      nativeCalls: r.nativeCalls ?? [], rowErrors: r.rowErrorCount ?? 0, nativeRowErrors: r.nativeRowErrorCount ?? 0,
+      reflection: r.reflection ? { cost_usd: r.reflection.cost_usd, costVerified: r.reflection.costVerified, tokens: r.reflection.tokens } : null,
       firstRequestContext: t.first_request_context,
       cost: r.cost_usd, toolCalls: r.toolCallCount, toolCounts: r.toolCounts, counters: r.counters ?? {},
       wallMs: r.wallMs, numTurns: r.num_turns, toolErrors: r.toolErrorCount, denials: r.permission_denials?.length ?? 0,
@@ -58,10 +62,10 @@ const rows = questions.map((q) => {
       researchEfficiency: quality != null && t.research_tokens > 0 ? quality / (t.research_tokens / 10_000) : null,
     } : null;
   }
-  row.judge = finals.map((f) => ({ pair: f.pairKey, tiebreak: f.tiebreak, orderSpread: f.orderSpread, graderErrors: f.graderErrors, preferred: f.preferred, referenceIssues: f.referenceIssues, cost: f.judgeCost }));
+  row.judge = finals.map((f) => ({ pair: f.pairKey, tiebreak: f.tiebreak, orderSpread: f.orderSpread, graderErrors: f.graderErrors, preferred: f.preferred, referenceIssues: f.referenceIssues, cost: f.judgeCost, model: f.model, totalTokens: f.judgeTokens, attempts: f.judgeAttempts }));
   row.ratios = Object.fromEntries(pairs.map(([a, b]) => {
     const A = row.w[a]; const B = row.w[b];
-    return [`${a}/${b}`, A && B ? { total: A.totalTokens / B.totalTokens, weighted: A.weightedTokens / B.weightedTokens, research: B.researchTokens > 0 ? A.researchTokens / B.researchTokens : null, cost: A.cost / B.cost } : null];
+    return [`${a}/${b}`, A && B ? { total: A.totalTokens / B.totalTokens, weighted: A.weightedTokens && B.weightedTokens ? A.weightedTokens / B.weightedTokens : null, research: B.researchTokens > 0 ? A.researchTokens / B.researchTokens : null, cost: B.cost > 0 ? A.cost / B.cost : null } : null];
   }));
   return row;
 });
@@ -79,13 +83,15 @@ function aggregate(sel) {
     return [w, {
       runs: xs.length, ok: xs.filter((x) => x.status === 'ok').length,
       meanQuality: mean(qs), medianQuality: median(qs),
-      totalTokens: sum('totalTokens'), weightedTokens: sum('weightedTokens'), contextTokens: sum('contextTokens'), overheadTokens: sum('overheadTokens'),
+      weightedKnown: false, providerCostIncluded: false,
+      classificationProvider: xs.map(x => x.classificationProvider).filter(Boolean),
+      totalTokens: sum('totalTokens'), weightedTokens: null, contextTokens: sum('contextTokens'), overheadTokens: sum('overheadTokens'),
       researchTokens: sum('researchTokens'), outputTokens: sum('outputTokens'), requests: sum('requests'),
-      cost: sum('cost'), toolCalls: sum('toolCalls'), wallMs: sum('wallMs'), toolErrors: sum('toolErrors'), denials: sum('denials'),
+      cost: sum('cost'), toolCalls: sum('toolCalls'), wallMs: sum('wallMs'), toolErrors: sum('toolErrors'), rowErrors: sum('rowErrors'), nativeRowErrors: sum('nativeRowErrors'), denials: sum('denials'),
       meanTotalTokens: xs.length ? sum('totalTokens') / xs.length : null,
       meanResearchTokens: xs.length ? sum('researchTokens') / xs.length : null,
       efficiency: qs.length && sum('totalTokens') ? (sum('quality') / (sum('totalTokens') / 10_000)) : null,
-      weightedEfficiency: qs.length && sum('weightedTokens') ? (sum('quality') / (sum('weightedTokens') / 10_000)) : null,
+      weightedEfficiency: null,
       counters, tools,
       isolationFailures: xs.filter((x) => x.isolationOk === false).length,
     }];
@@ -125,6 +131,7 @@ const judgeAgreement = {
   preferredConsistentAcrossOrders: consistentPref,
   referenceIssues: rows.flatMap((r) => r.judge.flatMap((j) => (j.referenceIssues ?? []).map((x) => ({ qid: r.qid, issue: String(x).slice(0, 300) })))),
   cost: judgeRows.reduce((s, j) => s + (j.cost ?? 0), 0),
+  totalTokens: judgeRows.reduce((s, j) => s + (j.totalTokens ?? 0), 0),
 };
 
 // Probes: fixed overhead ("reply OK") and isolation.
@@ -136,14 +143,20 @@ const probes = Object.fromEntries(workers.map((w) => {
     offeredTools: o?.isolation?.offeredTools?.length ?? null, mcpServers: o?.isolation?.mcpServers ?? null,
     isolationOk: i?.isolation?.ok ?? null, isolationProblems: i?.isolation?.problems ?? null, leak: i?.leak ?? null,
     isolationAnswer: i?.answer ? String(i.answer).slice(0, 1200) : null, isolationDenials: i?.permission_denials ?? null,
+    cost: (o?.cost_usd ?? 0) + (i?.cost_usd ?? 0), tokens: (o?.tokens?.total_tokens ?? 0) + (i?.tokens?.total_tokens ?? 0),
   }];
 }));
 
 const workerCost = Object.values(totals).reduce((s, t) => s + t.cost, 0);
+const reflectionCost = rows.reduce((sum, r) => sum + Object.values(r.w).reduce((s, w) => s + (w.reflection?.cost_usd ?? 0), 0), 0);
+const probeCost = Object.values(probes).reduce((s, p) => s + p.cost, 0);
+const synthesis = workers.map(w => maybe(path.join(runDir, 'reflections', w, 'synthesis.json'))).filter(Boolean);
+const synthesisCost = synthesis.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
 const summary = {
   runId, generatedAt: new Date().toISOString(), manifest: { createdAt: manifest.createdAt, model: manifest.model, claudeVersion: manifest.claudeVersion, build: manifest.build, hashes: { harness: manifest.hashes.harness, questionsJson: manifest.hashes.questionsJson, workers: manifest.hashes.workers } },
   workers, questionCount: questions.length, totals, bySurface, byCategory, ratioStats, judgeAgreement, probes,
-  cost: { workers: workerCost, judge: judgeAgreement.cost, total: workerCost + judgeAgreement.cost },
+  cost: { workers: workerCost, judge: judgeAgreement.cost, researchAndJudge: workerCost + judgeAgreement.cost, reflection: reflectionCost, probes: probeCost, reflectionSynthesis: synthesisCost, total: workerCost + judgeAgreement.cost + reflectionCost + probeCost + synthesisCost, classifierProvider: null, systemTotalVerified: false },
+  verdict: 'DIAGNOSTIC: complete valid pairs; judge calibration and release thresholds require a separate acceptance decision',
   rows,
 };
 writeJson(path.join(runDir, 'summary.json'), summary);
@@ -151,9 +164,9 @@ writeJson(path.join(runDir, 'summary.json'), summary);
 // ---------------------------------------------------------------- REPORT.md
 const L = [];
 L.push(`# Unified benchmark — run \`${runId}\``, '');
-L.push(`Workers: ${workers.map((w) => `\`${w}\``).join(', ')} · model ${manifest.model} · ${questions.length} questions × 1 pass · judge Opus (blinded X/Y, both orders, tie-break when spread > 2).`);
+L.push(`Workers: ${workers.map((w) => `\`${w}\``).join(', ')} · model ${manifest.model} · ${questions.length} questions × 1 pass · judge ${[...new Set(rows.flatMap(r => r.judge.map(j => j.model)).filter(Boolean))].join(', ')} (blinded X/Y, both orders, tie-break when spread > 2).`);
 L.push(`Build: MCP dist sha256 \`${String(manifest.build?.mcpServerDist).slice(0, 12)}\` · Claude Code ${manifest.claudeVersion}.`, '');
-L.push('Quality 0–10 = correctness 0–5 + completeness 0–3 + evidence 0–2. Tokens: total = all input kinds + output; research = total − (first-request context × requests). Weighted = input-token equivalents at Claude price multiples (cache write 1.25×, cache read 0.1×, output 5×), proportional to cost. Efficiency = quality per 10k total tokens; weighted efficiency = quality per 10k weighted tokens.', '');
+L.push('Quality 0–10 = correctness 0–5 + completeness 0–3 + evidence 0–2. Tokens: total = all input kinds + output; research is an estimate: total − (first-request context × requests). Weighted tokens are unknown without a frozen model tariff and verified cache TTL. Cost and tokens cover the worker Claude session; classifier provider totals are separate/unknown. Efficiency = quality per 10k total tokens; weighted efficiency = quality per 10k weighted tokens.', '');
 
 L.push('## Totals', '');
 L.push('| worker | mean quality | median quality | total tokens | weighted tokens | research tokens | output tokens | requests | tool calls | cost | time | efficiency | weighted efficiency |', '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
@@ -211,7 +224,7 @@ for (const r of rows) for (const w of workers) { const wc = r.w[w]?.wrongClaims 
 L.push('');
 
 L.push('## Cost', '');
-L.push(`Workers $${workerCost.toFixed(2)} (${workers.map((w) => `${w} $${totals[w].cost.toFixed(2)}`).join(', ')}) · judge $${ja.cost.toFixed(2)} · total $${(workerCost + ja.cost).toFixed(2)}.`, '');
+L.push(`Worker research $${workerCost.toFixed(2)} (${workers.map((w) => `${w} $${totals[w].cost.toFixed(2)}`).join(', ')}) · judge $${ja.cost.toFixed(2)} · reflections $${reflectionCost.toFixed(2)} · probes $${probeCost.toFixed(2)} · reflection synthesis $${synthesisCost.toFixed(2)} · reported Claude total $${summary.cost.total.toFixed(2)}. Classification provider cost and total system cost remain unknown.`, '');
 
 const iso = rows.flatMap((r) => workers.filter((w) => r.w[w]?.isolationOk === false).map((w) => `${r.qid} ${w}: ${r.w[w].isolationProblems.join('; ')}`));
 L.push('## Isolation', '', iso.length ? iso.map((x) => `- ${x}`).join('\n') : 'Every run passed its profile isolation check (offered/called tools, MCP servers, no skills, no benchmark-file access).', '');

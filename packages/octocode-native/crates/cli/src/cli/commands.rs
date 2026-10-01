@@ -3,7 +3,7 @@
 //! The CLI surface is intentionally minimal — every tool is invoked by its
 //! canonical name with a raw JSON query, and `scheme` is the single discovery
 //! command. No per-tool flag wrappers, no aliases.
-use clap::{Args, Subcommand};
+use clap::{ArgMatches, Args, FromArgMatches, Subcommand};
 
 /// Shared arguments for every tool sub-command: a raw JSON query (inline or
 /// from a file) executed against the tool's contract.
@@ -29,6 +29,83 @@ impl ToolArgs {
                 .map_err(|error| format!("Cannot read --input {}: {error}", path.display()));
         }
         Ok(self.query.clone())
+    }
+}
+
+/// One tool sub-command. The tool list and each command's `about` come from
+/// the embedded tool contract, so the CLI never spells the tool set itself.
+#[derive(Debug)]
+pub(super) struct ToolCommand {
+    pub name: &'static str,
+    pub args: ToolArgs,
+}
+
+/// `(name, shortDescription)` for every tool in the embedded contract.
+fn contract_tools() -> impl Iterator<Item = (&'static str, &'static str)> {
+    octocode_native::contracts::parsed_contract()
+        .ok()
+        .and_then(|contract| contract["tools"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| {
+            Some((
+                tool["name"].as_str()?,
+                tool["shortDescription"].as_str().unwrap_or_default(),
+            ))
+        })
+}
+
+fn contract_tool_name(name: &str) -> Option<&'static str> {
+    contract_tools()
+        .map(|(tool, _)| tool)
+        .find(|tool| *tool == name)
+}
+
+impl FromArgMatches for ToolCommand {
+    fn from_arg_matches(matches: &ArgMatches) -> Result<Self, clap::Error> {
+        Self::from_arg_matches_mut(&mut matches.clone())
+    }
+
+    fn from_arg_matches_mut(matches: &mut ArgMatches) -> Result<Self, clap::Error> {
+        let Some((name, mut sub_matches)) = matches.remove_subcommand() else {
+            return Err(clap::Error::raw(
+                clap::error::ErrorKind::MissingSubcommand,
+                "a tool name is required",
+            ));
+        };
+        let Some(name) = contract_tool_name(&name) else {
+            return Err(clap::Error::raw(
+                clap::error::ErrorKind::InvalidSubcommand,
+                format!("unrecognized subcommand '{name}'"),
+            ));
+        };
+        let args = ToolArgs::from_arg_matches_mut(&mut sub_matches)?;
+        Ok(Self { name, args })
+    }
+
+    fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
+        *self = Self::from_arg_matches(matches)?;
+        Ok(())
+    }
+}
+
+impl Subcommand for ToolCommand {
+    fn augment_subcommands(command: clap::Command) -> clap::Command {
+        contract_tools().fold(command, |command, (name, about)| {
+            command.subcommand(ToolArgs::augment_args(clap::Command::new(name)).about(about))
+        })
+    }
+
+    fn augment_subcommands_for_update(command: clap::Command) -> clap::Command {
+        contract_tools().fold(command, |command, (name, about)| {
+            command.subcommand(
+                ToolArgs::augment_args_for_update(clap::Command::new(name)).about(about),
+            )
+        })
+    }
+
+    fn has_subcommand(name: &str) -> bool {
+        contract_tool_name(name).is_some()
     }
 }
 
@@ -61,39 +138,9 @@ pub(super) enum AuthCommand {
 
 #[derive(Subcommand)]
 pub(super) enum Command {
-    // ── Tools: one command per tool, named exactly like the tool ─────────────
-    #[command(name = "localSearch")]
-    LocalSearch(ToolArgs),
-    #[command(name = "localFetch")]
-    LocalFetch(ToolArgs),
-    #[command(name = "structureSearch")]
-    StructureSearch(ToolArgs),
-    #[command(name = "astSearch")]
-    AstSearch(ToolArgs),
-    #[command(name = "astTopology")]
-    AstTopology(ToolArgs),
-    #[command(name = "astRewrite")]
-    AstRewrite(ToolArgs),
-    #[command(name = "lspSearch")]
-    LspSearch(ToolArgs),
-    #[command(name = "ghSearchRepo")]
-    GhSearchRepo(ToolArgs),
-    #[command(name = "ghSearchCode")]
-    GhSearchCode(ToolArgs),
-    #[command(name = "ghStructure")]
-    GhStructure(ToolArgs),
-    #[command(name = "ghGetFileContent")]
-    GhGetFileContent(ToolArgs),
-    #[command(name = "ghSearchHistory")]
-    GhSearchHistory(ToolArgs),
-    #[command(name = "ghGetHistoryItem")]
-    GhGetHistoryItem(ToolArgs),
-    #[command(name = "ghCloneRepo")]
-    GhCloneRepo(ToolArgs),
-    #[command(name = "artifactSearch")]
-    ArtifactSearch(ToolArgs),
-    #[command(name = "clasify")]
-    Clasify(ToolArgs),
+    // ── Tools: one command per contract tool, named exactly like the tool ────
+    #[command(flatten)]
+    Tool(ToolCommand),
 
     // ── System commands ──────────────────────────────────────────────────────
     /// Print a tool contract; without a name, list tools, availability, and canonical agent instructions.

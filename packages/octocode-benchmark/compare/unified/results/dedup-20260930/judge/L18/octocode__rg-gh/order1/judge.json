@@ -1,0 +1,100 @@
+{
+  "qid": "L18",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "c2162dd441b416f14d8ded83eabdaf99d8055859bec9519d4fe83f3102578ca8",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; line citations verified (661, 777, 800, 964, 699, 807). Covers error->discarded vs rejected root->null."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Cites lines 689-695 for the `*ref_stack.back() = discarded` assignment; it is actually at 661 (689-695 are asserts and pops)"
+      ],
+      "notes": "Mechanics correct but fact 1 is only partly covered (no parser.hpp entry, sax_parse_internal, or plain-parser alternative); omits the parse-error discarded case; says it did not read the array-side handlers; the duplicate-key claim has no citation."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; line citations verified (661, 777, 800, 964, 699, 807). Covers error->discarded vs rejected root->null."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Cites lines 689-695 for the `*ref_stack.back() = discarded` assignment; it is actually at 661 (689-695 are asserts and pops)"
+      ],
+      "notes": "Mechanics correct but fact 1 is only partly covered (no parser.hpp entry, sax_parse_internal, or plain-parser alternative); omits the parse-error discarded case; says it did not read the array-side handlers; the duplicate-key claim has no citation."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.11828559999999999,
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 10179,
+    "cache_read_input_tokens": 24248,
+    "output_tokens": 24,
+    "context_tokens": 34433,
+    "total_tokens": 34457,
+    "first_request_context": 10260,
+    "fixed_overhead_tokens": 30780,
+    "research_tokens": 3677,
+    "max_request_context": 12808
+  },
+  "timedOut": false
+}

@@ -1,7 +1,7 @@
 //! Pull-request discussion, review and commit sections: one public page of
 //! each, with per-item body windows.
 use super::continuations::attach_diff_continuations;
-use super::files::shape_files;
+use super::files::{attach_patch_cursor, shape_files};
 use super::util::{array, body_matches, needle, str_at, string, window_body};
 use super::window::{WindowState, commit_files_pagination, paginate_window};
 use super::{HistoryItemRequest, ItemOperation, fetch};
@@ -153,8 +153,11 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
             let files = array(detail.get("files").cloned().unwrap_or(json!([])));
             let (files, files_page) =
                 paginate_window(files, 0, !more, Some(1), Some(query.collection_page_size()));
-            commit["files"] = shape_files(files, true, query);
-            commit["filesPagination"] = commit_files_pagination(files_page);
+            let (files, cursor) = shape_files(files, true, query);
+            let mut files_page = commit_files_pagination(files_page);
+            attach_patch_cursor(&mut files_page, cursor);
+            commit["files"] = files;
+            commit["filesPagination"] = files_page;
             attach_diff_continuations(&mut commit, query, ItemOperation::Commit, Some(&sha), true);
         }
         shaped.push(commit);

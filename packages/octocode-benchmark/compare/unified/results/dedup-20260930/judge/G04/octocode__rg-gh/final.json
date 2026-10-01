@@ -1,0 +1,47 @@
+{
+  "qid": "G04",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 1,
+    "rg-gh": 1
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8.5,
+      "correctness": 5,
+      "completeness": 2.5,
+      "evidence": 1,
+      "perJudgment": [
+        9,
+        8
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 7.5,
+      "correctness": 4.5,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        7
+      ],
+      "wrongClaims": [
+        "'click.option(\"--x\", \"Foo_Bar\") warns because it names foo_bar rather than Foo_Bar' — in 8.x the name is kept as Foo_Bar; only 9.0 will lower-case it (ambiguous/misleading)"
+      ]
+    }
+  },
+  "preferred": [
+    "octocode",
+    "octocode"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.204208
+}

@@ -77,6 +77,12 @@ pub struct CloneLocation {
     pub resolved_branch: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_path: Option<String>,
+    /// When a served cache hit was cloned; its commit may lag the branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloned_at: Option<String>,
+    /// When a served cache hit stops being reused (`forceRefresh` re-clones now).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -86,6 +92,8 @@ pub struct CloneResult {
     pub repo: String,
     pub total_size: u64,
     pub location: CloneLocation,
+    /// Continuations into the local tools on the checkout.
+    pub next: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -113,9 +121,11 @@ impl CloneError {
 pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
     let (owner, repo) = (&query.owner, &query.repo);
     CloneError {
-        hints: vec![format!(
-            "Verify the owner/repo spelling and that {owner}/{repo} exists and is accessible with your credentials."
-        )],
+        // The message names the repository; the hint stays within the
+        // response stage's guidance cap so it is never cut mid-sentence.
+        hints: vec![
+            "The repository is missing, private, or hidden from this token; check owner/repo spelling and token access.".into(),
+        ],
         ..CloneError::new(
             "clone.repositoryNotFound",
             format!("Repository not found: {owner}/{repo}"),
@@ -212,7 +222,15 @@ pub fn execute_clone(
             .path_policy
             .validate(&clone_dir)
             .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
-        return result(query, branch, &clone_dir, commit_sha, true, meta.verified);
+        let age = cache::CacheAge::of(&meta, context.config.cache_ttl);
+        return result(
+            query,
+            branch,
+            &clone_dir,
+            commit_sha,
+            meta.verified,
+            Some(age),
+        );
     }
 
     cache::cleanup_stale_artifacts(&context.config.cache_home);
@@ -279,7 +297,7 @@ pub fn execute_clone(
         .path_policy
         .validate(&clone_dir)
         .map_err(|error| CloneError::new("clone.policy.denied", error.message))?;
-    let result = result(query, branch, &clone_dir, commit_sha, false, true)?;
+    let result = result(query, branch, &clone_dir, commit_sha, true, None)?;
     cache::evict(
         &context.config.cache_home,
         context.config.cache_ttl,
@@ -290,20 +308,27 @@ pub fn execute_clone(
     Ok(result)
 }
 
+/// `cache` is `Some` for a served cache hit (with its age when the persisted
+/// timestamps parse), `None` for a fresh checkout.
 fn result(
     query: &GhCloneRepoQuery,
     branch: String,
     clone_dir: &Path,
     commit_sha: String,
-    cached: bool,
     verified: bool,
+    cache: Option<Option<cache::CacheAge>>,
 ) -> Result<CloneResult, CloneError> {
     let local_path = clone_dir.to_string_lossy().into_owned();
     let total_size = cache::checked_out_size(clone_dir);
+    let cached = cache.is_some();
+    let (cloned_at, expires_at) = cache.flatten().map_or((None, None), |age| {
+        (Some(age.cloned_at), Some(age.expires_at))
+    });
     Ok(CloneResult {
         owner: query.owner.to_string(),
         repo: query.repo.to_string(),
         total_size,
+        next: explore_next(clone_dir, query.sparse_path.as_deref()),
         location: CloneLocation {
             kind: if query.sparse_path.is_some() {
                 "tree"
@@ -318,8 +343,33 @@ fn result(
             complete: true,
             resolved_branch: branch,
             requested_path: query.sparse_path.clone(),
+            cloned_at,
+            expires_at,
         },
     })
+}
+
+/// `next.exploreClone`: list the checkout (the sparse subtree when one was
+/// requested) with structureSearch, the local entry into localSearch,
+/// astSearch, and lspSearch on it.
+fn explore_next(clone_dir: &Path, sparse_path: Option<&str>) -> serde_json::Value {
+    let root = sparse_path.map_or_else(|| clone_dir.to_path_buf(), |path| clone_dir.join(path));
+    let mut query = serde_json::Map::new();
+    query.insert(
+        "path".into(),
+        serde_json::Value::String(root.to_string_lossy().into_owned()),
+    );
+    crate::contracts::stamp_schema_defaults(
+        crate::tools::id::ToolId::StructureSearch,
+        Some("tree"),
+        &mut query,
+        &["operation", "maxDepth", "page", "pageSize", "debug"],
+    );
+    serde_json::json!({"exploreClone": {
+        "tool": crate::tools::id::ToolId::StructureSearch.as_str(),
+        "query": query,
+        "confidence": "exact"
+    }})
 }
 
 pub(crate) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {

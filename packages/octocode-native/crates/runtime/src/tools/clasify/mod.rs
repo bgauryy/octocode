@@ -7,7 +7,10 @@ pub(crate) mod transport;
 
 use self::transport::{ClassificationError, check_budget, endpoint, post};
 use crate::providers::classification::gate::GateLease;
-use crate::{providers::RequestBudget, tools::id::ToolId};
+use crate::{
+    providers::RequestBudget,
+    tools::id::{ToolId, clasify_policy},
+};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 
@@ -33,25 +36,35 @@ fn entry(value: &Value) -> bool {
     !value.is_null() && nullable_entry(value)
 }
 
+fn in_policy(tool: &str, set: &[ToolId]) -> bool {
+    ToolId::from_name(tool).is_some_and(|id| set.contains(&id))
+}
+
+/// Read tools a clasify resource may delegate to (contract `scoutTools`).
 pub(crate) fn is_context_tool(tool: &str) -> bool {
-    matches!(
-        ToolId::from_name(tool),
-        Some(
-            ToolId::GhSearchRepo
-                | ToolId::GhSearchCode
-                | ToolId::GhStructure
-                | ToolId::GhGetFileContent
-                | ToolId::GhSearchHistory
-                | ToolId::GhGetHistoryItem
-                | ToolId::ArtifactSearch
-                | ToolId::LocalSearch
-                | ToolId::LocalFetch
-                | ToolId::StructureSearch
-                | ToolId::AstSearch
-                | ToolId::AstTopology
-                | ToolId::LspSearch
-        )
-    )
+    in_policy(tool, clasify_policy::SCOUT_TOOLS)
+}
+
+/// Search tools that accept `candidateEvidence` (contract `candidateSearchTools`).
+pub(crate) fn is_candidate_search_tool(tool: &str) -> bool {
+    in_policy(tool, clasify_policy::CANDIDATE_SEARCH_TOOLS)
+}
+
+/// File reads that accept `prefilter` (contract `fileReadTools`).
+pub(crate) fn is_file_read_tool(tool: &str) -> bool {
+    in_policy(tool, clasify_policy::FILE_READ_TOOLS)
+}
+
+/// Contract `candidateEvidence` enum (generated wire type).
+pub(crate) type CandidateEvidence =
+    crate::contracts::tool_types::ClasifyInputVariant0ResourcesItemContextVariant1CandidateEvidence;
+
+/// A resource context's parsed `candidateEvidence`, when present and known.
+pub(crate) fn candidate_evidence(context: &Value) -> Option<CandidateEvidence> {
+    context
+        .get("candidateEvidence")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse().ok())
 }
 
 /// Context tools whose continuations move within one document. Search and
@@ -72,112 +85,39 @@ fn locate_capable(context: &serde_json::Map<String, Value>) -> bool {
     let Some(tool) = context.get("tool").and_then(Value::as_str) else {
         return true;
     };
-    match ToolId::from_name(tool) {
-        Some(ToolId::LocalFetch | ToolId::GhGetFileContent) => context
+    if is_file_read_tool(tool) {
+        return context
             .get("query")
             .and_then(|query| query.get("minify"))
             .and_then(Value::as_str)
-            .is_none_or(|minify| minify == "none"),
-        Some(ToolId::LocalSearch | ToolId::GhSearchCode) => {
-            context.get("candidateEvidence").and_then(Value::as_str) == Some("fileChunks")
-        }
-        _ => false,
+            .is_none_or(|minify| minify == "none");
     }
+    is_candidate_search_tool(tool)
+        && context
+            .get("candidateEvidence")
+            .and_then(Value::as_str)
+            .and_then(|value| value.parse().ok())
+            == Some(CandidateEvidence::FileChunks)
 }
 
-/// Validate the matrix and resolve its provider questions once, before capture.
+/// Resolve a matrix's provider questions once, before capture, and reject
+/// what the contract schema cannot express: `locate` over resources without
+/// contiguous source lines.
+///
+/// Precondition: `query` passed `contracts::prepare_many_and_validate` (the
+/// engine is clasify's only entry and validates every row; clasify never
+/// mints cursors) and then `normalize_ids`. Shape, brief, id, context,
+/// prefilter-tool, and cell-limit rules are therefore contract-owned and not
+/// re-checked here.
 pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError> {
-    let query = query
-        .as_object()
-        .ok_or_else(|| request_error("Query must be an object."))?;
-    if !query.get("reasoning").is_some_and(valid_brief) {
-        return Err(request_error(
-            "reasoning must be a nonblank string of at most 500 characters.",
-        ));
-    }
-    if !query.get("goal").is_some_and(valid_brief) {
-        return Err(request_error(
-            "goal must be a nonblank string of at most 500 characters.",
-        ));
-    }
-    let expected_keys = 5 + usize::from(query.contains_key("carry"));
-    if query.len() != expected_keys
-        || query.get("carry").is_some_and(|carry| !carry.is_object())
-        || !query.get("id").is_some_and(valid_matrix_id)
-        || !query.get("resources").is_some_and(Value::is_array)
-        || !query.get("questions").is_some_and(Value::is_array)
-    {
-        return Err(request_error(
-            "Supply an id, resources, and typed questions.",
-        ));
-    }
     let resources = query["resources"]
         .as_array()
         .ok_or_else(|| request_error("Resources must be an array."))?;
     let questions = query["questions"]
         .as_array()
         .ok_or_else(|| request_error("Questions must be an array."))?;
-    if resources.is_empty()
-        || questions.is_empty()
-        || resources.len().saturating_mul(questions.len()) > 25
-    {
-        return Err(request_error(
-            "Supply 1–25 resources/questions with at most 25 matrix cells.",
-        ));
-    }
-    for resource in resources {
-        if !resource.get("id").is_some_and(valid_matrix_id) {
-            return Err(request_error(
-                "Every resource requires a valid correlation id.",
-            ));
-        }
-        let context = resource
-            .get("context")
-            .and_then(Value::as_object)
-            .ok_or_else(|| request_error("Every resource requires context."))?;
-        let value_context = context.len() == 1 && context.get("value").is_some_and(entry);
-        let tool = context.get("tool").and_then(Value::as_str);
-        let candidate_evidence = context.get("candidateEvidence").and_then(Value::as_str);
-        let candidate_search = matches!(tool, Some("localSearch" | "ghSearchCode"));
-        let candidate_evidence_valid = match candidate_evidence {
-            None => true,
-            Some("search" | "fileChunks") => candidate_search,
-            Some(_) => false,
-        };
-        let tool_context = context.len() == 2 + usize::from(candidate_evidence.is_some())
-            && tool.is_some_and(is_context_tool)
-            && context.get("query").is_some_and(Value::is_object)
-            && candidate_evidence_valid;
-        if !value_context && !tool_context {
-            return Err(request_error(
-                "Resource context requires a non-empty value, or an allowed read tool with one ordinary query.",
-            ));
-        }
-        let prefiltered = resource
-            .get("prefilter")
-            .and_then(Value::as_array)
-            .is_some_and(|terms| !terms.is_empty());
-        if prefiltered && !matches!(tool, Some("localFetch" | "ghGetFileContent")) {
-            return Err(ClassificationError {
-                code: "invalidClassificationContext".into(),
-                message: format!(
-                    "prefilter applies only to localFetch or ghGetFileContent file reads; resource {} would ignore it.",
-                    resource["id"].as_str().unwrap_or("?")
-                ),
-                hints: vec![
-                    "Remove prefilter, or narrow a search with its own searchText/keywords and include filters.".into(),
-                ],
-                ..Default::default()
-            });
-        }
-    }
     let mut resolved = Vec::with_capacity(questions.len());
     for question in questions {
-        if !question.get("id").is_some_and(valid_matrix_id) {
-            return Err(request_error(
-                "Every question requires a valid correlation id.",
-            ));
-        }
         let expanded = questions::expand(&question["question"])?;
         if !questions::is_locate(&expanded) {
             validate_question(&expanded)?;
@@ -213,24 +153,6 @@ pub(crate) fn preflight(query: &Value) -> Result<Vec<Value>, ClassificationError
         }
     }
     Ok(resolved)
-}
-
-fn valid_brief(value: &Value) -> bool {
-    value.as_str().is_some_and(|text| {
-        text.chars().count() <= 500 && text.chars().any(|char| !char.is_whitespace())
-    })
-}
-
-fn valid_matrix_id(value: &Value) -> bool {
-    let Some(value) = value.as_str() else {
-        return false;
-    };
-    let bytes = value.as_bytes();
-    (1..=64).contains(&bytes.len())
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn validate_question(question: &Value) -> Result<(), ClassificationError> {
@@ -408,16 +330,49 @@ mod tests {
             "questions":[{"id":"relevance.v1","question":question}]
         })
     }
+    /// Clasify's engine path: contract validation of the public shape (flat
+    /// questions), `normalize_ids`' internal `{id, question}` rows, then preflight.
+    fn admitted(query: &Value) -> Result<Vec<Value>, ClassificationError> {
+        let mut raw = query.clone();
+        for row in raw["questions"].as_array_mut().expect("questions") {
+            let mut flat = row["question"].clone();
+            if let Some(id) = row.get("id") {
+                flat["id"] = id.clone();
+            }
+            *row = flat;
+        }
+        let mut validated = crate::contracts::prepare_and_validate(
+            "clasify",
+            raw,
+            crate::contracts::PrepareOptions::default(),
+        )
+        .map_err(|error| request_error(&format!("{error:?}")))?;
+        for (index, row) in validated["questions"]
+            .as_array_mut()
+            .expect("questions")
+            .iter_mut()
+            .enumerate()
+        {
+            let mut question = row.clone();
+            let id = question
+                .as_object_mut()
+                .and_then(|question| question.remove("id"))
+                .unwrap_or_else(|| json!(format!("question-{}", index + 1)));
+            *row = json!({"id":id,"question":question});
+        }
+        preflight(&validated)
+    }
+
     #[test]
     fn preflight_accepts_a_continuation_that_carries_the_running_best() {
         let mut query = semantic_query(json!({"value":"x"}), question());
         query["carry"] = json!({"t":[{"resourceId":"resource-1","exists":0.9,"startLine":1,"endLine":8,"probability":0.5}]});
-        assert!(preflight(&query).is_ok());
+        assert!(admitted(&query).is_ok());
         query["carry"] = json!("not a map");
-        assert!(preflight(&query).is_err());
+        assert!(admitted(&query).is_err());
         query.as_object_mut().unwrap().remove("carry");
         query["unexpected"] = json!(1);
-        assert!(preflight(&query).is_err());
+        assert!(admitted(&query).is_err());
     }
 
     #[test]
@@ -425,12 +380,19 @@ mod tests {
         let search = json!({"tool":"localSearch","query":{"path":"/repo","searchText":"retry"}});
         let mut query = semantic_query(search, question());
         query["resources"][0]["prefilter"] = json!(["retry"]);
-        let error = preflight(&query).expect_err("search resources cannot prefilter");
-        assert_eq!(error.code, "invalidClassificationContext");
+        // Contract validation owns the rule (same stage and wording as core).
+        let error = admitted(&query).expect_err("search resources cannot prefilter");
+        assert!(
+            error
+                .message
+                .contains("prefilter applies only to localFetch or ghGetFileContent"),
+            "{}",
+            error.message
+        );
         let read = json!({"tool":"localFetch","query":{"path":"/repo/a.rs"}});
         let mut query = semantic_query(read, question());
         query["resources"][0]["prefilter"] = json!(["retry"]);
-        assert!(preflight(&query).is_ok());
+        assert!(admitted(&query).is_ok());
     }
 
     fn budget() -> RequestBudget {
@@ -452,7 +414,7 @@ mod tests {
     fn reasoning_and_goal_are_required_briefs_and_stay_off_the_expanded_question() {
         let provider = jev_provider();
         let mut query = semantic_query(json!({"value":{"observation":true}}), question());
-        let resolved = preflight(&query).expect("required briefs accepted");
+        let resolved = admitted(&query).expect("required briefs accepted");
         assert!(resolved[0]["question"].get("goal").is_none());
         assert!(resolved[0]["question"].get("reasoning").is_none());
         assert_eq!(
@@ -466,11 +428,11 @@ mod tests {
             json!({"model":"m","state":{"observation":true},"questions":{"answer":question()}})
         );
         query["carry"] = json!({"t":[{"resourceId":"resource-1","exists":0.9,"startLine":1,"endLine":8,"probability":0.5}]});
-        assert!(preflight(&query).is_ok());
+        assert!(admitted(&query).is_ok());
         for field in ["reasoning", "goal"] {
             let mut missing = query.clone();
             missing.as_object_mut().unwrap().remove(field);
-            assert!(preflight(&missing).is_err(), "missing {field}");
+            assert!(admitted(&missing).is_err(), "missing {field}");
             for invalid in [
                 Value::Null,
                 json!(7),
@@ -480,7 +442,7 @@ mod tests {
             ] {
                 let mut bad = query.clone();
                 bad[field] = invalid.clone();
-                assert!(preflight(&bad).is_err(), "{field} {invalid}");
+                assert!(admitted(&bad).is_err(), "{field} {invalid}");
             }
         }
     }
@@ -489,7 +451,7 @@ mod tests {
     fn correlation_ids_are_validated_but_never_sent_to_the_provider() {
         let provider = jev_provider();
         let query = semantic_query(json!({"value":{"observation":true}}), question());
-        let resolved = preflight(&query).expect("valid correlation IDs");
+        let resolved = admitted(&query).expect("valid correlation IDs");
         assert_eq!(resolved[0]["id"], query["questions"][0]["id"]);
         assert_eq!(
             prepare(
@@ -506,20 +468,21 @@ mod tests {
         let mut invalid_id = query.clone();
         invalid_id["resources"][0]["id"] = json!("bad id");
         for invalid in [null_id, invalid_id] {
-            assert!(preflight(&invalid).is_err());
+            assert!(admitted(&invalid).is_err());
         }
         let mut missing = query;
         missing["questions"][0]
             .as_object_mut()
             .unwrap()
             .remove("id");
-        assert!(preflight(&missing).is_err());
+        let derived = admitted(&missing).expect("omitted ids are derived after validation");
+        assert_eq!(derived[0]["id"], "question-1");
     }
 
     #[test]
     fn one_question_and_explicit_context_replace_all_legacy_shapes() {
         for value in [json!(["one"]), json!({"value":"one"}), json!("literal")] {
-            assert!(preflight(&semantic_query(json!({"value":value}), question())).is_ok());
+            assert!(admitted(&semantic_query(json!({"value":value}), question())).is_ok());
         }
         for tool in [
             "localFetch",
@@ -536,13 +499,11 @@ mod tests {
             "ghGetHistoryItem",
             "artifactSearch",
         ] {
-            assert!(
-                preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_ok()
-            );
+            assert!(admitted(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_ok());
         }
         for tool in ["jev", "clasify", "astRewrite", "ghCloneRepo", "unknown"] {
             assert!(
-                preflight(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_err()
+                admitted(&semantic_query(json!({"tool":tool,"query":{}}), question())).is_err()
             );
         }
         for context in [
@@ -551,7 +512,7 @@ mod tests {
             json!({"tool":"ghSearchCode","query":{},"candidateEvidence":"search"}),
             json!({"tool":"ghSearchCode","query":{},"candidateEvidence":"fileChunks"}),
         ] {
-            assert!(preflight(&semantic_query(context, question())).is_ok());
+            assert!(admitted(&semantic_query(context, question())).is_ok());
         }
         for context in [
             json!({"tool":"localFetch","query":{},"candidateEvidence":"fileChunks"}),
@@ -560,7 +521,7 @@ mod tests {
             json!({"tool":"ghSearchRepo","query":{},"candidateEvidence":"fileChunks"}),
             json!({"tool":"localSearch","query":{},"candidateEvidence":"unknown"}),
         ] {
-            assert!(preflight(&semantic_query(context, question())).is_err());
+            assert!(admitted(&semantic_query(context, question())).is_err());
         }
         for invalid in [
             semantic_query(json!({"value":true}), question()),
@@ -570,7 +531,7 @@ mod tests {
             ),
             semantic_query(json!({"value":null}), question()),
         ] {
-            assert!(preflight(&invalid).is_err());
+            assert!(admitted(&invalid).is_err());
         }
     }
 
@@ -585,7 +546,7 @@ mod tests {
             json!({"tool":"ghSearchCode","query":{},"candidateEvidence":"fileChunks"}),
             json!({"value":"supplied"}),
         ] {
-            assert!(preflight(&semantic_query(context, locate.clone())).is_ok());
+            assert!(admitted(&semantic_query(context, locate.clone())).is_ok());
         }
         for context in [
             json!({"tool":"localFetch","query":{"minify":"standard"}}),
@@ -602,11 +563,11 @@ mod tests {
             json!({"tool":"ghGetHistoryItem","query":{}}),
             json!({"tool":"artifactSearch","query":{}}),
         ] {
-            let error = preflight(&semantic_query(context.clone(), locate.clone()))
+            let error = admitted(&semantic_query(context.clone(), locate.clone()))
                 .expect_err("locate needs source lines");
             assert_eq!(error.code, "classificationLocateUnsupported", "{context}");
             assert!(error.message.contains("resource-1"));
-            assert!(preflight(&semantic_query(context, question())).is_ok());
+            assert!(admitted(&semantic_query(context, question())).is_ok());
         }
     }
 

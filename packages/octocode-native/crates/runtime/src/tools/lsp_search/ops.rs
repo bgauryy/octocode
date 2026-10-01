@@ -15,6 +15,7 @@ use super::render::uri_to_path;
 use super::source::{SourceCache, filter_authorized_items};
 use super::walk::hierarchy;
 use crate::tools::cancel::CancellationCheck;
+use crate::tools::id::ToolId;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
 use octocode_engine::lsp::config::{representative_source_for, workspace_root_languages};
 use serde_json::{Value, json};
@@ -349,7 +350,7 @@ impl Operation<'_, '_> {
                 let language = language_name(extension);
                 others.push(language);
                 row["next"][format!("search{}", capitalized(language))] = json!({
-                    "tool": "lspSearch",
+                    "tool": ToolId::LspSearch.as_str(),
                     "confidence": "medium",
                     "why": format!("Search the {language} project that shares this workspace root."),
                     "query": {

@@ -20,7 +20,6 @@ use std::io::{self, Write};
 #[command(
     name = "octocode",
     version,
-    mut_subcommands = canonical_tool_help,
     about = "Native Octocode research tools",
     // Keep in sync with the "Exit codes" table in packages/octocode-native/README.md.
     long_about = "Native Octocode research tools.\n\n\
@@ -55,19 +54,6 @@ pub struct Args {
     no_color: bool,
     #[command(subcommand)]
     command: Command,
-}
-
-/// Core owns tool guidance; system command help remains interface-owned.
-fn canonical_tool_help(command: clap::Command) -> clap::Command {
-    let description = octocode_native::contracts::parsed_contract()
-        .ok()
-        .and_then(|contract| contract["tools"].as_array())
-        .and_then(|tools| tools.iter().find(|tool| tool["name"] == command.get_name()))
-        .and_then(|tool| tool["shortDescription"].as_str());
-    match description {
-        Some(description) => command.about(description),
-        None => command,
-    }
 }
 
 /// The one `--json-errors` envelope, shared with contract input errors
@@ -139,14 +125,31 @@ where
     }
 }
 
-/// Fields shared by every query; listing them per mode is noise.
-const META_FIELDS: &[&str] = &["reasoning", "goal", "debug"];
+/// Fields the contract adds to every query of `tool` (the trimmed
+/// `goal`/`reasoning` pair and the defaulted `debug` flag); listing them per
+/// mode is noise.
+fn meta_fields(tool: &Value) -> Vec<&str> {
+    let rules = tool["rules"].as_array().into_iter().flatten();
+    rules
+        .flat_map(|rule| match rule["id"].as_str() {
+            Some("prepare.reasoning-trim") => rule["args"]["fields"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect(),
+            Some("prepare.debug") => rule["args"]["field"].as_str().into_iter().collect(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
 
 /// Compact field list for `scheme` rows. Union tools (`anyOf`/`oneOf`) list
 /// each mode, labelled by its discriminator const (or branch title):
 /// `operation=code[keywords*, owner*, …] | operation=tree[…]`.
 fn compact_fields(tool: &Value) -> String {
     let schema = tool.get("querySchema").unwrap_or(&Value::Null);
+    let meta = meta_fields(tool);
     let resolve = |variant: &'_ Value| -> Value {
         variant
             .get("$ref")
@@ -162,7 +165,7 @@ fn compact_fields(tool: &Value) -> String {
         .map(|items| items.iter().map(resolve).collect())
         .unwrap_or_else(|| vec![schema.clone()]);
     if variants.len() == 1 {
-        return variant_fields(&variants[0], None, 8);
+        return variant_fields(&variants[0], None, &meta, 8);
     }
     let required_of = |variant: &Value| -> Vec<String> {
         variant["required"]
@@ -231,14 +234,19 @@ fn compact_fields(tool: &Value) -> String {
         .map(|(variant, (label, discriminator))| {
             format!(
                 "{label}{}",
-                variant_fields(variant, discriminator.as_deref(), 6)
+                variant_fields(variant, discriminator.as_deref(), &meta, 6)
             )
         })
         .collect::<Vec<_>>()
         .join(" | ")
 }
 
-fn variant_fields(schema: &Value, discriminator: Option<&str>, max_fields: usize) -> String {
+fn variant_fields(
+    schema: &Value,
+    discriminator: Option<&str>,
+    meta: &[&str],
+    max_fields: usize,
+) -> String {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return "[]".to_owned();
     };
@@ -257,7 +265,7 @@ fn variant_fields(schema: &Value, discriminator: Option<&str>, max_fields: usize
         // `{"not":{}}` marks a field this mode forbids.
         .filter(|(name, field)| {
             Some(name.as_str()) != discriminator
-                && !META_FIELDS.contains(&name.as_str())
+                && !meta.contains(&name.as_str())
                 && field.get("not").is_none()
         })
         .map(|(name, _)| name.as_str())
@@ -275,10 +283,11 @@ fn variant_fields(schema: &Value, discriminator: Option<&str>, max_fields: usize
     format!("[{}]", fields.join(", "))
 }
 
-/// Env-var hint for a disabled tool.
-/// Delegates to `ToolId::availability_env_hint` — tool names are not re-spelled here.
-fn availability_env_var(name: &str) -> Option<&'static str> {
-    ToolId::from_name(name)?.availability_env_hint()
+/// Env vars that gate a disabled tool, from the config contract bindings of
+/// its gating key (`ToolId::availability_config_path`).
+fn availability_env_var(name: &str) -> Option<String> {
+    let vars = ToolId::from_name(name)?.availability_env_vars();
+    (!vars.is_empty()).then(|| vars.join("|"))
 }
 
 /// Text for a disabled tool whose gating env key was present in a `.env`
@@ -287,21 +296,31 @@ fn dropped_key_hint(
     env_vars: &str,
     dotenv: &octocode_native::config::EnvApplyReport,
 ) -> Option<String> {
-    for key in env_vars.split('|') {
-        for alias in [key.to_owned(), format!("OCTOCODE_{key}")] {
-            if dotenv.skipped_protected.contains(&alias) {
-                return Some(format!(
-                    "{alias} was found in a .env file but dropped (protected); set it in the process environment or config file"
-                ));
-            }
-            if dotenv.skipped_existing.contains(&alias) {
-                return Some(format!(
-                    "{alias} in a .env file is shadowed by the process environment"
-                ));
-            }
+    // `env_vars` already lists every alias the config contract binds.
+    for alias in env_vars.split('|').map(str::to_owned) {
+        if dotenv.skipped_protected.contains(&alias) {
+            return Some(format!(
+                "{alias} was found in a .env file but dropped (protected); set it in the process environment or config file"
+            ));
+        }
+        if dotenv.skipped_existing.contains(&alias) {
+            return Some(format!(
+                "{alias} in a .env file is shadowed by the process environment"
+            ));
         }
     }
     None
+}
+
+/// Config paths that include or exclude tools by name (`tools.enabled` /
+/// `tools.disabled`), from the config contract.
+fn tool_list_config_paths() -> String {
+    octocode_native::config::CONFIG_FIELDS
+        .iter()
+        .filter(|field| field.section == "tools")
+        .map(|field| field.path)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn compact_tool_catalog(
@@ -333,13 +352,12 @@ fn compact_tool_catalog(
                         if let Some(env_var) =
                             availability_env_var(name).filter(|_| !tool_list_excluded)
                         {
-                            availability["envVar"] = Value::String(env_var.to_owned());
-                            if let Some(hint) = dropped_key_hint(env_var, dotenv) {
+                            if let Some(hint) = dropped_key_hint(&env_var, dotenv) {
                                 availability["hint"] = Value::String(hint);
                             }
+                            availability["envVar"] = Value::String(env_var);
                         } else {
-                            availability["configuration"] =
-                                Value::String("tools.enabled/tools.disabled".to_owned());
+                            availability["configuration"] = Value::String(tool_list_config_paths());
                         }
                     }
                     let fields = contract_tools
@@ -399,32 +417,7 @@ pub async fn run(args: Args) -> u8 {
 
 async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) -> u8 {
     match command {
-        Command::LocalSearch(args) => run_tool(runtime, "localSearch", args, json_errors).await,
-        Command::LocalFetch(args) => run_tool(runtime, "localFetch", args, json_errors).await,
-        Command::StructureSearch(args) => {
-            run_tool(runtime, "structureSearch", args, json_errors).await
-        }
-        Command::AstSearch(args) => run_tool(runtime, "astSearch", args, json_errors).await,
-        Command::AstTopology(args) => run_tool(runtime, "astTopology", args, json_errors).await,
-        Command::AstRewrite(args) => run_tool(runtime, "astRewrite", args, json_errors).await,
-        Command::LspSearch(args) => run_tool(runtime, "lspSearch", args, json_errors).await,
-        Command::GhSearchRepo(args) => run_tool(runtime, "ghSearchRepo", args, json_errors).await,
-        Command::GhSearchCode(args) => run_tool(runtime, "ghSearchCode", args, json_errors).await,
-        Command::GhStructure(args) => run_tool(runtime, "ghStructure", args, json_errors).await,
-        Command::GhGetFileContent(args) => {
-            run_tool(runtime, "ghGetFileContent", args, json_errors).await
-        }
-        Command::GhSearchHistory(args) => {
-            run_tool(runtime, "ghSearchHistory", args, json_errors).await
-        }
-        Command::GhGetHistoryItem(args) => {
-            run_tool(runtime, "ghGetHistoryItem", args, json_errors).await
-        }
-        Command::GhCloneRepo(args) => run_tool(runtime, "ghCloneRepo", args, json_errors).await,
-        Command::ArtifactSearch(args) => {
-            run_tool(runtime, "artifactSearch", args, json_errors).await
-        }
-        Command::Clasify(args) => run_tool(runtime, "clasify", args, json_errors).await,
+        Command::Tool(tool) => run_tool(runtime, tool.name, tool.args, json_errors).await,
         Command::Scheme {
             tool,
             view,
@@ -881,22 +874,19 @@ fn all_rows_invalid_input(value: &Value) -> bool {
 /// `{tool,query}` row continuation); remaining coverage is still exit 6.
 fn has_clasify_continuation(value: &Value) -> bool {
     value["queries"].as_array().is_some_and(|queries| {
-        queries
-            .iter()
-            .any(|query| query.pointer("/next/clasify").is_some_and(Value::is_object))
+        queries.iter().any(|query| {
+            query
+                .get("next")
+                .and_then(|next| next.get(ToolId::Clasify.as_str()))
+                .is_some_and(Value::is_object)
+        })
     })
 }
 
-/// `next.*` names that mean more of this result remains. Drill-downs
-/// (`get*`, `read*`, `verify*`) are optional follow-ups on a complete result
-/// and must not turn success into "more pages" (exit 6).
-fn is_continuation_name(name: &str) -> bool {
-    ["next", "continue", "expand", "retry"]
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
-}
-
+/// A row with more of its result remaining: an open `next.*` page/resume
+/// call (the runtime's continuation-name set) or a partial source read.
 fn has_cli_continuation(row: &Value) -> bool {
+    use octocode_native::runtime::response::{continuation, is_remaining_continuation_name};
     // A row that declares `complete:true` has nothing left to page; any
     // `next.*` it carries (e.g. astSearch `expandCaptures`) is a drill-down.
     let complete = row.pointer("/data/complete") == Some(&Value::Bool(true));
@@ -904,31 +894,16 @@ fn has_cli_continuation(row: &Value) -> bool {
         && (row
             .pointer("/data/next")
             .and_then(Value::as_object)
-            .is_some_and(|calls| calls.keys().any(|name| is_continuation_name(name)))
-            || has_nested_executable_next(&row["data"])))
+            .is_some_and(|calls| {
+                calls
+                    .keys()
+                    .any(|name| is_remaining_continuation_name(name))
+            })
+            || continuation(&row["data"], &is_remaining_continuation_name)))
         || (octocode_native::runtime::response::is_partial(&row["data"])
             && row["data"]["content"]
                 .as_str()
                 .is_some_and(|text| !text.is_empty()))
-}
-
-fn has_nested_executable_next(value: &Value) -> bool {
-    match value {
-        Value::Object(map) => map.iter().any(|(key, child)| {
-            if key == "next" {
-                return child.as_object().is_some_and(|calls| {
-                    calls.iter().any(|(name, call)| {
-                        is_continuation_name(name)
-                            && call.get("tool").is_some_and(Value::is_string)
-                            && call.get("query").is_some_and(Value::is_object)
-                    })
-                });
-            }
-            has_nested_executable_next(child)
-        }),
-        Value::Array(values) => values.iter().any(has_nested_executable_next),
-        _ => false,
-    }
 }
 
 pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
@@ -992,6 +967,25 @@ mod tests {
             json!({"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"bad"})
         );
         assert!(error_envelope(None, "bad").get("tool").is_none());
+    }
+
+    #[test]
+    fn every_contract_tool_parses_as_a_tool_command() {
+        use clap::CommandFactory;
+        super::Args::command().debug_assert();
+        let contract = octocode_native::contracts::parsed_contract().expect("contract");
+        for tool in contract["tools"].as_array().expect("tools") {
+            let name = tool["name"].as_str().expect("name");
+            let args = parse_args_from(["octocode", name, "{}", "--pretty"]).expect(name);
+            match args.command {
+                super::Command::Tool(command) => {
+                    assert_eq!(command.name, name);
+                    assert_eq!(command.args.query.as_deref(), Some("{}"));
+                    assert!(command.args.pretty);
+                }
+                _ => panic!("{name} did not parse as a tool"),
+            }
+        }
     }
 
     #[test]
