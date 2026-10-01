@@ -607,9 +607,7 @@ pub fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
 /// Every top-level field a minimization rule can remove for this tool.
 fn is_removable(tool: ToolId, key: &str) -> bool {
     is_pagination_key(key)
-        || debug_only_fields(tool)
-            .iter()
-            .any(|path| path.split('.').next() == Some(key))
+        || debug_only_fields(tool).contains(&key)
         || matches!(
             key,
             "truncated"
@@ -785,6 +783,11 @@ const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
             "returnedBytes",
             "selectedMatchCount",
         ],
+        ToolId::GhGetFileContent => &[
+            "files.sourceBytes",
+            "files.returnedBytes",
+            "files.selectedMatchCount",
+        ],
         ToolId::StructureSearch => &["filesScanned"],
         ToolId::AstTopology => &["filesScanned"],
         ToolId::GhSearchHistory => &["effectiveQuery", "scope"],
@@ -793,13 +796,19 @@ const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
     }
 }
 
+/// Remove a dotted field path; a segment naming an array applies the rest of
+/// the path to each object in it (`files.sourceBytes`).
 fn remove_path(data: &mut Map<String, Value>, path: &str) {
     match path.split_once('.') {
-        Some((head, rest)) => {
-            if let Some(child) = data.get_mut(head).and_then(Value::as_object_mut) {
-                remove_path(child, rest);
+        Some((head, rest)) => match data.get_mut(head) {
+            Some(Value::Object(child)) => remove_path(child, rest),
+            Some(Value::Array(items)) => {
+                for child in items.iter_mut().filter_map(Value::as_object_mut) {
+                    remove_path(child, rest);
+                }
             }
-        }
+            _ => {}
+        },
         None => {
             data.remove(path);
         }
@@ -1424,7 +1433,10 @@ mod tests {
             json!({"owner":"o","repo":"r"}),
             json!({"totalSize":1,"location":{"localPath":"/x"}}),
         );
-        assert_eq!(clone_row["data"]["location"]["localPath"], "/x", "{clone_row}");
+        assert_eq!(
+            clone_row["data"]["location"]["localPath"], "/x",
+            "{clone_row}"
+        );
         assert_eq!(clone_row["data"]["totalSize"], 1, "{clone_row}");
     }
 
@@ -1575,6 +1587,23 @@ mod tests {
             json!({"content":"x","modified":"t","sourceBytes":1,"totalLines":9}),
         );
         assert_eq!(fetch["data"], json!({"content":"x","totalLines":9}));
+        // A GitHub read row is the same read: its byte accounting is debug-only too.
+        let file = json!({"path":"a","content":"x","sourceBytes":1,"returnedBytes":1,"selectedMatchCount":1,"totalLines":9});
+        let gh = minimized(
+            ToolId::GhGetFileContent,
+            json!({}),
+            json!({"files":[file.clone()]}),
+        );
+        assert_eq!(
+            gh["data"],
+            json!({"files":[{"path":"a","content":"x","totalLines":9}]})
+        );
+        let debug = minimized(
+            ToolId::GhGetFileContent,
+            json!({"debug":true}),
+            json!({"files":[file.clone()]}),
+        );
+        assert_eq!(debug["data"]["files"][0], file);
     }
 
     #[test]

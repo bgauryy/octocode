@@ -496,22 +496,9 @@ impl GitHubServices {
                 .repository_metadata(&query.owner, &query.repo, request_context)
                 .await
                 .err();
-            if let Some(result) = classify_clone_git_failure(&query, api) {
-                return Ok(result);
-            }
+            return Ok(classify_clone_git_failure(&query, error, api));
         }
-        let kind = if error.code == "clone.sparsePath.notFound" {
-            FailureKind::NotFound
-        } else {
-            FailureKind::Execution
-        };
-        Ok(DomainResult::failure(
-            error.code,
-            error.message,
-            error.hints,
-            None,
-            kind,
-        ))
+        Ok(clone_failure(error))
     }
 
     async fn execute_file_resolved(
@@ -1136,60 +1123,115 @@ fn history_error(error: ProviderError, search: bool) -> DomainResult {
     row
 }
 
+fn clone_failure(error: gh_clone_repo::CloneError) -> DomainResult {
+    let kind = match error.code.as_str() {
+        "clone.sparsePath.notFound" | "clone.repositoryNotFound" => FailureKind::NotFound,
+        _ => FailureKind::Execution,
+    };
+    DomainResult::failure(error.code, error.message, error.hints, None, kind)
+}
+
 /// After git failed, the repository metadata answer explains why: a missing,
-/// private, or hidden repository is named as such, and an API failure
-/// (auth, rate limit, outage) keeps its typed provider error. When the
-/// repository exists (`None`), the git error stands.
+/// private, or hidden repository is named as such, and a credential the API
+/// rejects keeps its typed provider error. When the repository exists (`None`)
+/// or the API itself failed (rate limit, outage, timeout), that answer says
+/// nothing about the repository, so the git error stands and the API failure
+/// is a hint.
 fn classify_clone_git_failure(
     query: &gh_clone_repo::GhCloneRepoQuery,
+    mut git: gh_clone_repo::CloneError,
     api: Option<crate::providers::github::ProviderError>,
-) -> Option<DomainResult> {
-    let api = api?;
-    if api.kind == ProviderErrorKind::NotFound {
-        let missing = gh_clone_repo::repository_not_found(query);
-        return Some(DomainResult::failure(
-            missing.code,
-            missing.message,
-            missing.hints,
-            None,
-            FailureKind::NotFound,
-        ));
+) -> DomainResult {
+    let Some(api) = api else {
+        return clone_failure(git);
+    };
+    match api.kind {
+        ProviderErrorKind::NotFound => clone_failure(gh_clone_repo::repository_not_found(query)),
+        ProviderErrorKind::Authentication | ProviderErrorKind::Permission => provider_error(api),
+        _ => {
+            git.hints.push(format!(
+                "The GitHub API repository check also failed: {}",
+                api.message
+            ));
+            clone_failure(git)
+        }
     }
-    Some(provider_error(api))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// ghCloneRepo S2: the metadata API runs only after git failed, and its
-    /// answer decides the error class.
+    /// The metadata API runs only after git failed. A missing repository or a
+    /// rejected credential decides the error class; an API outage, rate limit,
+    /// or timeout keeps the git error and adds the API failure as a hint.
     #[test]
     fn clone_git_failures_are_classified_by_the_metadata_answer() {
         let query: gh_clone_repo::GhCloneRepoQuery = serde_json::from_value(
             json!({"owner":"ghost","repo":"nope","goal":"g","reasoning":"r"}),
         )
         .expect("query");
-        assert!(
-            classify_clone_git_failure(&query, None).is_none(),
-            "an existing repository keeps the git error"
-        );
+        let git = || gh_clone_repo::CloneError {
+            code: "clone.git.failed".into(),
+            message: "git clone exited with 128".into(),
+            hints: vec!["Check network access to the git remote.".into()],
+        };
+        let api = |kind, status: u16, message: &str| ProviderError {
+            status: Some(status),
+            ..ProviderError::new(kind, message.to_owned())
+        };
+        let existing = classify_clone_git_failure(&query, git(), None);
+        assert_eq!(existing.data["errorCode"], "clone.git.failed");
+        assert_eq!(existing.failure, Some(FailureKind::Execution));
+
         let missing = classify_clone_git_failure(
             &query,
-            Some(ProviderError::new(ProviderErrorKind::NotFound, "Not Found")),
-        )
-        .expect("classified");
+            git(),
+            Some(api(ProviderErrorKind::NotFound, 404, "Not Found")),
+        );
         assert_eq!(missing.data["errorCode"], "clone.repositoryNotFound");
+        assert_eq!(missing.data["error"], "Repository not found: ghost/nope");
         assert_eq!(missing.failure, Some(FailureKind::NotFound));
-        let limited = classify_clone_git_failure(
-            &query,
-            Some(ProviderError::new(
-                ProviderErrorKind::RateLimited,
-                "slow down",
-            )),
-        )
-        .expect("classified");
-        assert_eq!(limited.data["errorCode"], "rateLimited", "{}", limited.data);
+        let hint = missing.data["hints"][0].as_str().expect("repo hint");
+        assert!(
+            !hint.ends_with('…') && hint.ends_with("token access."),
+            "the access hint stays whole: {hint}"
+        );
+
+        for (kind, status, code) in [
+            (ProviderErrorKind::Authentication, 401, "authentication"),
+            (ProviderErrorKind::Permission, 403, "permission"),
+        ] {
+            let rejected = classify_clone_git_failure(
+                &query,
+                git(),
+                Some(api(kind, status, "metadata unavailable")),
+            );
+            assert_eq!(rejected.data["errorCode"], code, "{}", rejected.data);
+            assert_eq!(rejected.data["httpStatus"], status, "{}", rejected.data);
+            assert!(rejected.data["hints"][0].is_string(), "{}", rejected.data);
+        }
+
+        for (kind, status) in [
+            (ProviderErrorKind::RateLimited, 429),
+            (ProviderErrorKind::Server, 503),
+            (ProviderErrorKind::Timeout, 0),
+        ] {
+            let transient = classify_clone_git_failure(
+                &query,
+                git(),
+                Some(api(kind, status, "metadata unavailable")),
+            );
+            assert_eq!(
+                transient.data["errorCode"], "clone.git.failed",
+                "{kind:?} must not mask the git error: {}",
+                transient.data
+            );
+            assert_eq!(transient.failure, Some(FailureKind::Execution));
+            let hints = transient.data["hints"].to_string();
+            assert!(hints.contains("Check network access"), "{hints}");
+            assert!(hints.contains("metadata unavailable"), "{hints}");
+        }
     }
 
     #[test]

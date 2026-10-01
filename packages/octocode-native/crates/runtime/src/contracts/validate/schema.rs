@@ -337,14 +337,6 @@ fn compiled_pattern(pattern: &str) -> Result<Regex, String> {
         .clone()
 }
 
-#[cfg(test)]
-fn pattern_cached(pattern: &str) -> bool {
-    pattern_cache()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .contains_key(pattern)
-}
-
 /// A blank value fails the non-blank patterns (`\S`) the briefs and paths
 /// use; name the fix instead of the regex.
 fn pattern_message(value: &str, path: &[String]) -> String {
@@ -508,9 +500,16 @@ mod tests {
         }
     }
 
+    fn pattern_cached(pattern: &str) -> bool {
+        super::pattern_cache()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains_key(pattern)
+    }
+
     /// Contract patterns are a fixed set; compiling one per validated string
-    /// cost ~150 ms per response that carries continuations (each one is
-    /// validated against every tool's query schema).
+    /// is a per-response cost, since every continuation is validated against
+    /// every tool's query schema.
     #[test]
     fn schema_patterns_compile_once_per_process() {
         let pattern = "^cache-probe-[a-z]{3}$";
@@ -518,7 +517,7 @@ mod tests {
         for value in ["cache-probe-abc", "cache-probe-xyz", "nope"] {
             let _ = validate_schema(&schema, &schema, &mut json!(value), &mut vec![]);
         }
-        assert!(super::pattern_cached(pattern));
+        assert!(pattern_cached(pattern));
         let mut bad = json!("cache-probe-ab");
         assert!(validate_schema(&schema, &schema, &mut bad, &mut vec![]).is_err());
     }

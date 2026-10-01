@@ -1078,7 +1078,7 @@ fn merge_context_windows(
         lines: Vec<String>,
         match_lines: Vec<u32>,
     }
-    // Every window is numbered `<line>\t<text>` (the C5 form), so a cited
+    // Every window is numbered `<line>\t<text>`, so a cited
     // line never has to be counted from `line`.
     fn flush(block: Block) -> SearchMatch {
         let mut head = block.head;

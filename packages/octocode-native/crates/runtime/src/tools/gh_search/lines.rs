@@ -1,7 +1,7 @@
 //! Line-anchored hits for repo-scoped code searches. GitHub's code index
 //! returns at most a few unnumbered fragments per file, so the top files are
 //! read (core API quota, through the contents cache) and every line holding a
-//! keyword is listed as `"<line>\t<text>"` (the C5 numbered-line form), the
+//! keyword is listed as `"<line>\t<text>"` (the numbered-line form), the
 //! way `grep -n` would.
 use crate::providers::github::{
     CredentialResolver, GitHubProvider, ProviderError, ProviderErrorKind, RequestContext,

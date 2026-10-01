@@ -63,10 +63,8 @@ where
     R: CredentialResolver,
     C: ConditionalCache,
 {
-    // Resolve the ref once (memoized across a batch), then read the body and
-    // the last-commit timestamp at the immutable SHA concurrently: the
-    // timestamp is off the critical path (2 round trips, not 3). A page after
-    // the first skips it.
+    // Resolve the ref once (memoized across a batch), then read the body at
+    // the immutable SHA.
     let fetched = match provider
         .resolve_reference(
             &query.owner,
@@ -82,26 +80,17 @@ where
                 owner: query.owner.to_string(),
                 repo: query.repo.to_string(),
                 path: query.path.to_string(),
-                reference: Some(sha.clone()),
+                reference: Some(sha),
                 force_refresh: query.force_refresh.unwrap_or(false),
                 session_id: session_id.map(str::to_owned),
             };
-            let stamp = async {
-                if query.offset.unwrap_or(0) == 0 {
-                    file_timestamp(provider, query, &sha, request_context).await
-                } else {
-                    (None, None)
-                }
-            };
-            let (acquired, timestamp) = tokio::join!(
-                provider.get_file_content(&content_request, request_context),
-                stamp
-            );
-            acquired.map(|acquired| (acquired, timestamp))
+            provider
+                .get_file_content(&content_request, request_context)
+                .await
         }
         Err(error) => Err(error),
     };
-    let (acquired, (last_modified, last_modified_by)) = match fetched {
+    let acquired = match fetched {
         Ok(value) => value,
         Err(mut error)
             if error.kind == crate::providers::github::ProviderErrorKind::NotFound
@@ -115,6 +104,14 @@ where
             return Err(error);
         }
         Err(error) => return Err(error),
+    };
+    // The last-commit timestamp is diagnostic: only a debug read of the first
+    // page asks for it, after the body arrived, so a failed or throttled read
+    // never spends a second request.
+    let (last_modified, last_modified_by) = if query.debug && query.offset.unwrap_or(0) == 0 {
+        file_timestamp(provider, query, &acquired.resolved_ref, request_context).await
+    } else {
+        (None, None)
     };
     let local = local_fetch_query(query)?;
     let content = process_fetched_content(
@@ -256,8 +253,8 @@ const SMALL_FILE_BYTES: usize = 8 * 1024;
 
 /// A line or match window covering at least half of a small file returns the
 /// whole file: the rest costs little and saves the follow-up read that a
-/// window stopping short of the answer forces (G07: a ±40 window on a
-/// 124-line file stopped at line 103). Match anchors stay in `matchedLines`.
+/// window stopping short of the answer forces. Match anchors stay in
+/// `matchedLines`.
 fn complete_small_file(
     content: crate::tools::local_fetch::LocalFetchResult,
     local: &LocalFetchQuery,
@@ -794,42 +791,76 @@ mod tests {
         .expect("result")
     }
 
-    /// The last-commit timestamp no longer waits for the body: both requests
-    /// run concurrently after ref resolution.
+    /// The last-commit timestamp is a debug field: a default read sends only
+    /// the contents request, a debug read adds the commits request after the
+    /// body arrives, and a failed read sends no commits request at all.
     #[tokio::test]
-    async fn timestamp_is_fetched_concurrently_with_the_content() {
+    async fn timestamp_is_requested_only_by_a_successful_debug_read() {
         let server = MockServer::start().await;
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        let delay = Duration::from_millis(400);
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b/contents/a.txt"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\n")}),
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/contents/missing.txt"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_delay(delay)
-                    .set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\n")})),
+                ResponseTemplate::new(404)
+                    .set_body_json(serde_json::json!({"message":"Not Found"})),
             )
             .mount(&server)
             .await;
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b/commits"))
-            .respond_with(ResponseTemplate::new(200).set_delay(delay).set_body_json(
+            .and(wiremock::matchers::query_param("path", "a.txt"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
                 serde_json::json!([{"commit":{"committer":{"date":"2026-01-02T00:00:00Z"},"author":{"name":"Ada"}}}]),
             ))
+            .expect(1)
             .mount(&server)
             .await;
         let provider = mock_provider(&server);
-        let started = std::time::Instant::now();
-        let result = read(
-            &provider,
-            serde_json::json!({"owner":"a","repo":"b","path":"a.txt","branch":sha}),
-        )
-        .await;
-        let elapsed = started.elapsed();
+        let base = serde_json::json!({"owner":"a","repo":"b","path":"a.txt","branch":sha});
+        let plain = read(&provider, base.clone()).await;
+        assert_eq!(plain.files[0].last_modified, None);
+        let mut debug = base;
+        debug["debug"] = true.into();
+        let stamped = read(&provider, debug).await;
         assert_eq!(
-            result.files[0].last_modified.as_deref(),
+            stamped.files[0].last_modified.as_deref(),
             Some("2026-01-02T00:00:00Z")
         );
-        assert!(elapsed < delay * 2, "sequential requests: {elapsed:?}");
+        assert_eq!(stamped.files[0].last_modified_by.as_deref(), Some("Ada"));
+        let mut missing = serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","branch":sha,"debug":true});
+        missing["goal"] = "test".into();
+        missing["reasoning"] = "test".into();
+        let missing: GhGetFileContentQuery = serde_json::from_value(missing).expect("query");
+        assert!(
+            execute_default_regex(
+                &provider,
+                &missing,
+                &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+                Some("s"),
+                &Safe,
+                &NeverCancel,
+            )
+            .await
+            .is_err()
+        );
+        let requests = server.received_requests().await.unwrap_or_default();
+        assert!(
+            !requests.iter().any(|request| {
+                request.url.path() == "/api/v3/repos/a/b/commits"
+                    && request
+                        .url
+                        .query()
+                        .is_some_and(|q| q.contains("missing.txt"))
+            }),
+            "a failed read asked for its timestamp: {requests:?}"
+        );
     }
 
     /// A window covering at least half of a small file returns the whole

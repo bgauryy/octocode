@@ -34,21 +34,8 @@ const answerOf = (resource, id) => {
   const answer = resource?.answers?.[id] ?? resource?.pages?.[0]?.answers?.[id];
   return typeof answer === 'object' && answer !== null ? answer.noul ?? answer : answer;
 };
-/** Native `EXISTS_TIE_BAND` (clasify_locate.rs): 0 ships strict exists, then p. */
-const EXISTS_TIE_BAND = 0;
-/** The server's band order: exists within the band of a band's top tie; p ranks inside. */
-function bandOrdered(rows) {
-  const sorted = [...rows].sort((a, b) => b.exists - a.exists || b.probability - a.probability);
-  const out = [];
-  for (let i = 0; i < sorted.length;) {
-    const floor = sorted[i].exists - EXISTS_TIE_BAND - 1e-9;
-    let j = i;
-    while (j < sorted.length && sorted[j].exists >= floor) j += 1;
-    out.push(...sorted.slice(i, j).sort((a, b) => b.probability - a.probability || b.exists - a.exists));
-    i = j;
-  }
-  return out;
-}
+/** The server's ranking: exists first, then window probability. */
+const rankOrder = rows => [...rows].sort((a, b) => b.exists - a.exists || b.probability - a.probability);
 
 /** Run a matrix, following next.clasify; returns every page and total bytes. */
 async function locateAll(matrix, stopWhen) {
@@ -210,7 +197,7 @@ let prefilterQuality;
   const rows = run.bests.flatMap(b => b.t ?? []);
   const ordered = rows.length >= 2 && run.bests.every(b => {
     const shown = (b.t ?? []).map(row);
-    return JSON.stringify(bandOrdered(shown)) === JSON.stringify(shown);
+    return JSON.stringify(rankOrder(shown)) === JSON.stringify(shown);
   });
   check('best: multi-page calls rank windows by exists, then probability', ordered, JSON.stringify(run.bests[0]?.t?.slice(0, 3)));
   const hinted = await raw('clasify', { queries: [{ goal: GOAL, reasoning: 'hint', resources: [{ context: { tool: 'localFetch', query: { reasoning: 'x', path: truth.file, startLine: 1, endLine: 40 } } }], questions: [{ id: 'h', questionType: 'locate', target: 'Where is serverCron defined?' }] }] });

@@ -483,6 +483,52 @@ describe('skill command', () => {
     expect(parsed.summary.env.needsConfig).toBe(0);
   });
 
+  it('names the replacement when installing a retired skill', () => {
+    run(['install', 'octocode-clasify'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    expect(loggedJson<{ error: string }>().error).toContain(
+      'merged into "octocode-research"'
+    );
+  });
+
+  it('reports retired installs on a full check and removes them with --fix', () => {
+    const home = path.join(
+      isolated.home,
+      '.octocode',
+      'skills',
+      'octocode-clasify'
+    );
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(
+      path.join(home, 'SKILL.md'),
+      '---\nname: octocode-clasify\n---\n'
+    );
+    const link = path.join(getPlatformSkillsDir('claude'), 'octocode-clasify');
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(path.join(isolated.home, 'deleted-source'), link);
+
+    run(['check'], { 'no-env': true, json: true });
+    const parsed = loggedJson<{
+      success: boolean;
+      retired: Array<{ name: string; replacement: string; paths: string[] }>;
+      summary: { install: { retired: number } };
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.summary.install.retired).toBe(1);
+    expect(parsed.retired[0]).toMatchObject({
+      name: 'octocode-clasify',
+      replacement: 'octocode-research',
+    });
+    expect(parsed.retired[0]?.paths).toEqual(
+      expect.arrayContaining([home, link])
+    );
+
+    process.exitCode = undefined;
+    run(['check'], { 'no-env': true, fix: true });
+    expect(fs.existsSync(home)).toBe(false);
+    expect(() => fs.lstatSync(link)).toThrow();
+  });
+
   it('rejects unknown skill names on check', () => {
     run(['check', 'not-a-real-skill'], { json: true });
     expect(process.exitCode).toBe(EXIT.GENERAL);

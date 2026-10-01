@@ -195,7 +195,8 @@ export async function fetchRobotsPolicy(targetUrl) {
 // still there, kill it directly, regardless of which cwd tracked it.
 const __cdpDir = dirname(fileURLToPath(import.meta.url));
 export const CHROME_DEVTOOLS_DIR = resolve(__cdpDir, '../../../octocode-chrome-devtools');
-let cdpBrowserLaunched = false;
+let cdpBrowserLaunched = false; // this process has a ready browser on the port
+let cdpBrowserOwned = false;    // ...and launched it (reused sessions belong to the caller)
 
 // The CDP sandbox runs under Node.js Permission Model, granting --allow-fs-read to the cwd
 // subtree. If cwd is a subdirectory (e.g. skills/octocode-scraping) the sandbox cannot resolve
@@ -244,7 +245,7 @@ async function ensureCdpBrowser(port) {
   const res = spawnSync(process.execPath, [openBrowser, '--headless', '--port', port, '--url', 'about:blank'], { encoding: 'utf8', cwd: CDP_SPAWN_CWD });
   let parsed = null;
   try { parsed = JSON.parse(res.stdout); } catch {}
-  if (parsed?.status === 'BROWSER_READY') { cdpBrowserLaunched = true; return { ok: true }; }
+  if (parsed?.status === 'BROWSER_READY') { cdpBrowserLaunched = true; cdpBrowserOwned = parsed.reused !== true; return { ok: true }; }
   return { ok: false, error: (res.stderr || 'failed to launch headless Chrome').slice(0, 300) };
 }
 
@@ -325,14 +326,16 @@ export async function run(cdp) {
 
 export async function cleanupCdp(config = {}) {
   const port = config.cdpPort || '9331';
-  if (cdpBrowserLaunched) {
-    const openBrowser = resolve(CHROME_DEVTOOLS_DIR, 'scripts/open-browser.mjs');
-    spawnSync(process.execPath, [openBrowser, '--port', port, '--cleanup'], { encoding: 'utf8', cwd: CDP_SPAWN_CWD });
-    cdpBrowserLaunched = false;
-  }
-  // Defensive, always runs: the tracked-session cleanup above is cwd-scoped and can silently
-  // no-op for a browser orphaned by a previous, differently-cwd'd invocation. Verify the port
-  // is actually free; if a genuine Chrome debug process is still there, kill it directly.
+  // Default port 9331 is private to this provider, so a reused browser there is an orphan.
+  const owned = cdpBrowserLaunched && (cdpBrowserOwned || !config.cdpPort);
+  cdpBrowserLaunched = false;
+  cdpBrowserOwned = false;
+  // A reused browser (e.g. a logged-in chrome-devtools session on --cdp-port) is the caller's.
+  if (!owned) return;
+  const openBrowser = resolve(CHROME_DEVTOOLS_DIR, 'scripts/open-browser.mjs');
+  spawnSync(process.execPath, [openBrowser, '--port', port, '--cleanup'], { encoding: 'utf8', cwd: CDP_SPAWN_CWD });
+  // The tracked-session cleanup above is cwd-scoped and can silently no-op; verify the port
+  // is actually free and kill the Chrome debug process we launched if it is still there.
   findAndKillPortListener(port);
 }
 

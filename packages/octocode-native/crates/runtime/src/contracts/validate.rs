@@ -1,5 +1,7 @@
 mod coerce;
 mod content;
+mod qualifiers;
+pub(crate) use qualifiers::qualifier_terms;
 mod schema;
 mod union;
 use schema::validate_schema;
@@ -388,6 +390,11 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
             Some("local_search_mode") => validate_local_search_queries(input),
             Some("ast_topology") => validate_topology_queries(input),
             Some("history_keyword_scope") => validate_history_keyword_scope(input),
+            Some("qualifier_fields") => qualifiers::validate(
+                input,
+                rule["id"].as_str().unwrap_or("qualifier_fields"),
+                &rule["args"],
+            ),
             Some("lsp_rust_context") => validate_lsp_queries(input),
             Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input),
             Some("history_content_selection") => validate_history_content_selection(input),
@@ -1063,7 +1070,7 @@ fn suggest_field<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
 }
 
 /// Classic Wagner-Fischer Levenshtein distance, O(m*n) time, O(min(m,n)) space.
-fn levenshtein(a: &str, b: &str) -> usize {
+pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     if a.is_empty() {

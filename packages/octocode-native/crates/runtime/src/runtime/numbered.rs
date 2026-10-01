@@ -1,4 +1,4 @@
-//! Numbered source content (RFC tool-improvement-2026-10, C5).
+//! Numbered source content (docs/TOOL_DATA_CONTRACT.md).
 //!
 //! Hosts show agents the `structuredContent` JSON, so a read's `content`
 //! carries its own source line numbers there, `cat -n`-like:

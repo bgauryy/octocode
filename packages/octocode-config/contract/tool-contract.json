@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "40ab36c7e9a44edd63c1a7f6c6cf151d29a5363860c8c0976536b279f6e1b11c",
+  "fingerprint": "a86125b508aab0593f805912de4562f2b1114973ef786325c94618724a9cfe15",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -2510,7 +2510,7 @@
                         "minItems": 1,
                         "type": "array"
                       },
-                      "description": "Locate windows across pages (exists within 0.05 ties, then p); shown when the top exists is at least 0.5 or the walk is finished.",
+                      "description": "Locate windows across pages, by exists then p; shown when the top exists is at least 0.5 or the walk is finished.",
                       "propertyNames": {
                         "description": "Optional correlation key.",
                         "maxLength": 64,
@@ -5197,7 +5197,7 @@
                                       "type": "integer"
                                     },
                                     "contextLines": {
-                                      "maximum": 9007199254740991,
+                                      "maximum": 10000,
                                       "minimum": 0,
                                       "type": "integer"
                                     },
@@ -5348,7 +5348,7 @@
                                       "type": "integer"
                                     },
                                     "contextLines": {
-                                      "maximum": 9007199254740991,
+                                      "maximum": 10000,
                                       "minimum": 0,
                                       "type": "integer"
                                     },
@@ -5410,6 +5410,7 @@
                                       "type": "integer"
                                     },
                                     "owner": {
+                                      "description": "User or org.",
                                       "pattern": "\\S",
                                       "type": "string"
                                     },
@@ -6865,7 +6866,7 @@
                                                   "type": "integer"
                                                 },
                                                 "contextLines": {
-                                                  "maximum": 9007199254740991,
+                                                  "maximum": 10000,
                                                   "minimum": 0,
                                                   "type": "integer"
                                                 },
@@ -7016,7 +7017,7 @@
                                                   "type": "integer"
                                                 },
                                                 "contextLines": {
-                                                  "maximum": 9007199254740991,
+                                                  "maximum": 10000,
                                                   "minimum": 0,
                                                   "type": "integer"
                                                 },
@@ -7078,6 +7079,7 @@
                                                   "type": "integer"
                                                 },
                                                 "owner": {
+                                                  "description": "User or org.",
                                                   "pattern": "\\S",
                                                   "type": "string"
                                                 },
@@ -8403,7 +8405,7 @@
                                               "type": "integer"
                                             },
                                             "contextLines": {
-                                              "maximum": 9007199254740991,
+                                              "maximum": 10000,
                                               "minimum": 0,
                                               "type": "integer"
                                             },
@@ -8554,7 +8556,7 @@
                                               "type": "integer"
                                             },
                                             "contextLines": {
-                                              "maximum": 9007199254740991,
+                                              "maximum": 10000,
                                               "minimum": 0,
                                               "type": "integer"
                                             },
@@ -8616,6 +8618,7 @@
                                               "type": "integer"
                                             },
                                             "owner": {
+                                              "description": "User or org.",
                                               "pattern": "\\S",
                                               "type": "string"
                                             },
@@ -12634,7 +12637,7 @@
                                                       "type": "integer"
                                                     },
                                                     "contextLines": {
-                                                      "maximum": 9007199254740991,
+                                                      "maximum": 10000,
                                                       "minimum": 0,
                                                       "type": "integer"
                                                     },
@@ -12785,7 +12788,7 @@
                                                       "type": "integer"
                                                     },
                                                     "contextLines": {
-                                                      "maximum": 9007199254740991,
+                                                      "maximum": 10000,
                                                       "minimum": 0,
                                                       "type": "integer"
                                                     },
@@ -12847,6 +12850,7 @@
                                                       "type": "integer"
                                                     },
                                                     "owner": {
+                                                      "description": "User or org.",
                                                       "pattern": "\\S",
                                                       "type": "string"
                                                     },
@@ -14181,7 +14185,7 @@
                                                       "type": "integer"
                                                     },
                                                     "contextLines": {
-                                                      "maximum": 9007199254740991,
+                                                      "maximum": 10000,
                                                       "minimum": 0,
                                                       "type": "integer"
                                                     },
@@ -14332,7 +14336,7 @@
                                                       "type": "integer"
                                                     },
                                                     "contextLines": {
-                                                      "maximum": 9007199254740991,
+                                                      "maximum": 10000,
                                                       "minimum": 0,
                                                       "type": "integer"
                                                     },
@@ -14394,6 +14398,7 @@
                                                       "type": "integer"
                                                     },
                                                     "owner": {
+                                                      "description": "User or org.",
                                                       "pattern": "\\S",
                                                       "type": "string"
                                                     },
@@ -19214,7 +19219,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -19276,6 +19281,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -19461,6 +19467,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -19612,6 +19620,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -22909,7 +22919,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -24502,6 +24512,43 @@
         {
           "id": "gh-search-repo.runnable",
           "opcode": "github_repo_search_runnable",
+          "phase": "validate"
+        },
+        {
+          "args": {
+            "fields": [
+              {
+                "field": "forks",
+                "key": "forks"
+              },
+              {
+                "field": "size",
+                "key": "size"
+              },
+              {
+                "field": "created",
+                "key": "created"
+              },
+              {
+                "field": "updated",
+                "key": "pushed"
+              },
+              {
+                "field": "goodFirstIssues",
+                "key": "good-first-issues"
+              },
+              {
+                "field": "visibility",
+                "key": "is",
+                "values": [
+                  "public",
+                  "private"
+                ]
+              }
+            ]
+          },
+          "id": "gh-search-repo.qualifier-fields",
+          "opcode": "qualifier_fields",
           "phase": "validate"
         }
       ],
@@ -26503,7 +26550,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -26565,6 +26612,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -26750,6 +26798,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -26901,6 +26951,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -30198,7 +30250,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -33934,7 +33986,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -33996,6 +34048,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -34181,6 +34234,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -34332,6 +34387,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -37629,7 +37686,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -39215,7 +39272,7 @@
                 },
                 "contextLines": {
                   "description": "Lines around each match; over 100 clamps.",
-                  "maximum": 9007199254740991,
+                  "maximum": 10000,
                   "minimum": 0,
                   "type": "integer"
                 },
@@ -39264,9 +39321,11 @@
                   "title": "MatchString"
                 },
                 "matchStringCaseSensitive": {
+                  "description": "Omitted means case-insensitive.",
                   "type": "boolean"
                 },
                 "matchStringIsRegex": {
+                  "description": "matchString is a regex; omitted means literal.",
                   "type": "boolean"
                 },
                 "minify": {
@@ -39286,6 +39345,7 @@
                   "type": "integer"
                 },
                 "owner": {
+                  "description": "User or org.",
                   "pattern": "\\S",
                   "type": "string"
                 },
@@ -41197,7 +41257,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -41259,6 +41319,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -41444,6 +41505,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -41595,6 +41658,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -44892,7 +44957,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -45780,7 +45845,7 @@
                               "type": "integer"
                             },
                             "contextLines": {
-                              "maximum": 9007199254740991,
+                              "maximum": 10000,
                               "minimum": 0,
                               "type": "integer"
                             },
@@ -45842,6 +45907,7 @@
                               "type": "integer"
                             },
                             "owner": {
+                              "description": "User or org.",
                               "pattern": "\\S",
                               "type": "string"
                             },
@@ -46507,7 +46573,7 @@
           },
           "contextLines": {
             "description": "Lines around each match; over 100 clamps.",
-            "maximum": 9007199254740991,
+            "maximum": 10000,
             "minimum": 0,
             "type": "integer"
           },
@@ -46556,9 +46622,11 @@
             "title": "MatchString"
           },
           "matchStringCaseSensitive": {
+            "description": "Omitted means case-insensitive.",
             "type": "boolean"
           },
           "matchStringIsRegex": {
+            "description": "matchString is a regex; omitted means literal.",
             "type": "boolean"
           },
           "minify": {
@@ -46578,6 +46646,7 @@
             "type": "integer"
           },
           "owner": {
+            "description": "User or org.",
             "pattern": "\\S",
             "type": "string"
           },
@@ -46903,6 +46972,8 @@
                     },
                     "qualifiers": {
                       "description": "More filters: \"reviewed-by:x label:bug\".",
+                      "maxLength": 200,
+                      "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                       "type": "string"
                     },
                     "reactions": {
@@ -47071,6 +47142,8 @@
                     },
                     "qualifiers": {
                       "description": "More filters, e.g. \"commenter:x label:bug\".",
+                      "maxLength": 200,
+                      "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                       "type": "string"
                     },
                     "reactions": {
@@ -49076,7 +49149,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -49138,6 +49211,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -49323,6 +49397,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -49474,6 +49550,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -52771,7 +52849,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -53722,6 +53800,8 @@
                                   "type": "integer"
                                 },
                                 "qualifiers": {
+                                  "maxLength": 200,
+                                  "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                                   "type": "string"
                                 },
                                 "reactions": {
@@ -53873,6 +53953,8 @@
                                   "type": "integer"
                                 },
                                 "qualifiers": {
+                                  "maxLength": 200,
+                                  "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                                   "type": "string"
                                 },
                                 "reactions": {
@@ -54853,6 +54935,8 @@
               },
               "qualifiers": {
                 "description": "More filters: \"reviewed-by:x label:bug\".",
+                "maxLength": 200,
+                "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                 "type": "string"
               },
               "reactions": {
@@ -55021,6 +55105,8 @@
               },
               "qualifiers": {
                 "description": "More filters, e.g. \"commenter:x label:bug\".",
+                "maxLength": 200,
+                "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                 "type": "string"
               },
               "reactions": {
@@ -55202,6 +55288,115 @@
         {
           "id": "history.keyword-scope",
           "opcode": "history_keyword_scope",
+          "phase": "validate"
+        },
+        {
+          "args": {
+            "fields": [
+              {
+                "field": "assignee",
+                "key": "assignee"
+              },
+              {
+                "field": "author",
+                "key": "author"
+              },
+              {
+                "field": "commenter",
+                "key": "commenter"
+              },
+              {
+                "field": "mentions",
+                "key": "mentions"
+              },
+              {
+                "field": "created",
+                "key": "created"
+              },
+              {
+                "field": "updated",
+                "key": "updated"
+              },
+              {
+                "field": "closed",
+                "key": "closed"
+              },
+              {
+                "field": "comments",
+                "key": "comments"
+              },
+              {
+                "field": "reactions",
+                "key": "reactions"
+              },
+              {
+                "field": "archived",
+                "key": "archived"
+              },
+              {
+                "field": "review-requested",
+                "key": "review-requested"
+              },
+              {
+                "field": "reviewed-by",
+                "key": "reviewed-by"
+              },
+              {
+                "field": "review",
+                "key": "review"
+              },
+              {
+                "field": "checks",
+                "key": "checks"
+              },
+              {
+                "field": "head",
+                "key": "head"
+              },
+              {
+                "field": "base",
+                "key": "base"
+              },
+              {
+                "field": "merged-at",
+                "key": "merged-at"
+              },
+              {
+                "field": "draft",
+                "key": "draft"
+              },
+              {
+                "field": "match",
+                "key": "in"
+              },
+              {
+                "field": "checks",
+                "key": "status"
+              },
+              {
+                "field": "merged-at",
+                "key": "merged"
+              },
+              {
+                "field": "state",
+                "key": "is",
+                "values": [
+                  "open",
+                  "closed",
+                  "merged"
+                ]
+              },
+              {
+                "field": "draft",
+                "key": "is",
+                "values": [
+                  "draft"
+                ]
+              }
+            ]
+          },
+          "id": "history.qualifier-fields",
+          "opcode": "qualifier_fields",
           "phase": "validate"
         }
       ],
@@ -57956,7 +58151,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -58018,6 +58213,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -58203,6 +58399,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -58354,6 +58552,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -61651,7 +61851,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -68318,7 +68518,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -68380,6 +68580,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -68565,6 +68766,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -68716,6 +68919,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -72013,7 +72218,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -75761,7 +75966,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -75823,6 +76028,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -76008,6 +76214,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -76159,6 +76367,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -79456,7 +79666,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -83005,7 +83215,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -83067,6 +83277,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -83252,6 +83463,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -83403,6 +83616,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -86700,7 +86915,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -91255,7 +91470,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -91317,6 +91532,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -91502,6 +91718,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -91653,6 +91871,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -94950,7 +95170,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -99759,7 +99979,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -99821,6 +100041,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -100006,6 +100227,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -100157,6 +100380,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -103454,7 +103679,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -110501,7 +110726,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -110563,6 +110788,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -110748,6 +110974,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -110899,6 +111127,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -114196,7 +114426,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -120073,7 +120303,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -120135,6 +120365,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -120320,6 +120551,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -120471,6 +120704,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -123768,7 +124003,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -126777,7 +127012,7 @@
                 },
                 "contextLines": {
                   "description": "Lines around each match; over 100 clamps.",
-                  "maximum": 9007199254740991,
+                  "maximum": 10000,
                   "minimum": 0,
                   "type": "integer"
                 },
@@ -126822,9 +127057,11 @@
                   "title": "MatchString"
                 },
                 "matchStringCaseSensitive": {
+                  "description": "Omitted means case-insensitive.",
                   "type": "boolean"
                 },
                 "matchStringIsRegex": {
+                  "description": "matchString is a regex; omitted means literal.",
                   "type": "boolean"
                 },
                 "minify": {
@@ -128749,7 +128986,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -128811,6 +129048,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -128996,6 +129234,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -129147,6 +129387,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -132444,7 +132686,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -133329,7 +133571,7 @@
                               "type": "integer"
                             },
                             "contextLines": {
-                              "maximum": 9007199254740991,
+                              "maximum": 10000,
                               "minimum": 0,
                               "type": "integer"
                             },
@@ -133872,7 +134114,7 @@
           },
           "contextLines": {
             "description": "Lines around each match; over 100 clamps.",
-            "maximum": 9007199254740991,
+            "maximum": 10000,
             "minimum": 0,
             "type": "integer"
           },
@@ -133917,9 +134159,11 @@
             "title": "MatchString"
           },
           "matchStringCaseSensitive": {
+            "description": "Omitted means case-insensitive.",
             "type": "boolean"
           },
           "matchStringIsRegex": {
+            "description": "matchString is a regex; omitted means literal.",
             "type": "boolean"
           },
           "minify": {
@@ -136786,7 +137030,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -136848,6 +137092,7 @@
                         "type": "integer"
                       },
                       "owner": {
+                        "description": "User or org.",
                         "pattern": "\\S",
                         "type": "string"
                       },
@@ -137033,6 +137278,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived|review-requested|reviewed-by|review|status|checks|head|base|merged|merged-at|draft):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -137184,6 +137431,8 @@
                             "type": "integer"
                           },
                           "qualifiers": {
+                            "maxLength": 200,
+                            "pattern": "^\\s*(?:-?(?:assignee|author|commenter|mentions|created|updated|closed|comments|reactions|label|in|is|archived):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
                             "type": "string"
                           },
                           "reactions": {
@@ -140481,7 +140730,7 @@
                         "type": "integer"
                       },
                       "contextLines": {
-                        "maximum": 9007199254740991,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },

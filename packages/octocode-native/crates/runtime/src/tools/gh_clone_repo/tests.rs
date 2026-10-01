@@ -1269,7 +1269,7 @@ fn unbranched() -> GhCloneRepoQuery {
     }
 }
 
-/// S1/S2: an unbranched clone lets git resolve the default branch, and the
+/// An unbranched clone lets git resolve the default branch, and the
 /// next unbranched call is a cache hit through the recorded alias — neither
 /// needs the repository metadata API.
 #[test]
@@ -1310,7 +1310,7 @@ fn unbranched_clone_resolves_the_default_branch_with_git_and_hits_by_alias() {
     assert_eq!(refreshed.location.commit_sha, second);
 }
 
-/// S5: several sparse paths check out together; a file among them switches
+/// Several sparse paths check out together; a file among them switches
 /// to exact non-cone patterns so nothing else is included.
 #[test]
 fn multiple_sparse_paths_check_out_every_path() {
@@ -1395,7 +1395,7 @@ fn multiple_sparse_paths_check_out_every_path() {
     assert!(!missing.message.contains("\"src\""), "{missing:?}");
 }
 
-/// S5: `depth` fetches that many commits and keys its own cache entry.
+/// `depth` fetches that many commits and keys its own cache entry.
 #[test]
 fn history_depth_fetches_that_many_commits() {
     let bench = Bench::new("depth");

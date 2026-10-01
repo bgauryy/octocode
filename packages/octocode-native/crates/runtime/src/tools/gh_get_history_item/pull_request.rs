@@ -270,8 +270,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         // A patch read re-proves only the head it read; a list page also
         // keeps the merge commit and file count, and a first inventory page
         // the diff size it lists.
-        // Merge state rides every row (a content read without it led agents
-        // to guess the merge date); labels ride the first page.
+        // Merge state rides every row, so a content read never leaves the
+        // merge date to guesswork; labels ride the first page.
         let patches = patch_mode != "none";
         let first_page = !query.later_page();
         let totals = first_page && !patches;

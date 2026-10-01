@@ -1,37 +1,42 @@
-# CDP check scripts (`scripts/cdp-checks/`)
+# Ready checks (`scripts/cdp-checks/`)
 
-Load when a ready-made check can replace a custom script. Why: pick the right check and its flags instead of rewriting `run(cdp)`.
+Load when running a check, reading its artifacts, or capturing HAR. Run through `cdp-sandbox.mjs … --port <n> --keep-tab`; one at a time per port. Artifacts: `.octocode/tmp/chrome-devtools/<timestamp>/`, printed as `[ARTIFACT]`.
 
-Invoke through `cdp-sandbox.mjs` (or `cdp-runner.mjs`) on a live `--port`.
+| Check | Does | Knobs |
+|---|---|---|
+| `page-snapshot` | `[PAGE]` title+URL, then refs `e1…` (controls and headings, document order) → `page-snapshot.json`; `truncated=N` means more below | `SNAPSHOT_MAX` (60, ≤300), `SNAPSHOT_TEXT=<n>` main-text excerpt + `page-text.txt`, `SNAPSHOT_STDOUT=summary`, `SNAPSHOT_DEPTH` |
+| `page-screenshot` | JPEG of viewport (1920×1080 under stealth), full page (≤8000px), or one element | `SHOT_FULL=1`, `SHOT_SELECTOR=<css>`, `SHOT_SCALE` (0.25–1; 0.5 ≈ ¼ bytes), `SHOT_FORMAT=png`, `SHOT_QUALITY` (70) |
+| `dom-operations-check` | Actionability, then inspect/click/fill; recovers stale refs by role+name | `DOM_REF` or `DOM_SELECTOR`, `DOM_ACTION=inspect\|click\|fill`, `DOM_VALUE`, `DOM_STABILITY_MS` |
+| `graph-actionability-check` | Operable rows `{url, rows[]}` | `--url`, `--selectors`, `--limit` (25), `--graph <file>` |
+| `actionability-diagnostics` | Classifies empty pages: blocked, js-shell, consent-region… | `--url`, `--wait-ms` |
+| `performance-` / `network-` / `storage-measure-check` | Health 0–100 + findings JSON | `MEASURE_URL=<url>` (fresh load, full capture) or `MEASURE_EXISTING=1` (current tab; network sees only new requests). Neither = built-in fixture. `PERF_WAIT_MS`, `NET_WAIT_MS`, `NET_SLOW_MS`, `STORAGE_WAIT_MS` |
+| `measure-query` | Filter latest measure JSON, no browser | `--latest`, `--view`, `--code`, `--kind`, `--domain`, `--min-ms`, `--har-file` |
+| `live-har-monitor` | HAR + timing, console errors; no bodies | `MONITOR_URL` (load after listeners attach; else passive on the current tab), `MONITOR_MS` (30000), `SLOW_MS`, `MAX_STDOUT_ITEMS` |
+| `network-body-har-fetch-check` | HAR + response bodies → `network-bodies.json` | `BODY_URL=<page>` (else fixture), `BODY_MATCH=<url substring>` (default XHR/Fetch/JSON), `BODY_WAIT_MS` (3000); max 50 bodies |
+| `har-pager` / `har-redact` | Page a `.har`; redact before sharing | `--filter all\|failures\|slow\|domain:<host>`, `--min-ms`, `--kind`, `--status`, `--url-regex`, `--page`; `--strip-bodies`, `--out` |
+| `api-replay` | Replay one request without Chrome | `--url`, `--method`, `--headers`, `--body`, `--page`, `--max-chars` (500–20000) |
+| `stealth-check` / `affiliates-stealth-check` | Stealth self-test plus the detector page's own verdicts (`DETECTOR_FAILED`) | `STEALTH_CHECK_URL`, `AFFILIATES_CHECK_URL` |
+| `storage-cookies-audit` | Legacy counts for all browser cookies; prefer storage-measure | — |
+| `webmcp-tools` (+ `.check`) | WebMCP list/invoke; `.check` launches its own Chrome and grades 8 cases | `WEBMCP_ACTION`, `WEBMCP_TOOL`, `WEBMCP_INPUT`, `WEBMCP_FRAME`, `WEBMCP_WAIT_MS` |
 
-| Script | Role |
-|---|---|
-| `page-snapshot` / `dom-operations-check` | A11y refs; inspect/click/fill + `[CODE]` |
-| `graph-actionability-check` / `actionability-diagnostics` | Graph actions; classify zero rows |
-| `performance-` / `network-` / `storage-measure-check` | Smart health 0–100 + JSON (`MEASURE_URL` / `MEASURE_EXISTING=1`) |
-| `storage-cookies-audit` | Legacy counts-only — prefer storage-measure |
-| `measure-query` | Filter measure JSON (`--view/--code/--kind/--domain/--latest`) |
-| `live-har-monitor` / `network-body-har-fetch-check` | Deep HAR/bodies after measure+query |
-| `har-pager` / `har-redact` | Page `.har` (`--filter/--kind/--status/--url-regex`); redact before share |
-| `api-replay` / `stealth-check` / `affiliates-stealth-check` | Replay; stealth smoke |
-| `webmcp-tools` (+ `.check`) | WebMCP list/invoke + hermetic grader |
+Scripts without the sandbox (`measure-query`, `har-*`, `api-replay`, `webmcp-tools.check`) run with plain `node`.
 
-## Measure → query (no re-browser)
+## Page health → query
+
 ```bash
-# trio on same tab
-node <skill>/scripts/cdp-sandbox.mjs <skill>/scripts/cdp-checks/performance-measure-check.mjs --port 9222 --keep-tab
-MEASURE_EXISTING=1 node …/network-measure-check.mjs --port 9222 --keep-tab
-MEASURE_EXISTING=1 node …/storage-measure-check.mjs --port 9222 --keep-tab
-# query
-node …/measure-query.mjs --latest --view findings --code HTTP_FAILURES
-node …/har-pager.mjs <file.har> --filter failures --format json   # standalone HAR
-node …/corpus-run-local.mjs --scraping-skill-dir <octocode-scraping> --artifact-dir <run> --regex 'offerId' --limit 20
+for c in performance network storage; do
+  MEASURE_URL="<url>" node $S/cdp-sandbox.mjs $S/cdp-checks/$c-measure-check.mjs --port 9222 --keep-tab
+done
+node $S/cdp-checks/measure-query.mjs --latest --view findings
+node $S/cdp-checks/har-pager.mjs <run>/live-network.har --filter failures --format json
 ```
 
-| Data | Tool |
-|---|---|
-| perf/net/storage JSON | `measure-query` |
-| Standalone `.har` | `har-pager` (not measure-query unless same run dir + `--har`) |
-| Corpus / any artifact | `corpus-run-local` (optional `octocode-scraping` dependency) |
+## HAR rules
 
-Chain: snapshot → DOM → measure → query → (optional) HAR → process. See `har-capture.md`, `intents-debug.md`.
+- Measure + query first; long monitors and bodies only when they still decide something.
+- Stdout stays at counts + `[ARTIFACT]`; summaries under 2 KB, pages of 10–50 rows. Never paste a whole HAR or judge from its first page.
+- `Network.getResponseBody` works after `loadingFinished` and only while the body is cached; an attached tab misses past bodies, so load the page inside the check (`BODY_URL`).
+- HAR covers HTTP(S) in all frames; WebSockets need the websocket intent.
+- Share only `har-redact` output. Scrape bridge into an existing scraping session: `har-ingest-to-scrape.mjs --session-dir <s> --from-cdp-dir <run>` (or `--har <file>`) → `corpus-run-local.mjs --artifact-dir <run> --regex <re>`; for thin pages, trust API bodies over rendered text.
+
+Next: no check fits → `script-patterns.md`; error or empty output → `recovery.md`.

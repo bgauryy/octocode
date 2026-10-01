@@ -431,7 +431,7 @@ Useful flags:
 | `--force` | Replace existing canonical or destination content that differs. Existing content is preserved by default. |
 | `--upgrade` | Refresh changed bundled content in the canonical store. Managed copies refresh only when they still match the previous canonical content; arbitrary destination drift remains a conflict. |
 | `--dry-run` | Preview actions without writing (with `check --fix`, preview the fixes). |
-| `--fix` | `check` only: refresh the canonical copy and relink broken or stale locations. Never adds platforms (or the workspace, unless `--workspace`) and never replaces a fresh link. |
+| `--fix` | `check` only: refresh the canonical copy, relink broken or stale locations, and remove retired-skill installs. Never adds platforms (or the workspace, unless `--workspace`) and never replaces a fresh link. |
 | `--workspace` | `check` only: also check the workspace `<cwd>/.agents/skills` directory. |
 | `--no-env` | `check` only: skip skill environment-readiness checks. |
 
@@ -442,8 +442,10 @@ the canonical command syntax.
 `[stale]` (and broken links as `[broken]`). `skill check` reports per-skill
 `ok` / `stale` / `broken` / `not-installed` plus env readiness: `needs-config`
 means a required setting is missing; `partial` means the skill works but an
-optional setting would unlock more. `check` exits 1 on stale, broken, or
-needs-config; run `skill check --fix` to repair installs.
+optional setting would unlock more. A full `check` also lists installs of
+retired skills (for example `octocode-clasify` → `octocode-research`) under
+`retired`. `check` exits 1 on stale, broken, retired, or needs-config; run
+`skill check --fix` to repair installs and remove retired ones.
 
 ---
 

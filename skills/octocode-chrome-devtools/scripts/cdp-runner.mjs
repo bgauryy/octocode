@@ -45,14 +45,15 @@ const KEEP_TAB    = hasFlag('--keep-tab');
 const LIST_TARGETS = hasFlag('--list-targets');
 const VERBOSE     = process.env.CDP_VERBOSE === '1';
 if (hasFlag('--no-stealth')) process.env.CDP_NO_STEALTH = '1';
+if (hasFlag('--no-reload')) process.env.CDP_STEALTH_NO_RELOAD = '1';
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-stealth]');
+  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-reload] [--no-stealth]');
   process.exit(0);
 }
 
 if (!scriptArg && !LIST_TARGETS) {
-  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-stealth]');
+  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-reload] [--no-stealth]');
   process.exit(1);
 }
 
@@ -313,10 +314,13 @@ async function main() {
   const outputDir = ENV_OUTPUT_DIR
     ? ENV_OUTPUT_DIR
     : (() => {
-    const ts  = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const dir = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', ts);
-    mkdirSync(dir, { recursive: true });
-    return dir;
+    const ts   = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const runs = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools');
+    mkdirSync(runs, { recursive: true });
+    for (let n = 1; ; n++) {
+      const dir = join(runs, n === 1 ? ts : `${ts}-${n}`);
+      try { mkdirSync(dir); return dir; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    }
   })();
   const runLogFile = join(sessionMetaDir, 'run-history.json');
   const existingMeta = readJson(sessionMetaFile, {}) ?? {};
@@ -510,11 +514,15 @@ async function main() {
       await applyMandatoryStealth(cdp, { navigateUrl: pendingNavigate ?? undefined });
       if (pendingNavigate) {
         console.error(`[CDP_RUNNER] Stealth gate: navigating to ${pendingNavigate}`);
+        await cdp.send('Page.enable').catch(() => {});
+        let onLoad;
+        const loaded = new Promise((r) => { onLoad = r; cdp.on('Page.loadEventFired', onLoad); });
         await cdp.send('Page.navigate', { url: pendingNavigate });
-        await new Promise((r) => setTimeout(r, 2500));
+        await Promise.race([loaded, new Promise((r) => setTimeout(r, 15000))]);
+        cdp.off('Page.loadEventFired', onLoad);
+        await new Promise((r) => setTimeout(r, 300)); // let post-load scripts start
         if (targetInfo) targetInfo = { ...targetInfo, url: pendingNavigate };
-      } else if (/^https?:/i.test(targetInfo?.url ?? '') && process.env.CDP_STEALTH_NO_RELOAD !== '1') {
-        // applyMandatoryStealth already reloaded; skip second reload for http(s) attach
+        if (cdp.targetInfo) cdp.targetInfo = { ...cdp.targetInfo, url: pendingNavigate };
       }
     }
   } catch (stealthErr) {

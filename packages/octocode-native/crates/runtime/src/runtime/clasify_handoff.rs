@@ -100,7 +100,7 @@ fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> O
     if !crate::tools::clasify::is_file_read_tool(tool) {
         return None;
     }
-    if ["matchString", "startLine", "endLine"]
+    if ["matchString", "startLine", "endLine", "ranges", "block"]
         .iter()
         .any(|key| query.get(*key).is_some())
         || query
@@ -236,31 +236,28 @@ fn request(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value
         || query.get("match").and_then(Value::as_str) == Some("path");
     let relevance = if metadata_only {
         json!({
-            "id":"relevant", "type":"noul",
-            "instructions": format!(
+            "id":"relevant", "type":"yesno",
+            "ask": format!(
                 "Does this candidate's path or metadata suggest it likely contains evidence for: {goal}? This is a routing judgment; missing file bodies are not negative evidence."
             ),
         })
     } else {
-        json!({"id":"relevant", "questionType":"contribution", "target":goal})
+        json!({"id":"relevant", "type":"relevant", "ask":goal})
     };
-    let mut context = json!({"tool": tool, "query": search});
+    let mut resource = json!({"id": "candidates", "tool": tool, "query": search});
     // Local reads are cheap and unmetered; GitHub hydration spends API budget
-    // without changing the ranking (measured), so it screens snippets.
+    // without changing the ranking, so it screens snippets.
     if tool == ToolId::LocalSearch.as_str() && !metadata_only {
-        context["candidateEvidence"] =
+        resource["candidateEvidence"] =
             json!(crate::tools::clasify::CandidateEvidence::FileChunks.to_string());
     }
     Some(json!({
         "goal": goal,
         "reasoning": reasoning,
-        "resources": [{
-            "id": "candidates",
-            "context": context,
-        }],
+        "resources": [resource],
         "questions": [
             relevance,
-            {"id": "sufficient", "questionType": "sufficient", "target": goal},
+            {"id": "sufficient", "type": "sufficient", "ask": goal},
         ],
     }))
 }
@@ -326,6 +323,11 @@ mod tests {
             ),
             (
                 "localFetch",
+                json!({"path":"a","goal":"g","ranges":["1-50","900-950"]}),
+                paged.clone(),
+            ),
+            (
+                "localFetch",
                 json!({"path":"a","goal":"g","minify":"symbols"}),
                 paged.clone(),
             ),
@@ -367,15 +369,20 @@ mod tests {
         assert_eq!(next["tool"], "clasify");
         let query = &next["query"];
         assert_eq!(query["resources"].as_array().map(Vec::len), Some(1));
-        assert_eq!(query["resources"][0]["context"]["tool"], "localSearch");
-        assert_eq!(query["resources"][0]["context"]["query"], search);
+        assert_eq!(query["resources"][0]["tool"], "localSearch");
+        assert_eq!(query["resources"][0]["query"], search);
         assert_eq!(
-            query["resources"][0]["context"]["candidateEvidence"], "fileChunks",
+            query["resources"][0]["candidateEvidence"], "fileChunks",
             "one-line snippets of the searched phrase cannot rank candidates"
         );
         assert_eq!(query["reasoning"], search["reasoning"]);
-        assert_eq!(query["questions"][0]["questionType"], "contribution");
-        assert_eq!(query["questions"][1]["questionType"], "sufficient");
+        assert_eq!(
+            query["questions"],
+            json!([
+                {"id":"relevant","type":"relevant","ask":"find retry"},
+                {"id":"sufficient","type":"sufficient","ask":"find retry"}
+            ])
+        );
     }
 
     #[test]
@@ -484,20 +491,18 @@ mod tests {
             run(&mut out, tool, &[query]);
             let query = &handoff(&out).expect("metadata handoff")["query"];
             assert!(
-                query["resources"][0]["context"]
-                    .get("candidateEvidence")
-                    .is_none(),
+                query["resources"][0].get("candidateEvidence").is_none(),
                 "paths alone have no hit windows to hydrate"
             );
             let questions = &query["questions"];
-            assert_eq!(questions[0]["type"], "noul");
+            assert_eq!(questions[0]["type"], "yesno");
             assert!(
-                questions[0]["instructions"]
+                questions[0]["ask"]
                     .as_str()
-                    .expect("instructions")
+                    .expect("ask")
                     .contains("routing judgment")
             );
-            assert_eq!(questions[1]["questionType"], "sufficient");
+            assert_eq!(questions[1]["type"], "sufficient");
         }
     }
 
@@ -534,6 +539,16 @@ mod tests {
                 )
             });
             assert_eq!(prepared.len(), 1);
+            // Continuations publish only the unified input shape.
+            let text = query.to_string();
+            for nested in [
+                "\"context\"",
+                "\"questionType\"",
+                "\"target\"",
+                "\"instructions\"",
+            ] {
+                assert!(!text.contains(nested), "{nested} in {query}");
+            }
         }
     }
 
@@ -576,10 +591,10 @@ mod tests {
         for files in [objects, strings] {
             let mut out = json!({"results":[{"index":0,"data":{"files":files}}]});
             run(&mut out, "ghSearchCode", std::slice::from_ref(&search));
-            let context = &handoff(&out).expect("handoff")["query"]["resources"][0]["context"];
-            assert_eq!(context["tool"], "ghSearchCode");
-            assert_eq!(context["query"], search);
-            assert!(context.get("candidateEvidence").is_none());
+            let resource = &handoff(&out).expect("handoff")["query"]["resources"][0];
+            assert_eq!(resource["tool"], "ghSearchCode");
+            assert_eq!(resource["query"], search);
+            assert!(resource.get("candidateEvidence").is_none());
         }
         let mut out = local_rows(9);
         run(&mut out, "ghSearchRepo", &[search]);

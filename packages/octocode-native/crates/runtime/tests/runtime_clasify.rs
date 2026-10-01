@@ -49,12 +49,27 @@ fn filler(len: usize) -> String {
 /// The full per-page receipt (`debug:true`): these tests inspect page
 /// internals (scopes, sources, runner-up matches) the default output compacts.
 fn verbose(mut input: serde_json::Value) -> serde_json::Value {
-    if let Some(queries) = input.get_mut("queries").and_then(serde_json::Value::as_array_mut) {
-        queries.iter_mut().for_each(|query| query["debug"] = json!(true));
+    if let Some(queries) = input
+        .get_mut("queries")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        queries
+            .iter_mut()
+            .for_each(|query| query["debug"] = json!(true));
     } else if input.is_object() {
         input["debug"] = json!(true);
     }
     input
+}
+
+/// A default-output answer: on the resource when it has one plain page,
+/// else on its first page.
+fn compact_answer(resource: &serde_json::Value, id: &str) -> serde_json::Value {
+    resource["answers"]
+        .get(id)
+        .or_else(|| resource["pages"][0]["answers"].get(id))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
 }
 
 fn query() -> serde_json::Value {
@@ -98,7 +113,11 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
     input["reasoning"] = json!("The next read depends on whether the file states the fact.");
     input["goal"] = json!("Files that state whether the evidence is present.");
     let outcome = runtime
-        .execute("semantic-reasoning".into(), "clasify".into(), verbose(input.clone()))
+        .execute(
+            "semantic-reasoning".into(),
+            "clasify".into(),
+            verbose(input.clone()),
+        )
         .await
         .expect("required briefs reach the provider");
     assert_eq!(
@@ -130,7 +149,7 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
         let mut rejected = input.clone();
         rejected[field] = invalid;
         let error = runtime
-            .execute("semantic-reasoning".into(), "clasify".into(), verbose(rejected))
+            .execute("semantic-reasoning".into(), "clasify".into(), rejected)
             .await
             .expect_err("blank or missing briefs are rejected");
         assert_eq!(error.code, "invalidInput");
@@ -139,7 +158,7 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
         let mut missing = input.clone();
         missing.as_object_mut().unwrap().remove(field);
         let error = runtime
-            .execute("semantic-reasoning".into(), "clasify".into(), verbose(missing))
+            .execute("semantic-reasoning".into(), "clasify".into(), missing)
             .await
             .expect_err("missing briefs are rejected");
         assert_eq!(error.code, "invalidInput");
@@ -252,7 +271,7 @@ async fn public_identity_is_a_hard_cutover_and_missing_key_is_actionable() {
     );
 
     let error = runtime
-        .execute("missing-key".into(), "clasify".into(), verbose(query()))
+        .execute("missing-key".into(), "clasify".into(), query())
         .await
         .unwrap_err();
     assert_eq!(error.code, "missingConfiguration");
@@ -355,7 +374,7 @@ async fn independent_resource_assessments_are_dispatched_concurrently() {
     });
 
     let outcome = runtime
-        .execute("concurrent-resources".into(), "clasify".into(), verbose(input))
+        .execute("concurrent-resources".into(), "clasify".into(), input)
         .await
         .unwrap();
     {
@@ -372,9 +391,12 @@ async fn independent_resource_assessments_are_dispatched_concurrently() {
         .as_array()
         .unwrap();
     assert_eq!(results.len(), 4);
+    // Default output: complete coverage is implied and a single page's
+    // answers sit on the resource.
     for (index, result) in results.iter().enumerate() {
         assert_eq!(result["resourceId"], format!("resource-{index}"));
-        assert_eq!(result["coverage"], "complete");
+        assert!(result.get("coverage").is_none(), "{result}");
+        assert!(result["answers"]["relevant"].is_number(), "{result}");
     }
     runtime.close().await;
 }
@@ -409,7 +431,7 @@ async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
-        .execute("bounded-resources".into(), "clasify".into(), verbose(input))
+        .execute("bounded-resources".into(), "clasify".into(), input)
         .await
         .unwrap();
     let arrivals = arrivals
@@ -441,7 +463,9 @@ async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
     assert!(
         results
             .iter()
-            .all(|result| result["coverage"] == "complete")
+            .all(|result| result.get("coverage").is_none()
+                && result["answers"]["relevant"].is_number()),
+        "{results:?}"
     );
     runtime.close().await;
 }
@@ -479,7 +503,7 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
         .execute(
             "concurrent-matrices".into(),
             "clasify".into(),
-            verbose(json!({"queries":queries})),
+            json!({"queries":queries}),
         )
         .await
         .unwrap();
@@ -497,7 +521,9 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
     assert_eq!(queries.len(), 4);
     for (index, query) in queries.iter().enumerate() {
         assert_eq!(query["queryId"], format!("query-{index}"));
-        assert_eq!(query["resources"][0]["coverage"], "complete");
+        let resource = &query["resources"][0];
+        assert!(resource.get("coverage").is_none(), "{resource}");
+        assert!(resource["answers"]["relevant"].is_number(), "{resource}");
     }
     runtime.close().await;
 }
@@ -574,7 +600,11 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
-        .execute("recover-full-content".into(), "clasify".into(), verbose(input))
+        .execute(
+            "recover-full-content".into(),
+            "clasify".into(),
+            verbose(input),
+        )
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
@@ -706,6 +736,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
         .unwrap();
     let assess = outcome.structured_content["queries"][0]["next"]["clasify"].clone();
     assert!(assess.is_object(), "{}", outcome.structured_content);
+    assert_eq!(assess["debug"], true, "a debug walk continues as one");
     assert_eq!(
         assess["questions"][0]["id"], "relevant",
         "Continuation must preserve question identity"
@@ -736,7 +767,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
             break;
         };
         let page = runtime
-            .execute("continue-preset".into(), "clasify".into(), verbose(query))
+            .execute("continue-preset".into(), "clasify".into(), query)
             .await
             .unwrap();
         let row = &page.structured_content["queries"][0];
@@ -793,7 +824,7 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
     .expect("next.clasify must satisfy the public input contract");
 
     let resumed = runtime
-        .execute("over-budget-resume".into(), "clasify".into(), verbose(assess))
+        .execute("over-budget-resume".into(), "clasify".into(), assess)
         .await
         .expect("next.clasify must execute unchanged");
     let resumed_query = &resumed.structured_content["queries"][0];
@@ -822,7 +853,7 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
         }]
     });
     let error = runtime
-        .execute("bad-inner-query".into(), "clasify".into(), verbose(input))
+        .execute("bad-inner-query".into(), "clasify".into(), input)
         .await
         .expect_err("invalid delegated path must fail contract validation");
     assert_eq!(error.code, "invalidInput");
@@ -995,7 +1026,7 @@ async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
         .map(|page| page["source"]["path"].clone())
         .collect::<Vec<_>>();
     let replay = runtime
-        .execute("walk-2".into(), "clasify".into(), verbose(next))
+        .execute("walk-2".into(), "clasify".into(), next)
         .await
         .expect("replayed next.clasify");
     octocode_native::contracts::validate_output("clasify", &replay.structured_content)
@@ -1639,7 +1670,11 @@ async fn snippet_continuations_visit_every_file_and_match_page_before_completing
     let mut coverages = Vec::new();
     for call in 0..10 {
         let outcome = runtime
-            .execute(format!("page-{call}"), "clasify".into(), verbose(input.clone()))
+            .execute(
+                format!("page-{call}"),
+                "clasify".into(),
+                verbose(input.clone()),
+            )
             .await
             .unwrap();
         let query = &outcome.structured_content["queries"][0];
@@ -1745,23 +1780,20 @@ async fn a_repeated_matrix_replays_its_judgment_without_a_second_provider_reques
     input["questions"] =
         json!([{"id":"floor","type":"noul","instructions":"Is the retry floor stated?"}]);
     let first = runtime
-        .execute("replay-1".into(), "clasify".into(), verbose(input.clone()))
+        .execute("replay-1".into(), "clasify".into(), input.clone())
         .await
         .expect("first judgment");
     let second = runtime
-        .execute("replay-2".into(), "clasify".into(), verbose(input))
+        .execute("replay-2".into(), "clasify".into(), input)
         .await
         .expect("replayed judgment");
     let answer = |outcome: &octocode_native::runtime::ToolOutcome| {
-        outcome.structured_content["queries"][0]["resources"][0]["pages"][0]["answers"]["floor"]
-            .clone()
+        compact_answer(
+            &outcome.structured_content["queries"][0]["resources"][0],
+            "floor",
+        )
     };
-    assert_eq!(
-        answer(&first),
-        json!({"noul":0.7}),
-        "{}",
-        first.structured_content
-    );
+    assert_eq!(answer(&first), json!(0.7), "{}", first.structured_content);
     assert_eq!(answer(&second), answer(&first));
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
@@ -1800,15 +1832,15 @@ async fn identical_pages_in_one_call_share_a_single_provider_request() {
         .execute(
             "dedupe".into(),
             "clasify".into(),
-            verbose(json!({"queries":[matrix("m1"), matrix("m2")]})),
+            json!({"queries":[matrix("m1"), matrix("m2")]}),
         )
         .await
         .unwrap();
     for query in outcome.structured_content["queries"].as_array().unwrap() {
         for resource in query["resources"].as_array().unwrap() {
             assert_eq!(
-                resource["pages"][0]["answers"]["q"],
-                json!({"noul":0.6}),
+                compact_answer(resource, "q"),
+                json!(0.6),
                 "{}",
                 outcome.structured_content
             );
@@ -1852,14 +1884,16 @@ async fn judgment_cache_ignores_correlation_ids_but_not_question_text() {
             .execute(
                 label.into(),
                 "clasify".into(),
-                verbose(input(question_id, instructions)),
+                input(question_id, instructions),
             )
             .await
             .unwrap();
         assert_eq!(
-            outcome.structured_content["queries"][0]["resources"][0]["pages"][0]["answers"]
-                [question_id],
-            json!({"noul":0.4}),
+            compact_answer(
+                &outcome.structured_content["queries"][0]["resources"][0],
+                question_id
+            ),
+            json!(0.4),
             "{label}: {}",
             outcome.structured_content
         );
@@ -2007,7 +2041,7 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
         "dropped hits need a continuation: {query}"
     );
     let resumed = runtime
-        .execute("walk-2".into(), "clasify".into(), verbose(resume))
+        .execute("walk-2".into(), "clasify".into(), resume)
         .await
         .expect("next.clasify must execute unchanged");
     let pages = judged(&resumed.structured_content);
@@ -2022,7 +2056,11 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
     // One maxChars budget spans every window: the second window waits for
     // the next call instead of each window getting its own full budget.
     let tight = runtime
-        .execute("walk-tight".into(), "clasify".into(), verbose(input(Some(20_000))))
+        .execute(
+            "walk-tight".into(),
+            "clasify".into(),
+            verbose(input(Some(20_000))),
+        )
         .await
         .unwrap();
     let pages = judged(&tight.structured_content);
@@ -2414,7 +2452,11 @@ async fn symbols_scout_judges_each_file_once_across_outline_pages() {
     let mut judged: Vec<(String, usize)> = Vec::new();
     for call in 0..6 {
         let outcome = runtime
-            .execute(format!("outline-{call}"), "clasify".into(), verbose(input.clone()))
+            .execute(
+                format!("outline-{call}"),
+                "clasify".into(),
+                verbose(input.clone()),
+            )
             .await
             .expect("clasify");
         let query = &outcome.structured_content["queries"][0];
@@ -2519,7 +2561,10 @@ async fn unified_and_nested_matrices_reach_the_provider_identically() {
     assert_eq!(query["usage"]["outputTokens"], 2);
     assert!(query["usage"]["ms"].is_u64());
     let page = &query["resources"][0]["pages"][0];
-    assert_eq!(page["usage"], json!({"calls":1,"inputTokens":7,"outputTokens":2}));
+    assert_eq!(
+        page["usage"],
+        json!({"calls":1,"inputTokens":7,"outputTokens":2})
+    );
     assert_eq!(page["answers"]["present"], json!({"noul":0.8}));
     assert_eq!(page["answers"]["kind"]["probabilities"]["runtime"], 1.0);
     runtime.close().await;

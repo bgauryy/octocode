@@ -1,5 +1,11 @@
-import { listSkills, getSkill } from '../registry.js';
 import {
+  listSkills,
+  getSkill,
+  retiredHint,
+  RETIRED_SKILLS,
+} from '../registry.js';
+import {
+  checkSkill,
   checkSkills,
   overallStatus,
   SCAN_PLATFORMS,
@@ -15,6 +21,7 @@ import {
 import { parsePlatforms, type Platform } from '../platforms.js';
 import { getSkillsHome } from '../home.js';
 import { installSkill } from '../installer.js';
+import { runRemove } from './remove.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 
 export interface CheckOptions {
@@ -89,7 +96,11 @@ export function runCheck(opts: CheckOptions): void {
       : listSkills().map(skill => skill.folder);
   const missing = skillNames.find(name => !getSkill(name));
   if (missing)
-    return fail(`Skill not found: "${missing}"`, opts.json, opts.jsonErrors);
+    return fail(
+      `Skill not found: "${missing}".${retiredHint(missing)}`,
+      opts.json,
+      opts.jsonErrors
+    );
 
   let platforms: Platform[] = SCAN_PLATFORMS;
   if (opts.platform) {
@@ -108,13 +119,37 @@ export function runCheck(opts: CheckOptions): void {
     if (!opts.dryRun) results = checkSkills(skillNames, platforms);
   }
 
+  // A full check also finds installs of retired skills (real copies or links,
+  // including links left dangling by the removal) and removes them on --fix.
+  const findRetired = () =>
+    opts.names.length > 0
+      ? []
+      : Object.entries(RETIRED_SKILLS)
+          .map(([name, replacement]) => {
+            const result = checkSkill(name, platforms);
+            const paths = [result.home, ...result.platforms, result.workspace]
+              .filter(location => location.status !== 'missing')
+              .map(location => location.path);
+            return { name, replacement, paths };
+          })
+          .filter(entry => entry.paths.length > 0);
+  let retired = findRetired();
+  if (opts.fix && !opts.json && retired.length > 0) {
+    runRemove(
+      retired.map(entry => entry.name),
+      { all: false, platform: null, dryRun: opts.dryRun, json: false }
+    );
+    if (!opts.dryRun) retired = findRetired();
+  }
+
   const envStatuses = opts.noEnv ? [] : getSkillsEnvStatus(skillNames);
   const statuses = results.map(overallStatus);
   const count = (status: string) =>
     statuses.filter(value => value === status).length;
   const envCount = (readiness: string) =>
     envStatuses.filter(value => value.readiness === readiness).length;
-  const installOk = count('broken') === 0 && count('stale') === 0;
+  const installOk =
+    count('broken') === 0 && count('stale') === 0 && retired.length === 0;
   const envOk = opts.noEnv || envCount('needs-config') === 0;
   const success = installOk && envOk;
 
@@ -173,6 +208,7 @@ export function runCheck(opts: CheckOptions): void {
       broken: count('broken'),
       stale: count('stale'),
       notInstalled: count('not-installed'),
+      retired: retired.length,
       total: results.length,
     },
     env: opts.noEnv
@@ -191,7 +227,7 @@ export function runCheck(opts: CheckOptions): void {
   };
 
   if (opts.json) {
-    console.log(JSON.stringify({ success, skills, summary }, null, 2));
+    console.log(JSON.stringify({ success, skills, retired, summary }, null, 2));
   } else {
     console.log(`\n  ${bold('Skill check')}`);
     for (const skill of skills) {
@@ -200,8 +236,13 @@ export function runCheck(opts: CheckOptions): void {
       const env = opts.noEnv ? '' : ` · env ${skill.env.readiness}`;
       console.log(`  ${icon} ${skill.name}: ${skill.installStatus}${dim(env)}`);
     }
+    for (const entry of retired) {
+      console.log(
+        `  ${c('red', '✗')} ${entry.name}: retired → merged into ${entry.replacement} ${dim(entry.paths.join(', '))}`
+      );
+    }
     console.log(
-      `  ${summary.install.ok}/${summary.install.total} ok; ${summary.install.stale} stale; ${summary.install.broken} broken; ${summary.install.notInstalled} not installed; env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
+      `  ${summary.install.ok}/${summary.install.total} ok; ${summary.install.stale} stale; ${summary.install.broken} broken; ${summary.install.notInstalled} not installed; ${summary.install.retired} retired; env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
     );
     if (!installOk && !opts.fix) {
       console.log(

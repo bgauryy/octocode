@@ -78,14 +78,34 @@ describe('numeric schema fields are bounded (#C1)', () => {
   });
 
   it('rejects contextLines above the documented maximum', () => {
-    const r = FileContentQueryLocalSchema.safeParse({
+    const query = (contextLines: number) => ({
+      goal: 'test goal',
+      reasoning: 'exercise contextLines bounds',
       owner: 'o',
       repo: 'r',
       path: 'a.ts',
       matchString: 'foo',
-      contextLines: 120,
+      contextLines,
     });
+    const maximum = (
+      z.toJSONSchema(FileContentQueryLocalSchema) as {
+        properties: { contextLines: { maximum: number } };
+      }
+    ).properties.contextLines.maximum;
+    // Values between the runtime clamp and the maximum are accepted (and
+    // clamped natively); only values past the published maximum reject.
+    expect(FileContentQueryLocalSchema.safeParse(query(120)).success).toBe(
+      true
+    );
+    expect(FileContentQueryLocalSchema.safeParse(query(maximum)).success).toBe(
+      true
+    );
+    const r = FileContentQueryLocalSchema.safeParse(query(maximum + 1));
     expect(r.success).toBe(false);
+    if (!r.success)
+      expect(r.error.issues.map(i => i.path.join('.'))).toEqual([
+        'contextLines',
+      ]);
   });
 
   it('rejects a negative LSP line without changing the observed anchor', () => {

@@ -23,7 +23,7 @@ if (baseRelative.startsWith('..') || isAbsolute(baseRelative)) {
   console.error(`[PRUNE] --base must stay under ${WORKSPACE_OUTPUT_BASE}`);
   process.exit(2);
 }
-const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/;
+const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}(?:-\d+)?$/;
 const PORT_DIR_RE  = /^port-\d+$/;
 
 function listDirs(dir) {

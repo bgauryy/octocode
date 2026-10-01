@@ -13,9 +13,12 @@ const { waitForPageReady } = await import(pathToFileURL(resolve(process.cwd(), '
 //   SNAPSHOT_DEPTH  max AX tree depth to request (default: unlimited -> -1)
 //   SNAPSHOT_MAX    max refs to keep, highest-signal first (default: 60)
 //   SNAPSHOT_STDOUT summary keeps refs on disk; default prints refs for direct interaction
+//   SNAPSHOT_TEXT   print the first N chars (max 4000) of main/body text; full text -> page-text.txt
 
 const DEPTH = Number.parseInt(process.env.SNAPSHOT_DEPTH ?? '-1', 10);
 const MAX_REFS = Math.max(1, Math.min(300, Number.parseInt(process.env.SNAPSHOT_MAX ?? '60', 10)));
+const MAX_NAME = 80;
+const TEXT_CHARS = Math.max(0, Math.min(4000, Number.parseInt(process.env.SNAPSHOT_TEXT ?? '0', 10) || 0));
 
 const INTERACTIVE_ROLES = new Set([
   'button', 'link', 'textbox', 'searchbox', 'combobox', 'checkbox', 'radio',
@@ -42,18 +45,35 @@ export async function run(cdp) {
     }
   }
 
+  // getFullAXTree returns nodes in no useful order (shallow footers come before deep
+  // content); walk childIds depth-first so refs read top-to-bottom like the page.
+  const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+  const childIds = new Set(nodes.flatMap((n) => n.childIds ?? []));
+  const ordered = [];
+  const stack = nodes.filter((n) => !childIds.has(n.nodeId)).reverse();
+  const visited = new Set();
+  while (stack.length) {
+    const n = stack.pop();
+    if (!n || visited.has(n.nodeId)) continue;
+    visited.add(n.nodeId);
+    ordered.push(n);
+    for (const id of [...(n.childIds ?? [])].reverse()) stack.push(byId.get(id));
+  }
+  for (const n of nodes) if (!visited.has(n.nodeId)) ordered.push(n);
+
   const kept = [];
   const seen = new Set();
   let duplicatesDropped = 0;
-  for (const node of nodes) {
+  for (const node of ordered) {
     if (node.ignored) continue;
     const role = node.role?.value ?? '';
     const name = node.name?.value ?? '';
     if (!role || !node.backendDOMNodeId) continue;
     const interactive = INTERACTIVE_ROLES.has(role);
     const named = Boolean(name && name.trim());
-    if (!interactive && !(named && ['heading', 'img', 'text'].includes(role))) continue;
-    const trimmedName = name.trim();
+    if (!interactive && !(named && ['heading', 'img'].includes(role))) continue;
+    const flat = name.trim().replace(/\s+/g, ' ');
+    const trimmedName = flat.length > MAX_NAME ? `${flat.slice(0, MAX_NAME - 1)}…` : flat;
     // Responsive layouts commonly duplicate whole nav/footer blocks (desktop +
     // mobile variants) — same role+name, different node. Keep the first
     // (typically the primary, DOM-earlier one) and drop exact repeats instead
@@ -63,22 +83,22 @@ export async function run(cdp) {
       if (seen.has(dupKey)) { duplicatesDropped++; continue; }
       seen.add(dupKey);
     }
-    kept.push({ role, name: trimmedName, backendDOMNodeId: node.backendDOMNodeId, interactive });
+    const level = role === 'heading' ? node.properties?.find((p) => p.name === 'level')?.value?.value : undefined;
+    kept.push({ role, name: trimmedName, fullName: name.trim(), backendDOMNodeId: node.backendDOMNodeId, interactive, level });
   }
 
-  // Highest signal first: interactive+named, then interactive, then named-only.
-  kept.sort((a, b) => {
-    const score = (n) => (n.interactive && n.name ? 2 : n.interactive ? 1 : 0);
-    return score(b) - score(a);
-  });
-  const trimmed = kept.slice(0, MAX_REFS);
+  // Document order; unnamed images add no signal.
+  const useful = kept.filter((n) => n.interactive || n.name);
+  const trimmed = useful.slice(0, MAX_REFS);
+  const truncated = useful.length - trimmed.length;
 
   const refs = {};
   const lines = [];
   trimmed.forEach((node, i) => {
     const ref = `e${i + 1}`;
-    refs[ref] = { backendDOMNodeId: node.backendDOMNodeId, role: node.role, name: node.name };
-    lines.push(`[${ref}] ${node.role}${node.name ? ` "${node.name}"` : ''}`);
+    refs[ref] = { backendDOMNodeId: node.backendDOMNodeId, role: node.role, name: node.fullName };
+    const role = node.role === 'heading' ? `h${node.level ?? ''}`.replace(/^h$/, 'heading') : node.role;
+    lines.push(`[${ref}] ${role}${node.name ? ` "${node.name}"` : ''}`);
   });
 
   const artifactPath = join(cdp.outputDir, 'page-snapshot.json');
@@ -91,10 +111,23 @@ export async function run(cdp) {
     artifactPath,
   });
 
-  console.log(`[METRIC] SNAPSHOT refs=${trimmed.length} totalAxNodes=${nodes.length}${duplicatesDropped ? ` duplicatesDropped=${duplicatesDropped}` : ''}`);
+  const title = (await cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }).catch(() => null))?.result?.value ?? '';
+  console.log(`[PAGE] "${String(title).slice(0, 120)}" ${cdp.targetInfo.url}`);
+  console.log(`[METRIC] SNAPSHOT refs=${trimmed.length} totalAxNodes=${nodes.length}${duplicatesDropped ? ` duplicatesDropped=${duplicatesDropped}` : ''}${truncated ? ` truncated=${truncated} (raise SNAPSHOT_MAX)` : ''}`);
   if (process.env.SNAPSHOT_STDOUT !== 'summary') {
     for (const line of lines) console.log(`[SNAPSHOT] ${line}`);
   }
   console.log(`[ARTIFACT] PAGE_SNAPSHOT ${artifactPath}`);
+
+  if (TEXT_CHARS > 0) {
+    const text = (await cdp.send('Runtime.evaluate', {
+      returnByValue: true,
+      expression: `((document.querySelector('main,[role=main],article') || document.body)?.innerText || '').replace(/\\s+/g, ' ').trim()`,
+    }).catch(() => null))?.result?.value ?? '';
+    const textPath = join(cdp.outputDir, 'page-text.txt');
+    writeFileSync(textPath, `${text}\n`, { mode: 0o600 });
+    console.log(`[TEXT] ${text.slice(0, TEXT_CHARS)}${text.length > TEXT_CHARS ? `… (+${text.length - TEXT_CHARS} chars)` : ''}`);
+    console.log(`[ARTIFACT] PAGE_TEXT ${textPath}`);
+  }
   if (process.env.SNAPSHOT_STDOUT !== 'summary') console.log('[REASON] Use a verified ref from this snapshot with dom-operations-check.mjs; confirm current state before acting.');
 }

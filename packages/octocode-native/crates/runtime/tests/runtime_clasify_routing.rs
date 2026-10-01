@@ -197,9 +197,16 @@ async fn a_page_read_never_repeats_a_best_row_read() {
     // The top best window's read is the query's next.read, emitted once.
     let best_read = &query["next"]["read"];
     assert!(best_read.is_object(), "{query}");
-    assert_eq!(best_read["query"]["startLine"], query["best"]["t"][0]["lines"][0]);
+    assert_eq!(
+        best_read["query"]["startLine"],
+        query["best"]["t"][0]["lines"][0]
+    );
     for page in query["resources"][0]["pages"].as_array().unwrap() {
-        assert_ne!(page.pointer("/next/read"), Some(best_read), "duplicate read: {query}");
+        assert_ne!(
+            page.pointer("/next/read"),
+            Some(best_read),
+            "duplicate read: {query}"
+        );
     }
     runtime.close().await;
 }

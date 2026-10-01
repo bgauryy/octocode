@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
+import {
+  DIRECT_TOOL_DEFINITIONS,
+  isCliOnlyTool,
+} from '@octocodeai/config/schema';
 import { publishedInputSchema } from '@octocodeai/config/mcp';
 import { toolInputSchema } from '../../src/native/index.js';
 import { wrapBareQuery } from './wrapBareQuery.js';
@@ -13,7 +16,12 @@ type Standard = {
 };
 
 describe('advertised input schema', () => {
-  it.each(DIRECT_TOOL_DEFINITIONS.map(d => d.name))(
+  // CLI-only tools are never registered over MCP, so core publishes no view.
+  it.each(
+    DIRECT_TOOL_DEFINITIONS.map(d => d.name).filter(
+      name => !isCliOnlyTool(name)
+    )
+  )(
     '%s advertises core’s published view but validates canonically',
     async name => {
       const definition = DIRECT_TOOL_DEFINITIONS.find(d => d.name === name)!;

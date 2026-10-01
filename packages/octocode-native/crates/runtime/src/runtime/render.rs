@@ -384,7 +384,7 @@ fn render_file_list(mut response: Value, format: TextFormat) -> String {
 /// GitHub file text in YAML: a multi-line `content` would be a quoted scalar
 /// escaping every tab, quote and line break. Each file's content leaves the
 /// YAML and follows it verbatim under a header naming the file, numbered
-/// `<line>\t<text>` when its lines map onto source lines (C5), as localFetch
+/// `<line>\t<text>` when its lines map onto source lines, as localFetch
 /// renders its own `content (source lines):` block.
 fn take_file_contents(response: &mut Value, blocks: &mut Vec<(String, String)>) {
     let rows = response
@@ -919,7 +919,7 @@ mod tests {
     /// source line that itself reads `@@ 1-2 @@`, unnumbered). The gutter is
     /// unpadded; the numbers make `sourceLineRanges`
     /// redundant in text, and a sole row needs no `result:`/`data:` wrapper.
-    /// The gutter is the C5 `<line>\t` form structuredContent carries.
+    /// The gutter is the `<line>\t` form structuredContent carries.
     #[test]
     fn local_fetch_numbers_each_line_with_a_bare_gutter_under_a_flat_header() {
         let row = |path: &str, start: u64| {

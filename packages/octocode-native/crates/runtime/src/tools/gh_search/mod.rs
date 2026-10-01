@@ -1253,7 +1253,7 @@ mod tests {
             assert!(last.data["next"].get("nextPage").is_none(), "{}", last.data);
         }
 
-        /// ghSearchRepo S1/S2: rows carry decision facts only, topics
+        /// ghSearchRepo rows carry decision facts only, topics
         /// favor the query, and pagination does not restate next.nextPage.
         #[tokio::test]
         async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
@@ -1313,7 +1313,7 @@ mod tests {
             assert_eq!(row["createdAt"], "2012-02-25");
         }
 
-        /// ghSearchRepo S3: `qualifiers` alone is a search, not an owner
+        /// ghSearchRepo: `qualifiers` alone is a search, not an owner
         /// listing, and reaches GitHub as normalized qualifiers.
         #[tokio::test]
         async fn qualifiers_reach_the_search_query() {
@@ -1340,7 +1340,7 @@ mod tests {
             assert!(out.data.get("order").is_none(), "a search, not a listing");
         }
 
-        /// ghStructure S1: `pattern` finds a file by name at any depth in one
+        /// ghStructure: `pattern` finds a file by name at any depth in one
         /// call, keeping the dir/files row shape.
         #[tokio::test]
         async fn tree_pattern_finds_paths_by_name_at_any_depth() {
@@ -1391,7 +1391,7 @@ mod tests {
             assert_eq!(invalid.kind, ProviderErrorKind::Validation);
         }
 
-        /// ghStructure S3: a recursive listing on an unresolved ref fetches
+        /// ghStructure: a recursive listing on an unresolved ref fetches
         /// the tree by ref name while the ref resolves; the tree is used only
         /// when it reports the resolved commit.
         #[tokio::test]

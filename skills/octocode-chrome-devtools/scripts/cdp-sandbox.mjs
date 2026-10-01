@@ -70,8 +70,14 @@ function octocodeOutputBase() {
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
 const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-const OUTPUT_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', timestamp);
-mkdirSync(OUTPUT_DIR, { recursive: true, mode: 0o700 });
+const RUNS_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools');
+mkdirSync(RUNS_DIR, { recursive: true, mode: 0o700 });
+const OUTPUT_DIR = (() => {
+  for (let n = 1; ; n++) {
+    const dir = join(RUNS_DIR, n === 1 ? timestamp : `${timestamp}-${n}`);
+    try { mkdirSync(dir, { mode: 0o700 }); return dir; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  }
+})();
 const SESSION_META_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', 'session-meta', `port-${PORT}`);
 mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
 
@@ -140,6 +146,15 @@ const permFlags = [
 // never the parent env where tokens/cookies may live.
 const SCRIPT_ENV_ALLOWLIST = [
   'MONITOR_MS',
+  'MONITOR_URL',
+  'SHOT_FULL',
+  'SHOT_SELECTOR',
+  'SHOT_FORMAT',
+  'SHOT_QUALITY',
+  'SHOT_SCALE',
+  'BODY_URL',
+  'BODY_MATCH',
+  'BODY_WAIT_MS',
   'SLOW_MS',
   'MAX_STDOUT_ITEMS',
   'DOM_SELECTOR',
@@ -150,6 +165,7 @@ const SCRIPT_ENV_ALLOWLIST = [
   'SNAPSHOT_DEPTH',
   'SNAPSHOT_MAX',
   'SNAPSHOT_STDOUT',
+  'SNAPSHOT_TEXT',
   'WEBMCP_ACTION',
   'WEBMCP_TOOL',
   'WEBMCP_INPUT',

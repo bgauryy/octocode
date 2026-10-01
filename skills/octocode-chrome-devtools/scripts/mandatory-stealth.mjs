@@ -24,17 +24,21 @@ export async function applyMandatoryStealth(cdp, opts = {}) {
   await cdp.send('Page.enable', {}).catch(() => {});
   await cdp.send('Runtime.enable', {}).catch(() => {});
 
+  const httpOrigin = (url) => { try { const o = new URL(url).origin; return o === 'null' ? undefined : o; } catch { return undefined; } };
   let origin = opts.origin;
-  if (!origin && opts.navigateUrl) {
-    try { origin = new URL(opts.navigateUrl).origin; } catch { /* ignore */ }
-  }
-  if (!origin && cdp.targetInfo?.url && !isAboutOrDataUrl(cdp.targetInfo.url)) {
-    try { origin = new URL(cdp.targetInfo.url).origin; } catch { /* ignore */ }
-  }
+  if (!origin && opts.navigateUrl) origin = httpOrigin(opts.navigateUrl);
+  if (!origin && cdp.targetInfo?.url && !isAboutOrDataUrl(cdp.targetInfo.url)) origin = httpOrigin(cdp.targetInfo.url);
 
   await applyStealthPatches(cdp, origin ? { origin } : {});
   cdp.stealthApplied = true;
   console.log('[INJECT] Stealth patches applied (mandatory gate)');
+
+  // Kept-tab follow-up steps: reloading would erase form/SPA state. The current
+  // document was loaded under the previous run's patches, so skip reload+verify.
+  if (process.env.CDP_STEALTH_NO_RELOAD === '1' && !opts.navigateUrl) {
+    console.log('[FINDING] STEALTH_RELOAD_SKIPPED patches apply on next navigation; page state kept');
+    return { skippedReload: true };
+  }
 
   // Patches register on new document; reload so verify runs on injected JS world.
   try {

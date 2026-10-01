@@ -213,45 +213,6 @@ fn qualifier_error(message: String) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Validation, message)
 }
 
-/// Split `a:b label:"good first issue"` into terms; quotes group words.
-fn qualifier_terms(text: &str) -> Vec<String> {
-    let mut terms = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    for c in text.chars() {
-        match c {
-            '"' => quoted = !quoted,
-            c if c.is_whitespace() && !quoted => {
-                if !current.is_empty() {
-                    terms.push(std::mem::take(&mut current));
-                }
-            }
-            c => current.push(c),
-        }
-    }
-    if !current.is_empty() {
-        terms.push(current);
-    }
-    terms
-}
-
-fn edit_distance(a: &str, b: &str) -> usize {
-    let b = b.chars().collect::<Vec<_>>();
-    let mut row = (0..=b.len()).collect::<Vec<_>>();
-    for (i, ca) in a.chars().enumerate() {
-        let mut previous = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let next = (row[j + 1] + 1)
-                .min(row[j] + 1)
-                .min(previous + usize::from(ca != *cb));
-            previous = row[j + 1];
-            row[j + 1] = next;
-        }
-    }
-    row[b.len()]
-}
-
 /// Map a row's `qualifiers` string onto the typed search fields (one code
 /// path for both spellings): allowlisted keys only, scope qualifiers
 /// rejected, a field set twice rejected, unknown keys get a suggestion.
@@ -274,7 +235,7 @@ pub fn normalize_row(row: &mut Value) -> Result<(), ProviderError> {
         ));
     }
     let pull_request = operation == "pullRequest";
-    for term in qualifier_terms(&text) {
+    for term in crate::contracts::qualifier_terms(&text) {
         let (negated, term) = match term.strip_prefix('-') {
             Some(rest) => (true, rest),
             None => (false, term.as_str()),
@@ -297,7 +258,7 @@ pub fn normalize_row(row: &mut Value) -> Result<(), ProviderError> {
         else {
             let suggestion = QUALIFIER_KEYS
                 .iter()
-                .map(|(name, _, _)| (edit_distance(&key, name), *name))
+                .map(|(name, _, _)| (crate::contracts::levenshtein(&key, name), *name))
                 .filter(|(distance, _)| *distance <= 2)
                 .min();
             return Err(qualifier_error(match suggestion {
@@ -1252,7 +1213,7 @@ mod tests {
         assert!(closed.get("mergedAt").is_none());
     }
 
-    /// G09: the default PR read targets the merged fix, not the first
+    /// The default PR read targets the merged fix, not the first
     /// (unmerged) search row; the other rows ride as candidates.
     #[test]
     fn read_pr_prefers_the_first_merged_row_and_names_candidates() {
@@ -1351,7 +1312,7 @@ mod tests {
         );
     }
 
-    /// S5 (A3): the `qualifiers` string sets the typed fields, so both
+    /// The `qualifiers` string sets the typed fields, so both
     /// spellings build the same search; scope and unknown keys are rejected.
     #[test]
     fn qualifiers_map_onto_typed_fields() {

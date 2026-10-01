@@ -5,6 +5,7 @@ mod prepare;
 mod schema_facts;
 pub mod tool_types;
 mod validate;
+pub(crate) use validate::{levenshtein, qualifier_terms};
 
 use crate::tools::id::{ToolId, clasify_policy};
 pub use prepare::{ContractInputError, PrepareOptions, prepare};

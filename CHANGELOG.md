@@ -34,6 +34,13 @@
   `gh`, plus a feature-claims audit.
 
 ### Removed
+- **`octocode-clasify` skill merged into `octocode-research`.** Clasify
+  admission, request shapes, question types, Scout/Judge and result handling
+  live in `octocode-research/references/clasify.md`; the bundle now ships 15
+  skills. `skill check` reports installed copies or dangling links of retired
+  skills (exit 1) and `skill check --fix` removes them; `skill install`/`info`
+  of a retired name point to its replacement. Manual cleanup:
+  `octocode skill remove octocode-clasify`.
 - **Awareness retired.** The Awareness package, CLI, repository skill and hook
   registrations are removed, together with its plan projections, work ledger,
   shared memory, automatic history capture and `/rewind`.

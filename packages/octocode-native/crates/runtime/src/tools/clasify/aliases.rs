@@ -20,10 +20,12 @@ const CUSTOM: [(&str, &str); 3] = [("yesno", "noul"), ("choice", "choice"), ("sc
 
 /// File-read query fields that already select what to read; without one, a
 /// flat file resource reads the whole file (the nested form's `fullContent`).
-const READ_SELECTORS: [&str; 9] = [
+const READ_SELECTORS: [&str; 11] = [
     "fullContent",
     "startLine",
     "endLine",
+    "ranges",
+    "block",
     "matchString",
     "charOffset",
     "charLength",
@@ -271,6 +273,41 @@ mod tests {
                 {"type":"score","instructions":"risk","criteria":["low","high"]}
             ])
         );
+    }
+
+    #[test]
+    fn selected_file_reads_do_not_become_whole_file_reads() {
+        for read in [
+            json!({"path":"/r/a.c","ranges":["10-20","40-45"]}),
+            json!({"path":"/r/a.c","ranges":["10-20"],"block":true}),
+        ] {
+            let mut query = matrix(
+                json!([{"id":"f","tool":"localFetch","query":read.clone()}]),
+                json!([{"type":"locate","ask":"timer"}]),
+            );
+            canonicalize(&mut query);
+            assert_eq!(query["resources"][0]["context"]["query"], read);
+            let prepared = crate::contracts::prepare_many_and_validate(
+                "clasify",
+                matrix(
+                    json!([{"id":"f","tool":"localFetch","query":read}]),
+                    json!([{"type":"locate","ask":"timer"}]),
+                ),
+                crate::contracts::PrepareOptions::default(),
+            )
+            .expect("a ranged flat read validates");
+            let mut nested = prepared[0].clone();
+            canonicalize(&mut nested);
+            let mut read = nested["resources"][0]["context"]["query"].clone();
+            read["goal"] = json!("g");
+            read["reasoning"] = json!("r");
+            crate::contracts::prepare_many_and_validate(
+                "localFetch",
+                read,
+                crate::contracts::PrepareOptions::default(),
+            )
+            .expect("the canonical read keeps its selector alone");
+        }
     }
 
     #[test]

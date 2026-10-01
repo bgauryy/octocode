@@ -1452,7 +1452,7 @@ mod tests {
             100_071usize.div_ceil(patch_window(None, Some(50_000), 1)),
             3
         );
-        // S3: rows of one call split the budget (G01: 2 rows → 8,000 each);
+        // Rows of one call split the budget;
         // an explicit charLength still wins; a share never drops below 2,000.
         assert_eq!(patch_window(None, None, 2), 7_500);
         assert_eq!(patch_window(None, Some(20_000), 2), 7_500);
@@ -1579,7 +1579,7 @@ mod tests {
         assert_eq!(page.rows[0]["fullPatchChars"], patch.chars().count());
     }
 
-    /// S4: `matchString` keeps only the hit lines by default (matchContext
+    /// `matchString` keeps only the hit lines by default (matchContext
     /// 0) and pages every hit file of the PR at once, not 30 per call.
     #[test]
     fn match_string_defaults_to_hit_lines_and_one_page_of_hit_files() {
@@ -1597,7 +1597,7 @@ mod tests {
         assert_eq!(file_page_size(&explicit, true), 5);
     }
 
-    /// S5: a patch page emits only rows that carry patch text (or say why a
+    /// A patch page emits only rows that carry patch text (or say why a
     /// file has none); files not reached yet ride the continuation, not
     /// empty placeholder rows. PR rows carry one compact `stat`.
     #[test]
@@ -1640,7 +1640,7 @@ mod tests {
         assert_eq!(pagination["patches"]["files"], json!(["b.rs", "c.rs"]));
     }
 
-    /// S7 (G02): the review pick names every source file by churn within
+    /// The review pick names every source file by churn within
     /// one budget, skipping tests, docs and lockfiles.
     #[test]
     fn review_selection_packs_source_files_by_churn() {
@@ -1682,7 +1682,7 @@ mod tests {
         assert_eq!(literal_patch_window(Some(20_000), 2), 8_000);
     }
 
-    /// S5/S8: commit rows use the PR header (`path` + `stat`), and a
+    /// Commit rows use the PR header (`path` + `stat`), and a
     /// commit's `files` scope takes paths and globs like a PR's.
     #[test]
     fn commit_rows_are_compact_and_files_scope_them() {

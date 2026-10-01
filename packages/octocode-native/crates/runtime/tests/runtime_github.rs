@@ -685,7 +685,7 @@ async fn gh_get_history_item_commit_not_found_surfaces_error() {
     runtime.close().await;
 }
 
-/// ghCloneRepo S1/S2: no GitHub API call precedes git. A missing or
+/// ghCloneRepo: no GitHub API call precedes git. A missing or
 /// inaccessible repository is classified from the metadata API only after
 /// git fails (unit-tested in `runtime::github`); here the endpoint cannot
 /// be cloned at all, and the API is never asked.
@@ -809,7 +809,7 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
     let preview = pr["bodyPreview"].as_str().expect("bodyPreview");
     assert!(preview.ends_with("..."), "{preview}");
     assert!(preview.chars().count() <= 500, "{preview}");
-    // The long body rides the file-list read (S6 menu diet).
+    // The long body rides the file-list read.
     let get_body = &pr["next"]["getChangedFiles"]["query"];
     // Continuations omit defaulted fields; validation restores them on replay.
     assert!(get_body.get("pageSize").is_none(), "{get_body}");
@@ -1670,7 +1670,7 @@ async fn gh_full_content_first_page_stays_under_the_host_output_cap() {
     runtime.close().await;
 }
 
-/// S2 (G08/G09): an issue read lists the pull requests that closed it
+/// An issue read lists the pull requests that closed it
 /// (merged first) and offers the merged fix as `next.readFixPr`; without
 /// GraphQL the read falls back to the keyword search hop.
 #[tokio::test]

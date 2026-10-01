@@ -285,8 +285,10 @@ pub(super) fn provider_failure(
 /// not-found (like a GitHub 404), not an execution failure; every other
 /// domain error stays an execution failure.
 fn error_failure(code: &str) -> FailureKind {
-    if matches!(code, "notFound" | "versionNotFound" | "lsp.anchorUnresolved")
-        || super::response::is_not_found_code(code)
+    if matches!(
+        code,
+        "notFound" | "versionNotFound" | "lsp.anchorUnresolved"
+    ) || super::response::is_not_found_code(code)
     {
         FailureKind::NotFound
     } else {

@@ -6,7 +6,7 @@
 //     --port 9222 --new-tab "about:blank" --timeout 30000
 //
 // Configure the target with STEALTH_CHECK_URL (default: bot.sannysoft.com, a public
-// bot-detection self-test page — see references/intents-environment.md for more test sites).
+// bot-detection self-test page — see references/launch-stealth.md for more test sites).
 //
 // cdp-sandbox.mjs stages undercover.mjs into <cwd>/.octocode/ (or the global Octocode
 // home if the project dir isn't writable) rather than next to this file — a plain
@@ -41,13 +41,31 @@ export async function run(cdp) {
   const result = await verifyStealth(cdp);
   console.log(`[METRIC] stealth self-test: ${result.passed}/${result.total} passed`);
 
+  // Detector pages such as bot.sannysoft.com mark each probe cell passed/warn/failed.
+  const page = (await cdp.send('Runtime.evaluate', {
+    returnByValue: true,
+    expression: `(() => {
+      const name = (td) => (td.closest('tr')?.querySelector('td')?.textContent || td.id || '').trim().slice(0, 60);
+      const cells = (c) => [...document.querySelectorAll('td.' + c)];
+      return { passed: cells('passed').length, warn: cells('warn').length, failed: cells('failed').length,
+        failedNames: cells('failed').map(name).slice(0, 20), warnNames: cells('warn').map(name).slice(0, 20) };
+    })()`,
+  })).result?.value ?? null;
+  if (page && page.passed + page.warn + page.failed > 0) {
+    console.log(`[METRIC] detector page: passed=${page.passed} warn=${page.warn} failed=${page.failed}`);
+    if (page.failed) console.log(`[FINDING] DETECTOR_FAILED ${page.failedNames.join(' | ')}`);
+    if (page.warn) console.log(`[FINDING] DETECTOR_WARN ${page.warnNames.join(' | ')}`);
+  }
+
   if (cdp.outputDir) {
     const outPath = join(cdp.outputDir, 'stealth-check.json');
-    writeFileSync(outPath, JSON.stringify({ targetUrl: TARGET_URL, ...result }, null, 2));
+    writeFileSync(outPath, JSON.stringify({ targetUrl: TARGET_URL, ...result, detectorPage: page }, null, 2));
     console.log(`[ARTIFACT] ${outPath}`);
   }
 
-  if (result.failed > 0) {
+  if (page?.failed > 0) {
+    console.log('[FINDING] Detector page flags leaks the self-test missed; see DETECTOR_FAILED above.');
+  } else if (result.failed > 0) {
     console.log('[FINDING] Stealth self-test has failures — inspect [FINDING] STEALTH_FAIL lines above for which signals leaked.');
   } else {
     console.log('[ACTION] Stealth posture clean — safe to proceed with scraping this target.');

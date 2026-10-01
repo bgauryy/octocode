@@ -423,7 +423,7 @@ pub(super) fn collapse_locate_answer(
 
 /// Locate candidates across every page and resource of one query, ordered by
 /// `exists` and then window probability (never their product: probability
-/// only ranks passages within a page that answers; see [`EXISTS_TIE_BAND`]). Rows here carry no read:
+/// only ranks passages within a page that answers). Rows here carry no read:
 /// this is the copyable `carry` form (see `with_row_reads` for `best`).
 pub(super) fn rank_locate(
     resources: &[Value],
@@ -477,7 +477,11 @@ pub(super) fn rank_locate(
             continue;
         }
         let key = |row: &Value, field: &str| row[field].as_f64().unwrap_or(0.0);
-        band_order(&mut rows, EXISTS_TIE_BAND);
+        rows.sort_by(|left, right| {
+            key(right, "exists")
+                .total_cmp(&key(left, "exists"))
+                .then_with(|| key(right, "probability").total_cmp(&key(left, "probability")))
+        });
         // A carried row and a fresh one (or two pages' windows) can cover the
         // same lines of one file; keep only the higher-ranked of them.
         let mut kept: Vec<Value> = Vec::new();
@@ -497,44 +501,6 @@ pub(super) fn rank_locate(
         best.insert((*id).to_owned(), Value::Array(rows));
     }
     (!best.is_empty()).then_some(Value::Object(best))
-}
-
-/// Width of the `exists` tie band [`rank_locate`] applies. Measured
-/// 2026-10-01 on redis `server.c`: a 0.05 band did not reorder the C2 target
-/// (its gap was 0.06) and flipped C1's rank 1 to a wrong window on a 0.02 `p`
-/// difference, because `p` only ranks passages within one page. So the
-/// shipped band is 0.0 (strict exists, then probability); [`band_order`]
-/// keeps the banded order for a future calibrated width.
-pub(super) const EXISTS_TIE_BAND: f64 = 0.0;
-
-/// Order rows by `exists` in bands of `band` below each band's top row, and
-/// by probability (then exists) inside a band. Deterministic: bands start at
-/// the highest remaining exists. A zero band is exists, then probability.
-pub(super) fn band_order(rows: &mut [Value], band: f64) {
-    let key = |row: &Value, field: &str| row[field].as_f64().unwrap_or(0.0);
-    let descending = |field: &'static str| {
-        move |left: &Value, right: &Value| {
-            key(right, field)
-                .partial_cmp(&key(left, field))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        }
-    };
-    rows.sort_by(|left, right| {
-        descending("exists")(left, right).then_with(|| descending("probability")(left, right))
-    });
-    let mut start = 0;
-    while start < rows.len() {
-        let floor = key(&rows[start], "exists") - band - 1e-9;
-        let end = start
-            + rows[start..]
-                .iter()
-                .take_while(|row| key(row, "exists") >= floor)
-                .count();
-        rows[start..end].sort_by(|left, right| {
-            descending("probability")(left, right).then_with(|| descending("exists")(left, right))
-        });
-        start = end;
-    }
 }
 
 /// Publish `best` when the walk is finished, or when its top window already
@@ -981,37 +947,33 @@ mod tests {
     }
 
     #[test]
-    fn exists_within_the_tie_band_lets_probability_decide() {
-        let row = |exists: f64, probability: f64, line: u64| json!({"resourceId":"r","exists":exists,"startLine":line,"endLine":line + 7,"probability":probability});
-        // C2 shape: the answering window trails by 0.04 exists but leads on p.
-        let mut rows = vec![
-            row(0.89, 0.37, 5020),
-            row(0.88, 0.28, 5032),
-            row(0.85, 0.86, 4657),
-            row(0.40, 0.99, 10),
-        ];
-        band_order(&mut rows, 0.05);
-        let lines = rows
-            .iter()
-            .map(|row| row["startLine"].as_u64().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(lines, vec![4657, 5020, 5032, 10]);
-        // A gap wider than the band keeps exists first.
-        let mut wide = vec![row(0.89, 0.37, 1), row(0.83, 0.86, 2)];
-        band_order(&mut wide, 0.05);
-        assert_eq!(wide[0]["startLine"], 1);
-        // Bands start at each remaining top row, so the order is total.
-        let mut chain = vec![row(0.96, 0.1, 1), row(0.92, 0.9, 2), row(0.88, 0.95, 3)];
-        band_order(&mut chain, 0.05);
-        let lines = chain
-            .iter()
-            .map(|row| row["startLine"].as_u64().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(lines, vec![2, 1, 3]);
-        // The shipped zero band is strict exists, then probability.
-        let mut strict = vec![row(0.93, 0.74, 1), row(0.97, 0.72, 2)];
-        band_order(&mut strict, EXISTS_TIE_BAND);
-        assert_eq!(strict[0]["startLine"], 2);
+    fn ranking_is_exists_first_then_probability() {
+        let single = vec![json!({"resourceId":"f","pages":[]})];
+        let order = |carry: Value| {
+            rank_locate(&single, &["t"], Some(&carry)).unwrap()["t"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["startLine"].as_u64().unwrap())
+                .collect::<Vec<_>>()
+        };
+        // A window trailing by a small exists gap stays behind despite a higher p.
+        assert_eq!(
+            order(json!({"t":[
+                {"lines":[5020,5027],"exists":0.89,"p":0.37},
+                {"lines":[10,17],"exists":0.40,"p":0.99},
+                {"lines":[4657,4664],"exists":0.85,"p":0.86}
+            ]})),
+            vec![5020, 4657, 10]
+        );
+        // Equal exists: probability decides.
+        assert_eq!(
+            order(json!({"t":[
+                {"lines":[1,8],"exists":0.9,"p":0.2},
+                {"lines":[20,28],"exists":0.9,"p":0.8}
+            ]})),
+            vec![20, 1]
+        );
     }
 
     #[test]

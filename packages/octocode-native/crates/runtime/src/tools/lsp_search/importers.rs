@@ -155,12 +155,21 @@ const MAX_SCAN_ROOT_ASCENT: usize = 6;
 /// or a `package.json` with `workspaces`) the read policy authorizes. A
 /// package's own root (its `package.json`) hides sibling packages that import
 /// it through a package-index re-export (`export { f } from "@scope/pkg"`).
+/// The scan never leaves the anchor's repository: a monorepo above a nested
+/// checkout (a directory with its own `.git`) is a different project, and its
+/// ignore rules may hide the checkout entirely.
 fn scan_root(workspace_root: &str, policy: &crate::policy::path::PathPolicy) -> String {
     let start = Path::new(workspace_root);
-    start
-        .ancestors()
+    let mut repository = Vec::new();
+    for dir in start.ancestors().take(MAX_SCAN_ROOT_ASCENT + 1) {
+        repository.push(dir);
+        if dir.join(".git").exists() {
+            break;
+        }
+    }
+    repository
+        .into_iter()
         .skip(1)
-        .take(MAX_SCAN_ROOT_ASCENT)
         .find(|dir| is_js_workspace_root(dir))
         .filter(|dir| {
             policy
@@ -671,6 +680,20 @@ mod tests {
         );
         // An unauthorized monorepo root never widens the scan.
         assert_eq!(scan_root(&package_str, &policy(&package)), package_str);
+        // A repository boundary below the monorepo root stops the widening:
+        // a nested checkout is its own project.
+        std::fs::create_dir_all(root.join("packages/.git")).expect("nested repository");
+        assert_eq!(scan_root(&package_str, &policy(&root)), package_str);
+        std::fs::remove_dir_all(root.join("packages/.git")).expect("cleanup");
+        std::fs::create_dir_all(package.join(".git")).expect("checkout");
+        assert_eq!(scan_root(&package_str, &policy(&root)), package_str);
+        std::fs::remove_dir_all(package.join(".git")).expect("cleanup");
+        // The repository's own root still widens when it is the monorepo.
+        std::fs::create_dir_all(root.join(".git")).expect("monorepo repository");
+        assert_eq!(
+            scan_root(&package_str, &policy(&root)),
+            root.to_string_lossy()
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

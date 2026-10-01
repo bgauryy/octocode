@@ -75,12 +75,9 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
     let mut matrix =
         outcome.structured_content["results"][0]["data"]["next"]["clasify"]["query"].clone();
     assert_eq!(matrix["reasoning"], search["reasoning"]);
-    assert_eq!(matrix["resources"][0]["context"]["tool"], "localSearch");
-    assert_eq!(
-        matrix["resources"][0]["context"]["candidateEvidence"],
-        "fileChunks"
-    );
-    assert_eq!(matrix["questions"][1]["questionType"], "sufficient");
+    assert_eq!(matrix["resources"][0]["tool"], "localSearch");
+    assert_eq!(matrix["resources"][0]["candidateEvidence"], "fileChunks");
+    assert_eq!(matrix["questions"][1]["type"], "sufficient");
     let mut visited = BTreeSet::new();
     let mut deciding_read = None;
     let mut complete = false;
@@ -177,8 +174,12 @@ async fn large_paged_local_read_offers_clasify_locate() {
         }
     };
     let brief = |extra: Value| {
-        let mut query = json!({"goal":"find the housekeeping timer","reasoning":"read the file","path":file});
-        query.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let mut query =
+            json!({"goal":"find the housekeeping timer","reasoning":"read the file","path":file});
+        query
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         query
     };
     let paged = read(brief(json!({}))).await;
@@ -186,7 +187,10 @@ async fn large_paged_local_read_offers_clasify_locate() {
     assert_eq!(offer["tool"], "clasify", "{paged}");
     let matrix = &offer["query"];
     assert_eq!(matrix["resources"][0]["tool"], "localFetch");
-    assert_eq!(matrix["questions"][0], json!({"id":"target","type":"locate","ask":"find the housekeeping timer"}));
+    assert_eq!(
+        matrix["questions"][0],
+        json!({"id":"target","type":"locate","ask":"find the housekeeping timer"})
+    );
     octocode_native::contracts::prepare_many_and_validate(
         "clasify",
         matrix.clone(),

@@ -30,7 +30,7 @@ Large requests: save under `.octocode/` and run `octocode clasify --input <file>
 
 ## Results
 - Each resource lists `path`, `totalLines`, and `pages[]` of `{lines, answers}`; choice/score below 0.9 keep `confidence` and `probabilities`. No `coverage` = complete; `debug:true` adds runner-up matches and provider `usage`.
-- `best[id]` rows are `{lines, exists, p}`: `exists` = this page answers, `p` = which window. Rows within 0.05 `exists` tie and `p` orders them; never multiply them.
+- `best[id]` rows are `{lines, exists, p}`: `exists` = this page answers, `p` = which window. Rows rank by `exists`, then `p` for equal `exists`; never multiply them.
 - Follow `next.clasify` unchanged while coverage remains and the top `exists` is below 0.5 (rank lives in `carry`); then read the top `best` windows together (≤5 ranges) via `next.read` or `localFetch` `startLine/endLine`.
 - Mid-band (0.36–0.69), `partial`, `error`, and `insufficient` mean narrow or read, never "no". High `p` + low `exists` is the closest passage, not an answer. An identifier hint means `localSearch` is cheaper.
 - Verdicts rank attention only: never infer identity, reachability, absence, or mutation safety. Measure leverage as final quality plus actual host tokens.

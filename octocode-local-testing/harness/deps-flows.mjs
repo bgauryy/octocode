@@ -3,7 +3,7 @@
 // candidates are verified against package declarations and lexical class uses.
 // Bounded syntactic graph coverage is measured against LSP, not called complete.
 import path from 'node:path';
-import { REPOS, ROOT, checks, collect, nextHints, rowData, sourcePath, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, ROOT, checks, collect, nextHints, rowData, sourcePath, sourceView, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('deps-flows');
 const client = await startServer({ env: { OCTOCODE_BETA: '1' } });
@@ -46,7 +46,7 @@ async function walkPages(first, key, max = 20) {
 /** The import statement starting at `line` (multi-line `import {…} from "x"` included). */
 async function lineAt(root, file, line) {
   const f = await call('localFetch', { path: path.join(root, file), startLine: line, endLine: line + 200 });
-  const text = rowData(f)?.content ?? '';
+  const text = sourceView(rowData(f)).text;
   const lines = text.split('\n');
   // The statement ends at its module string: `from 'x'` / `"x"` / `<x>` / `;` / `)`.
   const end = lines.findIndex(l => /from\s+['"]|['"][^'"]*['"]\s*\)?;?\s*$|#include|;\s*$|^\s*\)\s*$/.test(l));
@@ -62,10 +62,10 @@ async function proveEdges(root, lang, edges, limit = 20) {
       const from = await call('localFetch', { path: path.join(root, edge.from), matchString: tokens(edge.to, lang)[0], contextLines: 2 });
       const fromHead = await call('localFetch', { path: path.join(root, edge.from), startLine: 1, endLine: 80 });
       const to = await call('localFetch', { path: path.join(root, edge.to), startLine: 1, endLine: 80 });
-      const a = rowData(from)?.content ?? '', b = rowData(to)?.content ?? '';
+      const a = sourceView(rowData(from)).text, b = sourceView(rowData(to)).text;
       const packageOf = s => s.match(/^\s*package\s+([\w.]+)\s*;/m)?.[1];
       const name = tokens(edge.to, lang)[0];
-      const declared = packageOf(rowData(fromHead)?.content ?? '');
+      const declared = packageOf(sourceView(rowData(fromHead)).text);
       if (!from.isError && !to.isError && !fromHead.isError && declared && declared === packageOf(b) && new RegExp(`\\b${name}\\b`).test(a) && new RegExp(`\\b(class|interface|enum|record)\\s+${name}\\b`).test(b)) proven += 1;
       else failures.push(`unverified same-package candidate ${edge.from} ↛ ${edge.to}`);
       continue;

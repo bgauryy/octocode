@@ -100,7 +100,8 @@ fn prepare(tool: &str, query: &Value) -> Result<Value, ClassificationError> {
                         format!("Context query does not satisfy the {tool} input contract.")
                     } else {
                         format!(
-                            "Context query does not satisfy the {tool} input contract: {detail}."
+                            "Context query does not satisfy the {tool} input contract: {}.",
+                            detail.trim_end_matches('.')
                         )
                     },
                 )

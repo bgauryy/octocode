@@ -2601,6 +2601,11 @@ fn execute_query_verbose(
             output["next"][ToolId::Clasify.as_str()]["carry"] = best;
         }
         copy_goal(&mut output["next"][ToolId::Clasify.as_str()], query);
+        // A debug walk stays one, as every other tool's continuation keeps
+        // `debug`: the receipt shape does not change mid-walk.
+        if query.get("debug").and_then(Value::as_bool) == Some(true) {
+            output["next"][ToolId::Clasify.as_str()]["debug"] = json!(true);
+        }
     }
     if let Some(literal) = literal {
         output["next"][ToolId::LocalSearch.as_str()] = literal;

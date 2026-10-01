@@ -267,6 +267,7 @@ export async function run(cdp) {
     console.log(`[METRIC] DOM role=${JSON.stringify(details.role)} name=${JSON.stringify(details.accessibleNameGuess)} bbox=${JSON.stringify(details.bbox)}`);
     if (details.coveredBy) console.log(`[FINDING] DOM element is covered by ${details.coveredBy}`);
     if (details.operation === 'blocked-by-actionability') console.log('[FINDING] DOM action blocked by actionability checks; inspect artifact for exact reason.');
+    if (details.operation === 'not-fillable') console.log(`[FINDING] DOM_NOT_FILLABLE ${details.role} is not an input; pick a textbox/searchbox/combobox ref`);
   }
   console.log(`[ARTIFACT] DOM_CHECK ${artifactPath}`);
 }

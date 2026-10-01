@@ -2,7 +2,7 @@
 // full pagination, and cross-tool correlation (text ⊇ syntax ⊇ identity).
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, nextHints, rowData, sourcePath, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { REPOS, checks, collect, nextHints, rowData, sourcePath, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('repo-sweep');
 const client = await startServer();
@@ -118,7 +118,7 @@ for (const r of REPOS_BY_LANG) {
       // the landing line itself declares the name.
       if (!lands) {
         const line = await call('localFetch', { path: target, startLine: l.displayRange?.startLine ?? 1, endLine: l.displayRange?.startLine ?? 1 });
-        const text = rowData(line)?.content ?? '';
+        const text = sourceView(rowData(line)).text;
         if (new RegExp(`\\b(function|def|fn|func|class|var|let|const|struct)\\b[^\\n]*\\b${S.name}\\b|\\b${S.name}\\s*[:=]\\s*(function|\\()`).test(text)) lands = true;
       }
     }
@@ -138,7 +138,7 @@ for (const r of REPOS_BY_LANG) {
   // localFetch on the biggest file: pages continue gap-free; views agree.
   const f1 = await call('localFetch', { path: L, chunkType: 'lines', chunkSize: 400 });
   const fPages = await walk(f1, 'continue', 400);
-  const ranges = fPages.map(p => rowData(p)?.sourceLineRanges ?? []).map(rr => [rr[0]?.start, rr.at(-1)?.end]);
+  const ranges = fPages.map(p => sourceView(rowData(p)).ranges).map(rr => [rr[0]?.start, rr.at(-1)?.end]);
   const byteMode = fPages.map(p => rowData(p)?.pagination?.chunkType === 'bytes');
   let gapFree = ranges[0]?.[0] === 1;
   // A line longer than a page is served as byte pages: the next page may

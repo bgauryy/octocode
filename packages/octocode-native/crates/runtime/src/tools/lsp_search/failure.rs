@@ -411,7 +411,7 @@ fn near_names(source: &str, name: &str, hint: Option<u32>) -> Vec<(String, usize
             .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
             .filter(|word| !word.is_empty() && *word != name && word.len() <= 256)
         {
-            let distance = edit_distance(word, name);
+            let distance = crate::contracts::levenshtein(word, name);
             if distance <= limit && !found.iter().any(|entry| entry.2 == word) {
                 let offset = hint.map_or(0, |hint| line.abs_diff(hint));
                 found.push((distance, offset, word.to_owned(), line));
@@ -424,21 +424,4 @@ fn near_names(source: &str, name: &str, hint: Option<u32>) -> Vec<(String, usize
         .take(3)
         .map(|(_, _, word, line)| (word, line))
         .collect()
-}
-
-fn edit_distance(a: &str, b: &str) -> usize {
-    let b = b.chars().collect::<Vec<_>>();
-    let mut row = (0..=b.len()).collect::<Vec<_>>();
-    for (i, left) in a.chars().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = i + 1;
-        for (j, right) in b.iter().enumerate() {
-            let above = row[j + 1];
-            row[j + 1] = (above + 1)
-                .min(row[j] + 1)
-                .min(diagonal + usize::from(left != *right));
-            diagonal = above;
-        }
-    }
-    row[b.len()]
 }

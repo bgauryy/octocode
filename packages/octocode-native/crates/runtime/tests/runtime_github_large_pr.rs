@@ -223,7 +223,7 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     assert_eq!(rows, 250, "{row}");
 }
 
-/// D2/S7: the review pick is every source file, most changed first (not the
+/// The review pick is every source file, most changed first (not the
 /// changeset, not the tests), labelled as a ranking guess; a small PR keeps
 /// the every-patch read beside it.
 #[tokio::test]
@@ -526,7 +526,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     let files = &data["pullRequests"][0]["changedFiles"];
     assert_eq!(files.as_array().map(Vec::len), Some(1), "{data}");
     let patch = files[0]["patch"].as_str().expect("patch");
-    // S4: hit lines only by default (matchContext 0).
+    // Hit lines only by default (matchContext 0).
     assert_eq!(patch, "@@ -201,1 +201,1 @@\n-old esbuild\n+new esbuild\n");
     assert!(patch.len() < 200, "{patch}");
     // The narrowed-view marker selects the continuation; rows omit it.
@@ -657,7 +657,7 @@ async fn match_string_lists_the_patchless_files_it_could_not_search() {
     assert_eq!(read["query"]["path"], "src/module.ts", "{data}");
 }
 
-/// S1 (G01): a merged PR's merge state rides every PR row, whatever the
+/// A merged PR's merge state rides every PR row, whatever the
 /// content selection: summary, body + inventory, inventory, patch read and a
 /// later file page all carry `mergedAt`/`closedAt`/`targetBranch`; the first
 /// page also keeps the labels.
@@ -710,7 +710,7 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
     }
 }
 
-/// S3 (G01): rows of one call share one patch budget, so two large patch
+/// Rows of one call share one patch budget, so two large patch
 /// reads fit one response page instead of spilling into response
 /// pagination; each row keeps its own exact `continuePatch`.
 #[tokio::test]
@@ -770,7 +770,7 @@ async fn patch_rows_in_one_call_share_one_budget() {
     runtime.close().await;
 }
 
-/// S4 (G10): a literal search covers every changed file in one call (not 30
+/// A literal search covers every changed file in one call (not 30
 /// files a page) and returns hit lines only, so its bytes track the hits.
 #[tokio::test]
 async fn match_string_covers_every_file_page_in_one_call() {
@@ -814,7 +814,7 @@ async fn match_string_covers_every_file_page_in_one_call() {
     );
 }
 
-/// A8: the flat `include`/`files` read and the nested `content`/`fileFilter`
+/// The flat `include`/`files` read and the nested `content`/`fileFilter`
 /// read it aliases return the same rows through the full runtime.
 #[tokio::test]
 async fn flat_and_nested_read_shapes_return_identical_rows() {
@@ -861,7 +861,7 @@ async fn flat_and_nested_read_shapes_return_identical_rows() {
     assert_eq!(paths, ["src/a.rs", "src/c.rs"], "{flat}");
 }
 
-/// A `files` scope that matches no changed file says so (G01 re-asked with a
+/// A `files` scope that matches no changed file says so (with a
 /// wrong path and got a silent empty row).
 #[tokio::test]
 async fn files_scope_matching_nothing_is_an_empty_row_with_a_hint() {

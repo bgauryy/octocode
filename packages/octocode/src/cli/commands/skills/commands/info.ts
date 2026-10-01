@@ -1,4 +1,4 @@
-import { getSkill, getSkillContent } from '../registry.js';
+import { getSkill, getSkillContent, retiredHint } from '../registry.js';
 import { getSkillEnvStatus, isGroupSatisfied } from '../env-params.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 
@@ -8,7 +8,7 @@ export function runInfo(
 ): void {
   const skill = getSkill(skillName);
   if (!skill) {
-    const error = `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.`;
+    const error = `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.${retiredHint(skillName)}`;
     if (opts.jsonErrors)
       console.log(
         JSON.stringify({ kind: 'octocode.toolError', version: 1, error })

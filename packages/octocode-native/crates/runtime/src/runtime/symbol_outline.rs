@@ -1,6 +1,6 @@
 //! Compact text outline for astSearch `symbols` rows.
 //!
-//! The YAML text channel spends ~115 bytes per declaration on repeated keys.
+//! The YAML text channel repeats every key for each declaration.
 //! The outline prints one line per declaration after the row metadata:
 //!
 //! ```text

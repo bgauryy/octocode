@@ -109,8 +109,8 @@ fn reads_default_patch_window(row: &Value) -> bool {
 
 /// One patch budget per call: when two or more rows read patches with the
 /// default window, each row is stamped with that count so the windows split
-/// one response page instead of each taking a whole one (which spilled
-/// multi-row reads into response pagination). `None` leaves rows as-is.
+/// one response page instead of each taking a whole one, which would push
+/// a multi-row read into response pagination. `None` leaves rows as-is.
 pub fn share_patch_budget(rows: &[Value]) -> Option<Vec<Value>> {
     let count = rows
         .iter()
@@ -686,7 +686,7 @@ mod tests {
         );
     }
 
-    /// S8/S9 (A8): the flat selectors and the nested shapes they replace
+    /// The flat selectors and the nested shapes they replace
     /// parse to the same request, so old continuations keep working.
     #[test]
     fn flat_selectors_alias_the_nested_shapes() {

@@ -58,7 +58,7 @@ for (const r of Object.values(pinned)) {
     const lines = localLines(r.dir, file);
     const base = { owner: r.owner, repo: r.repo, branch: r.sha, path: file };
     // Whole file when it fits; otherwise the tool must say why and offer a way on.
-    const whole = await call('ghGetFileContent', { ...base, fullContent: true });
+    const whole = await call('ghGetFileContent', { ...base, fullContent: true, debug: true });
     const w = fileRow(whole);
     check(`${r.dir}/${file}: totalLines and sourceBytes match git`, w?.totalLines === lines.length && w?.sourceBytes === Buffer.byteLength(text), `tool ${w?.totalLines}L/${w?.sourceBytes}B vs git ${lines.length}L/${Buffer.byteLength(text)}B`);
     if (!w?.isPartial) {
@@ -318,8 +318,9 @@ for (const r of Object.values(pinned)) {
       for (const res of q?.resources ?? []) for (const page of res.pages ?? []) {
         if (page.source?.ref) refs.add(page.source.ref);
         if (page.source?.path) { paths.add(page.source.path); sources.push(page.source); }
-        for (const m of page.answers?.t?.matches ?? []) windows.push({ exists: page.answers.t.exists, ...m });
       }
+      // Compact best rows: `{lines:[start,end], exists, p}`, ranked server-side.
+      for (const b of q?.best?.t ?? []) windows.push({ startLine: b.lines[0], endLine: b.lines[1], exists: b.exists, probability: b.p });
       const more = q?.next?.clasify;
       request = more?.query ?? more;
     }
@@ -337,11 +338,13 @@ for (const r of Object.values(pinned)) {
   // Absent target on a remote file stays low everywhere.
   const r = pinned.rust;
   const absent = await raw('clasify', { queries: [{ goal: 'Absent target stays low', reasoning: 'absent', resources: [{ context: { tool: 'ghGetFileContent', query: { reasoning: 'x', owner: r.owner, repo: r.repo, path: 'tokio/src/sync/oneshot.rs', branch: r.sha, fullContent: true } } }], questions: [{ id: 'a', questionType: 'locate', target: 'The function that parses a YAML configuration file into nested dictionaries.' }] }] });
-  const ex = collect(absent.sc, o => typeof o.exists === 'number').map(o => o.exists);
+  // Compact pages answer a locate question with the bare exists value.
+  const ex = (absent.sc?.queries?.[0]?.resources ?? []).flatMap(res => [res, ...(res.pages ?? [])]).map(p => p.answers?.a).filter(v => typeof v === 'number');
   check('clasify GitHub absent target: every page exists < 0.5', ex.length > 0 && Math.max(...ex) < 0.5, `max=${Math.max(...ex)}`);
   // Scout over a code search: each page is one returned file with its own source.path.
   const scout = await raw('clasify', { queries: [{ goal: 'Rank code-search files', reasoning: 'scout', resources: [{ context: { tool: 'ghSearchCode', query: { reasoning: 'x', owner: r.owner, repo: r.repo, keywords: ['try_recv'], pageSize: 5 } } }], questions: [{ id: 's', type: 'noul', instructions: 'Does this file define the public try_recv method of an mpsc receiver (not a test)?' }] }] });
-  const spages = collect(scout.sc, o => o.answers?.s && o.source?.path).map(p => ({ path: p.source.path, p: p.answers.s.noul }));
+  // Compact scout pages: the bare P(yes) per file, with the file's path.
+  const spages = collect(scout.sc, o => typeof o.answers?.s === 'number' && (o.path ?? o.source?.path)).map(p => ({ path: p.path ?? p.source.path, p: p.answers.s }));
   const topPage = spages.sort((a, b) => b.p - a.p)[0];
   check('clasify GitHub scout: an mpsc receiver file ranks first', !!topPage && /mpsc\/(bounded|unbounded|chan)\.rs$/.test(topPage.path), JSON.stringify(spages.slice(0, 4)));
 }

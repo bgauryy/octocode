@@ -11,6 +11,7 @@ import {
   listSkills,
   getSkill,
   getSkillFromPath,
+  retiredHint,
   type SkillInfo,
 } from '../registry.js';
 import { parsePlatforms } from '../platforms.js';
@@ -99,7 +100,7 @@ function resolveSkills(
   }
   if (missing.length > 0) {
     fail(
-      `Skill(s) not found: ${missing.map(name => `"${name}"`).join(', ')}`,
+      `Skill(s) not found: ${missing.map(name => `"${name}"`).join(', ')}.${missing.map(retiredHint).join('')}`,
       opts.json,
       opts.jsonErrors
     );

@@ -232,6 +232,19 @@ export function getSkill(nameOrFolder: string): SkillInfo | null {
   );
 }
 
+/** Skills removed from the bundle → the bundled skill that now owns their guidance. */
+export const RETIRED_SKILLS: Readonly<Record<string, string>> = {
+  'octocode-clasify': 'octocode-research',
+};
+
+/** Suffix for "not found" errors when the name is a retired skill; empty otherwise. */
+export function retiredHint(name: string): string {
+  const owner = RETIRED_SKILLS[name];
+  return owner
+    ? ` "${name}" was retired and merged into "${owner}"; install "${owner}" and run \`octocode skill remove ${name}\`.`
+    : '';
+}
+
 /**
  * Read the full SKILL.md content for a skill (for the `info` command).
  */

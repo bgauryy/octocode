@@ -181,7 +181,7 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
     Some(json!({
         "tool": ToolId::GhGetFileContent.as_str(),
         "confidence": confidence,
-        "why": "Read the top hit's matched region; sourceLineRanges gives its line numbers.",
+        "why": "Read the top hit's matched region; its content is numbered with source lines.",
         "query": {
             "owner": file.get("owner")?,
             "repo": file.get("repo")?,

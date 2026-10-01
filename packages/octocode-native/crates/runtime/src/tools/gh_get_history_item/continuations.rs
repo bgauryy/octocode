@@ -869,7 +869,7 @@ mod tests {
         assert!(out.get("next").is_none(), "{out}");
     }
 
-    /// S4/S5: many narrowed files get `widenContext` (matchContext 3), not a
+    /// Many narrowed files get `widenContext` (matchContext 3), not a
     /// whole-patch re-read; the marker never reaches default rows.
     #[test]
     fn many_narrowed_files_widen_context_instead_of_full_patches() {
@@ -980,7 +980,7 @@ mod tests {
         );
     }
 
-    /// S6/S7: a summary menu holds at most four entries; an inventory read
+    /// A summary menu holds at most four entries; an inventory read
     /// turns its review pick into `reviewPatches` over several files.
     #[test]
     fn summary_menu_is_four_entries_and_inventory_reviews_many_files() {

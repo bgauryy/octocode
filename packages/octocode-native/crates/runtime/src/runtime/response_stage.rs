@@ -56,7 +56,7 @@ pub(super) fn finish(
     }
     let all_failed = response_all_failed(&structured);
     // Hosts show agents this JSON: source reads carry their line numbers in
-    // `content` itself (C5), and both text encodings render from it.
+    // `content` itself, and both text encodings render from it.
     super::numbered::number_read_rows(tool, &mut structured);
     // Continuations replay through validation, which restores defaults;
     // emit only the fields that change the replay.
@@ -322,7 +322,7 @@ mod tests {
         assert!(!cli.all_failed);
     }
 
-    /// C5: hosts show agents structuredContent, so source reads carry their
+    /// Hosts show agents structuredContent, so source reads carry their
     /// line numbers there on both surfaces; text renders the same numbers.
     #[test]
     fn source_reads_carry_line_numbers_in_structured_content() {
