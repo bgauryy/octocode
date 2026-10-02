@@ -36,6 +36,34 @@ fn execute_row(
     execute_ast(&query, paths, security, cancellation)
 }
 
+/// A lean match row `"<line>[-<endLine>]\t<value>"` as (line, endLine, value).
+fn lean_row(row: &serde_json::Value) -> (u64, Option<u64>, &str) {
+    let text = row.as_str().expect("lean match row");
+    let (lines, value) = text.split_once('\t').expect("TAB after the lines");
+    let (start, end) = match lines.split_once('-') {
+        Some((start, end)) => (start, Some(end.parse().expect("end line"))),
+        None => (lines, None),
+    };
+    (start.parse().expect("line"), end, value)
+}
+
+/// The declaration name of an outline row `"<line>[-<endLine>] <kind> <name>…"`.
+fn outline_name(row: &serde_json::Value) -> &str {
+    row.as_str()
+        .expect("outline row")
+        .split_whitespace()
+        .nth(2)
+        .expect("name")
+}
+
+fn outline_names(rows: &serde_json::Value) -> Vec<&str> {
+    rows.as_array()
+        .expect("outline rows")
+        .iter()
+        .map(outline_name)
+        .collect()
+}
+
 struct Active;
 impl CancellationCheck for Active {
     fn check(&self) -> Result<(), String> {
@@ -66,7 +94,10 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     .expect("symbols");
     assert_eq!(symbols["filesScanned"], 1);
     assert_eq!(symbols["filesSkipped"], 0);
-    assert_eq!(symbols["files"][0]["declarations"][0]["name"], "visible");
+    assert_eq!(
+        outline_name(&symbols["files"][0]["declarations"][0]),
+        "visible"
+    );
 
     std::fs::write(root.0.join(".aws/hidden.ts"), "oldCall(secret);\n").expect("hidden ast");
     std::fs::write(root.0.join(".env.ts"), "oldCall(ignored);\n").expect("ignored ast");
@@ -515,9 +546,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
     )
     .expect("explicit C++ symbols");
     assert!(
-        symbols["declarations"]
-            .as_array()
-            .is_some_and(|rows| rows.iter().any(|row| row["name"] == "Widget")),
+        outline_names(&symbols["declarations"]).contains(&"Widget"),
         "{symbols}"
     );
 
@@ -551,12 +580,8 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
     let next_query = result["next"]["nextPage"]["query"].clone();
     let next = run(&root.0, next_query).expect("next page");
     let names = [
-        result["files"][0]["declarations"][0]["name"]
-            .as_str()
-            .unwrap_or(""),
-        next["files"][0]["declarations"][0]["name"]
-            .as_str()
-            .unwrap_or(""),
+        outline_name(&result["files"][0]["declarations"][0]),
+        outline_name(&next["files"][0]["declarations"][0]),
     ];
     assert!(names.contains(&"Widget"), "{result} {next}");
     assert!(names.contains(&"Plain"), "{result} {next}");
@@ -577,11 +602,7 @@ fn match_content_length_bounds_each_match_value() {
             query["matchContentLength"] = json!(length);
         }
         let out = run(&root.0, query).expect("match");
-        out["files"][0]["matches"][0]["value"]
-            .as_str()
-            .expect("value")
-            .chars()
-            .count()
+        lean_row(&out["files"][0]["matches"][0]).2.chars().count()
     };
     assert_eq!(value_len(Some(40)), 40);
     assert!(value_len(Some(5_000)) > 300);
@@ -612,7 +633,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"kinds":["function"]}),
     )
     .expect("known kind");
-    assert_eq!(ok["declarations"][0]["name"], "visible");
+    assert_eq!(outline_name(&ok["declarations"][0]), "visible");
 
     let large = root.0.join("large.rs");
     std::fs::write(
@@ -652,31 +673,21 @@ fn single_file_symbols_are_compact_and_path_free() {
     );
     assert!(out.get("complete").is_none(), "{out}");
     assert_eq!(out["isPartial"], false, "{out}");
-    let rows = out["declarations"].as_array().expect("declarations");
-    for row in rows {
-        for dropped in ["path", "range", "selectionRange"] {
-            assert!(row.get(dropped).is_none(), "{dropped} in {row}");
-        }
-    }
-    let impl_a = rows
-        .iter()
-        .find(|r| r["kind"] == "impl" && r["line"] == 2)
-        .expect("impl A");
-    assert_eq!(impl_a["endLine"], 4, "{impl_a}");
-    let run_a = rows
-        .iter()
-        .find(|r| r["name"] == "run" && r["line"] == 3)
-        .expect("run in impl A");
-    assert!(run_a.get("endLine").is_none(), "{run_a}");
-    // A parent is named, not referenced by an id; `struct A` + `impl A`
-    // differ by kind, so no parentLine is needed.
-    assert_eq!(run_a["parent"], "A", "{out}");
-    assert!(run_a.get("parentLine").is_none(), "{run_a}");
-    for row in rows {
-        for dropped in ["id", "character"] {
-            assert!(row.get(dropped).is_none(), "{dropped} in {row}");
-        }
-    }
+    // One outline row per declaration: no path, ranges or engine ids; an
+    // endLine only when the declaration spans lines; members indented under
+    // the `impl` that holds them (named, never referenced by an id).
+    assert_eq!(
+        out["declarations"],
+        json!([
+            "1 struct A",
+            "2-4 impl A",
+            "  3 function run",
+            "5 struct B",
+            "5 impl B",
+            "  5 function run"
+        ]),
+        "{out}"
+    );
     // One page has nothing to pin, and the static syntax-only caveat is in
     // the tool description, not every response.
     assert!(out.get("snapshot").is_none(), "{out}");
@@ -702,7 +713,7 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
     .expect("first");
     let next = first["next"]["nextPage"]["query"].clone();
     assert_eq!(
-        run(&root.0, next.clone()).expect("second")["declarations"][0]["name"],
+        outline_name(&run(&root.0, next.clone()).expect("second")["declarations"][0]),
         "two"
     );
     // Same byte length: cache invalidation cannot rely only on file size.
@@ -721,17 +732,17 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
     assert!(restart["query"].get("snapshot").is_none());
     let restarted =
         run(&root.0, restart["query"].clone()).expect("execute returned restart unchanged");
-    assert_eq!(restarted["declarations"][0]["name"], "one");
+    assert_eq!(outline_name(&restarted["declarations"][0]), "one");
     assert_ne!(restarted["snapshot"], first["snapshot"]);
     let second = run(&root.0, restarted["next"]["nextPage"]["query"].clone())
         .expect("new snapshot continuation");
-    assert_eq!(second["declarations"][0]["name"], "six");
+    assert_eq!(outline_name(&second["declarations"][0]), "six");
     let fresh = run(
         &root.0,
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":2}),
     )
     .expect("fresh");
-    assert_eq!(fresh["declarations"][1]["name"], "six");
+    assert_eq!(outline_name(&fresh["declarations"][1]), "six");
     let forbidden = Fixture::new();
     assert!(
         run(&forbidden.0, next).is_err(),
@@ -740,7 +751,7 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
 }
 
 #[test]
-fn symbols_keep_column_and_parent_line_only_when_ambiguous() {
+fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
     let root = Fixture::new();
     let source = root.0.join("twins.rs");
     std::fs::write(
@@ -753,20 +764,42 @@ fn symbols_keep_column_and_parent_line_only_when_ambiguous() {
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":source}),
     )
     .expect("symbols");
-    let rows = out["declarations"].as_array().expect("declarations");
-    let two = rows.iter().find(|r| r["name"] == "two").expect("two");
-    assert_eq!(two["parent"], "A", "{out}");
+    // `two` nests under the second `impl A`; the two `x` on one line differ
+    // only by column, so only they carry it.
     assert_eq!(
-        two["parentLine"], 5,
-        "two impl A blocks need the line: {out}"
+        out["declarations"],
+        json!([
+            "1 struct A",
+            "2-4 impl A",
+            "  3 function one",
+            "5-7 impl A",
+            "  6 function two",
+            "8 function x col 3",
+            "8 function x col 13"
+        ]),
+        "{out}"
     );
-    let twins = rows
-        .iter()
-        .filter(|r| r["name"] == "x" && r["line"] == 8)
-        .collect::<Vec<_>>();
-    assert_eq!(twins.len(), 2, "{out}");
-    assert_ne!(twins[0]["character"], twins[1]["character"], "{out}");
-    assert!(twins.iter().all(|r| r["character"].is_u64()), "{out}");
+    // A page that starts below the parent names it with its line.
+    let second = run(
+        &root.0,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":4,"page":2,
+            "snapshot":out_snapshot(&root.0, &source)}),
+    )
+    .expect("second page");
+    assert_eq!(
+        second["declarations"][0], "6 function two (in A@5)",
+        "{second}"
+    );
+}
+
+/// The snapshot of a 4-row symbols page of `source`.
+fn out_snapshot(root: &std::path::Path, source: &std::path::Path) -> serde_json::Value {
+    let first = run(
+        root,
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":4}),
+    )
+    .expect("first page");
+    first["snapshot"].clone()
 }
 
 #[test]
@@ -803,25 +836,26 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"oldCall($A)"});
     let out = run(&root.0, query.clone()).expect("match");
     let matches = out["files"][0]["matches"].as_array().expect("matches");
-    assert_eq!(matches.len(), 2, "{out}");
-    for m in matches {
-        for withheld in ["metavars", "metavarRanges", "capturesTruncated"] {
-            assert!(m.get(withheld).is_none(), "{withheld} is opt-in: {m}");
-        }
-    }
-    let single = &matches[0];
-    assert_eq!(single["line"], 1, "{single}");
-    assert_eq!(single["column"], 0, "{single}");
-    assert!(single.get("endLine").is_none(), "{single}");
-    assert!(
-        single.get("endColumn").is_none(),
-        "single-line end: {single}"
+    // Lean rows: the line (a span adds its end line), TAB, the normalized
+    // text; no captures, no columns.
+    assert_eq!(
+        matches,
+        &vec![json!("1\toldCall(one)"), json!("2-4\toldCall( two )")],
+        "{out}"
     );
-    assert_eq!(matches[1]["endLine"], 4, "{}", matches[1]);
-    assert!(matches[1]["endColumn"].is_u64(), "{}", matches[1]);
     // Equal per-file counts repeat `matches.len()`.
     assert!(out["files"][0].get("totalMatchRows").is_none(), "{out}");
-    // The withheld $A captures stay one exact continuation away.
+    // Both $A captures show in the values: nothing to expand.
+    assert!(
+        out.get("next")
+            .is_none_or(|next| next.get("expandCaptures").is_none()),
+        "{out}"
+    );
+    // A value cut short hides its capture, which stays one exact
+    // continuation away.
+    let mut cut = query.clone();
+    cut["matchContentLength"] = json!(6);
+    let out = run(&root.0, cut).expect("match");
     let expand = &out["next"]["expandCaptures"]["query"];
     assert_eq!(expand["captureText"], true, "{out}");
 
@@ -829,6 +863,16 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     expanded["captureText"] = json!(true);
     let out = run(&root.0, expanded).expect("match");
     let single = &out["files"][0]["matches"][0];
+    assert_eq!(single["line"], 1, "{single}");
+    assert_eq!(single["column"], 0, "{single}");
+    assert!(single.get("endLine").is_none(), "{single}");
+    assert!(
+        single.get("endColumn").is_none(),
+        "single-line end: {single}"
+    );
+    let span = &out["files"][0]["matches"][1];
+    assert_eq!(span["endLine"], 4, "{span}");
+    assert!(span["endColumn"].is_u64(), "{span}");
     assert!(
         single.get("metavars").is_none(),
         "duplicate capture map: {single}"
@@ -851,10 +895,7 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
         json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"oldCall(one)"}),
     )
     .expect("match");
-    assert_eq!(
-        out["files"][0]["matches"][0]["value"], "oldCall(one)",
-        "{out}"
-    );
+    assert_eq!(out["files"][0]["matches"][0], "1\toldCall(one)", "{out}");
     assert!(
         out.get("next")
             .is_none_or(|next| next.get("expandCaptures").is_none()),
@@ -874,13 +915,9 @@ fn list_captures_are_withheld_by_default_and_expand_on_request() {
     let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,
         "pattern":"fn $N() -> u8 { $$$B }"});
     let out = run(&root.0, query.clone()).expect("match");
-    let m = &out["files"][0]["matches"][0];
-    assert!(
-        m.get("metavarRanges").is_none(),
-        "no capture dump by default: {m}"
-    );
-    assert_eq!(m["line"], 1, "{m}");
-    assert_eq!(m["endLine"], 5, "{m}");
+    // A lean row: no capture dump, the header stands in for the body.
+    let (line, end, value) = lean_row(&out["files"][0]["matches"][0]);
+    assert_eq!((line, end, value), (1, Some(5), "fn a() -> u8 …"), "{out}");
     assert!(out["next"]["expandCaptures"].is_object(), "{out}");
 
     let mut expanded = query;
@@ -964,12 +1001,7 @@ fn flow_js_symbols_list_hooks_and_mark_a_recovered_parse_partial() {
         json!({"operation":"symbols","goal":"test","reasoning":"test","path":source}),
     )
     .expect("symbols");
-    let names: Vec<&str> = out["declarations"]
-        .as_array()
-        .expect("declarations")
-        .iter()
-        .filter_map(|d| d["name"].as_str())
-        .collect();
+    let names = outline_names(&out["declarations"]);
     assert!(
         names.contains(&"useState") && names.contains(&"useRef"),
         "{out}"
@@ -1049,13 +1081,10 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
     let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,
         "rule":"rule:\n  kind: function_item\n"});
     let out = run(&root.0, query.clone()).expect("match");
-    let m = &out["files"][0]["matches"][0];
     assert_eq!(
-        m["value"], "pub fn load( path: &str, ) -> Result<u8, String> …",
-        "{m}"
+        out["files"][0]["matches"][0], "1-6\tpub fn load( path: &str, ) -> Result<u8, String> …",
+        "{out}"
     );
-    assert_eq!(m["line"], 1, "{m}");
-    assert_eq!(m["endLine"], 6, "{m}");
     assert!(out["next"]["expandCaptures"].is_object(), "{out}");
 
     let mut expanded = query;
@@ -1133,7 +1162,8 @@ fn object_and_yaml_rules_match_identically() {
         "fn a() { unsafe { Pin::new_unchecked(&mut x); } }\nfn b() { Pin::new_unchecked(&mut y); }\n",
     )
     .expect("source");
-    let base = json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust"});
+    // A short value cut hides the capture, so the page offers expandCaptures.
+    let base = json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","matchContentLength":12});
     let mut yaml = base.clone();
     yaml["rule"] = json!(
         "pattern: Pin::new_unchecked($A)\nnot:\n  inside:\n    kind: unsafe_block\n    stopBy: end"
@@ -1148,7 +1178,7 @@ fn object_and_yaml_rules_match_identically() {
         Some(1),
         "{yaml}"
     );
-    assert_eq!(yaml["files"][0]["matches"][0]["line"], 2, "{yaml}");
+    assert_eq!(lean_row(&yaml["files"][0]["matches"][0]).0, 2, "{yaml}");
     // The continuation copies the object rule exactly as written.
     assert_eq!(
         object["next"]["expandCaptures"]["query"]["rule"],
@@ -1172,14 +1202,10 @@ fn symbols_name_list_returns_the_union_and_a_string_is_unchanged() {
     )
     .expect("source");
     let names = |out: &serde_json::Value| {
-        out["declarations"]
-            .as_array()
-            .map(|rows| {
-                rows.iter()
-                    .map(|row| row["name"].as_str().unwrap_or_default().to_owned())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
+        outline_names(&out["declarations"])
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
     };
     let list = run(
         &root.0,

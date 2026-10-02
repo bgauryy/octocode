@@ -178,8 +178,15 @@ pub fn number_read_rows(tool: ToolId, structured: &mut Value) {
     match tool {
         ToolId::LocalFetch => {
             for row in rows {
-                if let Some(data) = row.get_mut("data") {
-                    number_file_row(data);
+                if let Some(data) = row.get_mut("data")
+                    && number_file_row(data)
+                    && let Some(map) = data.as_object_mut()
+                {
+                    // The gutter states the first, last and every returned
+                    // line, so the window fields repeat it.
+                    for key in ["startLine", "endLine", "returnedLines"] {
+                        map.remove(key);
+                    }
                 }
             }
         }
@@ -260,6 +267,16 @@ mod tests {
             "content":"x\ny\n","sourceLineRanges":[{"start":7,"end":8}],"matchedLines":[8]}}]});
         number_read_rows(ToolId::LocalFetch, &mut window);
         assert_eq!(window["results"][0]["data"]["matchedLines"], json!([8]));
+        // Two windows: the gutter states the first, last and returned lines.
+        let mut windows = json!({"results":[{"index":0,"data":{
+            "content":"x\n... [lines 8-9 omitted] ...\ny\n",
+            "sourceLineRanges":[{"start":7,"end":7},{"start":10,"end":10}],
+            "startLine":7,"endLine":10,"returnedLines":3,"totalLines":12}}]});
+        number_read_rows(ToolId::LocalFetch, &mut windows);
+        assert_eq!(
+            windows["results"][0]["data"],
+            json!({"content":"7\tx\n... [lines 8-9 omitted] ...\n10\ty\n","totalLines":12})
+        );
         let mut remote = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":[
             {"path":"a.py","content":"x\n","sourceLineRanges":[{"start":3,"end":3}]},
             {"path":"b.py","content":"def a\n","contentView":"symbols"}]}}]});

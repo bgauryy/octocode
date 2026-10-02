@@ -844,16 +844,19 @@ depth), so deeply nested files do not hit the deadline on `stopBy: end`. A
 file that still exceeds the deadline is reported as a
 `structural.match.deadline` diagnostic, never as zero matches.
 
-`operation:"symbols"` takes `name` as one substring or a list (`name:["complete","try_read_output"]` returns either); pages hold 500 declarations by default. Rows are `{name, kind, line}` plus only what adds information:
-- `endLine` when the declaration spans lines, and `startLine` when attributes or decorators start before the name line.
-- `docStartLine` when a comment block sits directly above (JSDoc, `///`, `#` in Python).
-- `parent`: the containing declaration's name; nested declarations (a function inside a function, in TypeScript as in Python and Rust) are listed with their container as `parent`. It stays meaningful when a `kinds`/`name` filter drops the parent row. `parentLine` is added only when two containers share that name and kind (two `impl A` blocks).
-- `character` only when two declarations of the same kind share a name and line.
+`operation:"symbols"` takes `name` as one substring or a list (`name:["complete","try_read_output"]` returns either); pages hold 500 declarations by default. Each declaration is one outline string, the same row in structured content and in the YAML text (which prints the rows under `=== symbols <path> (line[-endLine] kind name; + exported; indented = member; doc = comment above) ===`):
 
-`line` feeds `lspSearch` as `symbolName` + `lineHint`. The YAML text channel renders the rows as an indented outline after the metadata (`=== symbols <path> (line[-endLine] kind name; + exported; indented = member) ===`, with `as`, `doc` (doc block on the line above; `doc@N` when it starts elsewhere), `from@N`, `col N` and `(in Parent)` suffixes); structured content keeps the rows. A single-file outline returns top-level `declarations`. A directory outline returns `files: [{path, declarations}]`, the same grouping as `match`, so each path is written once. `snapshot` appears only on paginated results. It marks a JS/TS declaration `exported` by its local
-binding. When it is exported under another name, `exportedAs` lists the public
-names: `export { foo as bar }` gives `foo` with `exportedAs: ["bar"]`, and
-`export default function foo` gives `exportedAs: ["default"]`.
+```text
+105-107 struct NamedPipeServer + doc@43
+109-891 impl NamedPipeServer
+  130-136 function from_raw_handle + doc@110
+```
+
+- `<line>[-<endLine>] <kind> <name>`: `line` is the name line (it feeds `lspSearch` as `symbolName` + `lineHint`); `endLine` appears when the declaration spans lines.
+- Two leading spaces per nesting level place a member under the preceding row that contains it (a function inside a function, in TypeScript as in Python and Rust). A member whose container is not on the page (a page break, or a `kinds`/`name` filter that drops it) ends with `(in Parent@line)`.
+- Suffixes only when they add information: ` +` exported; ` as a,b` public names when exported under another name (`export { foo as bar }` gives `foo + as bar`, `export default function foo` gives `as default`); ` doc` when a comment block (JSDoc, `///`, `#` in Python) ends on the line above, ` doc@N` when it starts at N; ` from@N` when attributes or decorators start before the name line; ` col N` (0-based) only when two declarations of the same kind share a name and line.
+
+A single-file outline returns top-level `declarations`. A directory outline returns `files: [{path, declarations}]`, the same grouping as `match`, so each path is written once. `snapshot` appears only on paginated results. A JS/TS declaration is `exported` by its local binding.
 
 Java call patterns may omit their trailing semicolon. The structural compiler
 supplies grammar-checked statement context for direct patterns and patterns
@@ -864,12 +867,14 @@ Pattern matching is exact about modifiers: a Rust `fn $N()` pattern does not
 match `pub fn` items (the visibility modifier is a named child). Such a pattern
 adds a `structural.pattern.visibilityExact` info diagnostic, visible only with
 `debug: true`; write `pub fn …` or
-use a YAML rule on the item kind. Match rows are `{line, column, value}`
-(`endLine`/`endColumn` only for multi-line spans); per-file
-`totalMatchRows`/`returnedMatchRows` appear only when a match page is a subset.
-Captures are opt-in: `captureText:true` (offered as `next.expandCaptures` when
-the query has metavariables or a match was cut to its header) adds
-`metavarRanges` with per-node text and positions.
+use a YAML rule on the item kind. Match rows are lean strings
+`"<line>[-<endLine>]\t<value>"` (1-based lines, whitespace-normalized text);
+per-file `totalMatchRows`/`returnedMatchRows` appear only when a match page is
+a subset. Captures are opt-in: `captureText:true` returns object rows
+`{line, column, value}` (`column` 0-based, `endLine`/`endColumn` for
+multi-line spans) with `metavarRanges` (per-node text and positions). It is
+offered as `next.expandCaptures` when a row hides something it returns: a match
+cut to its header, or capture text the value does not show.
 
 `rule` is a YAML string or the equivalent ast-grep rule object (the same
 `AstRule` shape astRewrite takes). A directory `match` without `langType`
@@ -998,7 +1003,7 @@ Read a known local path. Path-only reads are valid and return exact source subje
 
 Selection precedes minification, redaction, and pagination. Line pages preserve complete lines within a 16384-byte budget. An offset at or past the end of the view returns empty content with an offset-zero `next.restart` (`pagination.outOfRange:true` with `debug: true`). An oversized line switches to byte paging from the unreturned position. Byte ends extend by at most three bytes to finish a UTF-8 code point. Copy the complete `next.continue` query; do not calculate offsets. Continuations stop at the selected range or matched view.
 
-Every successful text read reports original-file `totalLines`, including empty files and no matches. `sourceBytes`, `returnedBytes`, and `returnedLines` are debug-only; a partial page also reports `returnedChars` (UTF-16 code units). `pagination.totalLines`/`totalBytes` describe the selected returned view. Content whose lines map onto original source lines is numbered in the structured result itself, `cat -n` style (`279<TAB>fn a() {`), with omission markers unnumbered and `sourceLineRanges` then omitted; strip the prefix up to the first TAB before copying text (see [numbered source content](TOOL_DATA_CONTRACT.md#numbered-source-content)). Whitespace and line endings after the prefix are preserved. YAML text prints the same lines under `content (source lines):`, or `content (copy-safe):` unnumbered when lines cannot be mapped. The `symbols` outline uses the same `<line><TAB>` prefix with original line numbers.
+Every successful text read reports original-file `totalLines`, including empty files and no matches. A numbered read omits `startLine`, `endLine`, and `returnedLines`: its gutter states them. `sourceBytes`, `returnedBytes`, and `returnedLines` are debug-only; a partial page also reports `returnedChars` (UTF-16 code units). `pagination.totalLines`/`totalBytes` describe the selected returned view. Content whose lines map onto original source lines is numbered in the structured result itself, `cat -n` style (`279<TAB>fn a() {`), with omission markers unnumbered and `sourceLineRanges` then omitted; strip the prefix up to the first TAB before copying text (see [numbered source content](TOOL_DATA_CONTRACT.md#numbered-source-content)). Whitespace and line endings after the prefix are preserved. YAML text prints the same lines under `content (source lines):`, or `content (copy-safe):` unnumbered when lines cannot be mapped. The `symbols` outline uses the same `<line><TAB>` prefix with original line numbers.
 
 `matchRanges` describe all selected source context windows; `matchedLines` contains matching source anchors intersecting the current page, and `selectedMatchCount` counts matching source lines in the selected view. Overlapping context windows are merged. `matchString` forces exact content so minification cannot remove the evidence. `minifyFallback` reports the requested/applied modes and reason when a match forces exact content or an outline is unavailable.
 
@@ -1070,7 +1075,7 @@ One bounded repository graph provides seven analyses: `dependencies`, `dependent
 
 Cross-file resolution covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Literal CommonJS loads link only when `require`, `module.require`, or an imported `createRequire(import.meta.url)` binding is not shadowed or reassigned. Dynamic and ambiguous loaders remain explicit diagnostics. Python wildcard and ambiguous package-attribute imports remain diagnostics, as do C/C++ system and macro includes. Data, style, and asset imports (including `package.json`) are counted as `imports.nonCode`, not linked or reported as unresolved. Namespace-style imports conservatively retain target exports during dead-code analysis.
 
-Dependency traversal items also carry `immediateDominator`, `topologicalLayer`, `inboundCount`, `importLine`, and `transitiveEdge` (a condensation-DAG edge that another directed path already covers). Cycle results distinguish runtime import candidates (`runtimeCycle`) from other topology SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
+Dependency traversal items carry `file`, `importLine`, `edgeKinds`, `distance` and `via` (hoisted to `shared` when every row agrees). With `debug: true` they also carry graph analytics: `immediateDominator`, `topologicalLayer`, `inboundCount`, and `transitiveEdge` (a condensation-DAG edge that another directed path already covers), plus the summary's condensation counts, `summary.importResolution` (its totals stay in `coverage.imports`), and `coverage.languages`. Cycle results distinguish runtime import candidates (`runtimeCycle`) from other topology SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
 
 Inside a reachable file, `deadCode` keeps an export live when an import or re-export chain consumes one of its public names (`import foo from` consumes `default`), or when it is reachable over same-file call and containment edges from a live declaration, a module-level call, or a declaration that escapes as a value. A value escape is a syntax-aware reference other than the declaration itself, an export clause, or a call target; comments and string literals never count. JS/TS counts the resolved references of each declaration's own symbol, so a same-named local elsewhere does not keep it live; other languages count identifier tokens by name. `unreferenced-export` rows name the basis in `viaHeuristic`: `reexport-chain`, `semantic-references` (JS/TS), `syntax-references`, or `qualified-path-name`. `qualified-path-name` marks a Rust export kept live only because a `module::name` call names it without resolving to its file. A qualified call from a live caller that resolves through the calling file's `use`/`mod` binding credits the export exactly. Callers are keyed by declaration identity, so a method `run` and a function `run` do not share liveness, and an uncalled private caller does not keep its callees live. Rows for exports renamed at the export site carry `exportedAs`. When graph extraction for a file hits its deadline, the facts gathered so far are kept and the file carries a `graph.traversal.deadlineExceeded` diagnostic, so a missing edge there is not evidence of absence.
 
@@ -1113,8 +1118,8 @@ Results never dump the complete graph: the result list is paginated, and SCC/dea
 | `cycleEdges` | A deterministic directed witness through one reported SCC. Each edge names `from`, `to`, and its syntactic `edgeKinds`. | Read every reported edge exactly; SCC member order alone is not a valid cycle path. |
 | `runtimeCycleEdges` | A directed witness using only runtime import candidates (see the edge kinds above). | Confirm the imported bindings and initialization behavior before claiming a runtime defect. |
 | Topology-only SCC | Files are mutually connected in the full graph, but no cycle remains among runtime import candidates. This includes type-only and Rust module cycles. | Report it as topology or coupling evidence, not as a module-loading cycle. |
-| `transitiveEdge: true` | A condensation-DAG edge for which another directed path already connects the same components. It can indicate redundant architectural wiring. | Check re-export contracts, side effects, public API intent, and symbol usage before calling an import duplicate. |
-| `immediateDominator` | The file every directed route from the selected root must cross to reach this item. | Use it to prioritize chokepoints; do not infer symbol ownership from file topology. |
+| `transitiveEdge: true` (debug) | A condensation-DAG edge for which another directed path already connects the same components. It can indicate redundant architectural wiring. | Check re-export contracts, side effects, public API intent, and symbol usage before calling an import duplicate. |
+| `immediateDominator` (debug) | The file every directed route from the selected root must cross to reach this item. | Use it to prioritize chokepoints; do not infer symbol ownership from file topology. |
 
 The graph assigns no weights to edges. `path` therefore uses breadth-first search to return the fewest-edge directed import path, not Dijkstra's weighted shortest-path algorithm. A syntactically redundant edge can still be semantically necessary because it imports a value for side effects, preserves a public barrel contract, or selects a different binding.
 
@@ -1181,7 +1186,7 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 | `rule`, `fix`, `constraints`, `utils`, `transform` | ast-grep rule (YAML string, bare or a rule file's `rule:`, or the rule object; both preview identically) and fix for the `rule` form; inspect the live schema. |
 | `include`, `exclude`, `defaultExcludes` | Optional file filters. |
 | `maxFiles`, `maxMatches` | Scan bounds; defaults are 2,000 files (max 50,000) and 10,000 matches (max 100,000). |
-| `page`, `pageSize`, `snapshot` | Preview pagination (`pageSize` default 100, max 1000); copy executable continuations and their snapshot. A page lists only the files its matches touch, and each file's `patch` holds only the hunks of that page's matches (`patchMatchCount` of `matchCount` when the file spans pages); `beforeHash` and the final page's `next.apply` still cover the whole file. Match rows are `{id, path, line}` with a 16-hex id prefix (the patch shows text and replacement); `debug:true` restores full rows, `afterHash`, `patchBytes` and `absolutePath`. |
+| `page`, `pageSize`, `snapshot` | Preview pagination (`pageSize` default 100, max 1000); copy executable continuations and their snapshot. A page lists only the files its matches touch, and each file's `patch` holds only the hunks of that page's matches (`patchMatchCount` of `matchCount` when the file spans pages); `beforeHash` and the final page's `next.apply` still cover the whole file; a complete preview states each hash once, in `next.apply.query.expectedHashes`, and its file rows omit `beforeHash`. Match rows are `{id, path, line}` with a 16-hex id prefix (the patch shows text and replacement); `debug:true` restores full rows, `afterHash`, `patchBytes` and `absolutePath`. |
 | `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`; a complete preview returns `next.apply` with both filled in. |
 | `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. Match ids may be any unique prefix of at least 12 hex digits. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
 | `postconditions` | 1–10 checks, `{kind:"remainingMatches", equals:n}`, evaluated in the staged rewritten files before commit. |
@@ -1267,8 +1272,8 @@ Semantic types:
 | `operation` | Best for | Output |
 |--------|----------|--------|
 | `definition` | Jumping from usage/import to declaration. Unresolved provider locations are preserved unchanged. | `payload.kind="definition"`, `locations[]`. |
-| `references` | Affected references for functions, types, variables, constants, and classes. | `locations[]` (or, with `groupByFile`, `byFile[]` of `{path, references, lines}` instead), `totalReferences`, `totalFiles`. |
-| `callers` | Static incoming calls to a callable symbol. | `payload.items[]` of `{from, fromRanges, level, via?}`, pagination. |
+| `references` | Affected references for functions, types, variables, constants, and classes. | `byFile[]` of `{path, refs: ["<line>[-<end>]:<col> <first line>"]}` (`definitionLines`, and `recovered` by label, when present); `groupByFile:true` gives `{path, references, lines}` summaries, and `groupByFile:false` or `contextLines` per-location `locations[]`; `totalReferences`, `totalFiles`. |
+| `callers` | Static incoming calls to a callable symbol. | `depth` 1: `byFile[]` of `{path, calls: ["<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>"]}`, the call sites in that file and the calling declaration (its start line is the next `lineHint`), with `recovered` by label; deeper walks: `payload.items[]` of `{from, fromRanges, level, via?}`. Pagination. |
 | `callees` | Static outgoing calls made by a callable symbol. | `payload.items[]` of `{to, fromRanges, level, via?}`, pagination. |
 | `callHierarchy` | Bidirectional call-flow snapshot. | Incoming (`from`) then outgoing (`to`) items in one paginated list. |
 | `hover` | Quick type/signature/docs from the language server. | `payload.hover`; a `null` hover is `empty` with category `noHover`. |

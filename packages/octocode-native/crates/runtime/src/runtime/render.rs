@@ -494,9 +494,9 @@ fn render_diff(mut response: Value, format: TextFormat) -> String {
     text
 }
 
-/// astSearch in YAML: symbols declarations leave the YAML and follow it as
+/// astSearch in YAML: symbols outline rows leave the YAML and follow it as
 /// one outline section per file (see `symbol_outline`). JSON text and
-/// structured content keep the rows unchanged.
+/// structured content carry the same rows as a list.
 fn render_outline(mut response: Value, format: TextFormat) -> String {
     if format == TextFormat::Json {
         return render_structured(response, format);

@@ -2,7 +2,7 @@
 // continuation hygiene: each `next.*` met along the way must execute.
 import fs from 'node:fs';
 import path from 'node:path';
-import { FIXTURES, ROOT, checks, collect, nextHints, rowData, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { FIXTURES, ROOT, checks, collect, declarations, lspCallers, nextHints, rowData, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('workflows');
 const client = await startServer();
@@ -10,7 +10,7 @@ const { call, raw } = client;
 const NATIVE = path.join(ROOT, 'packages/octocode-native');
 const LSP = path.join(FIXTURES, 'lsp');
 const locations = e => lspLocations(e).map(l => path.resolve(e.sc?.base ?? '/', l.path));
-const callers = e => (rowData(e)?.payload?.items ?? []).map(i => `${i.from?.name}@${path.basename(i.from?.path ?? '')}`);
+const callers = e => lspCallers(e).map(c => `${c.name}@${path.basename(c.path ?? '')}`);
 
 // F1 — TS/JS importers from the declaration side (inferred project, CommonJS alias).
 for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], ['esm-noconfig', 'mjs'], ['esm-tsconfig', 'ts']]) {
@@ -85,7 +85,7 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
   check('F9: repair continuation drops langType', !!repair && !('langType' in repair.query), JSON.stringify(rowData(bad)?.hints));
   if (repair) {
     const fixed = await raw(repair.tool, repair.query);
-    check('F9: repair returns directory symbols', collect(rowData(fixed), o => o.name === 'stageFile').length > 0, fixed.text.slice(0, 80));
+    check('F9: repair returns directory symbols', declarations(fixed).filter(o => o.name === 'stageFile').length > 0, fixed.text.slice(0, 80));
   }
 }
 

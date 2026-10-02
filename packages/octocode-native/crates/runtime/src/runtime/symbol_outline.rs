@@ -238,6 +238,38 @@ mod tests {
     }
 
     #[test]
+    fn outline_rows_are_the_rendered_lines_and_render_verbatim() {
+        let objects = [
+            json!({"name":"Host","kind":"interface","line":500,"endLine":506,"exported":true,"docStartLine":498}),
+            json!({"name":"fileExists","kind":"method","line":501,"parent":"Host","docStartLine":500}),
+            json!({"name":"orphan","kind":"method","line":600,"parent":"Gone","parentLine":7}),
+        ];
+        let rows = outline_rows(&objects);
+        assert_eq!(
+            rows,
+            [
+                json!("500-506 interface Host + doc@498"),
+                json!("  501 method fileExists doc"),
+                json!("600 method orphan (in Gone@7)")
+            ]
+        );
+        // Structured rows are already the outline: the text channel prints
+        // them under the header unchanged.
+        let mut response =
+            json!({"results":[{"index":0,"data":{"path":"a.ts","declarations":rows}}]});
+        assert_eq!(
+            take_outlines(&mut response),
+            vec![format!(
+                "=== symbols a.ts ({LEGEND}) ===\n\
+                 500-506 interface Host + doc@498\n\
+                 \x20 501 method fileExists doc\n\
+                 600 method orphan (in Gone@7)\n"
+            )]
+        );
+        assert!(response["results"][0]["data"].get("declarations").is_none());
+    }
+
+    #[test]
     fn rows_without_operation_render_with_shared_fields_restored() {
         let mut response = json!({"shared":{"parentLine":125},"results":[{"index":0,"data":{
         "declarations":[

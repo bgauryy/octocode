@@ -392,7 +392,7 @@ fn recovery_hint(code: &str) -> Option<&'static str> {
             "Run the complete preview's next.apply unchanged; it carries snapshot and expectedHashes."
         }
         "ast.rewrite.expected_hash_invalid" => {
-            "Key expectedHashes by preview files[].path with its 64-hex beforeHash, or run next.apply unchanged."
+            "Copy expectedHashes from next.apply (paged previews: files[].path → beforeHash), or run next.apply unchanged."
         }
         "ast.rewrite.expected_hash_set_mismatch" | "ast.rewrite.expected_hash_missing" => {
             "expectedHashes must list exactly the preview's affected files; run the complete preview's next.apply unchanged."
@@ -2122,10 +2122,13 @@ mod tests {
         apply["snapshot"] = preview["snapshot"].clone();
         // Preview rows carry a 16-hex id prefix; apply accepts it.
         apply["selectedMatchIds"] = json!([preview["matches"][0]["id"]]);
-        let absolute = root.join(preview["files"][0]["path"].as_str().expect("path"));
+        let path = preview["files"][0]["path"].as_str().expect("path");
+        let absolute = root.join(path);
+        // A complete preview states each file hash once, in next.apply.
+        assert!(preview["files"][0].get("beforeHash").is_none(), "{preview}");
         apply["expectedHashes"] = json!({
             absolute.to_string_lossy():
-                preview["files"][0]["beforeHash"].clone()
+                preview["next"]["apply"]["query"]["expectedHashes"][path].clone()
         });
         apply["postconditions"] = json!([{"kind":"remainingMatches","equals":0}]);
         let failed = rewrite_row(
@@ -2290,9 +2293,10 @@ mod tests {
         );
         assert!(!second_patch.contains("newCall(1)"), "{second}");
         assert!(second_file.get("patchOnPage").is_none(), "{second}");
-        assert_eq!(second_file["beforeHash"], first_file["beforeHash"]);
+        // The final page states the file hash once, in its guarded apply,
+        // which still covers the whole file.
+        assert!(second_file.get("beforeHash").is_none(), "{second}");
         assert!(second_file.get("afterHash").is_none(), "{second}");
-        // The guarded apply still covers the whole file.
         let apply = &second["next"]["apply"]["query"];
         assert_eq!(apply["expectedHashes"]["a.ts"], first_file["beforeHash"]);
 

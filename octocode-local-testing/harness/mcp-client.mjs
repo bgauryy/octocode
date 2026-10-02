@@ -180,6 +180,88 @@ export function lspLocations(entry, index = 0) {
 }
 
 /**
+ * astSearch symbols rows in one object shape. Outline strings
+ * "<line>[-<endLine>] <kind> <name>[ +][ as a,b][ doc|doc@N][ from@N][ col N][ (in Parent@L)]",
+ * indented two spaces per nesting level under the preceding row, parse to
+ * {name, kind, line, endLine?, exported?, exportedAs?, docStartLine?,
+ * startLine?, character?, parent?, parentLine?}; object rows (the earlier
+ * shape) pass through. `extra` (e.g. a directory outline's file path) is
+ * merged into each row.
+ */
+const OUTLINE_ROW = /^( *)(\d+)(?:-(\d+))? (\S+) (.+?)( \+)?(?: as (\S+))?( doc(?:@(\d+))?)?(?: from@(\d+))?(?: col (\d+))?(?: \(in (.+?)(?:@(\d+))?\))?$/;
+export function outlineRows(rows = [], extra = {}) {
+  const stack = [];
+  return (rows ?? []).map(row => {
+    if (typeof row !== 'string') return { ...extra, ...row };
+    const m = OUTLINE_ROW.exec(row);
+    if (!m) return { ...extra, raw: row };
+    const [, indent, line, end, kind, name, exported, as, doc, docAt, from, col, parent, parentLine] = m;
+    const out = { ...extra, name, kind, line: +line };
+    if (end) out.endLine = +end;
+    if (exported) out.exported = true;
+    if (as) out.exportedAs = as.split(',');
+    if (doc) out.docStartLine = docAt ? +docAt : out.line - 1;
+    if (from) out.startLine = +from;
+    if (col) out.character = +col;
+    if (parent) { out.parent = parent; if (parentLine) out.parentLine = +parentLine; }
+    const depth = indent.length / 2;
+    const holder = depth > 0 ? stack[depth - 1] : undefined;
+    if (holder) { out.parent = holder.name; out.parentLine = holder.line; }
+    stack.length = depth;
+    stack[depth] = out;
+    return out;
+  });
+}
+
+/** Every declaration of an astSearch symbols row (single file or directory). */
+export function declarations(entry, index = 0) {
+  const data = rowData(entry, index);
+  if (!data) return [];
+  return [...outlineRows(data.declarations), ...(data.files ?? []).flatMap(file => outlineRows(file.declarations, { path: file.path }))];
+}
+
+/**
+ * One astSearch match row as {line, endLine?, value, ...}: lean rows are
+ * "<line>[-<endLine>]\t<value>"; captureText rows (and the earlier shape)
+ * are objects and pass through.
+ */
+export function matchRow(row) {
+  if (typeof row !== 'string') return row;
+  const m = /^(\d+)(?:-(\d+))?\t([\s\S]*)$/.exec(row);
+  if (!m) return { raw: row };
+  const out = { line: +m[1], value: m[3] };
+  if (m[2]) out.endLine = +m[2];
+  return out;
+}
+
+/** astSearch match rows of a response as {path, line, endLine?, value, ...}. */
+export function astMatchRows(entry, index = 0) {
+  return (rowData(entry, index)?.files ?? []).flatMap(file => (file.matches ?? []).map(row => ({ path: file.path, ...matchRow(row) })));
+}
+
+/**
+ * lspSearch callers as {name, kind, detail?, path, lines, declLine?}:
+ * `payload.items` call-hierarchy edges, or the compact per-file rows
+ * `payload.byFile[].calls` ("<line>:<col>[,…] in <kind> <name>[ (<detail>)] <start>-<end>")
+ * direct callers default to.
+ */
+const CALL_ROW = /^(\d+(?::\d+)?(?:,\d+(?::\d+)?)*) in (\S+) (\S+)(?: \((.*)\))?(?: (\d+)(?:-(\d+))?)?$/;
+export function lspCallers(entry, index = 0) {
+  const payload = rowData(entry, index)?.payload;
+  if (Array.isArray(payload?.items)) {
+    return payload.items.filter(item => item.from).map(item => ({
+      name: item.from.name, kind: item.from.kind, detail: item.from.detail, path: item.from.path ?? item.from.uri,
+      lines: (item.fromRanges ?? []).map(range => range.startLine), declLine: item.from.displayRange?.startLine,
+    }));
+  }
+  return (payload?.byFile ?? []).flatMap(file => (file.calls ?? []).map(row => {
+    const m = CALL_ROW.exec(row);
+    if (!m) return { path: file.path, raw: row, lines: [] };
+    return { name: m[3], kind: m[2], detail: m[4], path: file.path, lines: m[1].split(',').map(site => +site.split(':')[0]), declLine: m[5] ? +m[5] : undefined };
+  }));
+}
+
+/**
  * A file-read row's source view. Reads number source lines in `content`
  * (`<line>\t<text>`, omission markers unnumbered; docs/TOOL_DATA_CONTRACT.md
  * "Numbered source content") and then omit `sourceLineRanges`: `text` strips

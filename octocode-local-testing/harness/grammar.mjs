@@ -1,7 +1,7 @@
 // Grammar sweep: every Tree-sitter language through astSearch / localFetch / localSearch / lspSearch.
 import fs from 'node:fs';
 import path from 'node:path';
-import { FIXTURES, checks, collect, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { FIXTURES, astMatchRows, checks, collect, declarations, rowData, startServer, writeResults } from './mcp-client.mjs';
 
 const FIX = path.join(FIXTURES, 'grammar');
 const { check, summary } = checks('grammar');
@@ -41,7 +41,7 @@ for (const [, l] of Object.entries(L)) {
 }
 const client = await startServer();
 const { call } = client;
-const names = entry => new Set(collect(rowData(entry), o => typeof o.name === 'string' && typeof o.line === 'number').map(o => o.name));
+const names = entry => new Set(declarations(entry).filter(o => typeof o.name === 'string' && typeof o.line === 'number').map(o => o.name));
 const table = [];
 for (const [lang, l] of Object.entries(L)) {
   const dir = path.join(FIX, l.ext);
@@ -52,7 +52,7 @@ for (const [lang, l] of Object.entries(L)) {
   res.symbols = sym.isError ? 'ERR' : missing.length ? `miss:${missing}` : `ok(${names(sym).size})`;
   check(`${lang}: symbols has ${l.names.join(',')}`, !sym.isError && !missing.length, missing.join(','));
   const dirSym = await call('astSearch', { operation: 'symbols', path: dir });
-  res.symbolsDir = dirSym.isError ? 'ERR' : `ok(${collect(rowData(dirSym), o => typeof o.name === 'string' && typeof o.line === 'number').length})`;
+  res.symbolsDir = dirSym.isError ? 'ERR' : `ok(${declarations(dirSym).filter(o => typeof o.name === 'string' && typeof o.line === 'number').length})`;
   check(`${lang}: directory symbols (no langType)`, !dirSym.isError && dirSym.rowErrors === 0, dirSym.text.slice(0, 100));
   const bad = await call('astSearch', { operation: 'symbols', path: dir, langType: lang });
   const repair = rowData(bad)?.next?.repair;
@@ -62,8 +62,12 @@ for (const [lang, l] of Object.entries(L)) {
     const m = await call('astSearch', { operation: 'match', path: dir, langType: lang, pattern: `${l.call}($A)`, captureText: true });
     const matches = collect(rowData(m), o => typeof o.value === 'string' && typeof o.line === 'number' && typeof o.column === 'number' && o.metavarRanges);
     const lean = await call('astSearch', { operation: 'match', path: dir, langType: lang, pattern: `${l.call}($A)` });
-    const leanRows = collect(rowData(lean), o => typeof o.value === 'string' && typeof o.line === 'number');
-    check(`${lang}: default match rows omit captures and offer next.expandCaptures`, leanRows.length === matches.length && leanRows.every(o => !o.metavarRanges && !o.metavars) && !!rowData(lean)?.next?.expandCaptures, `${leanRows.length} vs ${matches.length}`);
+    const leanRows = astMatchRows(lean);
+    // A lean row hides a capture when its value does not show the capture
+    // text; exactly then next.expandCaptures offers the captureText rows.
+    const norm = t => t.split(/\s+/).filter(Boolean).join(' ');
+    const hidden = matches.some((full, i) => Object.values(full.metavarRanges).flat().some(r => norm(r.text) && !(leanRows[i]?.value ?? '').includes(norm(r.text))));
+    check(`${lang}: default match rows are lean and offer next.expandCaptures iff a value hides a capture`, leanRows.length === matches.length && leanRows.every((o, i) => typeof o.value === 'string' && o.line === matches[i].line && !o.metavarRanges && !o.metavars) && !!rowData(lean)?.next?.expandCaptures === hidden, `${leanRows.length} vs ${matches.length} hidden=${hidden}`);
     const srcLines = l.src.split('\n');
     const emojiLine = srcLines.findIndex(s => s.includes('😀')) + 1;
     const onEmoji = matches.find(x => x.line === emojiLine);

@@ -170,12 +170,16 @@ fn local_read(path: &str, lines: Vec<u64>) -> Value {
     read(ToolId::LocalFetch, query)
 }
 
-/// The 1-based line a result row names. Compact string rows (symbols
-/// outline `"<line>[-<end>] kind name"`, structural match
-/// `"<line>[-<end>]\t<value>"`, reference `"<line>:<col> <text>"`) lead with
-/// it; object rows carry it under `key`. Every row reader here goes through
-/// this accessor, so either row shape yields the same candidate lines.
+/// The 1-based line a result row names: a bare number (`lines` lists), the
+/// leading number of a compact string row (symbols outline `"<line>[-<end>]
+/// kind name"`, structural match `"<line>[-<end>]\t<value>"`, reference
+/// `"<line>:<col> <text>"`, caller `"<line>:<col> in …"`), or an object
+/// row's `key`. Every row reader here goes through this accessor, so either
+/// row shape yields the same candidate lines.
 fn line(value: &Value, key: &str) -> Option<u64> {
+    if let Some(line) = value.as_u64() {
+        return Some(line);
+    }
     if let Some(text) = value.as_str() {
         let text = text.trim_start();
         let end = text
@@ -277,6 +281,32 @@ fn declarations(
 }
 
 fn references(state: &Value, data: &Value, base: Option<&str>, query: &Value) -> Option<Vec<Item>> {
+    // Per-file rows (compact references, direct callers, groupByFile
+    // summaries) are already one candidate per file.
+    if let Some(files) = data.pointer("/payload/byFile").and_then(Value::as_array) {
+        let items = files
+            .iter()
+            .filter_map(|file| {
+                let path = absolute(
+                    base,
+                    file.get("path")?.as_str()?.trim_start_matches("file://"),
+                );
+                let lines = ["refs", "calls", "lines"]
+                    .iter()
+                    .filter_map(|key| file.get(*key).and_then(Value::as_array))
+                    .flatten()
+                    .filter_map(|row| line(row, "line"))
+                    .collect();
+                Some(Item {
+                    state: narrowed(state, "/results/0/data/payload/byFile", vec![file.clone()]),
+                    read: Some(local_read(&path, lines)),
+                    path: Some(path),
+                    item: None,
+                })
+            })
+            .collect();
+        return Some(items);
+    }
     let rows = data.pointer("/payload/locations")?.as_array()?;
     let fallback = query.get("uri").and_then(Value::as_str);
     let items = grouped(rows, fallback)
@@ -532,6 +562,61 @@ mod tests {
         assert_eq!(items[1].path.as_deref(), Some("/repo/b.rs"));
         let hover = wrap(json!({"payload":{"kind":"hover"}}));
         assert!(split(&refs, &hover).is_none());
+    }
+
+    #[test]
+    fn compact_string_rows_yield_the_same_candidates_as_object_rows() {
+        // Outline rows (directory and single file), lean match rows, compact
+        // references and direct callers all name their line first.
+        let symbols = json!({"tool":"astSearch","query":{"operation":"symbols","path":"/repo"}});
+        let grouped = wrap(json!({"files":[
+            {"path":"x.rs","declarations":["10-12 struct A +","  11 function a"]},
+            {"path":"y.rs","declarations":["300 function b doc"]}
+        ]}));
+        let items = split(&symbols, &grouped).expect("grouped outline split");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].read.as_ref().unwrap()["query"]["startLine"], 1);
+        assert_eq!(items[1].read.as_ref().unwrap()["query"]["startLine"], 240);
+        let single =
+            json!({"tool":"astSearch","query":{"operation":"symbols","path":"/repo/one.rs"}});
+        let state =
+            json!({"results":[{"data":{"path":"/repo/one.rs","declarations":["400 function a"]}}]});
+        let items = split(&single, &state).expect("single outline");
+        assert_eq!(items[0].path.as_deref(), Some("/repo/one.rs"));
+        assert_eq!(items[0].read.as_ref().unwrap()["query"]["startLine"], 340);
+
+        let matches = json!({"tool":"astSearch","query":{"operation":"match","path":"/repo"}});
+        let state = wrap(
+            json!({"files":[{"path":"a.rs","matches":["400\tx.unwrap()","402-410\tfn f() …"]}]}),
+        );
+        let items = split(&matches, &state).expect("lean match split");
+        // Centered between lines 400 and 402.
+        assert_eq!(items[0].read.as_ref().unwrap()["query"]["startLine"], 341);
+
+        let refs =
+            json!({"tool":"lspSearch","query":{"operation":"references","uri":"/repo/a.rs"}});
+        let state = wrap(json!({"payload":{"kind":"references","byFile":[
+            {"path":"a.rs","refs":["281:20 fn try_read_output("]},
+            {"path":"b.rs","refs":["368:14 harness.try_read_output(out, waker);"]}
+        ]}}));
+        let items = split(&refs, &state).expect("compact refs split");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[1].path.as_deref(), Some("/repo/b.rs"));
+        assert_eq!(items[1].read.as_ref().unwrap()["query"]["startLine"], 308);
+        assert_eq!(
+            items[1].state["results"][0]["data"]["payload"]["byFile"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+        let callers =
+            json!({"tool":"lspSearch","query":{"operation":"callers","uri":"/repo/a.rs"}});
+        let state = wrap(json!({"payload":{"kind":"callers","byFile":[
+            {"path":"c.ts","calls":["359:38 in function render 97-848"]}
+        ]}}));
+        let items = split(&callers, &state).expect("callers split");
+        assert_eq!(items[0].path.as_deref(), Some("/repo/c.ts"));
+        assert_eq!(items[0].read.as_ref().unwrap()["query"]["startLine"], 299);
     }
 
     #[test]

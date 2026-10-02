@@ -32,11 +32,11 @@ const PAGE_BUDGET_BYTES: usize = 24_000;
 /// Row ranges of each page: `page_size` rows each when the caller sets it,
 /// else as many rows as fit [`PAGE_BUDGET_BYTES`] (at least one per page).
 /// Costs come from snapshot-bound data, so every page of one snapshot cuts
-/// at the same rows. An empty listing is one empty page.
+/// at the same rows. An empty listing has no pages.
 fn page_ranges(costs: &[usize], page_size: Option<usize>) -> Vec<std::ops::Range<usize>> {
     let total = costs.len();
     if total == 0 {
-        return vec![0..0];
+        return Vec::new();
     }
     if let Some(size) = page_size {
         let size = size.max(1);

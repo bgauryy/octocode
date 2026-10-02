@@ -195,7 +195,14 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
     if (typeof node.line === 'number') pair(here, node.line);
     if (typeof node.content === 'string') numbered(here, node.content);
     if (Array.isArray(node.lines) && node.lines.every(l => typeof l === 'string')) for (const l of node.lines) { const m = /^(\d+)\t/.exec(l); if (m) pair(here, +m[1]); }
-    if (Array.isArray(node.byFile)) for (const f of node.byFile) for (const ref of f.refs ?? []) { const m = /^(\d+)/.exec(ref); if (m) pair(f.path, +m[1]); }
+    // Compact rows lead with their line: symbols outline "<line>[-<end>] kind name",
+    // lean structural matches "<line>[-<end>]\t<value>".
+    for (const key of ['declarations', 'matches']) if (Array.isArray(node[key])) for (const row of node[key]) { const m = typeof row === 'string' && /^\s*(\d+)/.exec(row); if (m) pair(here, +m[1]); }
+    if (Array.isArray(node.byFile)) for (const f of node.byFile) {
+      for (const ref of f.refs ?? []) { const m = /^(\d+)/.exec(ref); if (m) pair(f.path, +m[1]); }
+      // Direct callers: "<line>:<col>[,<line>:<col>…] in <kind> <name> …" lists call sites.
+      for (const call of f.calls ?? []) for (const site of /^([\d:,]+) in /.exec(call)?.[1].split(',') ?? []) pair(f.path, +site.split(':')[0]);
+    }
     if (typeof node.dir === 'string' && Array.isArray(node.files)) {
       // ghStructure dirs are relative to the requested path (the agent's own input).
       const base = entry.tool === 'ghStructure' ? String(entry.args?.queries?.[0]?.path ?? '').replace(/^\.?\/?$/, '') : '';

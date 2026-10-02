@@ -829,11 +829,19 @@ async fn recovered_alias_references_are_labeled_in_output() {
         vec![at(0), recovered],
     )
     .await;
-    let rows = result["payload"]["locations"]
-        .as_array()
-        .expect("locations");
-    assert!(rows[0].get("source").is_none(), "{result}");
-    assert_eq!(rows[1]["source"], "recoveredAlias", "{result}");
+    let files = result["payload"]["byFile"].as_array().expect("byFile");
+    assert_eq!(files.len(), 1, "{result}");
+    assert_eq!(
+        files[0]["refs"].as_array().map(Vec::len),
+        Some(2),
+        "{result}"
+    );
+    // Only the recovered row (line 2) is labeled.
+    assert_eq!(
+        files[0]["recovered"],
+        serde_json::json!({"recoveredAlias": [2]}),
+        "{result}"
+    );
     assert_eq!(result["payload"]["recoveredAliasReferences"], 1);
     crate::contracts::validate_output(
         "lspSearch",
@@ -844,7 +852,7 @@ async fn recovered_alias_references_are_labeled_in_output() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn many_references_default_to_compact_rows_grouped_by_file() {
+async fn references_default_to_compact_rows_grouped_by_file() {
     let (root, paths) = temp_workspace("compact-refs");
     let a = root.join("a.ts");
     let b = root.join("b.ts");
@@ -926,16 +934,21 @@ async fn many_references_default_to_compact_rows_grouped_by_file() {
             "{extra}: {result}"
         );
     }
-    // A short reference list stays per location.
+    // A short reference list is compact too.
     let result = locations(
         &compact(serde_json::json!({})),
         &mut SourceCache::new(&paths),
         "references",
         "referencesProvider",
-        snippets[..5].to_vec(),
+        snippets[..2].to_vec(),
     )
     .await;
-    assert!(result["payload"]["locations"].is_array(), "{result}");
+    assert!(result["payload"].get("locations").is_none(), "{result}");
+    assert_eq!(
+        result["payload"]["byFile"],
+        serde_json::json!([{"path": a.to_string_lossy(), "refs": ["5-29:14 export const foo = (", "11:3 foo(bar);"]}]),
+        "{result}"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -2244,4 +2257,67 @@ fn hover_range_is_published_as_a_one_based_display_range() {
         }}]}),
     )
     .expect("published hover satisfies the internal output contract");
+}
+
+#[test]
+fn direct_callers_compact_to_per_file_call_rows() {
+    let caller = |path: &str,
+                  name: &str,
+                  kind: &str,
+                  start: u64,
+                  end: u64,
+                  sites: &[(u64, u64)]| {
+        serde_json::json!({
+            "from": {"name": name, "kind": kind, "uri": format!("file://{path}"),
+                "displayRange": {"startLine": start, "startCharacter": 7, "endLine": end}},
+            "fromRanges": sites.iter().map(|(line, column)| serde_json::json!({"startLine": line, "startCharacter": column, "endLine": line})).collect::<Vec<_>>(),
+            "level": 1
+        })
+    };
+    let mut method = caller(
+        "/repo/App.tsx",
+        "renderEmbeddables",
+        "method",
+        1833,
+        2120,
+        &[(1981, 32)],
+    );
+    method["from"]["detail"] = serde_json::json!("App");
+    let mut recovered = caller("/repo/lib.ts", "load", "function", 718, 718, &[(729, 24)]);
+    recovered["source"] = serde_json::json!("recoveredFromReferences");
+    let mut row = serde_json::json!({"payload": {"kind": "callers", "items": [
+        caller("/repo/svg.ts", "render", "function", 97, 848, &[(359, 38), (402, 5)]),
+        method,
+        recovered,
+        caller("/repo/svg.ts", "other", "function", 900, 950, &[(910, 3)]),
+    ]}});
+    compact_callers(&mut row);
+    assert!(row["payload"].get("items").is_none(), "{row}");
+    assert_eq!(
+        row["payload"]["byFile"],
+        serde_json::json!([
+            {"path": "/repo/svg.ts", "calls": [
+                "359:38,402:5 in function render 97-848",
+                "910:3 in function other 900-950"
+            ]},
+            {"path": "/repo/App.tsx", "calls": ["1981:32 in method renderEmbeddables (App) 1833-2120"]},
+            {"path": "/repo/lib.ts", "calls": ["729:24 in function load 718"],
+                "recovered": {"recoveredFromReferences": [729]}}
+        ]),
+        "{row}"
+    );
+    crate::contracts::validate_output(
+        "lspSearch",
+        &serde_json::json!({"results":[{"index":0,"data":row}]}),
+    )
+    .expect("compact callers satisfy the output contract");
+    // A deeper walk keeps items: `via` links each edge to its parent.
+    let mut deep = serde_json::json!({"payload": {"kind": "callers", "items": [
+        caller("/repo/a.ts", "a", "function", 1, 3, &[(2, 1)]),
+        {"from": {"name": "b", "kind": "function", "uri": "file:///repo/b.ts"}, "fromRanges": [], "level": 2,
+            "via": {"name": "a", "line": 1, "character": 7}}
+    ]}});
+    let before = deep.clone();
+    compact_callers(&mut deep);
+    assert_eq!(deep, before);
 }

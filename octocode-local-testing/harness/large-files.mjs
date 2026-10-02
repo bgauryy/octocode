@@ -3,7 +3,7 @@
 // totals that agree across pages, and executable continuations.
 import fs from 'node:fs';
 import path from 'node:path';
-import { FIXTURES, REPOS, checks, collect, nextHints, rowData, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { FIXTURES, REPOS, checks, collect, declarations, nextHints, rowData, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('large-files');
 const MAX_RESPONSE_BYTES = 2_000_000;
@@ -145,7 +145,7 @@ for (const [label, query] of [
   const first = await call('astSearch', { operation: 'symbols', path: manyFns, pageSize: 100 }, {}, 'symbols manyFns');
   bounded(first, 'astSearch symbols 20k functions');
   const pages = await walk(first, 'nextPage', 250, 'symbols manyFns');
-  const names = pages.flatMap(p => collect(rowData(p), o => typeof o.name === 'string' && typeof o.line === 'number').map(o => o.name));
+  const names = pages.flatMap(p => declarations(p).filter(o => typeof o.name === 'string' && typeof o.line === 'number').map(o => o.name));
   check(`astSearch symbols 20,001 functions: ${pages.length} pages, all unique`, names.length === 20_001 && new Set(names).size === names.length, `names=${names.length}`);
 }
 {

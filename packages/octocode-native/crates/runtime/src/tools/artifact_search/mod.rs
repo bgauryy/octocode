@@ -195,18 +195,21 @@ async fn run(
         data["next"]["viewRepo"] = json!({
             "tool": ToolId::GhStructure.as_str(),
             "source": { "scope": "defaultBranch", "verification": "unverified" },
+            // The root at depth one is ghStructure's default listing.
             "query": {
                 "owner": owner,
                 "repo": repo,
-                "path": artifact
-                    .repository_directory
-                    .clone()
-                    .or_else(|| artifact.repository.as_deref().and_then(github_repo_dir))
-                    .unwrap_or_default(),
-                "maxDepth": 1,
                 "reasoning": "Default-branch code; not release evidence.",
             },
         });
+        if let Some(directory) = artifact
+            .repository_directory
+            .clone()
+            .or_else(|| artifact.repository.as_deref().and_then(github_repo_dir))
+            .filter(|directory| !directory.is_empty())
+        {
+            data["next"]["viewRepo"]["query"]["path"] = json!(directory);
+        }
         // The published version's own commit. An npm provenance attestation
         // bound to this tarball and repository names it (`provenance`);
         // otherwise it is the registry's unchecked lead (npm `gitHead`, Go
@@ -646,6 +649,8 @@ mod npm_auth_tests {
         let view = &data["next"]["viewRepo"];
         assert!(view["query"].get("branch").is_none(), "{data}");
         assert_eq!(view["query"]["path"], "packages/x", "{data}");
+        // Depth one is ghStructure's default listing.
+        assert!(view["query"].get("maxDepth").is_none(), "{data}");
         // `source` states the lead's provenance; no separate confidence.
         assert!(view.get("confidence").is_none(), "{data}");
         assert_eq!(view["source"]["scope"], "defaultBranch", "{data}");

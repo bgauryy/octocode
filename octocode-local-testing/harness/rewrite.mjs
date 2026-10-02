@@ -52,7 +52,9 @@ check('T1 preview infers ruleKind/langType and finds matches', t1.data.mode === 
 const rows = t1.data.matches ?? [];
 check('T1 match rows are lean (16-hex id, path, line)', rows.length > 0 && rows.every(row => /^[a-f0-9]{16}$/.test(row.id) && row.path && Number.isInteger(row.line) && !('text' in row) && !('range' in row)), JSON.stringify(rows[0] ?? {}));
 const files = t1.data.files ?? [];
-check('T1 file rows drop afterHash/patchBytes/absolutePath', files.length > 0 && files.every(file => file.beforeHash && file.patch && !('afterHash' in file) && !('patchBytes' in file) && !('absolutePath' in file)), JSON.stringify(Object.keys(files[0] ?? {})));
+// A complete preview states each file's beforeHash once, in next.apply.expectedHashes.
+const hashOf = file => file.beforeHash ?? t1.data.next?.apply?.query?.expectedHashes?.[file.path];
+check('T1 file rows drop afterHash/patchBytes/absolutePath; every file hash is stated', files.length > 0 && files.every(file => /^[a-f0-9]{64}$/.test(hashOf(file) ?? '') && file.patch && !('afterHash' in file) && !('patchBytes' in file) && !('absolutePath' in file)), JSON.stringify(Object.keys(files[0] ?? {})));
 check('T1 every match line lies inside a hunk of its file', rows.every(row => hunkLines(files.find(file => file.path === row.path) ?? {}).has(row.line)), '');
 const apply = t1.data.next?.apply?.query;
 check('T1 next.apply pins langType, snapshot and every file hash', apply?.apply === true && apply.langType === 'rust' && /^[a-f0-9]{64}$/.test(apply.snapshot ?? '') && Object.keys(apply.expectedHashes ?? {}).length === t1.data.affectedFiles, JSON.stringify(apply ?? {}).slice(0, 200));

@@ -3,7 +3,7 @@
 // candidates are verified against package declarations and lexical class uses.
 // Bounded syntactic graph coverage is measured against LSP, not called complete.
 import path from 'node:path';
-import { REPOS, ROOT, checks, collect, nextHints, rowData, sourcePath, sourceView, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, ROOT, astMatchRows, checks, collect, declarations, nextHints, rowData, sourcePath, sourceView, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('deps-flows');
 const client = await startServer({ env: { OCTOCODE_BETA: '1' } });
@@ -115,7 +115,7 @@ for (const p of PROJECTS) {
   row.deps = depRows.length;
   row.dependents = dependentRows.length;
   row.confidence = rowData(dependencies)?.confidence;
-  row.resolution = JSON.stringify(rowData(dependencies)?.summary?.importResolution ?? {}).replace(/"/g, '');
+  row.resolution = JSON.stringify(rowData(dependencies)?.summary?.importResolution ?? rowData(dependencies)?.coverage?.imports ?? {}).replace(/"/g, '');
 
   const inbound = await proveEdges(root, p.lang, dependentRows.map(r => ({ ...r, from: r.file, to: hub })));
   row.dependentsProven = `${inbound.proven}/${inbound.sampled}`;
@@ -127,7 +127,7 @@ for (const p of PROJECTS) {
   // Syntax view: every importLine the graph reports is an import statement astSearch sees.
   const lang = p.lang === 'TypeScript/TSX' ? (hub.endsWith('.tsx') ? 'TSX' : 'TypeScript') : p.lang;
   const imports = await call('astSearch', { operation: 'match', path: path.join(root, hub), langType: lang, rule: Array.isArray(p.importKind) ? `rule:\n  any:\n${p.importKind.map(k => `    - kind: ${k}\n`).join('')}` : `rule:\n  kind: ${p.importKind}\n`, maxMatchesPerFile: 200 });
-  const importLines = new Set(collect(rowData(imports), o => typeof o.value === 'string' && typeof o.line === 'number').flatMap(o => {
+  const importLines = new Set(astMatchRows(imports).filter(o => typeof o.value === 'string' && typeof o.line === 'number').flatMap(o => {
     const end = o.endLine ?? o.line; const out = []; for (let l = o.line; l <= end; l++) out.push(l); return out;
   }));
   const explicitRows = depRows.filter(r => !(p.lang === 'Java' && r.edgeKinds?.includes('java-same-package') && r.importLine === undefined));
@@ -156,7 +156,7 @@ for (const p of PROJECTS) {
   // Identity view: files whose code references an exported hub symbol must depend on the hub (transitively).
   if (p.lsp) {
     const symbols = await call('astSearch', { operation: 'symbols', path: path.join(root, hub) });
-    const exported = collect(rowData(symbols), o => typeof o.name === 'string' && typeof o.line === 'number' && o.exported && ['function', 'class', 'constant', 'struct'].includes(o.kind));
+    const exported = declarations(symbols).filter(o => typeof o.name === 'string' && typeof o.line === 'number' && o.exported && ['function', 'class', 'constant', 'struct'].includes(o.kind));
     for (const symbol of exported.slice(0, 2)) {
       const refs = await call('lspSearch', { uri: path.join(root, hub), symbolName: symbol.name, lineHint: symbol.line, operation: 'references', pageSize: 25, groupByFile: true });
       const refPages = await walkPages(refs, 'nextPage', 40);

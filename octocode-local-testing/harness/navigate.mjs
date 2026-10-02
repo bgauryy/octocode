@@ -5,7 +5,7 @@
 // hops and bytes, and fails when a hop's promised handoff is missing.
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, rowData, sourcePath, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { REPOS, checks, collect, declarations, rowData, sourcePath, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('navigate');
 const client = await startServer();
@@ -58,7 +58,7 @@ for (const t of TARGETS) {
 
   // SEARCH (shape): outline declarations; take a callable used elsewhere.
   const symbols = await hop('search: symbols', 'astSearch', { operation: 'symbols', path: file, kinds: ['function', 'method', 'label'], pageSize: 100, ...(t.langType ? { langType: t.langType } : {}) });
-  const decls = collect(rowData(symbols), o => typeof o.name === 'string' && typeof o.line === 'number' && typeof o.kind === 'string');
+  const decls = declarations(symbols).filter(o => typeof o.name === 'string' && typeof o.line === 'number' && typeof o.kind === 'string');
   const callables = decls.filter(d => ['function', 'method', 'label'].includes(d.kind) && d.name.length > 4);
   let target;
   let uses = [];
@@ -85,7 +85,7 @@ for (const t of TARGETS) {
     for (const l of rowData(def)?.payload?.locations ?? []) {
       const at = sourcePath(def, l, file);
       const d = await call('astSearch', { operation: 'symbols', path: at, name: target.name, ...(t.langType ? { langType: t.langType } : {}) });
-      if (collect(rowData(d), o => o.name === target.name && Math.abs(o.line - (l.displayRange?.startLine ?? 0)) <= 1).length) confirmed = true;
+      if (declarations(d).filter(o => o.name === target.name && Math.abs(o.line - (l.displayRange?.startLine ?? 0)) <= 1).length) confirmed = true;
     }
     const explained = /compile_commands/.test(JSON.stringify(rowData(def)?.hints ?? []));
     check(`${t.lang}: symbols anchor → lspSearch definition lands on an astSearch-confirmed declaration`, lands || confirmed || explained, JSON.stringify(rowData(def)?.payload?.locations?.[0]?.displayRange ?? rowData(def)?.hints ?? ''));

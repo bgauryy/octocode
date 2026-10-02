@@ -57,7 +57,7 @@ pub(super) fn success_value(
         })
         .collect::<Vec<_>>();
     let mut value = json!({
-        "operation":"rewrite","mode":if apply {"apply"} else {"preview"},
+        "mode":if apply {"apply"} else {"preview"},
         "root":root,"snapshot":snapshot,"totalMatches":matches.len(),
         "affectedFiles":files.len(),
         "matches":shown.iter().map(|matched| public_match(matched, query.debug())).collect::<Vec<_>>(),
@@ -91,12 +91,21 @@ pub(super) fn success_value(
                 .collect(),
         );
         value["next"]["apply"] = json!({
-            "tool":ToolId::AstRewrite.as_str(),"query":next,"confidence":"exact",
-            "why":"Apply exactly this preview; changed sources or selections are rejected."
+            "tool":ToolId::AstRewrite.as_str(),"query":next,"confidence":"exact"
         });
     }
     if let Some(transaction) = transaction {
         value["transaction"] = transaction;
+    }
+    if query.debug() {
+        value["operation"] = json!("rewrite");
+    } else if value["next"].get("apply").is_some()
+        && let Some(rows) = value["files"].as_array_mut()
+    {
+        // next.apply.expectedHashes states each file's beforeHash once.
+        for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+            row.remove("beforeHash");
+        }
     }
     value
 }
@@ -213,7 +222,8 @@ fn public_match(matched: &PreparedMatch, debug: bool) -> Value {
     })
 }
 
-/// A file row: `beforeHash` guards apply and `matchCount` sizes the edit.
+/// A file row: `beforeHash` guards apply (a complete preview states it once,
+/// in `next.apply.expectedHashes`) and `matchCount` sizes the edit.
 /// `afterHash` (recomputed by the journal), `patchBytes` and `absolutePath`
 /// are diagnostics kept under `debug`.
 pub(super) fn public_file(file: &PreparedFile, debug: bool) -> Value {

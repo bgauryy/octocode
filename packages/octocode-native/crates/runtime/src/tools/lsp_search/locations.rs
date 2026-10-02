@@ -100,12 +100,10 @@ pub(super) async fn locations(
     // groupByFile summarizes per file INSTEAD of returning every location, so
     // the page unit becomes a file summary.
     let grouped = query.group_by_file() == Some(true);
-    // A long reference list without an explicit row form pages locations as
-    // usual but prints each page as compact `line:col text` rows per file.
-    let compact = kind == "references"
-        && query.group_by_file().is_none()
-        && query.context_lines().is_none()
-        && locations.len() > COMPACT_REFERENCES_OVER;
+    // A reference list without an explicit row form pages locations as usual
+    // but prints each page as compact `line:col text` rows per file.
+    let compact =
+        kind == "references" && query.group_by_file().is_none() && query.context_lines().is_none();
     let entries = if grouped {
         group_by_file(&locations)
     } else {
@@ -376,9 +374,6 @@ fn location_sort_key(location: &Value) -> (String, u64, u64, u64, u64) {
         point("/range/end/character"),
     )
 }
-
-/// References beyond this count print as compact per-file rows by default.
-pub(super) const COMPACT_REFERENCES_OVER: usize = 20;
 
 /// One page of locations as `{path, refs: ["line:col text"]}` per file, in
 /// page order. `line:col` is the one-based start (UTF-16 column, as in

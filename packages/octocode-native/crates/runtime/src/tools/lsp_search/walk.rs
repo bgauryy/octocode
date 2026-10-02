@@ -415,7 +415,7 @@ pub(super) fn public_edge(expansion: Expansion, edge: &HierarchyEdge) -> Value {
 /// hop). Callers recovered from references are listed by label under
 /// `recovered` with their first call line. Deeper walks keep `items`, whose
 /// `via` links each edge to its parent.
-fn compact_callers(row: &mut Value) {
+pub(super) fn compact_callers(row: &mut Value) {
     let Some(items) = row.pointer("/payload/items").and_then(Value::as_array) else {
         return;
     };
@@ -507,7 +507,12 @@ fn compact_callers(row: &mut Value) {
         payload.remove("items");
         payload.insert(
             "byFile".into(),
-            Value::Array(files.into_iter().map(|(_, entry)| Value::Object(entry)).collect()),
+            Value::Array(
+                files
+                    .into_iter()
+                    .map(|(_, entry)| Value::Object(entry))
+                    .collect(),
+            ),
         );
     }
 }

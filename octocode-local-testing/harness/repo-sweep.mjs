@@ -2,7 +2,7 @@
 // full pagination, and cross-tool correlation (text ⊇ syntax ⊇ identity).
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, nextHints, rowData, sourcePath, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { REPOS, astMatchRows, checks, collect, declarations, nextHints, rowData, sourcePath, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('repo-sweep');
 const client = await startServer();
@@ -59,7 +59,7 @@ for (const r of REPOS_BY_LANG) {
   // Symbols: whole file, all pages, unique ids.
   const sym1 = await call('astSearch', { operation: 'symbols', path: L, pageSize: 100, ...(r.langType ? { langType: r.langType } : {}) });
   const symPages = await walk(sym1, 'nextPage', 200);
-  const decls = symPages.flatMap(p => rowData(p)?.declarations ?? []);
+  const decls = symPages.flatMap(p => declarations(p));
   // Symbols carry no id: identity is name + line + character + parent.
   const identity = d => `${d.name}|${d.line}|${d.character ?? ''}|${d.parent ?? ''}|${d.parentLine ?? ''}`;
   const dupes = decls.length - new Set(decls.map(identity)).size;
@@ -89,7 +89,7 @@ for (const r of REPOS_BY_LANG) {
   if (callPattern) {
     const m1 = await call('astSearch', { operation: 'match', path: root, langType: r.langType ?? r.lang, pattern: callPattern, maxMatchesPerFile: 50, pageSize: 20 });
     const mPages = await walk(m1, 'nextPage', 100);
-    callRows = mPages.flatMap(p => collect(rowData(p), o => typeof o.path === 'string' && Array.isArray(o.matches)).flatMap(f => f.matches.map(m => ({ file: abs(p, f.path), ...m }))));
+    callRows = mPages.flatMap(p => astMatchRows(p).map(m => ({ ...m, file: abs(p, m.path) })));
     const callFiles = [...new Set(callRows.map(c => c.file))];
     const notText = callFiles.filter(f => !textFiles.includes(f));
     row.calls = `${callRows.length} in ${callFiles.length} files`;
@@ -113,7 +113,7 @@ for (const r of REPOS_BY_LANG) {
     for (const l of locs) {
       const target = sourcePath(def, l, site.file);
       const decl = await call('astSearch', { operation: 'symbols', path: target, name: S.name, ...(r.langType ? { langType: r.langType } : {}) });
-      if (collect(rowData(decl), o => o.name === S.name && Math.abs(o.line - (l.displayRange?.startLine ?? 0)) <= 1).length) lands = true;
+      if (declarations(decl).filter(o => o.name === S.name && Math.abs(o.line - (l.displayRange?.startLine ?? 0)) <= 1).length) lands = true;
       // Nested declarations (inside functions) are not outline rows: prove
       // the landing line itself declares the name.
       if (!lands) {

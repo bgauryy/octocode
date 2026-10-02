@@ -791,7 +791,22 @@ const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
             "files.selectedMatchCount",
         ],
         ToolId::StructureSearch => &["filesScanned", "files.sizeFormatted"],
-        ToolId::AstTopology => &["filesScanned"],
+        // Per-row graph analytics (layer, in-degree, dominator, transitive
+        // flag) and per-language linking explain the graph, not the edges.
+        ToolId::AstTopology => &[
+            "filesScanned",
+            "operation",
+            "results.inboundCount",
+            "results.topologicalLayer",
+            "results.transitiveEdge",
+            "results.immediateDominator",
+            "summary.condensationComponentCount",
+            "summary.topologicalLayerCount",
+            "summary.transitiveEdgeCount",
+            // Repeats `coverage.imports`; `completeness.graph` states the gap.
+            "summary.importResolution",
+            "coverage.languages",
+        ],
         ToolId::GhSearchHistory => &["effectiveQuery", "scope"],
         ToolId::GhGetHistoryItem => &["parents"],
         _ => &[],
