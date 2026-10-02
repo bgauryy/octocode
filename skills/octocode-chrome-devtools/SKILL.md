@@ -31,9 +31,9 @@ Flow for every task: `scripts/open-browser.mjs` → `scripts/cdp-sandbox.mjs <ch
 S=<skill>/scripts
 node $S/open-browser.mjs --headless --port 9222 --url "<url>"   # --help: profile, proxy, UA, features
 node $S/cdp-sandbox.mjs $S/cdp-checks/page-snapshot.mjs --port 9222 --keep-tab
-SHOT_SCALE=0.5 node $S/cdp-sandbox.mjs $S/cdp-checks/page-screenshot.mjs --port 9222 --keep-tab --no-reload   # layout/visual only
-DOM_REF=e3 DOM_ACTION=type DOM_VALUE="text" node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload   # or click|fill|press|select|check|hover; read [VERIFY]
-DOM_REF=e4 DOM_ACTION=click node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload
+SHOT_SCALE=0.5 node $S/cdp-sandbox.mjs $S/cdp-checks/page-screenshot.mjs --port 9222 --keep-tab --no-reload   # layout/visual only; SHOT_ANNOTATE=1 boxes refs
+DOM_REF=e3 DOM_ACTION=type DOM_VALUE="text" node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload   # or click|dblclick|fill|press|select|check|hover|upload|drag; read [VERIFY], [NEW] refs
+DOM_STEPS='[{"ref":"e2","action":"fill","value":"a"},{"ref":"e5","action":"click"}]' DOM_WAIT_TEXT="Welcome" node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload   # form in one run, then wait for text
 node $S/cdp-sandbox.mjs <check-or-custom.mjs> --port 9222 --new-tab "<url>"   # fresh tab, stealth before navigation
 node $S/open-browser.mjs --cleanup --port 9222 [--dry-run]
 ```
@@ -43,8 +43,8 @@ node $S/open-browser.mjs --cleanup --port 9222 [--dry-run]
 - When a proxy/VPN is needed: copy `scripts/octocode-chrome-devtools.vpn.example.json`, pass `--config <path>` or install as `.octocode/chrome-devtools.json`.
 - Retention: `scripts/prune-artifacts.mjs --max-age-days 3 --max-count 50 [--dry-run]`. Offline protocol docs: `scripts/protocol-corpus.mjs --domains Network,Page`.
 - Scraping bridge (optional `octocode-scraping` beside this folder, or `--scraping-skill-dir <dir>`): `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs`. Missing dependency → `OPTIONAL_DEPENDENCY_MISSING` on stderr.
-- Never run these libraries as CLIs; the sandbox stages them into `.octocode/` when a check imports them: `scripts/mandatory-stealth.mjs`, `scripts/undercover.mjs`, `scripts/human-input.mjs`, `scripts/dom-actionability.mjs`, `scripts/sourcemap-resolver.mjs`, `scripts/octocode-config.mjs`.
-- After editing this skill: `node scripts/hermetic-suite.mjs` (no browser; runs `scripts/sandbox-env-self-test.mjs` and `scripts/portability-self-test.mjs`) and `node scripts/cdp-checks/webmcp-tools.check.mjs` (launches Chrome).
+- Never run these libraries as CLIs; the sandbox stages them into `.octocode/` when a check imports them: `scripts/mandatory-stealth.mjs`, `scripts/undercover.mjs`, `scripts/human-input.mjs`, `scripts/dom-actionability.mjs`, `scripts/ax-snapshot.mjs`, `scripts/sourcemap-resolver.mjs`, `scripts/octocode-config.mjs`.
+- After editing this skill: `node scripts/hermetic-suite.mjs` (no browser; runs `scripts/sandbox-env-self-test.mjs` and `scripts/portability-self-test.mjs`) `node scripts/cdp-checks/webmcp-tools.check.mjs` (launches Chrome), and `node scripts/live-suite.mjs` (headless Chrome against `scripts/tests/fixtures/*.html`: snapshot, actions, iframe, upload, drag, wait, annotated screenshot, perf; ~30 s).
 
 ## References
 

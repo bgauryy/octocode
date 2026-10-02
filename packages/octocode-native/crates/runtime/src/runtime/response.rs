@@ -821,8 +821,9 @@ fn is_pagination_key(key: &str) -> bool {
 
 /// Search statistics: the listed files already carry the counts. Keep the
 /// totals only while more pages exist, and the scan scope only when nothing
-/// matched (it shows the search ran where intended). Coverage limits remain
-/// public even on the final page: they explain evidence that was not returned.
+/// matched (it shows the search ran where intended). Coverage limits and
+/// unreadable-path errors remain public even on the final page: they explain
+/// evidence that was not returned.
 fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
     let has_rows = data
         .get("files")
@@ -836,7 +837,15 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
         .get("capReason")
         .and_then(Value::as_str)
         .is_some_and(|reason| !reason.trim().is_empty());
-    let keep_cap = |key: &str| (key == "capped" && capped) || (key == "capReason" && cap_reason);
+    let unreadable = stats
+        .get("errorCount")
+        .and_then(Value::as_u64)
+        .is_some_and(|count| count > 0);
+    let keep_cap = |key: &str| {
+        (key == "capped" && capped)
+            || (key == "capReason" && cap_reason)
+            || (unreadable && matches!(key, "errorCount" | "firstError"))
+    };
     if !has_rows {
         stats.retain(|key, _| {
             matches!(
@@ -856,7 +865,7 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
     } else {
         stats.retain(|key, _| {
             keep_cap(key)
-                || ((capped || cap_reason)
+                || ((capped || cap_reason || unreadable)
                     && matches!(
                         key.as_str(),
                         "totalOccurrences" | "filesMatched" | "totalStructuralMatches"
@@ -1561,6 +1570,41 @@ mod tests {
             assert!(row["data"]["stats"].get("bytesSearched").is_none(), "{row}");
             crate::contracts::validate_output("localSearch", &json!({"results": [row]}))
                 .expect("minimized cap diagnostics obey the canonical output schema");
+        }
+    }
+
+    /// The unreadable-path warning names `stats.firstError`: the failure
+    /// count and first failure stay public on every page shape.
+    #[test]
+    fn unreadable_paths_keep_their_error_stats_on_every_page() {
+        for (files, more) in [
+            (json!([{ "path": "a.rs" }]), true),
+            (json!([{ "path": "a.rs" }]), false),
+            (json!([]), false),
+        ] {
+            let row = minimized(
+                ToolId::LocalSearch,
+                json!({ "debug": false }),
+                json!({
+                    "files": files,
+                    "stats": {"totalOccurrences": 1, "filesMatched": 1, "filesSearched": 2,
+                        "bytesSearched": 9, "errorCount": 1,
+                        "firstError": "/r/b.txt: Permission denied (os error 13)"},
+                    "pagination": {"currentPage": 1, "hasMore": more},
+                    "warnings": ["1 path(s) could not be read (see stats.firstError), so absence is not proven."],
+                    "isPartial": true,
+                    "terminalLimit": !more,
+                }),
+            );
+            let stats = &row["data"]["stats"];
+            assert_eq!(stats["errorCount"], 1, "{row}");
+            assert_eq!(
+                stats["firstError"], "/r/b.txt: Permission denied (os error 13)",
+                "{row}"
+            );
+            assert!(stats.get("bytesSearched").is_none(), "{row}");
+            crate::contracts::validate_output("localSearch", &json!({"results": [row]}))
+                .expect("minimized error stats obey the canonical output schema");
         }
     }
 

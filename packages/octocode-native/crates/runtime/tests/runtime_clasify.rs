@@ -2827,6 +2827,65 @@ async fn hydrated_candidates_share_one_max_chars_budget() {
 }
 
 #[tokio::test]
+async fn a_hydrated_window_cut_by_its_budget_still_contains_its_hit() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(noul_response(0.9))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    // One hit in the middle of long lines: the hit-centered window is several
+    // times the read budget.
+    let body = (1..=300)
+        .map(|line| {
+            if line == 150 {
+                format!("needle DECIDING verdict-line {}\n", filler(70))
+            } else {
+                format!("prose {line} {}\n", filler(90))
+            }
+        })
+        .collect::<String>();
+    let root = workspace.write("cut/a.txt", body);
+    let root = root.parent().unwrap().to_string_lossy().into_owned();
+    let runtime = provider_runtime(&workspace, &server);
+    let max_chars = 3000;
+    let input = json!({
+        "id":"cut","reasoning":"Judge the hit region.","goal":"Decide the next read.",
+        "resources":[{"id":"hits","maxChars":max_chars,"context":{"tool":"localSearch","query":{
+            "path":root,"searchText":"needle DECIDING","reasoning":"Find hits."
+        },"candidateEvidence":"fileChunks"}}],
+        "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
+    });
+    let outcome = runtime
+        .execute("cut".into(), "clasify".into(), verbose(input))
+        .await
+        .unwrap();
+    let states = sent_states(&server).await;
+    assert_eq!(states.len(), 1, "{states:#?}");
+    let state = states[0].to_string();
+    assert!(
+        state.contains("verdict-line"),
+        "the judged window must contain its hit: {state}"
+    );
+    assert!(
+        state.len() < 2 * max_chars + 2_000,
+        "the window stays within its budget: {} chars",
+        state.len()
+    );
+    let page = &outcome.structured_content["queries"][0]["resources"][0]["pages"][0];
+    let scope = &page["scope"];
+    let (start, end) = (
+        scope["startLine"].as_u64().unwrap_or(0),
+        scope["endLine"].as_u64().unwrap_or(0),
+    );
+    assert!(
+        start <= 150 && 150 <= end,
+        "the scope names the judged lines around the hit: {page:#?}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn sufficient_unread_file_evidence_returns_a_bounded_verification_read() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

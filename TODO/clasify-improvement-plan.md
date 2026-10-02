@@ -187,7 +187,7 @@ Owner: [native architecture](../packages/octocode-native/ARCHITECTURE.md) and [c
 
 - `cargo test -p octocode-native --no-fail-fast`: all clasify targets green (lib 1114 passed, `runtime_clasify` 47, routing 5). Two timing tests outside clasify (`runtime_github_scope::pull_request_commit_details_load_concurrently_in_order`, `auth::discovery::discovery_uses_explicit_path…`) failed under concurrent build load and passed when rerun alone.
 - `cargo test -p octocode-cli`: green. `cargo clippy --workspace --all-targets -- -D warnings`: clean. rustfmt was applied to the touched files. `dev.mjs docs:verify` passed.
-- Live provider calls this pass: about 14 (budget 40). Harness: HARNESS_RESULT. The clasify harness suite was not run (dozens of paid locate walks).
+- Live provider calls this pass: about 14 (budget 40). Harness (`OCTOCODE_BETA=true run-all.mjs large-files,workflows`): 49/0 and 27/0. The clasify harness suite was not run (dozens of paid locate walks).
 
 ## Verification and rollout
 

@@ -138,6 +138,60 @@ describe('discriminated unions', () => {
   });
 });
 
+describe('a field sent with the wrong operation names its operation (CLI parity)', () => {
+  const row = (extra: Record<string, unknown>) => ({
+    owner: 'cli',
+    repo: 'cli',
+    goal: 'g',
+    reasoning: 'r',
+    ...extra,
+  });
+
+  it.each(['issue', 'commit'])(
+    'points a pullRequest-only field on an %s query at operation:"pullRequest"',
+    async operation => {
+      const message = await sdkMessage('ghSearchHistory', {
+        queries: [row({ operation, review: 'approved' })],
+      });
+      expect(message).toContain(
+        `queries.0: Remove 'review' from queries[0]: it applies only with operation:"pullRequest".`
+      );
+      expect(message).not.toContain('send one shape');
+      expect(message).not.toMatch(/Valid fields: .*\breview\b/);
+    }
+  );
+
+  it('names a ghGetHistoryItem commit-only field on an issue query', async () => {
+    const message = await sdkMessage('ghGetHistoryItem', {
+      queries: [row({ operation: 'issue', number: 1, ref: 'main' })],
+    });
+    expect(message).toContain(
+      `queries.0: Remove 'ref' from queries[0]: it applies only with operation:"commit".`
+    );
+    expect(message).toMatch(/Valid fields: .*\bnumber\b/);
+    expect(message).not.toMatch(/Valid fields: .*\bref\b/);
+  });
+
+  it('lists both operations for a field two branches share', async () => {
+    const message = await sdkMessage('ghSearchHistory', {
+      queries: [row({ operation: 'commit', label: ['bug'] })],
+    });
+    expect(message).toContain(
+      `queries.0: Remove 'label' from queries[0]: it applies only with operation:"pullRequest" or operation:"issue".`
+    );
+    expect(message).not.toContain('send one shape');
+  });
+
+  it('keeps naming a missing required field before the operation', async () => {
+    const message = await sdkMessage('ghGetHistoryItem', {
+      queries: [row({ operation: 'commit', ref: 'main', commentPage: 2 })],
+    });
+    expect(message).toContain(
+      "queries.0: Remove 'commentPage' from queries[0]: it applies only with number"
+    );
+  });
+});
+
 describe('ghGetHistoryItem mixed batch (09-24 opaque failure regression)', () => {
   const issueRow = (extra: Record<string, unknown> = {}) => ({
     operation: 'issue',

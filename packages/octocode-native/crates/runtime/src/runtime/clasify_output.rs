@@ -334,16 +334,43 @@ fn verification_read(
     {
         return;
     }
-    let (Some(template), Some(start), Some(end)) = (
-        receipt.get("fileRead"),
-        receipt.pointer("/scope/startLine").and_then(Value::as_u64),
-        receipt.pointer("/scope/endLine").and_then(Value::as_u64),
-    ) else {
+    let Some(template) = receipt.get("fileRead") else {
         return;
     };
-    if let Some(read) = window_read(template, start, end) {
+    let scope = |field: &str| {
+        receipt
+            .pointer(&format!("/scope/{field}"))
+            .and_then(Value::as_u64)
+    };
+    let read = match (scope("startLine"), scope("endLine")) {
+        (Some(start), Some(end)) => window_read(template, start, end),
+        _ => scope("byteOffset")
+            .zip(scope("byteEnd"))
+            .and_then(|(start, end)| byte_window_read(template, start, end)),
+    };
+    if let Some(read) = read {
         page.insert("next".into(), json!({"read":read}));
     }
+}
+
+/// `template` narrowed to the byte page `start..end` of a byte-chunked read.
+fn byte_window_read(template: &Value, start: u64, end: u64) -> Option<Value> {
+    if end <= start
+        || !template["tool"]
+            .as_str()
+            .is_some_and(crate::tools::clasify::is_file_read_tool)
+    {
+        return None;
+    }
+    let mut read = template.clone();
+    let query = read.get_mut("query")?.as_object_mut()?;
+    for field in SLICE_FIELDS {
+        query.remove(field);
+    }
+    query.insert("chunkType".into(), json!("bytes"));
+    query.insert("offset".into(), json!(start));
+    query.insert("chunkSize".into(), json!(end - start));
+    Some(read)
 }
 
 /// Render one resource. `question_ids` orders the per-page answer map.
@@ -733,6 +760,32 @@ mod tests {
                 }}},
                 "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}}
             }]})
+        );
+    }
+
+    #[test]
+    fn a_byte_page_of_unread_evidence_gets_a_read_of_exactly_its_bytes() {
+        let ids = [json!("ttl")];
+        let ids = ids.iter().collect::<Vec<_>>();
+        let receipt = json!({"source":{"path":"docs/a.md"},"coverage":"partial",
+        "scope":{"byteOffset":11428,"byteEnd":22856,"totalBytes":43930},
+        "fileRead":{"tool":"localFetch","confidence":"exact","query":{
+            "path":"docs/a.md","snapshot":"s","chunkType":"bytes","chunkSize":11428,"offset":0
+        }}});
+        let rendered = resource(
+            &json!("doc"),
+            &ids,
+            vec![PageOutcome::Assessed {
+                receipt,
+                answers: vec![Ok(json!({"answer":{"type":"noul","noul":0.98}}))],
+            }],
+            true,
+        );
+        assert_eq!(
+            rendered["pages"][0]["next"],
+            json!({"read":{"tool":"localFetch","confidence":"exact","query":{
+                "path":"docs/a.md","snapshot":"s","chunkType":"bytes","offset":11428,"chunkSize":11428
+            }}})
         );
     }
 

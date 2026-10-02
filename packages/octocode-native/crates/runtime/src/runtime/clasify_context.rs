@@ -35,6 +35,32 @@ fn checked(context: &ExecutionContext) -> Result<(), ClassificationError> {
     })
 }
 
+/// A context tool that failed to run at all. The execution kind stays visible:
+/// a deadline spent elsewhere (e.g. slow client construction) otherwise reads
+/// like a broken query.
+fn dispatch_failure(tool: &str, failure: super::ExecutionError) -> ClassificationError {
+    match failure {
+        super::ExecutionError::Timeout => error(
+            "timeout",
+            format!("Context tool {tool} timed out before classification."),
+        ),
+        super::ExecutionError::Cancelled => error(
+            "cancelled",
+            format!("Context tool {tool} was cancelled before classification."),
+        ),
+        other => {
+            let kind = serde_json::to_value(other)
+                .ok()
+                .and_then(|kind| kind.as_str().map(str::to_owned))
+                .unwrap_or_else(|| format!("{other:?}"));
+            error(
+                "classificationContextFailed",
+                format!("Context tool {tool} could not complete ({kind})."),
+            )
+        }
+    }
+}
+
 pub(super) struct ContextFailure {
     pub error: ClassificationError,
     pub receipt: Option<Value>,
@@ -226,12 +252,9 @@ pub(super) fn resolve(
         )));
     }
     let prepared = Value::Object(checked_input.sanitized_params);
-    let result = dispatcher.execute(id, &prepared, context).map_err(|_| {
-        ContextFailure::from(error(
-            "classificationContextFailed",
-            format!("Context tool {tool} could not complete."),
-        ))
-    })?;
+    let result = dispatcher
+        .execute(id, &prepared, context)
+        .map_err(|failure| ContextFailure::from(dispatch_failure(tool, failure)))?;
     checked(context).map_err(ContextFailure::from)?;
     let read_failure = result.failure;
     let failed = read_failure.is_some() || result.status == Some("error");
@@ -429,16 +452,32 @@ fn page_scope(state: &Value) -> Option<Value> {
             Some(json!({"startLine": start, "endLine": end, "totalLines": total_lines}))
         }
         "bytes" => {
-            let byte_offset = pagination.get("offset")?.as_u64()?;
-            let byte_end = pagination
-                .get("nextOffset")
-                .and_then(Value::as_u64)
-                .or_else(|| Some(byte_offset + length()?))?;
-            let total_bytes = pagination
-                .get("totalBytes")
-                .or_else(|| data.get("sourceBytes"))?
-                .as_u64()?;
-            Some(json!({"byteOffset": byte_offset, "byteEnd": byte_end, "totalBytes": total_bytes}))
+            let source_lines = || {
+                let (start, end) = first_source_range()?;
+                let total_lines = data.get("totalLines")?.as_u64()?;
+                Some(json!({"startLine": start, "endLine": end, "totalLines": total_lines}))
+            };
+            // Byte offsets of a line selection count from the selection start,
+            // so only its source lines locate the page in the file.
+            if data.contains_key("startLine") {
+                return source_lines();
+            }
+            let bytes = || {
+                let byte_offset = pagination.get("offset")?.as_u64()?;
+                let byte_end = pagination
+                    .get("nextOffset")
+                    .and_then(Value::as_u64)
+                    .or_else(|| Some(byte_offset + length()?))?;
+                let total_bytes = pagination
+                    .get("totalBytes")
+                    .or_else(|| data.get("sourceBytes"))?
+                    .as_u64()?;
+                Some(
+                    json!({"byteOffset": byte_offset, "byteEnd": byte_end, "totalBytes": total_bytes}),
+                )
+            };
+            // Reads omit byte totals that equal the source; lines still scope it.
+            bytes().or_else(source_lines)
         }
         _ => None,
     }
@@ -1383,6 +1422,70 @@ mod tests {
         assert_eq!(r["scope"]["startLine"], 111);
         assert_eq!(r["scope"]["endLine"], 240);
         assert_eq!(r["scope"]["totalLines"], 763);
+    }
+
+    #[test]
+    fn byte_chunked_line_selection_is_scoped_by_original_source_lines() {
+        // Byte offsets of a line selection count from the selection, not the
+        // file; only the source line range locates the judged evidence.
+        let state = json!({"results":[{"data":{
+            "totalLines":481,
+            "startLine":230,
+            "endLine":350,
+            "sourceLineRanges":[{"start":230,"end":294}],
+            "pagination":{
+                "chunkType":"bytes",
+                "offset":0,
+                "chunkSize":11428,
+                "totalBytes":16389,
+                "hasMore":true,
+                "nextOffset":11428
+            }
+        }}]});
+        assert_eq!(
+            receipt("localFetch", &state)["scope"],
+            json!({"startLine":230,"endLine":294,"totalLines":481})
+        );
+    }
+
+    #[test]
+    fn byte_page_without_byte_totals_is_scoped_by_source_lines() {
+        let state = json!({"results":[{"data":{
+            "totalLines":481,
+            "sourceLineRanges":[{"start":1,"end":93}],
+            "pagination":{
+                "chunkType":"bytes",
+                "offset":0,
+                "chunkSize":11428,
+                "hasMore":true,
+                "nextOffset":11428
+            }
+        }}]});
+        assert_eq!(
+            receipt("localFetch", &state)["scope"],
+            json!({"startLine":1,"endLine":93,"totalLines":481})
+        );
+    }
+
+    #[test]
+    fn a_failed_context_dispatch_names_its_execution_failure() {
+        let timeout = dispatch_failure("ghSearchCode", super::super::ExecutionError::Timeout);
+        assert_eq!(timeout.code, "timeout");
+        assert!(
+            timeout.message.contains("ghSearchCode"),
+            "{}",
+            timeout.message
+        );
+        assert!(timeout.message.contains("timed out"), "{}", timeout.message);
+        let cancelled = dispatch_failure("localFetch", super::super::ExecutionError::Cancelled);
+        assert_eq!(cancelled.code, "cancelled");
+        let worker = dispatch_failure("localFetch", super::super::ExecutionError::WorkerFailed);
+        assert_eq!(worker.code, "classificationContextFailed");
+        assert!(
+            worker.message.contains("workerFailed"),
+            "{}",
+            worker.message
+        );
     }
 
     #[test]

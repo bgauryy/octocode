@@ -9,6 +9,7 @@ import { join } from 'path';
 //   SHOT_QUALITY         jpeg quality 30-95 (default 70)
 //   SHOT_SCALE           0.25-1 (default 1); 0.5 quarters the pixels for cheap visual checks
 //   SHOT_ANNOTATE=1      draw the latest page-snapshot refs (eN boxes) on the image; removed after capture
+//                        SHOT_ANNOTATE=e20-e80 limits it to a ref range (dense pages)
 
 const FULL = process.env.SHOT_FULL === '1';
 const SELECTOR = process.env.SHOT_SELECTOR || '';
@@ -16,7 +17,9 @@ const FORMAT = process.env.SHOT_FORMAT === 'png' ? 'png' : 'jpeg';
 const QUALITY = Math.max(30, Math.min(95, Number.parseInt(process.env.SHOT_QUALITY ?? '70', 10) || 70));
 const MAX_HEIGHT = 8000;
 const SCALE = Math.max(0.25, Math.min(1, Number.parseFloat(process.env.SHOT_SCALE ?? '1') || 1));
-const ANNOTATE = process.env.SHOT_ANNOTATE === '1';
+const ANNOTATE_SPEC = process.env.SHOT_ANNOTATE ?? '';
+const ANNOTATE = ANNOTATE_SPEC === '1' || /^e\d+-e?\d+$/.test(ANNOTATE_SPEC);
+const [RANGE_LO, RANGE_HI] = /^e(\d+)-e?(\d+)$/.exec(ANNOTATE_SPEC)?.slice(1).map(Number) ?? [1, Infinity];
 const MAX_LABELS = 250;
 
 // Box every snapshot ref that is on screen (page coordinates, so full-page shots work too).
@@ -30,11 +33,14 @@ async function annotate(cdp) {
     return 0;
   }
   const { cssVisualViewport: v, cssContentSize: c } = await cdp.send('Page.getLayoutMetrics');
-  const bottom = FULL ? Math.min(c.height, MAX_HEIGHT) : v.pageY + v.clientHeight;
-  const top = FULL ? 0 : v.pageY;
+  const whole = FULL || SELECTOR; // element shots may lie outside the current viewport
+  const bottom = whole ? Math.min(c.height, MAX_HEIGHT) : v.pageY + v.clientHeight;
+  const top = whole ? 0 : v.pageY;
   const boxes = [];
   for (const [ref, entry] of Object.entries(refs)) {
     if (boxes.length >= MAX_LABELS) break;
+    const n = Number(ref.slice(1));
+    if (n < RANGE_LO || n > RANGE_HI) continue;
     const q = (await cdp.send('DOM.getContentQuads', { backendNodeId: entry.backendDOMNodeId }).catch(() => null))?.quads?.[0];
     if (!q) continue;
     const xs = [q[0], q[2], q[4], q[6]].map((x) => x + v.pageX);
@@ -50,10 +56,10 @@ async function annotate(cdp) {
       host.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none';
       for (const b of ${JSON.stringify(boxes)}) {
         const d = document.createElement('div');
-        d.style.cssText = 'position:absolute;box-sizing:border-box;border:2px solid #e3008c;left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px';
+        d.style.cssText = 'position:absolute;box-sizing:border-box;border:1px solid #e3008c;left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px';
         const t = document.createElement('span');
         t.textContent = b.ref;
-        t.style.cssText = 'position:absolute;left:-2px;top:-2px;transform:translateY(-100%);background:#e3008c;color:#fff;font:bold 11px/13px monospace;padding:0 2px;white-space:nowrap';
+        t.style.cssText = 'position:absolute;left:-1px;top:-1px;transform:translateX(-100%);background:rgba(227,0,140,.85);color:#fff;font:bold 9px/11px monospace;padding:0 1px;white-space:nowrap';
         d.appendChild(t);
         host.appendChild(d);
       }

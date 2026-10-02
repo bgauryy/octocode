@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // Live regression suite: local fixtures + isolated headless Chrome + the real check scripts.
+// Fixtures: scripts/tests/fixtures/actions.html (+ scripts/tests/fixtures/frame.html iframe),
+// scripts/tests/fixtures/list.html, scripts/tests/fixtures/perf.html.
 // Needs Chrome; no network. Usage: node scripts/live-suite.mjs [--keep] [--only <name-substring>]
 import { spawnSync, spawn } from 'child_process';
 import { createServer } from 'http';
@@ -19,6 +21,8 @@ const SERVE = args.includes('--serve-fixtures'); // internal: child process that
 const KEEP = args.includes('--keep');
 const ONLY = args.includes('--only') ? args[args.indexOf('--only') + 1] : '';
 const CDP_PORT = String(9400 + Math.floor(Math.random() * 400));
+// Checks stage helpers and write artifacts under <cwd>/.octocode; keep that out of the skill folder.
+const WORK = SERVE ? null : mkdtempSync(join(tmpdir(), 'octo-live-'));
 
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://fixture');
@@ -41,11 +45,12 @@ const serverProc = spawn(process.execPath, [fileURLToPath(import.meta.url), '--s
 const BASE = `http://127.0.0.1:${await new Promise((r) => serverProc.stdout.once('data', (d) => r(String(d).trim())))}`;
 
 function node(script, scriptArgs, env = {}, seconds = 60) {
-  const res = spawnSync(process.execPath, [script, ...scriptArgs], { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8', timeout: seconds * 1000 });
-  return { code: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}` };
+  const res = spawnSync(process.execPath, [join(ROOT, script), ...scriptArgs], { cwd: WORK, env: { ...process.env, ...env }, encoding: 'utf8', timeout: seconds * 1000 });
+  const failure = res.error ? `\n[SUITE] spawn error: ${res.error.message}` : res.signal ? `\n[SUITE] killed by ${res.signal} after ${seconds}s` : '';
+  return { code: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}${failure}` };
 }
 const check = (name, env = {}, target = ['--target-url', BASE, '--no-reload']) =>
-  node('scripts/cdp-sandbox.mjs', [`scripts/cdp-checks/${name}`, '--port', CDP_PORT, '--keep-tab', ...target], env);
+  node('scripts/cdp-sandbox.mjs', [join(ROOT, 'scripts', 'cdp-checks', name), '--port', CDP_PORT, '--keep-tab', ...target], env);
 const open = (name, path, env = {}) => check(name, env, ['--new-tab', `${BASE}/${path}`]);
 
 // ref of the first snapshot row whose role+label matches, e.g. ref(out, 'button "More"')
@@ -128,8 +133,9 @@ try {
   });
 
   await test('dblclick: trusted', () => {
-    act({ DOM_REF: ref(snapshot(), 'button "Double me"'), DOM_ACTION: 'dblclick' });
-    expect(waitFor('dbl:true'), /\[WAIT\] found/);
+    const out = act({ DOM_REF: ref(snapshot(), 'button "Double me"'), DOM_ACTION: 'dblclick' });
+    expect(out, /\[ACTION\] double-clicked "Double me"/);
+    expect(`${out}\n${waitFor('dbl:true')}`, /\[WAIT\] found/);
   });
 
   await test('upload: hidden file input', () => {
@@ -196,7 +202,10 @@ try {
   });
 } finally {
   serverProc.kill();
-  if (!KEEP) node('scripts/open-browser.mjs', ['--cleanup', '--port', CDP_PORT], {}, 30);
+  if (!KEEP) {
+    node('scripts/open-browser.mjs', ['--cleanup', '--port', CDP_PORT], {}, 30);
+    rmSync(WORK, { recursive: true, force: true });
+  } else console.log(`kept: port ${CDP_PORT}, artifacts in ${WORK}`);
 }
 
 const failed = results.filter((r) => !r.ok);

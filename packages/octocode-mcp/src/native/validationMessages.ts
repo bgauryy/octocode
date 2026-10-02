@@ -110,6 +110,17 @@ function enumMessage(input: unknown, allowed: readonly unknown[]): string {
   );
 }
 
+/** The one value a `const` or single-value `enum` schema pins. */
+const singleLiteral = (
+  schema: JsonNode | undefined
+): { value: unknown } | undefined => {
+  if (!schema) return undefined;
+  if ('const' in schema) return { value: schema.const };
+  return Array.isArray(schema.enum) && schema.enum.length === 1
+    ? { value: schema.enum[0] }
+    : undefined;
+};
+
 /** Minimal JSON-Schema walker used only to name valid fields at a path. */
 class FieldIndex {
   constructor(private readonly root: JsonNode) {}
@@ -174,29 +185,55 @@ class FieldIndex {
 
   /**
    * When `key` is declared only by some branches at `path` (a sibling form),
-   * the fields that form requires and `value` lacks, and the fields of the
-   * forms that do not declare it. `undefined` when every branch or none declares it.
+   * how to reach a declaring form (native `annotate_sibling_branch_fields`):
+   * the first declaring form's required fields `value` lacks, else the
+   * literal selectors (`operation:"pullRequest"`) `value` sets differently,
+   * one alternative per declaring form. Also the fields of the forms that do
+   * not declare it. `undefined` when every branch or none declares it.
    */
   siblingForm(
     path: readonly PropertyKey[],
     key: string,
     value: unknown
-  ): { requires: string[]; others: string[] } | undefined {
+  ): { requires: string[]; selectors: string[]; others: string[] } | undefined {
     const nodes = this.nodesAt(path).filter(node => node.properties);
     const declares = (node: JsonNode) =>
       Object.hasOwn(node.properties as JsonNode, key);
-    const owner = nodes.find(declares);
+    const owners = nodes.filter(declares);
     const others = nodes.filter(node => !declares(node));
-    if (!owner || !others.length) return undefined;
-    const required = Array.isArray(owner.required)
-      ? (owner.required as unknown[]).filter(
-          (field): field is string => typeof field === 'string'
-        )
-      : [];
+    if (!owners.length || !others.length) return undefined;
+    const missing = (node: JsonNode) =>
+      (Array.isArray(node.required) ? (node.required as unknown[]) : []).filter(
+        (field): field is string =>
+          typeof field === 'string' &&
+          field !== key &&
+          valueAt(value, [field]) === undefined
+      );
+    const requires = owners.map(missing).find(fields => fields.length) ?? [];
+    const selectors = requires.length
+      ? []
+      : [
+          ...new Set(
+            owners
+              .map(node =>
+                Object.entries(node.properties as JsonNode)
+                  .flatMap(([name, raw]) => {
+                    const literal = singleLiteral(this.deref(raw));
+                    const supplied = valueAt(value, [name]);
+                    return literal &&
+                      supplied !== undefined &&
+                      supplied !== literal.value
+                      ? [`${name}:${JSON.stringify(literal.value)}`]
+                      : [];
+                  })
+                  .join(' and ')
+              )
+              .filter(Boolean)
+          ),
+        ];
     return {
-      requires: required.filter(
-        field => field !== key && valueAt(value, [field]) === undefined
-      ),
+      requires,
+      selectors,
       others: [
         ...new Set(
           others.flatMap(node => Object.keys(node.properties as JsonNode))
@@ -312,6 +349,16 @@ export function formatIssues(
           // shapes (e.g. clasify matrix fields beside queries[]). Native CLI
           // wording, plus the fields of the form actually sent.
           const sibling = canonical()?.siblingForm(path, key, supplied);
+          if (sibling?.selectors.length) {
+            // A field of another operation (or type/analysis/ruleKind): name
+            // the selector values that declare it; the fields listed stay
+            // those of the operation actually sent.
+            out.push({
+              path,
+              message: `Remove '${key}' from ${location(path)}: it applies only with ${sibling.selectors.join(' or ')}.`,
+            });
+            continue;
+          }
           if (sibling) {
             valid = visibleOnly(path, sibling.others);
             const needs = sibling.requires.length

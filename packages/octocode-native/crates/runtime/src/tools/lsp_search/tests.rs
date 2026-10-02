@@ -2191,3 +2191,30 @@ fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
     cap_declaration_content(&mut small);
     assert_eq!(small["content"], short, "short bodies are untouched");
 }
+
+#[test]
+fn hover_range_is_published_as_a_one_based_display_range() {
+    let hover = public_hover(serde_json::json!({
+        "contents": {"kind": "markdown", "value": "```ts\nconst a: number\n```"},
+        "range": {"start": {"line": 3, "character": 8}, "end": {"line": 4, "character": 2}}
+    }));
+    assert!(hover.get("range").is_none(), "{hover}");
+    assert_eq!(
+        hover["displayRange"],
+        serde_json::json!({"startLine": 4, "startCharacter": 9, "endLine": 5}),
+        "{hover}"
+    );
+    assert_eq!(hover["contents"]["kind"], "markdown", "{hover}");
+    let bare = public_hover(serde_json::json!({"contents": "text"}));
+    assert_eq!(bare, serde_json::json!({"contents": "text"}));
+    crate::contracts::validate_output(
+        "lspSearch",
+        &serde_json::json!({"results":[{"index":0,"data":{
+            "type": "hover",
+            "uri": "file:///repo/a.ts",
+            "lsp": {"serverAvailable": true, "provider": "hoverProvider"},
+            "payload": {"kind": "hover", "hover": hover}
+        }}]}),
+    )
+    .expect("published hover satisfies the internal output contract");
+}

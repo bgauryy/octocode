@@ -7,7 +7,7 @@ use super::cancellable;
 use super::failure::{LspFailure, empty, empty_hint};
 use super::importers::{self, Importers};
 use super::locations::{
-    RECOVERED_ALIAS, items_payload, locations, public_range, public_workspace_symbol,
+    RECOVERED_ALIAS, items_payload, locations, public_hover, public_range, public_workspace_symbol,
 };
 use super::recovery::{get_locations, recover_aliases, resolve_definition_chain, snippet_identity};
 use super::render::as_array;
@@ -187,7 +187,7 @@ impl Operation<'_, '_> {
                         "type": query.operation(),
                         "uri": query.uri(),
                         "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
-                        "payload": { "kind": "hover", "hover": hover }
+                        "payload": { "kind": "hover", "hover": public_hover(hover) }
                     }),
                 })
             }

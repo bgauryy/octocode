@@ -407,6 +407,19 @@ async function rememberMouse(cdp, x, y) {
   await cdp.send('Runtime.evaluate', { expression: `globalThis.__octoMouse = { x: ${x}, y: ${y} }` }).catch(() => {});
 }
 
+// Is the element under (x, y) the target or inside it? Unknown (e.g. cross-frame) counts as yes.
+async function hitsTarget(cdp, objectId, x, y) {
+  const loc = await cdp.send('DOM.getNodeForLocation', { x: Math.round(x), y: Math.round(y), includeUserAgentShadowDOM: true, ignorePointerEventsNone: true }).catch(() => null);
+  const hit = loc?.backendNodeId ? await cdp.send('DOM.resolveNode', { backendNodeId: loc.backendNodeId }).catch(() => null) : null;
+  if (!hit?.object?.objectId) return true;
+  const res = await cdp.send('Runtime.callFunctionOn', {
+    objectId,
+    functionDeclaration: 'function (h) { return this === h || this.contains(h) || h.control === this || (h.closest && h.closest("label")?.control === this); }',
+    arguments: [{ objectId: hit.object.objectId }], returnByValue: true,
+  }).catch(() => null);
+  return res?.result?.value ?? true;
+}
+
 async function performTrusted(cdp, step, details, objectId) {
   const action = step.action;
   if (action === 'upload') {
@@ -423,10 +436,15 @@ async function performTrusted(cdp, step, details, objectId) {
     const from = await lastMouse(cdp) ?? { x: Math.max(0, at.cx - 120 - Math.round(Math.random() * 120)), y: Math.max(0, at.cy + 60 + Math.round(Math.random() * 80)) };
     await runEventSequence(cdp, buildMouseMoveEvents(from.x, from.y, at.cx, at.cy));
     if (from.x === at.cx && from.y === at.cy) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.cx, y: at.cy });
-    const again = await centerOf(cdp, target, null);
-    if (again && Math.abs(again.cx - at.cx) + Math.abs(again.cy - at.cy) > 2) {
+    // Re-aim with straight moves until the point under the mouse is the target (layout can shift
+    // again when a curved path crosses a hover menu).
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const again = (await centerOf(cdp, target, null)) ?? at;
+      const moved = Math.abs(again.cx - at.cx) + Math.abs(again.cy - at.cy) > 2;
+      if (!moved && (!objectId || await hitsTarget(cdp, objectId, again.cx, again.cy))) break;
       details.reaimed = true;
-      await runEventSequence(cdp, buildMouseMoveEvents(at.cx, at.cy, again.cx, again.cy));
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: again.cx, y: again.cy });
+      await new Promise((r) => setTimeout(r, 50));
       at = again;
     }
   }
@@ -522,6 +540,7 @@ function reportStep(step, label, details, effects, prefix) {
     if (a.state && Object.keys(a.state).length) parts.push(`state=${JSON.stringify(a.state)}`);
     if (step.action === 'scroll') parts.push(`scrollY=${a.scrollY}`);
     if (a.focus) parts.push(`focus=${a.focus}`);
+    if (details.reaimed) parts.push('reaimed (target moved during approach)');
     if (a.dialogs) parts.push(`dialogs=${a.dialogs}`);
     if (effects.popup) parts.push(`popup=${effects.popup}`);
     if (a.connected === false && !effects.navigatedTo) parts.push('target-removed');

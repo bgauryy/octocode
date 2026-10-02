@@ -867,6 +867,82 @@ fn item_page(source: &Value, item: items::Item) -> CapturedPage {
     }
 }
 
+/// Narrower reads tried for one hit window cut short by its byte budget.
+const RECENTER_ATTEMPTS: usize = 4;
+
+/// Center line and radius of a local hit-window read (one window, not a
+/// merged span). Windows clamped at line 1 still end `radius` past their center.
+fn window_center(read: &Value) -> Option<(u64, u64)> {
+    if read.get("tool").and_then(Value::as_str) != Some(ToolId::LocalFetch.as_str())
+        || read.pointer("/query/chunkType").and_then(Value::as_str) != Some("bytes")
+    {
+        return None;
+    }
+    let start = read.pointer("/query/startLine")?.as_u64()?;
+    let end = read.pointer("/query/endLine")?.as_u64()?;
+    (end >= start && end - start <= HYDRATED_LINE_RADIUS * 2).then(|| {
+        (
+            end.saturating_sub(HYDRATED_LINE_RADIUS).max(start),
+            HYDRATED_LINE_RADIUS,
+        )
+    })
+}
+
+/// A radius whose window should fit the byte page the cut read returned.
+fn fitted_radius(radius: u64, state: &Value) -> u64 {
+    let pagination = state.pointer("/results/0/data/pagination");
+    let ratio = pagination
+        .and_then(|page| {
+            let chunk = page.get("chunkSize")?.as_f64()?;
+            let total = page.get("totalBytes")?.as_f64()?;
+            (total > 0.0).then_some(chunk / total)
+        })
+        .unwrap_or(0.5);
+    ((radius as f64 * ratio).floor() as u64).min(radius.saturating_sub(1))
+}
+
+/// Resolve one hit window. A byte budget cuts a window from its first line,
+/// which can drop the hit it is centered on; such a window is re-read narrower
+/// around its center until it fits (the last successful read is kept).
+fn resolve_window(
+    mut read: Value,
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+) -> (
+    Value,
+    Result<(Value, Option<Value>), super::clasify_context::ContextFailure>,
+) {
+    let mut resolved = super::clasify_context::resolve(&read, dispatcher, execution);
+    let Some((center, mut radius)) = window_center(&read) else {
+        return (read, resolved);
+    };
+    for _ in 0..RECENTER_ATTEMPTS {
+        let Ok((state, receipt)) = &resolved else {
+            break;
+        };
+        if radius == 0
+            || receipt
+                .as_ref()
+                .and_then(super::clasify_context::continuation)
+                .is_none()
+        {
+            break;
+        }
+        radius = fitted_radius(radius, state);
+        let mut narrower = read.clone();
+        narrower["query"]["startLine"] = json!(center.saturating_sub(radius).max(1));
+        narrower["query"]["endLine"] = json!(center + radius);
+        match super::clasify_context::resolve(&narrower, dispatcher, execution) {
+            Ok(fitted) => {
+                read = narrower;
+                resolved = Ok(fitted);
+            }
+            Err(_) => break,
+        }
+    }
+    (read, resolved)
+}
+
 /// One candidate read judged as one page. With `whole`, a read the byte
 /// budget cut short yields `None` so the caller judges its parts instead.
 fn hydrate_candidate(
@@ -878,75 +954,80 @@ fn hydrate_candidate(
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
 ) -> Option<CapturedPage> {
-    Some(
-        match super::clasify_context::resolve(&read, dispatcher, execution) {
-            Ok((hydrated_state, hydrated_receipt)) => {
-                if whole
-                    && hydrated_receipt
-                        .as_ref()
-                        .and_then(super::clasify_context::continuation)
-                        .is_some()
-                {
-                    return None;
-                }
-                let evidence = provider_state(&read, hydrated_state.clone());
-                let evidence_chars = evidence_chars(&evidence);
-                let mut context = hydrated_receipt.unwrap_or_else(|| fallback_context(&read));
-                super::clasify_context::append_limitation(
-                    &mut context,
-                    "Only a bounded candidate chunk was assessed; unread file content may change the verdict.",
-                );
-                if !anchored {
-                    super::clasify_context::append_limitation(
-                        &mut context,
-                        "No stable match anchor was available; only the file's opening chunk was assessed.",
-                    );
-                }
-                pin_github_read(&mut read, &hydrated_state);
-                read["confidence"] = json!("exact");
-                super::clasify_context::attach_read(&mut context, read);
-                if evidence_chars == 0 {
-                    CapturedPage::Failed {
-                        error: ClassificationError::new(
-                            "classificationContextEmpty",
-                            "The hydrated candidate contained no evidence to judge.",
-                            "Read the candidate directly or choose a different search anchor.",
-                        ),
-                        context,
-                    }
-                } else if evidence_chars > MAX_HYDRATED_CHARS {
-                    CapturedPage::Failed {
-                        error: ClassificationError::new(
-                            "classificationCandidateChunkTooLarge",
-                            format!(
-                                "The sanitized candidate chunk is {evidence_chars} characters; the limit is {MAX_HYDRATED_CHARS}."
-                            ),
-                            "Use next.read to select a smaller exact region.",
-                        ),
-                        context,
-                    }
-                } else {
-                    CapturedPage::Ready {
-                        state: evidence,
-                        context,
-                    }
-                }
+    let resolved = if whole {
+        super::clasify_context::resolve(&read, dispatcher, execution)
+    } else {
+        let (recentered, resolved) = resolve_window(read, dispatcher, execution);
+        read = recentered;
+        resolved
+    };
+    Some(match resolved {
+        Ok((hydrated_state, hydrated_receipt)) => {
+            if whole
+                && hydrated_receipt
+                    .as_ref()
+                    .and_then(super::clasify_context::continuation)
+                    .is_some()
+            {
+                return None;
             }
-            Err(failure) => {
-                let mut context = failure.receipt.unwrap_or_else(|| {
-                    super::clasify_context::candidate_receipt(source, &candidate)
-                });
+            let evidence = provider_state(&read, hydrated_state.clone());
+            let evidence_chars = evidence_chars(&evidence);
+            let mut context = hydrated_receipt.unwrap_or_else(|| fallback_context(&read));
+            super::clasify_context::append_limitation(
+                &mut context,
+                "Only a bounded candidate chunk was assessed; unread file content may change the verdict.",
+            );
+            if !anchored {
                 super::clasify_context::append_limitation(
                     &mut context,
-                    "Candidate hydration failed; classification was not run for this file.",
+                    "No stable match anchor was available; only the file's opening chunk was assessed.",
                 );
+            }
+            pin_github_read(&mut read, &hydrated_state);
+            read["confidence"] = json!("exact");
+            super::clasify_context::attach_read(&mut context, read);
+            if evidence_chars == 0 {
                 CapturedPage::Failed {
-                    error: failure.error,
+                    error: ClassificationError::new(
+                        "classificationContextEmpty",
+                        "The hydrated candidate contained no evidence to judge.",
+                        "Read the candidate directly or choose a different search anchor.",
+                    ),
+                    context,
+                }
+            } else if evidence_chars > MAX_HYDRATED_CHARS {
+                CapturedPage::Failed {
+                    error: ClassificationError::new(
+                        "classificationCandidateChunkTooLarge",
+                        format!(
+                            "The sanitized candidate chunk is {evidence_chars} characters; the limit is {MAX_HYDRATED_CHARS}."
+                        ),
+                        "Use next.read to select a smaller exact region.",
+                    ),
+                    context,
+                }
+            } else {
+                CapturedPage::Ready {
+                    state: evidence,
                     context,
                 }
             }
-        },
-    )
+        }
+        Err(failure) => {
+            let mut context = failure
+                .receipt
+                .unwrap_or_else(|| super::clasify_context::candidate_receipt(source, &candidate));
+            super::clasify_context::append_limitation(
+                &mut context,
+                "Candidate hydration failed; classification was not run for this file.",
+            );
+            CapturedPage::Failed {
+                error: failure.error,
+                context,
+            }
+        }
+    })
 }
 
 /// One hydration: a read judged as one page, or a merged span of several
@@ -3175,6 +3256,26 @@ mod tests {
         // Every candidate keeps its densest cluster even past the budget.
         assert_eq!(allocate_windows(&[2, 2, 2], 2), [1, 1, 1]);
         assert_eq!(allocate_windows(&[0, 2], 5), [0, 2]);
+    }
+
+    #[test]
+    fn cut_windows_recenter_on_their_hit_and_shrink_to_the_returned_page() {
+        let read = |window| local_window_read("/w/a.rs", window, 3000);
+        let [(start, end)] = hit_cluster_windows(vec![150])[..] else {
+            panic!("one cluster");
+        };
+        assert_eq!(window_center(&read((start, end))), Some((150, 60)));
+        // Clamped at line 1, the window still ends one radius past its hit.
+        let [clamped] = hit_cluster_windows(vec![20])[..] else {
+            panic!("one cluster");
+        };
+        assert_eq!(window_center(&read(clamped)), Some((20, 60)));
+        // A merged span is judged through its parts, never re-centered.
+        assert_eq!(window_center(&read((1, 300))), None);
+        let cut =
+            json!({"results":[{"data":{"pagination":{"chunkSize":3000,"totalBytes":12000}}}]});
+        assert_eq!(fitted_radius(60, &cut), 15);
+        assert_eq!(fitted_radius(1, &cut), 0);
     }
 
     #[test]

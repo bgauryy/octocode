@@ -23,7 +23,7 @@ Load when choosing what to capture or do. Pick one primary intent; a full audit 
 
 ## Automate
 
-- `page-snapshot` → `DOM_REF=eN` on `dom-operations-check`; prefer refs over guessed CSS. Long page: `SNAPSHOT_OUTLINE=1`, then `SNAPSHOT_ROOT=rN`. Input is trusted by default; `fill` replaces text, `type` sends keystrokes (key handlers, autocomplete), `press DOM_KEY=Enter` submits. Read `[VERIFY]`: `MISMATCH` or `NO_VISIBLE_EFFECT` means the step did not land.
+- `page-snapshot` → `DOM_REF=eN` on `dom-operations-check`; prefer refs over guessed CSS. Long page: `SNAPSHOT_OUTLINE=1`, then `SNAPSHOT_ROOT=rN`. Input is trusted by default; `fill` replaces text, `type` sends keystrokes (key handlers, autocomplete), `press DOM_KEY=Enter` submits. Read `[VERIFY]`: `MISMATCH` or `NO_VISIBLE_EFFECT` means the step did not land. Forms: one `DOM_STEPS` run; async results: `DOM_WAIT_TEXT`; after a hover/click that opens UI, act on the printed `[NEW] [eN]` refs without re-snapshotting. Icon-only or visual layouts: `SHOT_ANNOTATE=1` screenshot maps boxes to refs.
 - Follow-up steps on the same tab need `--no-reload`. A known multi-step sequence fits one `run(cdp)`.
 - One meaningful mutation per step; confirm with a targeted check, not a new full snapshot. Listeners miss past events, so re-read current state.
 - **WebMCP** (only when named): fresh Chrome 150+ with `--enableFeatures WebMCP`, then `WEBMCP_ACTION=list|invoke`. `WEBMCP_NO_TOOLS` is common; fall back to DOM. Mutating tools fall under the mutation gate.

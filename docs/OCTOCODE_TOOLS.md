@@ -1294,10 +1294,9 @@ snapshot): discard previously collected pages and run it. Tokens validate a
 recomputed result set across processes; they do not retain historical rows.
 
 Coordinates: `position` input is zero-based UTF-16 (LSP). Every emitted
-coordinate except `payload.hover.range` (the server's raw zero-based LSP range)
-is one-based — lines and UTF-16 code-unit columns (LSP
+coordinate is one-based — lines and UTF-16 code-unit columns (LSP
 `character + 1`): `resolvedSymbol.foundAtLine`/`foundAtCharacter`, location
-`displayRange {startLine, startCharacter, endLine}`, call/type-hierarchy and
+and `payload.hover` `displayRange {startLine, startCharacter, endLine}`, call/type-hierarchy and
 workspace-symbol `displayRange`, call `fromRanges[]` (same shape),
 `via.line`/`via.character`, and document-symbol `line`/`character`/`endLine`.
 To reuse an emitted point as `position`, subtract 1 from line and character.

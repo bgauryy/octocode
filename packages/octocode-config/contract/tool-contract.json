@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "8a00aee83edd2f6cf671657455ff26d5421e4a50625ba70e0deba680670a9c2e",
+  "fingerprint": "b5cb4b53402473bd8ff3fc454acd8840c3facb3d8919d5fdfe7bee364feec07e",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -22668,7 +22668,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -22837,7 +22837,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -29999,7 +29999,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -30168,7 +30168,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -37435,7 +37435,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -37604,7 +37604,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -39292,7 +39292,7 @@
                   "type": "boolean"
                 },
                 "fullContent": {
-                  "description": "Whole file.",
+                  "description": "Whole file; excludes matchString, lines, ranges, and chunks.",
                   "type": "boolean"
                 },
                 "goal": {
@@ -44706,7 +44706,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -44875,7 +44875,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -46593,7 +46593,7 @@
             "type": "boolean"
           },
           "fullContent": {
-            "description": "Whole file.",
+            "description": "Whole file; excludes matchString, lines, ranges, and chunks.",
             "type": "boolean"
           },
           "goal": {
@@ -52598,7 +52598,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -52767,7 +52767,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -61600,7 +61600,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -61769,7 +61769,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -71967,7 +71967,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -72136,7 +72136,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -79415,7 +79415,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -79584,7 +79584,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -86664,7 +86664,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -86833,7 +86833,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -94919,7 +94919,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -95088,7 +95088,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -103428,7 +103428,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -103597,7 +103597,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -114175,7 +114175,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -114344,7 +114344,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -118321,7 +118321,7 @@
                       "additionalProperties": {
                         "$ref": "#/$defs/AstRule"
                       },
-                      "description": "Metavariable constraints referenced by the rule.",
+                      "description": "Metavariable constraints.",
                       "propertyNames": {
                         "$ref": "#/$defs/AR_syntax"
                       },
@@ -118391,7 +118391,7 @@
                           "$ref": "#/$defs/AstRule"
                         }
                       ],
-                      "description": "ast-grep rule (YAML string or object) that selects rewrite targets."
+                      "description": "ast-grep rule (YAML string or object) selecting targets."
                     },
                     "ruleKind": {
                       "const": "rule",
@@ -118409,7 +118409,7 @@
                       "additionalProperties": {
                         "$ref": "#/$defs/AR_transform"
                       },
-                      "description": "Metavariable transformations used by the fix.",
+                      "description": "Metavariable transforms for the fix.",
                       "propertyNames": {
                         "$ref": "#/$defs/AR_syntax"
                       },
@@ -123752,7 +123752,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -123921,7 +123921,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -124997,7 +124997,7 @@
                                   "additionalProperties": {
                                     "$ref": "#/$defs/AstRule"
                                   },
-                                  "description": "Metavariable constraints referenced by the rule.",
+                                  "description": "Metavariable constraints.",
                                   "propertyNames": {
                                     "$ref": "#/$defs/AR_syntax"
                                   },
@@ -125166,7 +125166,7 @@
                                   "additionalProperties": {
                                     "$ref": "#/$defs/AR_transform"
                                   },
-                                  "description": "Metavariable transformations used by the fix.",
+                                  "description": "Metavariable transforms for the fix.",
                                   "propertyNames": {
                                     "$ref": "#/$defs/AR_syntax"
                                   },
@@ -126660,7 +126660,7 @@
                 "additionalProperties": {
                   "$ref": "#/$defs/AstRule"
                 },
-                "description": "Metavariable constraints referenced by the rule.",
+                "description": "Metavariable constraints.",
                 "propertyNames": {
                   "$ref": "#/$defs/AR_syntax"
                 },
@@ -126730,7 +126730,7 @@
                     "$ref": "#/$defs/AstRule"
                   }
                 ],
-                "description": "ast-grep rule (YAML string or object) that selects rewrite targets."
+                "description": "ast-grep rule (YAML string or object) selecting targets."
               },
               "ruleKind": {
                 "const": "rule",
@@ -126748,7 +126748,7 @@
                 "additionalProperties": {
                   "$ref": "#/$defs/AR_transform"
                 },
-                "description": "Metavariable transformations used by the fix.",
+                "description": "Metavariable transforms for the fix.",
                 "propertyNames": {
                   "$ref": "#/$defs/AR_syntax"
                 },
@@ -127028,7 +127028,7 @@
                   "type": "integer"
                 },
                 "fullContent": {
-                  "description": "Whole file.",
+                  "description": "Whole file; excludes matchString, lines, ranges, and chunks.",
                   "type": "boolean"
                 },
                 "goal": {
@@ -132435,7 +132435,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -132604,7 +132604,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -134130,7 +134130,7 @@
             "type": "integer"
           },
           "fullContent": {
-            "description": "Whole file.",
+            "description": "Whole file; excludes matchString, lines, ranges, and chunks.",
             "type": "boolean"
           },
           "goal": {
@@ -140479,7 +140479,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AstRule"
                             },
-                            "description": "Metavariable constraints referenced by the rule.",
+                            "description": "Metavariable constraints.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },
@@ -140648,7 +140648,7 @@
                             "additionalProperties": {
                               "$ref": "#/$defs/AR_transform"
                             },
-                            "description": "Metavariable transformations used by the fix.",
+                            "description": "Metavariable transforms for the fix.",
                             "propertyNames": {
                               "$ref": "#/$defs/AR_syntax"
                             },

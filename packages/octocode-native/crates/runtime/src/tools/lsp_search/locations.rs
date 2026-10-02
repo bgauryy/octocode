@@ -25,6 +25,18 @@ pub(super) fn public_range(range: &Value) -> Option<Value> {
     Some(json!({ "startLine": line + 1, "startCharacter": character + 1, "endLine": end + 1 }))
 }
 
+/// Public hover: the server's zero-based `range` becomes the one-based
+/// `displayRange` every other emitted coordinate uses.
+pub(super) fn public_hover(mut hover: Value) -> Value {
+    if let Some(object) = hover.as_object_mut()
+        && let Some(range) = object.remove("range")
+        && let Some(display) = public_range(&range)
+    {
+        object.insert("displayRange".into(), display);
+    }
+    hover
+}
+
 /// Public workspace symbol (`SymbolInformation`/`WorkspaceSymbol`): named
 /// kind, flattened `uri`, and the one-based `displayRange` locations use.
 pub(super) fn public_workspace_symbol(symbol: &Value) -> Value {

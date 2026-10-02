@@ -303,11 +303,19 @@ fn annotate_sibling_branch_fields(
         let Some(field) = item.path.last() else {
             continue;
         };
-        let requires = branches
+        let declaring = branches
             .iter()
             .map(|branch| branch_object(root, branch))
+            .filter(|branch| {
+                branch
+                    .get("properties")
+                    .and_then(|properties| properties.get(field))
+                    .is_some()
+            })
+            .collect::<Vec<_>>();
+        let requires = declaring
+            .iter()
             .find_map(|branch| {
-                branch.get("properties")?.get(field)?;
                 let missing = branch
                     .get("required")
                     .and_then(Value::as_array)
@@ -318,7 +326,8 @@ fn annotate_sibling_branch_fields(
                     .map(|required| Value::String(required.to_owned()))
                     .collect::<Vec<_>>();
                 (!missing.is_empty()).then_some(missing)
-            });
+            })
+            .or_else(|| sibling_selector_values(&declaring, value));
         if let (Some(requires), Some(schema)) = (
             requires,
             item.schema.as_mut().and_then(Value::as_object_mut),
@@ -326,6 +335,32 @@ fn annotate_sibling_branch_fields(
             schema.insert("siblingRequires".into(), Value::Array(requires));
         }
     }
+}
+
+/// Branches chosen by a literal selector (e.g. `operation`) need no missing
+/// field: name the selector values of every branch declaring the field, so
+/// `review` on a commit query points at `operation:"pullRequest"`.
+fn sibling_selector_values(declaring: &[&Value], value: &Value) -> Option<Vec<Value>> {
+    let mut options = Vec::new();
+    for branch in declaring {
+        let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
+            continue;
+        };
+        let selectors = properties
+            .iter()
+            .filter_map(|(name, schema)| {
+                let literal = single_literal(schema)?;
+                (value.get(name)? != literal).then(|| format!("{name}:{}", render_literal(literal)))
+            })
+            .collect::<Vec<_>>();
+        if !selectors.is_empty() {
+            let option = selectors.join(" and ");
+            if !options.contains(&option) {
+                options.push(option);
+            }
+        }
+    }
+    (!options.is_empty()).then(|| vec![Value::String(options.join(" or "))])
 }
 
 fn literal_accepts(schema: &Value, value: &Value) -> bool {

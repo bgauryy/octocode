@@ -164,7 +164,10 @@ export async function collectRefs(cdp, { rootBackendId = null, viewport = null, 
     if (clickable && id && visible && !interactive && !item.inControl && !CLICKABLE_SKIP_ROLES.has(role)) {
       const l = layout?.get(id);
       const focusable = node.properties?.some((p) => p.name === 'focusable' && p.value?.value);
-      if (l && (l.pointerStart || l.handler || (focusable && !node.ignored && role === 'generic'))) {
+      // Ignored only for being an uninteresting wrapper; aria-hidden/inert/invisible stays out.
+      const hidden = node.ignored && (node.ignoredReasons ?? []).some((r) => !['uninteresting', 'presentationalRole'].includes(r.name));
+      const box = l?.bounds ? l.bounds[2] > 0 && l.bounds[3] > 0 : true;
+      if (l && !hidden && box && (l.pointerStart || l.handler || (focusable && !node.ignored && role === 'generic'))) {
         isClickable = true;
         stack.push({ exit: true, clickable: true, at: useful.length });
         useful.push({ role: 'clickable', name: clip(name, MAX_NAME), fullName: name, backendDOMNodeId: id, interactive: true, frame: node.frameUrl });

@@ -1573,6 +1573,32 @@ mod tests {
     }
 
     #[test]
+    fn names_the_operation_that_declares_a_field_of_another_operation() {
+        for (field, value, expected) in [
+            (
+                "review",
+                json!("approved"),
+                "Remove 'review' from queries[0]: it applies only with operation:\"pullRequest\".",
+            ),
+            (
+                "state",
+                json!("open"),
+                "Remove 'state' from queries[0]: it applies only with operation:\"pullRequest\" or operation:\"issue\".",
+            ),
+        ] {
+            let mut query = json!({
+                "goal":"g","reasoning":"r","operation":"commit",
+                "owner":"octocat","repo":"Hello-World"
+            });
+            query[field] = value;
+            let error = validate("ghSearchHistory", json!({ "queries": [query] }))
+                .expect_err("the field belongs to another operation");
+            let formatted = format_input_error("ghSearchHistory", &error, false);
+            assert_eq!(formatted["details"][0], expected, "{formatted}");
+        }
+    }
+
+    #[test]
     fn suggests_reasoning_for_a_typo_across_every_tool_shape() {
         // The enforcement IR carries no presentation examples; the accepted
         // parity fixtures are the generated per-tool query corpus instead.
