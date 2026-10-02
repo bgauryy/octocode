@@ -1,0 +1,7 @@
+**1. Helped:** The single `localSearch` call with a regex alternation (`func extrapolatedRate|func funcRate|func funcIncrease|func instantValue`) found all four definitions in `promql/functions.go` at once. Its `next.read` hint pointed straight at the file. Then two parallel `localFetch` calls (lines 440-700 and 805-825) gave me the full float path and the wrappers with exact line numbers. Three calls in total, no wasted ones.
+
+**2. Did not help:** Nothing errored. The 440-700 read cut off mid-`histogramRate`, so I did not read the histogram path to the end. I never opened `extendedRate`, `extendedHistogramRate`, `isStartTimestampReset` or `checkStartTimeOverlap`. I also had no way to confirm the checkout was really at `ea954809ce`; there is no git tool, so I trusted the task statement.
+
+**3. Next time:** I would read `isStartTimestampReset` and the end of `histogramRate` with `lspSearch` or `localFetch` and a `matchString`. I would also skim the `rate` section of the docs or tests to cross-check the extrapolation description.
+
+**4. Confidence:** High for the default float counter path, since every claim comes from lines I read directly. Medium for the histogram and anchored/smoothed paths, which I only partly read or inferred from the dispatch code.

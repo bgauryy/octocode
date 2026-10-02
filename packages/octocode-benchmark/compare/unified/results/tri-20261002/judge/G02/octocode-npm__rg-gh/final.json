@@ -1,0 +1,228 @@
+{
+  "qid": "G02",
+  "pairKey": "octocode-npm__rg-gh",
+  "workers": [
+    "octocode-npm",
+    "rg-gh"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 3,
+  "graderErrors": 0,
+  "tiebreak": true,
+  "orderSpread": {
+    "octocode-npm": 1,
+    "rg-gh": 3
+  },
+  "scores": {
+    "octocode-npm": {
+      "quality": 8,
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        7,
+        8
+      ],
+      "wrongClaims": [
+        "Minor: Counter instance 'accepted as is'"
+      ]
+    },
+    "rg-gh": {
+      "quality": 9,
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        7,
+        9
+      ],
+      "wrongClaims": [
+        "Hedged guess that the new Counter entry goes in a table for natively handled mapping types; it is actually _defaultdict_allowed_default_types (minor)",
+        "Minor: Counter instance 'accepted as is' (validator rebuilds Counter)",
+        "Guessed that collections.Counter was added to a mapping table 'for mapping types handled natively'; it is actually _defaultdict_allowed_default_types (hedged)"
+      ]
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.3751376,
+  "judgeTokens": 87047,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 10589,
+        "cache_read_input_tokens": 24515,
+        "output_tokens": 2138,
+        "context_tokens": 35110,
+        "total_tokens": 37248,
+        "first_request_context": 10518,
+        "fixed_overhead_tokens": 31554,
+        "research_tokens": 5694,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 10589,
+          "cache_read_input_tokens": 24515,
+          "output_tokens": 29
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2109
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10589,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 12961
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.13239900000000002,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 9186,
+        "cache_read_input_tokens": 12898,
+        "output_tokens": 1865,
+        "context_tokens": 22088,
+        "total_tokens": 23953,
+        "first_request_context": 10530,
+        "fixed_overhead_tokens": 21060,
+        "research_tokens": 2893,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 9186,
+          "cache_read_input_tokens": 12898,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1857
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9186,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 11558
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1133836,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 11015,
+        "cache_read_input_tokens": 12895,
+        "output_tokens": 1932,
+        "context_tokens": 23914,
+        "total_tokens": 25846,
+        "first_request_context": 10527,
+        "fixed_overhead_tokens": 21054,
+        "research_tokens": 4792,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 11015,
+          "cache_read_input_tokens": 12895,
+          "output_tokens": 14
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1918
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11015,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 13387
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.129355,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

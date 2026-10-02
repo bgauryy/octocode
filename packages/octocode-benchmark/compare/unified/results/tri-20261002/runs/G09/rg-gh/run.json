@@ -1,0 +1,397 @@
+{
+  "qid": "G09",
+  "worker": "rg-gh",
+  "started": "2026-10-02T15:29:09.244Z",
+  "promptSha256": "837047d4f8bd84e20af19238147dbbf1080cc08d6436be7724ff8517e6d1064a",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 24848,
+  "status": "ok",
+  "answer": "**Root cause:** `ConfigWrapper.core_config()` in `pydantic/_internal/_config.py` wrote derived settings into `self.config_dict`. For a model, that dict is the model's own `model_config`, so pydantic's derived values were stored next to the ones the user declared.\n\n- **Writes:** `populate_by_name=True` was turned into `validate_by_alias=True` and `validate_by_name=True`, and `validate_by_alias=False` was turned into `validate_by_name=True`. These writes are quoted in the issue body and in the removed lines of PR #13825.\n- **Inheritance effect:** a subclass's config is merged over its parent's, so the parent's derived `validate_by_name=True` reached the child. The `is None` guard then refused to derive again from the child's own `populate_by_name=False`.\n- **Result (the issue's example):** `Child` and `Standalone` declare the same config and field, but `Standalone(x=1)` raises a missing-alias error while `Child(x=1)` succeeds.\n- **Other entry points:** the same write also mutated user-owned dicts passed to `TypeAdapter(config=...)` and `validate_call(config=...)`.\n\n**Fix:** PR #13825, \"Do not mutate `model_config` attribute\", merged 2026-09-25 as `5da36b5de4f44a572ca5c12104fd2f8669dfeaca`. Its description says \"Fixes #13786\".\n\n- **Two configs:** `ConfigWrapper` now has two mappings.\n  - `config_dict` is the config as declared. It is exposed as `model_config`, used for merging with bases, and never mutated.\n  - `effective_config` is built once in `__init__` by the new `_build_effective_config()`. It derives the deprecated settings on a copy (`{**config, ...}`) and raises the \"at least one of `validate_by_alias` or `validate_by_name`\" error there.\n- **Consumers:** `__getattr__` and `core_config()` now read `effective_config`.\n- **Copy on entry:** `prepare_config()` copies a user-supplied dict, so the wrapper never mutates the caller's mapping.\n- **Related cleanups in the same PR:**\n  - The `schema_generator` deprecation warning moved into `check_deprecated()`.\n  - `validate_by_name` was dropped from signature generation.\n  - The deprecated `validate_arguments` decorator no longer writes `extra='forbid'` into the user's config.\n- **Behaviour change:** `Model.model_config` for `populate_by_name=True` is now just `{'populate_by_name': True}`. The PR description flags this as a theoretical breaking change that needs a blog post entry.\n\n**Other PRs:** #13787 and #13794 (a simple `.copy()` in `core_config()`) were also opened for this issue. Both are closed and unmerged.\n\n**Uncertainty:** I did not check whether `tests/test_config.py::test_dynamic_default` was changed. The issue says it asserts the derived value is visible on `model_config`, and my view of the PR's `tests/test_config.py` diff was truncated.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 12789,
+    "cache_read_input_tokens": 38156,
+    "output_tokens": 1762,
+    "context_tokens": 50955,
+    "total_tokens": 52717,
+    "first_request_context": 4654,
+    "fixed_overhead_tokens": 23270,
+    "research_tokens": 29447,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 12789,
+      "cache_read_input_tokens": 38156,
+      "output_tokens": 837
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -925
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 12789,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 14585
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2858,
+      "cache_read_input_tokens": 1794,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2004,
+      "cache_read_input_tokens": 4652,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5731,
+      "cache_read_input_tokens": 6656,
+      "output_tokens": 4
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 280,
+      "cache_read_input_tokens": 12387,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1916,
+      "cache_read_input_tokens": 12667,
+      "output_tokens": 768
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 12789,
+    "cache_read_input_tokens": 38156,
+    "output_tokens": 1762
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1762,
+      "cacheReadInputTokens": 38156,
+      "cacheCreationInputTokens": 12789,
+      "webSearchRequests": 0,
+      "costUSD": 0.0764272,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 32,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0764272,
+  "costVerified": true,
+  "duration_ms": 24146,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "Bash:invocation": 4
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh api -X GET repos/pydantic/pydantic/issues/13786 --jq '{t:.title,s:.state,pr:.pull_request,b:.body}'; gh api -X GET repos/pydantic/pydantic/issues/13786/timeline --paginate --jq '.[]|select(.event==\\\"cross-referenced\\\" or .event==\\\"closed\\\" or .event==\\\"referenced\\\")|{e:.event,c:.commit_id,s:.source.issue.html_url,st:.source.issue.title}'\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"for n in 13787 13794 13825; do gh api -X GET repos/pydantic/pydantic/pulls/$n --jq '{n:.number,s:.state,m:.merged,sha:.merge_commit_sha,by:.merged_at,b:.body[0:1200]}'; done 2>&1 | grep -v devnull; gh api -X GET repos/pydantic/pydantic/pulls/13825/files --jq '.[]|{f:.filename,p:.patch[0:1800]}'\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh api -X GET repos/pydantic/pydantic/pulls/13825/files --jq '.[]|select(.filename==\\\"pydantic/_internal/_config.py\\\")|.patch' 2>/dev/null | sed -n '/core_config/,$p' | head -90\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh api -X GET repos/pydantic/pydantic/pulls/13825/files --jq '.[]|select(.filename==\\\"pydantic/_internal/_config.py\\\")|.patch' | tail -n +40 | head -100\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first Bash call (`gh api issues/13786` plus the `/timeline` filter on cross-referenced events) was the fastest step. It returned the full issue body with the root-cause analysis and listed the three candidate PRs (#13787, #13794, #13825) in one go. The second call (`pulls/$n` for each PR, with `merged`/`merged_at`) showed that only #13825 was merged. Its `pulls/13825/files` output gave the actual diff.\n\n2. **Did not help:** Every call printed `/dev/null: Operation not permitted`, which was noise but harmless. My `sed -n '/core_config/,$p'` and `2>/dev/null` attempt returned nothing, so I wasted one call, and the diff output was truncated at 1800 characters. I never saw the `tests/test_config.py` diff for `test_dynamic_default`, and I didn't read the source at the pinned commit. The `merged_at` field I printed was labelled `by` in my jq, which was a sloppy name.\n\n3. **Next time:** I would print full patches for the key files in one call, avoid redirecting to `/dev/null`, and fetch `_config.py` at the merge commit to cite line numbers. I would also check the test patch for `test_dynamic_default` directly.\n\n4. **Confidence:** High on root cause and the fix, since both come straight from the issue text and the merged PR diff. Medium on completeness, because the test change is unverified and I gave no `path:line` citations.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 14746,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 493,
+      "context_tokens": 14748,
+      "total_tokens": 15241,
+      "first_request_context": 14748,
+      "fixed_overhead_tokens": 14748,
+      "research_tokens": 493,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 14746,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -492
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 14746,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": null,
+      "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+      "max_request_context": 14748
+    },
+    "cost_usd": 0.063918,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 14746,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 493,
+        "context_tokens": 14748,
+        "total_tokens": 15241,
+        "first_request_context": 14748,
+        "fixed_overhead_tokens": 14748,
+        "research_tokens": 493,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 14746,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 1
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -492
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 14746,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 14748
+      },
+      "cost_usd": 0.063918,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 14746,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 493,
+          "costUSD": 0.063918
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 1762,
+            "cacheReadInputTokens": 38156,
+            "cacheCreationInputTokens": 12789,
+            "webSearchRequests": 0,
+            "costUSD": 0.0764272,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 32,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0764272
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 12,
+            "outputTokens": 2255,
+            "thinkingTokens": 32,
+            "cacheReadInputTokens": 38156,
+            "cacheCreationInputTokens": 27535,
+            "webSearchRequests": 0,
+            "costUSD": 0.1403452,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1403452
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 14746,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 493
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 14746,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 7,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 7,
+    "githubCompletedResponses": 7,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {
+      "200": 7
+    },
+    "githubAttempts": [
+      {
+        "method": "GET",
+        "startedAt": "2026-10-02T15:29:13.276Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-02T15:29:13.625Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-02T15:29:13.654Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-02T15:29:14.202Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-02T15:29:17.524Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-02T15:29:18.484Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-02T15:29:18.514Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-02T15:29:19.271Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-02T15:29:19.299Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-02T15:29:19.972Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-02T15:29:20.003Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-02T15:29:20.340Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-02T15:29:25.871Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-02T15:29:26.353Z"
+      }
+    ],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

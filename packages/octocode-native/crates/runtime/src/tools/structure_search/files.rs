@@ -64,14 +64,6 @@ impl StructureSearchQueryFiles {
     }
 }
 
-/// Estimated JSON bytes of a basic row besides its path
-/// (`{"path":"","size":123456},`).
-const ROW_BYTES: usize = 30;
-/// Extra bytes `detail:"full"` rows carry (`modifiedMs`, `lineCount`).
-const FULL_DETAIL_BYTES: usize = 46;
-/// Extra bytes `detail:"modified"` rows carry (`modifiedMs`).
-const MODIFIED_DETAIL_BYTES: usize = 30;
-
 struct Row {
     output: Value,
     path: String,
@@ -86,6 +78,7 @@ pub fn execute_files(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
 ) -> super::StructureResult {
     cancel.check().map_err(super::cancelled)?;
     let validated = paths
@@ -178,10 +171,11 @@ pub fn execute_files(
     let available = rows.len();
     rows.truncate(requested);
     let total = rows.len();
-    // Snapshot fingerprint over the query shape plus the ordered result set, so
-    // a continuation cursor (page>1) can be rejected with `structure.snapshot.changed`
-    // when the corpus or query drifted between pages.
-    let snapshot = super::digest(&json!([
+    // Snapshot fingerprint over the query shape, the page cut, and the
+    // ordered result set, so a continuation cursor (page>1) can be rejected
+    // with `structure.snapshot.changed` when the corpus or query drifted
+    // between pages, or a different response window would cut other pages.
+    let identity = json!([
         q.path,
         q.max_depth(),
         q.min_depth(),
@@ -199,6 +193,11 @@ pub fn execute_files(
         q.sort(),
         q.detail(),
         requested,
+    ]);
+    let budget = super::page_budget(response_window, &identity);
+    let snapshot = super::digest(&json!([
+        identity,
+        budget,
         rows.iter().map(|r| &r.path).collect::<Vec<_>>()
     ]));
     if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
@@ -207,21 +206,19 @@ pub fn execute_files(
     let page_size = q
         .page_size()
         .map(|size| size.clamp(1, super::structure_max("pageSize") as usize));
-    // A row's cost comes from its path and the requested detail, both bound
-    // by the snapshot, so every page of it cuts at the same rows.
-    let root = super::rendered_root_bytes(paths, &validated.canonical);
-    let root_name = super::display_name(&validated.canonical).len();
-    let row_bytes = ROW_BYTES
-        + match detail.as_str() {
-            "full" => FULL_DETAIL_BYTES,
-            "modified" => MODIFIED_DETAIL_BYTES,
-            _ => 0,
-        };
+    // A row's cost is its serialized output with the root rendered as the
+    // response shows it, bound by the snapshot, so every page of it cuts at
+    // the same rows.
+    let root = super::rendered_root_chars(paths, &validated.canonical);
+    let root_name =
+        crate::tools::stream_page::json_text_chars(&super::display_name(&validated.canonical));
     let costs = rows
         .iter()
-        .map(|row| row.path.len().saturating_sub(root_name) + root + row_bytes)
+        .map(|row| {
+            (crate::tools::stream_page::json_chars(&row.output) + 1 + root).saturating_sub(root_name)
+        })
         .collect::<Vec<_>>();
-    let pages = super::page_ranges(&costs, page_size);
+    let pages = super::page_ranges(&costs, page_size, budget);
     let page = q.page().max(1) as usize;
     let total_pages = pages.len().max(1);
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);

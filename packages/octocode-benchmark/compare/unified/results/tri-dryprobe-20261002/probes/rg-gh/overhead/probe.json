@@ -1,0 +1,130 @@
+{
+  "qid": null,
+  "worker": "rg-gh",
+  "started": "2026-10-02T14:26:10.517Z",
+  "promptSha256": "c8c0265d75e4be4462439a7794fde78a6e238ab5bb2bc90a02f2564f04d58767",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 2052,
+  "status": "ok",
+  "answer": "OK",
+  "tokens": {
+    "requests": 1,
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 4643,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 4,
+    "context_tokens": 4645,
+    "total_tokens": 4649,
+    "first_request_context": 4645,
+    "fixed_overhead_tokens": 4645,
+    "research_tokens": 4,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4643,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 4
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 4643,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 4645
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4643,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 4
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 4643,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 4
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 4,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 4643,
+      "webSearchRequests": 0,
+      "costUSD": 0.018616,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.018616,
+  "costVerified": true,
+  "duration_ms": 1358,
+  "num_turns": 1,
+  "toolCallCount": 0,
+  "toolCounts": {},
+  "counters": {},
+  "toolCalls": [],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "nativeCalls": [],
+  "classificationProvider": null,
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "nativeRowErrorCount": 0,
+  "probe": "overhead"
+}

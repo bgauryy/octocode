@@ -1,0 +1,7 @@
+**1. Helped:** The first `localSearch` for `Required` in `JsonSerializerInternalReader.cs` found `EndProcessProperty` immediately. The `localSearch` for `requiredProperties|EndProcessProperty\(|HasRequiredOrDefaultValueProperties|ItemRequired` across the Serialization folder mapped every call site in one shot. The batched `localGetFileContent` (lines 2464-2600 plus `JsonObjectContract.cs:140-170`) gave the populate loop and the tracking flag as exact bytes.
+
+**2. Did not help:** The first search returned snippets that looked scrambled. The match text showed `{ }` where the throw statements should be, and it mismatched the real file. I only trusted the later exact reads. The `PropertyPresence` search was paginated and noisy (29 matches, 10 returned), and I never fetched pages 2-3. I did not read the constructor-based path (`:2065`-`:2280`) or check `DefaultContractResolver` for how `_required` is set. Both gaps are noted in the answer.
+
+**3. Next time:** Go straight to exact reads and skip snippet search output as evidence. Read the `:2060-2290` window to cover the constructor path. Run one targeted search for `_required` assignment in `DefaultContractResolver`/`JsonProperty` to close the attribute-mapping gap.
+
+**4. Confidence:** High for the populate-path behavior, because it comes from exact reads with line numbers. Medium for completeness, since the constructor path and attribute mapping are unverified.

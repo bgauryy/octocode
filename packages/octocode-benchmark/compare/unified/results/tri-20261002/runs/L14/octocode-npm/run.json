@@ -1,0 +1,401 @@
+{
+  "qid": "L14",
+  "worker": "octocode-npm",
+  "started": "2026-10-02T15:21:07.864Z",
+  "promptSha256": "3fe27a110a54f023ee3b90d161874220b01b6baeb29c602e194c3e5b773687cf",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 16957,
+  "status": "ok",
+  "answer": "`debounce` calls `func` on a timer-driven trailing edge, optionally on the leading edge, and `maxWait` caps how long a stream of calls can keep postponing it. Everything below is in `lodash.js`, `debounce` at lines ~10403–10526. I read the source only and did not run it.\n\n**Setup (~10403–10420)**\n- `wait` is coerced with `toNumber(wait) || 0`.\n- `leading` defaults to `false` and `trailing` to `true`.\n- `maxing = 'maxWait' in options`. If it is set, `maxWait = nativeMax(toNumber(options.maxWait) || 0, wait)`, so `maxWait` is never less than `wait`.\n\n**Deciding to invoke (`shouldInvoke`, ~10451)**\nIt returns true when any of these holds:\n- `lastCallTime === undefined`, meaning this is the first call.\n- `timeSinceLastCall >= wait`, meaning calls have been quiet for `wait` ms.\n- `timeSinceLastCall < 0`, meaning the system clock went backwards.\n- `maxing && timeSinceLastInvoke >= maxWait`, meaning `maxWait` has elapsed since the last invocation.\n\n**Each call to `debounced` (10500–10522)**\n- It records `lastArgs`, `lastThis` and `lastCallTime`, so `func` always receives the latest arguments.\n- If `shouldInvoke` is true and no timer is running, it runs `leadingEdge`. That sets `lastInvokeTime`, starts `setTimeout(timerExpired, wait)`, and calls `func` immediately only if `leading` is true.\n- If `shouldInvoke` is true, a timer is already running, and `maxing` is set, it restarts the timer and calls `func` immediately via `invokeFunc` (10511–10515). The code comments this as handling invocations in a tight loop.\n- Otherwise, if there is no timer, it starts one for `wait` ms.\n- It returns the last result.\n\n**Timer expiry (`timerExpired`, ~10464)**\n- If `shouldInvoke(now())` is true, it runs `trailingEdge`.\n- If not, it reschedules the timer for `remainingWait(time)`.\n- `remainingWait` is `wait - timeSinceLastCall`. With `maxing`, it is the smaller of that and `maxWait - timeSinceLastInvoke`.\n\n**Trailing edge (`trailingEdge`, ~10472)**\nIt clears `timerId`. It calls `func` only if `trailing && lastArgs`. `lastArgs` is cleared by every `invokeFunc`, so a leading-only invocation with no further calls does not fire again. Otherwise it clears the saved arguments and returns the last result.\n\n**What `maxWait` does**\n- Without `maxWait`, every call resets the quiet period, so continuous calls can postpone `func` indefinitely.\n- With `maxWait`, `func` is forced to run at least once per `maxWait` ms during continuous calling. The timer wakes up at the earlier of the quiet-period end and the `maxWait` deadline.\n- The next call after the deadline then also triggers an invocation.\n\n**Other methods**\n- `cancel` clears the timer and all saved state.\n- `flush` calls `trailingEdge(now())` if a timer is pending, and otherwise returns the last result.\n\nI did not check `dist/lodash.js` or the npm modular builds. They match this definition by name only (the search found `function debounce` there too).",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 8029,
+    "cache_read_input_tokens": 184954,
+    "output_tokens": 1711,
+    "context_tokens": 192993,
+    "total_tokens": 194704,
+    "first_request_context": 36547,
+    "fixed_overhead_tokens": 182735,
+    "research_tokens": 11969,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 8029,
+      "cache_read_input_tokens": 184954,
+      "output_tokens": 975
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -736
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8029,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 41650
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2926,
+      "cache_read_input_tokens": 33619,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 245,
+      "cache_read_input_tokens": 36545,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 551,
+      "cache_read_input_tokens": 36790,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3318,
+      "cache_read_input_tokens": 37341,
+      "output_tokens": 43
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 989,
+      "cache_read_input_tokens": 40659,
+      "output_tokens": 852
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 8029,
+    "cache_read_input_tokens": 184954,
+    "output_tokens": 1711
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1711,
+      "cacheReadInputTokens": 184954,
+      "cacheCreationInputTokens": 8029,
+      "webSearchRequests": 0,
+      "costUSD": 0.0862368,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0862368,
+  "costVerified": true,
+  "duration_ms": 15830,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 2,
+    "mcp__octocode__localGetFileContent": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 1,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"queries\":[{\"operation\":\"files\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/javascript\",\"names\":[\"debounce.js\"],\"excludeDir\":[]}]}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"queries\":[{\"operation\":\"text\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/javascript\",\"searchText\":\"function debounce\",\"excludeDir\":[\"node_modules\"],\"resultView\":\"files\"}]}"
+    },
+    {
+      "name": "mcp__octocode__localGetFileContent",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/javascript/lodash.js\",\"matchString\":\"function debounce(\",\"contextLines\":100,\"minify\":\"none\"}]}"
+    },
+    {
+      "name": "mcp__octocode__localGetFileContent",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/javascript/lodash.js\",\"startLine\":10500,\"endLine\":10535,\"minify\":\"none\"}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearch",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__localAnalyzeGraph",
+      "mcp__octocode__localGetFileContent",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspGetSemantics",
+      "mcp__octocode__npmSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The `localSearch` text query for `function debounce` (`resultView: \"files\"`) found `lodash.js` in one call. The `localGetFileContent` call with `matchString: \"function debounce(\"` and `contextLines: 100` landed on the definition. The follow-up read of lines 10500–10535 gave exact line-numbered bytes for the end of `debounced`.\n\n2. **Did not help:**\n   - My first `localSearch` (`operation: files`, `names: [\"debounce.js\"]`) came back empty. Lodash's monolithic file has no such file, so it was a wasted guess.\n   - The `contextLines: 100` window began inside `curryRight` and ended mid-function, so I needed a second read.\n   - That first read had no per-line prefixes, so I estimated the line numbers for the helper functions from `startLine` and the matched line. I wrote them with \"~\" but didn't say they were derived.\n   - I never checked that the checkout was at the pinned commit. I took the prompt's word for it.\n\n3. **Next time:** Start with the text search, then read `matchString` with an asymmetric window, about 10 lines before and 130 after, so it fits in one call. I would also request line-numbered output for the whole window.\n\n4. **Confidence:** High on the behavior. It is read directly from the source, and the code and its comments agree. Medium on the \"~\" line numbers outside 10500–10522.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 9839,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 875,
+      "context_tokens": 9841,
+      "total_tokens": 10716,
+      "first_request_context": 9841,
+      "fixed_overhead_tokens": 9841,
+      "research_tokens": 875,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9839,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 2
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -873
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 9839,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": null,
+      "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+      "max_request_context": 9841
+    },
+    "cost_usd": 0.048109999999999986,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9839,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 875,
+        "context_tokens": 9841,
+        "total_tokens": 10716,
+        "first_request_context": 9841,
+        "fixed_overhead_tokens": 9841,
+        "research_tokens": 875,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 9839,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 2
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -873
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9839,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 9841
+      },
+      "cost_usd": 0.048109999999999986,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 9839,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 875,
+          "costUSD": 0.048109999999999986
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 1711,
+            "cacheReadInputTokens": 184954,
+            "cacheCreationInputTokens": 8029,
+            "webSearchRequests": 0,
+            "costUSD": 0.0862368,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0862368
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 12,
+            "outputTokens": 2586,
+            "thinkingTokens": 414,
+            "cacheReadInputTokens": 184954,
+            "cacheCreationInputTokens": 17868,
+            "webSearchRequests": 0,
+            "costUSD": 0.1343468,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1343468
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9839,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 875
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 9839,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-02T15:21:10.826Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:21:11.066Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localSearch",
+      "startedAt": "2026-10-02T15:21:12.400Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:21:12.440Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "localGetFileContent",
+      "startedAt": "2026-10-02T15:21:14.037Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:21:14.078Z"
+    },
+    {
+      "requestId": "native-4",
+      "tool": "localGetFileContent",
+      "startedAt": "2026-10-02T15:21:16.081Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:21:16.100Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 7
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

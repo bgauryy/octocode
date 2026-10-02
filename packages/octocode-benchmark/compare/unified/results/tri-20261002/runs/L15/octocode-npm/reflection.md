@@ -1,0 +1,7 @@
+**1. Helped:** The single `localSearch` call, a text regex for `MAX_RUN_MULTIPLIER|hashFloodingDetected|MAX_HASH_BUCKET_LENGTH` across the collect directory, found the `ImmutableSet.java` hits and the related files in one pass. Its `next.fetch` hint pointed at the right region. One `localGetFileContent` read of lines 690–900 then gave the whole mechanism with exact line numbers: `insertInHashTable`, `review`, `hashFloodingDetected`, `maxRunBeforeFallback` and `JdkBackedSetBuilderImpl`.
+
+**2. Did not help:** My search terms were guesses from memory of Guava, and I was lucky they matched. The read was partial (`isPartial: true`), and I never read lines 901–944. So I didn't check how `build()` turns the JDK-backed delegate into a `JdkBackedImmutableSet`. For the related-classes section I relied on grep snippets alone. I didn't read what catches `BucketOverflowException` in `RegularImmutableMap`, or the `CompactHashSet` conversion. I also never confirmed that the checkout is at commit 4d41665af1; I trusted the prompt.
+
+**3. Next time:** Read the remainder of `JdkBackedSetBuilderImpl`. Read `RegularImmutableSet` and `ImmutableSet.construct`, and the `RegularImmutableMap` catch site. Run a quick check of the checkout's ref, if the tools allow it.
+
+**4. Confidence:** High for the `ImmutableSet` mechanism, because I read the exact lines. Medium for the "related" bullets, which are grep-level only.

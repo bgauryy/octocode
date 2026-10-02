@@ -1,0 +1,15 @@
+**Short answer:** `Counter` fields are now validated by a dedicated `counter` core schema, not the generic mapping schema. Valid inputs mostly behave as before. What changes is the error type, strict mode, constraints, and serialization. I read the PR diff (merged 2026-09-17) and did not run any code. The "before" behavior comes from the lines the diff removes.
+
+**Before.** `collections.Counter` and `Counter[K]` went through `self._mapping_schema(obj, Any, int)` and `self._mapping_schema(collections.Counter, <first arg>, int)`. Those are the removed lines in `pydantic/_internal/_generate_schema.py` (about line 387 and lines 428–432). The `typing.Counter` and `collections.Counter` entries in `MAPPING_ORIGIN_MAP` in `pydantic/_internal/_validators.py` were also removed. Together these meant a plain dict schema with a coercion step.
+
+**After.**
+- **Schema:** The new `_counter_schema(keys_type)` in `_generate_schema.py` builds `core_schema.counter_schema(generate_schema(keys_type), core_schema.int_schema())`. Keys are validated against the type argument, or `Any` if there is none. Values are always validated as `int`.
+- **Counter fields:** The `counter` validator is a new Rust validator in `pydantic-core`. `Counter` instances are accepted as is. A `dict` or other `Mapping` is coerced to a `Counter` in lax mode (`pydantic-core/src/input/input_python.rs`, `lax_counter`). The tests also cover `typing.Counter` and `typing_extensions.Counter`.
+- **Wrong input types:** Anything else, for example `'test'` or `[1, 2, 3]`, now fails with a new error type, `counter_type`: "Input should be a valid Counter". The diff doesn't show what the old error was. I expect it was a generic dict or mapping error, but I didn't confirm that.
+- **Strict mode:** Only `Counter` instances are accepted in Python input. A plain `dict` fails with `counter_type`. JSON objects are still allowed in strict mode, because that is the only way to build a `Counter` from JSON (`input_json.rs`, `strict_counter`). Strictness is not propagated to keys and values.
+- **Constraints:** `min_length` and `max_length` now apply properly to `Counter`. `'counter'` was added to `DICT_CONSTRAINTS` in `_known_annotated_metadata.py`. They produce `too_short` and `too_long` errors, and `minProperties` and `maxProperties` in the JSON schema. The PR body says this is the point of the change, citing issue #13704.
+- **Values:** Zero and negative counts are preserved as is, per `test_counter_values_preserved`.
+- **Serialization:** A `Counter` is now serialized as a `Counter` in Python mode and as a plain dict in JSON mode. This holds for fields and for `Any`-typed values (new `ObType::Counter` in `serializers/infer.rs`).
+- **JSON schema:** The output is unchanged: `{'type': 'object', 'additionalProperties': {'type': 'integer'}}`.
+
+**Not checked.** I did not read the Rust validator in `validators/counter.rs`, nor the `ob_type.rs`, `shared.rs` and serializer-side patches. The `infer.rs` patch was truncated at the end of the diff. I also did not confirm the exact old error message or the old strict-mode behavior against the pre-PR code.

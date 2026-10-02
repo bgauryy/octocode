@@ -14,4 +14,5 @@ pub mod local_fetch;
 pub mod local_search;
 pub mod lsp_search;
 pub mod result;
+pub mod stream_page;
 pub mod structure_search;

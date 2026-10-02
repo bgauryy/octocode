@@ -25,15 +25,30 @@ fn max_walk() -> u32 {
 
 use serde_json::{Value, json};
 
-/// Estimated JSON bytes one default page may carry (rows with their
-/// rendered paths). A listing within it is one page.
-const PAGE_BUDGET_BYTES: usize = 24_000;
+/// Continuations a listing row copies its query into: `next.nextPage` and
+/// `next.expandLimit`.
+const ROW_QUERY_COPIES: usize = 2;
+
+/// Chars one default page's rows may take, so the page with the row around
+/// it fits the response window. Measured on the query's snapshot identity:
+/// a continuation that keeps its snapshot gets the same budget, so every
+/// page of one snapshot cuts at the same rows.
+fn page_budget(response_window: Option<usize>, identity: &Value) -> usize {
+    crate::tools::stream_page::page_chars(
+        response_window,
+        crate::tools::stream_page::reserve_chars(identity, ROW_QUERY_COPIES),
+    )
+}
 
 /// Row ranges of each page: `page_size` rows each when the caller sets it,
-/// else as many rows as fit [`PAGE_BUDGET_BYTES`] (at least one per page).
-/// Costs come from snapshot-bound data, so every page of one snapshot cuts
-/// at the same rows. An empty listing has no pages.
-fn page_ranges(costs: &[usize], page_size: Option<usize>) -> Vec<std::ops::Range<usize>> {
+/// else as many rows as fit `budget` serialized chars (at least one per
+/// page). Costs come from snapshot-bound data, so every page of one snapshot
+/// cuts at the same rows. An empty listing has no pages.
+fn page_ranges(
+    costs: &[usize],
+    page_size: Option<usize>,
+    budget: usize,
+) -> Vec<std::ops::Range<usize>> {
     let total = costs.len();
     if total == 0 {
         return Vec::new();
@@ -49,7 +64,7 @@ fn page_ranges(costs: &[usize], page_size: Option<usize>) -> Vec<std::ops::Range
     let mut start = 0;
     let mut used = 0usize;
     for (index, cost) in costs.iter().enumerate() {
-        if index > start && used.saturating_add(*cost) > PAGE_BUDGET_BYTES {
+        if index > start && used.saturating_add(*cost) > budget {
             pages.push(start..index);
             start = index;
             used = 0;
@@ -60,14 +75,15 @@ fn page_ranges(costs: &[usize], page_size: Option<usize>) -> Vec<std::ops::Range
     pages
 }
 
-/// Rendered bytes of the walked root in each row path: rows name the root
+/// Serialized chars of the walked root in each row path: rows name the root
 /// first, and the response renders that root workspace-relative (nothing
 /// for the workspace itself, absolute outside it).
-fn rendered_root_bytes(paths: &crate::policy::path::PathPolicy, root: &std::path::Path) -> usize {
+fn rendered_root_chars(paths: &crate::policy::path::PathPolicy, root: &std::path::Path) -> usize {
+    use crate::tools::stream_page::json_text_chars;
     match paths.workspace_relative(root).as_deref() {
         Some(".") => 0,
-        Some(relative) => relative.len(),
-        None => root.as_os_str().len(),
+        Some(relative) => json_text_chars(relative),
+        None => json_text_chars(&root.to_string_lossy()),
     }
 }
 
@@ -207,13 +223,14 @@ pub fn execute_structure(
     paths: &crate::policy::path::PathPolicy,
     security: &crate::security::ContentSecurity,
     cancellation: &dyn crate::tools::cancel::CancellationCheck,
+    response_window: Option<usize>,
 ) -> StructureResult {
     match query {
         StructureSearchQuery::Tree(query) => {
-            tree::execute_tree(query, paths, security, cancellation)
+            tree::execute_tree(query, paths, security, cancellation, response_window)
         }
         StructureSearchQuery::Files(query) => {
-            files::execute_files(query, paths, security, cancellation)
+            files::execute_files(query, paths, security, cancellation, response_window)
         }
     }
 }

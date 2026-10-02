@@ -1,0 +1,7 @@
+1. **Helped:** The second `ghGetHistoryItem` call with `patches.mode: "selected"` on `applications.py`, `routing.py`, `background.py` and `pyproject.toml` gave nearly all the runtime-behavior evidence in one shot. The parallel `ghGetFileContent` calls with `fullContent` on `_runtime.py` and `_asgi.py` then supplied the semantics, such as the failure rule, the legacy-OTel bypass and the auto-export logic. The first call gave useful scope (36 files, the body and the author's note on Sentry/Logfire).
+
+2. **Did not help:** The first call was partial (paginated file list, hidden bot comments). I never fetched page 2 of the changed files or the bot comments. I skipped `telemetry/_api.py`, which defines `_operation`, `_run_sync_endpoint` and `_route_selected`, so I could only describe those from their call sites. Patches were hunk-trimmed with `...`, so I got no line numbers, and `ghGetFileContent` returned master rather than the PR head. `_runtime.py` shows a post-merge modification date, so it may differ from what was merged. I never fetched the PR's commits or comments, so I can't confirm review depth beyond "reviews totalItems 0".
+
+3. **Next time:** I'd add `_api.py` to the fetch, pin file reads to the merge commit SHA, and check the commits and bot comments. I'd also spot-check the tests for the `BackgroundTasks` and sync-endpoint claims.
+
+4. **Confidence:** Medium. The behavior summary is well grounded in code I read. The reviewer-risk items, such as hot-path cost, `BackgroundTasks` semantics and cardinality, are inferences, not verified findings.

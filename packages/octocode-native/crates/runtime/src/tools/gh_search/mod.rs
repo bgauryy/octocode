@@ -1429,17 +1429,16 @@ mod tests {
             assert_eq!(row["repo"], "httpie/cli", "{row}");
             assert_eq!(row["stars"], 38602);
             assert_eq!(row["pushedAt"], "2024-12-17");
-            assert_eq!(row["topicCount"], 21);
+            // Every topic and the whole description stay: nothing reaches a
+            // cut remainder, so a row never shortens them.
             let shown = row["topics"].as_array().expect("topics");
-            assert_eq!(shown.len(), 5, "{row}");
+            assert_eq!(shown.len(), 21, "{row}");
             assert_eq!(
                 shown[0], "http-client",
                 "query-matching topics come first: {row}"
             );
-            let description = row["description"].as_str().expect("description");
-            assert_eq!(description.chars().count(), 160, "{row}");
-            assert!(description.ends_with('…'));
-            for absent in ["owner", "forks", "createdAt", "updatedAt"] {
+            assert_eq!(row["description"], long.as_str(), "{row}");
+            for absent in ["owner", "forks", "createdAt", "updatedAt", "topicCount"] {
                 assert!(row.get(absent).is_none(), "{absent}: {row}");
             }
             assert_eq!(

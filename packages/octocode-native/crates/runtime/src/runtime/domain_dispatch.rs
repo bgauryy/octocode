@@ -164,7 +164,14 @@ impl DomainDispatcher {
         let security = self.security.clone();
         let regex = self.regex.clone();
         let views = self.local_views.clone();
-        let context = context.clone();
+        // Streamed listing pages are sized to fit one automatic response
+        // window, which every call of a walk shares (an explicit
+        // `responseCharLength` is per call, so it never moves a page cut).
+        let window = self.config.resolved.output.pagination.default_char_length as usize;
+        let context = ExecutionContext {
+            response_window: (window > 0).then_some(window),
+            ..context.clone()
+        };
         // OCTOCODE_BETA is the shared gate for beta local tools. For astRewrite,
         // enabling beta permits both preview and hash-guarded apply.
         let allow_apply = self.config.resolved.local.beta;

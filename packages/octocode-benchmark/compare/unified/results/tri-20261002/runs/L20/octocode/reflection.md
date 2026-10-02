@@ -1,0 +1,7 @@
+**1. Helped:** The second localSearch call (regex `ResolveJsonModule|resolveJsonModule`, `*.go`, excluding tests) was the key step. It returned every non-test consumer with line numbers in one pass, including the `project.go:218` hard-coded value that bypasses the getter. The two localFetch range reads (`compileroptions.go:266-285` and `resolver.go:114-124`) then confirmed the default logic and the resolver use cheaply.
+
+**2. Did not help:** The first batch's structureSearch (`*.go` and `go.mod`, depth 4) was wasted. It returned about 20k characters of file listing, paginated, and I never used it. The first localSearch (files view) already showed that Go code lives under `tsc/`. I also never opened `checker.go:15660-15670`, `util.go`, `showconfig.go` or the tests. Those descriptions came from match lines alone, which I flagged as such. The tools can't trace transitive callers of the getter. I didn't use lspSearch, which might have given precise reference lists.
+
+**3. Next time:** Run only the targeted localSearch, then fetch the deciding ranges. I'd also use lspSearch references on `GetResolveJsonModule` to confirm the caller list. I'd skim the showconfig and test files before saying what needs updating.
+
+**4. Confidence:** Medium-high. The default logic and the caller list are directly evidenced. The effects and the test-impact claims are inferred from call sites, not verified.

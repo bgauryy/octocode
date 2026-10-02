@@ -1,0 +1,7 @@
+1. **Helped:** The first `gh api` call on `pulls/16403` plus `/files` gave the metadata and file list in one step. Pulling per-file `.patch` for `applications.py`, `routing.py`, `background.py` and `pyproject.toml` showed the runtime changes directly. Fetching raw `_runtime.py` and `_asgi.py` at the head SHA gave line-numbered evidence I could cite.
+
+2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. It was harmless but noisy. I fetched `_asgi.py` only to line 260 (the `sed` cap and the `head -520` cut), and I never opened `_api.py`. I also skipped the tests, CI status, review comments and any post-merge commits. The answer says so, but it is a real gap, since `_api.py` holds the no-op cost question I raised.
+
+3. **Next time:** I'd fetch `_api.py` and the rest of `_asgi.py` in the same parallel batch. I'd also pull `pulls/16403/comments`, `/reviews` and the PR's commit list to see what reviewers raised and whether fixes landed.
+
+4. **Confidence:** Medium-high for the behavior summary, because it is quoted from diffs and cited at the pinned head SHA. Medium for the risk list, since some risks are inferences, such as startup failure with non-OTLP exporters, and I could not check them against tests or discussion.

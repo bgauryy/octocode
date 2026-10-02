@@ -5,6 +5,7 @@ Two AI workers answer the same code-research questions, and a blind judge grades
 | Worker | Tools | Instructions |
 |---|---|---|
 | `octocode` | Octocode MCP tools (latest local build, clasify included); no shell | [workers/octocode/WORKER.md](workers/octocode/WORKER.md) |
+| `octocode-npm` | Published `octocode-mcp@19.1.0` via `npx -y` (exact pin; 9 tools, no clasify/structure/AST tools); no shell | Same doc as `octocode`: [workers/octocode-npm/WORKER.md](workers/octocode-npm/WORKER.md) |
 | `rg-gh` | A shell: `rg`, `gh` and any Linux command; no Octocode | [workers/rg-gh/WORKER.md](workers/rg-gh/WORKER.md) |
 
 Both workers use the same model (Sonnet 5.5) and the same goal paragraph. Neither doc teaches solution steps. The judge is Opus 5.5.

@@ -1,0 +1,34 @@
+{
+  "expected": 6,
+  "completed": 6,
+  "failures": [
+    {
+      "worker": "octocode-npm",
+      "probe": "isolation",
+      "status": "ok",
+      "error": null,
+      "costVerified": true,
+      "isolation": {
+        "ok": false,
+        "problems": [],
+        "offeredTools": [
+          "mcp__octocode__ghGetFileContent",
+          "mcp__octocode__ghGetHistoryItem",
+          "mcp__octocode__ghSearch",
+          "mcp__octocode__ghSearchHistory",
+          "mcp__octocode__localAnalyzeGraph",
+          "mcp__octocode__localGetFileContent",
+          "mcp__octocode__localSearch",
+          "mcp__octocode__lspGetSemantics",
+          "mcp__octocode__npmSearch"
+        ],
+        "mcpServers": [
+          {
+            "name": "octocode",
+            "status": "connected"
+          }
+        ]
+      }
+    }
+  ]
+}

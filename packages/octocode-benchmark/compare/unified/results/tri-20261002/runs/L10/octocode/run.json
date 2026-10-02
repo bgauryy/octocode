@@ -1,0 +1,378 @@
+{
+  "qid": "L10",
+  "worker": "octocode",
+  "started": "2026-10-02T15:19:25.082Z",
+  "promptSha256": "bae053cbd28a5c7d818445b6cf4350186075c7e6fb66e9c2f037bdba2efa66d4",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 16060,
+  "status": "ok",
+  "answer": "`rate()` and `increase()` are both thin wrappers around one function, `extrapolatedRate` in `promql/functions.go:452`. I read the float-sample path and the entry points. I only skimmed `histogramRate` and did not read `extendedRate` or `extendedHistogramRate`.\n\n**Entry points**\n- `funcRate` calls `extrapolatedRate(..., isCounter=true, isRate=true)` (`promql/functions.go:811-813`).\n- `funcIncrease` calls it with `isCounter=true, isRate=false` (`promql/functions.go:816-818`).\n- `delta` uses the same function with both flags false (`promql/functions.go:806-808`).\n\n**Algorithm for float counters (default path)**\n1. **Raw increase.** `resultFloat = last.F - first.F` (`promql/functions.go:512`).\n2. **Counter resets.** The code walks consecutive pairs. If `curr.F < prev.F`, it adds `prev.F` to the result (`promql/functions.go:521-534`). It also treats a start-timestamp reset as a reset, via `isStartTimestampReset` on the same line range.\n3. **Window and spacing.** The window runs from `rangeStart = enh.Ts - (Range + Offset)` to `rangeEnd = enh.Ts - Offset` (`promql/functions.go:474-475`). It computes these from the window edges and sample times:\n   - `durationToStart` and `durationToEnd`, the gaps between the first/last sample and the window edges.\n   - `sampledInterval = lastT - firstT`.\n   - `averageDurationBetweenSamples = sampledInterval / (n-1)`.\n   - `extrapolationThreshold = 1.1 × average` (`promql/functions.go:541-549`).\n4. **Edge extrapolation.** If a gap to the start or end is at least the threshold, it is replaced by `average/2` (`promql/functions.go:588-590` and `615-617`).\n5. **Zero clamp for counters.** If the result is positive and the first value is non-negative, the code computes `durationToZero = sampledInterval * (first.F / resultFloat)`. If that is shorter than `durationToStart`, it becomes the new `durationToStart`. This stops the extrapolation from going below zero (`promql/functions.go:591-612`).\n6. **Scaling factor.** `factor = (sampledInterval + durationToStart + durationToEnd) / sampledInterval` (`promql/functions.go:619-622`).\n   - For `rate`, it divides the factor by `ms.Range.Seconds()` (`promql/functions.go:623-625`).\n   - It then multiplies the result by the factor (`promql/functions.go:626-630`).\n   - So `increase` is the extrapolated total over the window, and `rate` is that total divided by the range in seconds.\n\n**Edge cases**\n- **Too few samples.** Normally at least two samples are needed. With a single sample, nothing is returned unless a start timestamp (ST) lies inside the window (`promql/functions.go:572-574`).\n- **Start timestamp inside the window.** In that case the code assumes a zero-valued sample at the ST. It sets `durationToStart=0`, uses `sampledInterval = lastT - ST`, and adds `first.F` to the result (`promql/functions.go:551-571`).\n- **Mixed samples.** A window with both float and histogram samples is dropped with a warning (`promql/functions.go:484-486`).\n- **Native histograms.** They follow the same extrapolation, with `histogramRate` doing the reset-aware subtraction (`promql/functions.go:640` onward). The zero clamp uses the histogram `Count`.\n- **Anchored or smoothed selectors.** These are routed to `extendedRate` or `extendedHistogramRate` instead (`promql/functions.go:455-466`).",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11271,
+    "cache_read_input_tokens": 27639,
+    "output_tokens": 1854,
+    "context_tokens": 38916,
+    "total_tokens": 40770,
+    "first_request_context": 9941,
+    "fixed_overhead_tokens": 29823,
+    "research_tokens": 10947,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 11271,
+      "cache_read_input_tokens": 27639,
+      "output_tokens": 858
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -996
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11271,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 18304
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2908,
+      "cache_read_input_tokens": 7031,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 730,
+      "cache_read_input_tokens": 9939,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7633,
+      "cache_read_input_tokens": 10669,
+      "output_tokens": 810
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11271,
+    "cache_read_input_tokens": 27639,
+    "output_tokens": 1854
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1854,
+      "cacheReadInputTokens": 27639,
+      "cacheCreationInputTokens": 11271,
+      "webSearchRequests": 0,
+      "costUSD": 0.0691638,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0691638,
+  "costVerified": true,
+  "duration_ms": 15217,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 1,
+    "mcp__octocode__localFetch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"func extrapolatedRate|func funcRate|func funcIncrease|func instantValue\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql\",\"goal\":\"find rate impl\",\"reasoning\":\"locate\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql/functions.go\",\"startLine\":440,\"endLine\":700,\"goal\":\"read impl\",\"reasoning\":\"read\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql/functions.go\",\"startLine\":805,\"endLine\":825,\"goal\":\"read\",\"reasoning\":\"read\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** The single `localSearch` call with a regex alternation (`func extrapolatedRate|func funcRate|func funcIncrease|func instantValue`) found all four definitions in `promql/functions.go` at once. Its `next.read` hint pointed straight at the file. Then two parallel `localFetch` calls (lines 440-700 and 805-825) gave me the full float path and the wrappers with exact line numbers. Three calls in total, no wasted ones.\n\n**2. Did not help:** Nothing errored. The 440-700 read cut off mid-`histogramRate`, so I did not read the histogram path to the end. I never opened `extendedRate`, `extendedHistogramRate`, `isStartTimestampReset` or `checkStartTimeOverlap`. I also had no way to confirm the checkout was really at `ea954809ce`; there is no git tool, so I trusted the task statement.\n\n**3. Next time:** I would read `isStartTimestampReset` and the end of `histogramRate` with `lspSearch` or `localFetch` and a `matchString`. I would also skim the `rate` section of the docs or tests to cross-check the extrapolation description.\n\n**4. Confidence:** High for the default float counter path, since every claim comes from lines I read directly. Medium for the histogram and anchored/smoothed paths, which I only partly read or inferred from the dispatch code.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 13202,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 708,
+      "context_tokens": 13204,
+      "total_tokens": 13912,
+      "first_request_context": 13204,
+      "fixed_overhead_tokens": 13204,
+      "research_tokens": 708,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 13202,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -705
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 13202,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": null,
+      "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+      "max_request_context": 13204
+    },
+    "cost_usd": 0.059892,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 13202,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 708,
+        "context_tokens": 13204,
+        "total_tokens": 13912,
+        "first_request_context": 13204,
+        "fixed_overhead_tokens": 13204,
+        "research_tokens": 708,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 13202,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -705
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 13202,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 13204
+      },
+      "cost_usd": 0.059892,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 13202,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 708,
+          "costUSD": 0.059892
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1854,
+            "cacheReadInputTokens": 27639,
+            "cacheCreationInputTokens": 11271,
+            "webSearchRequests": 0,
+            "costUSD": 0.0691638,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0691638
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2562,
+            "thinkingTokens": 246,
+            "cacheReadInputTokens": 27639,
+            "cacheCreationInputTokens": 24473,
+            "webSearchRequests": 0,
+            "costUSD": 0.1290558,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1290558
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 13202,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 708
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 13202,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-02T15:19:28.035Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:19:28.097Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localFetch",
+      "startedAt": "2026-10-02T15:19:31.110Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:19:31.126Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "localFetch",
+      "startedAt": "2026-10-02T15:19:31.684Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:19:31.695Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

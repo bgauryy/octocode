@@ -1,0 +1,7 @@
+**1. Helped:** A single `ghGetHistoryItem` call (operation `pullRequest`, #5881, `include: ["body","patches"]`) answered nearly everything. It returned the PR body, the full diffs for `pool-base.js`, `pool.js` and `round-robin-pool.js`, and the new test file. The diff comments state the bug and the intent directly. The author's description added the symptoms: zero connections reported, `destroy()` not closing the socket.
+
+**2. Did not help:** Nothing errored and I made no repeated calls. The patch hunks had `...` elisions and no merged-file line numbers, so I could not cite `path:line` at the merge commit. I said this in the answer. I also did not use the `next.readAtMerge` hint to read `pool-base.js` at the merge commit. I called `da911f0` the merge commit, but I only inferred that from the hint's `branch` field. The PR payload did not label it as such.
+
+**3. Next time:** I would follow up with `ghGetFileContent` at that SHA, using `matchString` on `kRetireClient`, `kRetiring` and `closeClients`. That would give exact lines and confirm the merged code matches the patch. I would also check the SHA's identity before citing it.
+
+**4. Confidence:** High on the bug and the mechanism, since the diff and PR text agree. Medium on anything line-specific or about the merged state, because I did not read the merged files.

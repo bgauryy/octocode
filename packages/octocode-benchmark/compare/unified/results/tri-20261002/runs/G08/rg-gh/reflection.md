@@ -1,0 +1,7 @@
+**1. Helped:** Two Bash calls did all the work. The first was `gh api repos/sveltejs/svelte/issues/18837` plus the `/timeline` filtered with jq for cross-references and referenced commits. It gave the issue body, the closing commit and the linking PR #18838 at once. The second was `gh api pulls/18838` plus `/files`, which gave the PR description, merge SHA and the full patch for `proxy.js` and the test.
+
+**2. Did not help:** Every call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless but noisy. The `/files` patch output ended partway through the synthesized descriptor, so I couldn't see its remaining fields. I had no way to read `proxy.js` at the merge commit. I could have tried `gh api repos/.../contents/...?ref=<sha>` for that, but didn't.
+
+**3. Next time:** After the PR call, I would fetch `packages/svelte/src/internal/client/proxy.js` at `a72dc8e` through the contents API. That would confirm the final line numbers, the `has` trap behavior and the end of the descriptor block. I would also check the changeset and the issue comments for maintainer discussion.
+
+**4. Confidence:** Medium-high. The issue, PR, merge SHA and diff are directly observed. The claim that the `has` trap creates the per-property source rests on the PR description and the `this.has?.()` call, not on reading the pre-fix code. I gave no line numbers at the merge commit beyond the hunk header, and I said so.

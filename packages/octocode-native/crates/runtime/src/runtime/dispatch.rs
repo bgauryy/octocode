@@ -107,7 +107,14 @@ pub(super) fn execute_local(
         }
         ToolId::LocalSearch => {
             let request = parsed!(LocalSearchQuery);
-            match execute_local_search(&request, paths, security, context, context.walk_threads) {
+            match execute_local_search(
+                &request,
+                paths,
+                security,
+                context,
+                context.walk_threads,
+                context.response_window,
+            ) {
                 Ok(mut result) => {
                     for file in &mut result.files {
                         file.path = result
@@ -136,7 +143,7 @@ pub(super) fn execute_local(
         ToolId::StructureSearch => {
             let request = parsed!(StructureSearchQuery);
             Ok(
-                match execute_structure(&request, paths, security, context) {
+                match execute_structure(&request, paths, security, context, context.response_window) {
                     Ok(data) => value_result(data),
                     Err(error) => {
                         let kind = error_failure(&error.code);
@@ -400,6 +407,7 @@ mod provider_failure_tests {
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
             output_bytes: 16_000,
             walk_threads: None,
+            response_window: None,
         };
         let views = crate::security::scan::SanitizedViewMemo::default();
         for (tool, query) in [

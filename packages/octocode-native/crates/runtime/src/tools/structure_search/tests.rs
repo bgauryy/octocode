@@ -16,7 +16,7 @@ fn execute_row(
 ) -> StructureResult {
     let query: StructureSearchQuery =
         serde_json::from_value(query).expect("typed structureSearch row");
-    execute_structure(&query, paths, security, cancellation)
+    execute_structure(&query, paths, security, cancellation, None)
 }
 
 struct Fixture(PathBuf);

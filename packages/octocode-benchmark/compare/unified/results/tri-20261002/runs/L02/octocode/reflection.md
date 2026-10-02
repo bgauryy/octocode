@@ -1,0 +1,7 @@
+**1. Helped:** The second `localSearch` (searchText "unsaved related object", contextLines 12) was the key call. Dropping the first query's longer phrase matched the wrapped string literal and returned the private-fields branch at `base.py:1329`, which pointed me at the right function. The `localFetch` of lines 1270-1318 then gave the full FK check. The `localSearch` for `_prepare_related_fields_for_save` listed all call sites in one pass.
+
+**2. Did not help:** My first `localSearch` used the full message and returned empty. The error string is split across two source lines (`1301-1302`), so a literal search can't match it. The empty-result hint was reasonable, but I should have anticipated the split. I never read the context around `query.py:1042`, so I could only say it was "probably `bulk_update`". I didn't read the field descriptors either.
+
+**3. Next time:** Search for the function name or a short fragment such as "prohibited to prevent data loss". Then fetch the `query.py:1042` context with `localFetch` and `matchString`, using the `next` query the tool offered. That would settle the third call site in one more call.
+
+**4. Confidence:** High for the main answer, since I read lines 1276-1330 directly and checked the callers at `base.py:864` and `query.py:794`. Medium for the `query.py:1042` call site, which I flagged as unverified.

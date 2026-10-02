@@ -46,6 +46,7 @@ pub fn execute_tree(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
 ) -> super::StructureResult {
     cancel.check().map_err(super::cancelled)?;
     let validated = paths
@@ -132,7 +133,7 @@ pub fn execute_tree(
     rows.truncate(requested);
     let total = rows.len();
 
-    let snapshot = super::digest(&json!([
+    let identity = json!([
         q.path,
         q.max_depth,
         q.hidden,
@@ -142,16 +143,22 @@ pub fn execute_tree(
         q.entry_type.map(|kind| kind.to_string()),
         q.exclude_dir,
         requested,
-        rows
-    ]));
+    ]);
+    // The page cut is part of the snapshot: a continuation under a
+    // different response window restarts instead of skipping entries.
+    let budget = super::page_budget(response_window, &identity);
+    let snapshot = super::digest(&json!([identity, budget, rows]));
     if q.page() > 1 && q.snapshot.as_deref().map(String::as_str) != Some(snapshot.as_str()) {
         return Ok(super::snapshot_changed(q, &snapshot));
     }
     let page_size = q.page_size();
     let page = q.page().max(1);
     // Entries are relative to `path` (no prefix); each costs its quoted text.
-    let costs = rows.iter().map(|row| row.len() + 3).collect::<Vec<_>>();
-    let pages = super::page_ranges(&costs, page_size);
+    let costs = rows
+        .iter()
+        .map(|row| crate::tools::stream_page::json_chars(row) + 1)
+        .collect::<Vec<_>>();
+    let pages = super::page_ranges(&costs, page_size, budget);
     let total_pages = pages.len().max(1);
     let entries = pages
         .get(page - 1)

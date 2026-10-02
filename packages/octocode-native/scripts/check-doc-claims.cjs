@@ -180,16 +180,18 @@ const ignoredPaths = new Set([
   // Separate checkouts have their own validation; keep this scan in the current tree.
   path.join(repoRoot, '.claude/worktrees'),
   path.join(repoRoot, 'packages/octocode-native/scripts/check-doc-claims.cjs'),
-  path.join(repoRoot, 'skills/octocode-research/scripts/check-guidance.mjs'),
-  path.join(repoRoot, 'packages/octocode/skills/octocode-research/scripts/check-guidance.mjs'),
 ]);
+// The research skill's guidance checker lists retired grammar as forbidden
+// patterns; every staged copy of the skill (CLI package, plugins, releases)
+// carries the same list.
+const GUIDANCE_CHECKER_SUFFIX = path.join('skills', 'octocode-research', 'scripts', 'check-guidance.mjs');
 const activeExtensions = new Set(['.md', '.rs', '.ts', '.mts', '.cts', '.js', '.mjs', '.cjs']);
 const fixtureReposRoot = path.join(repoRoot, 'octocode-local-testing/repos');
 function scanRetiredCliGrammar(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (ignoredDirs.has(entry.name)) continue;
     const file = path.join(dir, entry.name);
-    if (ignoredPaths.has(file)) continue;
+    if (ignoredPaths.has(file) || file.endsWith(GUIDANCE_CHECKER_SUFFIX)) continue;
     if (entry.isDirectory()) {
       // Downloaded third-party fixtures are not maintained Octocode source.
       // Keep checking the tracked README beside them.

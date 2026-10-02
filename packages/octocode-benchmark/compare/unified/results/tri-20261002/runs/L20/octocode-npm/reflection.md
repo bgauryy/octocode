@@ -1,0 +1,7 @@
+**1. Helped:** The first `localSearch` (text search for `GetResolveJsonModule` in `*.go`) was the key call. It returned the definition and all five consumers in one pass with line numbers and snippets. The second call, `localGetFileContent` with a line range on `compileroptions.go` and a `matchString` on `showconfig.go`, read the exact bytes of the default logic and the `--showConfig` dependency list.
+
+**2. Did not help:** The tool's returned paths were relative to `<checkout>/tsc/internal/`, which doesn't look like the real TypeScript repo layout. I couldn't reconcile that and just reported the paths as returned. I never ran `lspGetSemantics`, even though the search suggested it, so reference tracing was skipped. The first read was flagged `partial: true`, though the content looked complete. I also never verified the pinned commit SHA from within the tools.
+
+**3. Next time:** I'd run `lspGetSemantics` references on `GetResolveJsonModule`. I'd also run a second text search for direct `.ResolveJsonModule` field reads, and for tests and baselines. I'd check the checkout's directory layout first to settle the path oddity, and I'd verify the commit.
+
+**4. Confidence:** High on the definition and the five getter callers, since I read exact lines for the definition and the showconfig entry. Medium on completeness, because there was no LSP check, no field-access search, and no test coverage.

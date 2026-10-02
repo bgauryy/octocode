@@ -7,6 +7,14 @@ Prefer each package's `AGENTS.md`, `ARCHITECTURE.md`, and `docs/` for its implem
 - **NEVER `git commit`.** The human/checkpoint bot owns commits. A background process continuously runs `git add -A`, so a commit can sweep unrelated work into the wrong change.
 - **NEVER `git stash`.** It hides other sessions' work and races the checkpoint bot. Preserve concurrent edits; compare a baseline with `git show <rev>:<path>`.
 
+## Data is quality — never trim, always paginate
+
+**Major rule.** Tool output never drops or truncates evidence to save bytes. When a result is large, return a complete page plus an executable `next.*` continuation that reaches every remaining row, line, file, or patch exactly once; disclose any terminal limit explicitly.
+- Byte reductions may only remove duplication (repeated keys, prefixes, identities, echoes) or metadata that carries no evidence. Every listed item, scanned range, match, coverage fact, and warning stays.
+- A preview, clip, or summary is allowed only when the same response carries the lossless continuation to the full data (or the caller opted in to the shorter view).
+- A page must fit its response window; a continuation must never skip unshown data. Silent gaps are correctness defects, not efficiency trade-offs.
+- Optimize for quality × token efficiency: fewer calls and less duplication, never less evidence.
+
 ## Dogfood first
 
 Use the local CLI, MCP, or a relevant skill before raw reads/searches: `rg`/`grep` → `localSearch`; `cat`/`head`/`sed` → `localFetch`; `ls`/`find` → `structureSearch`; symbols → `astSearch`/`lspSearch`.
@@ -18,7 +26,7 @@ $OCTO scheme <name> --compact
 $OCTO <toolName> '{"queries":[…]}'
 ```
 
-Check the live schema before calling. Include `goal` and `reasoning`. `localSearch` uses `path` + `searchText`, with `pageSize`/`maxMatchesPerFile`; it has no `operation`, `directory`, `maxResults`, `limit`, or `maxFiles`. For file discovery, `structureSearch` requires `operation:"files"` with `names`/`pathPattern`; its default operation is `tree`.
+Check the live schema before calling. Include `goal` and `reasoning`. `localSearch` uses `path` + `searchText`, with `pageSize`/`maxMatchesPerFile`; it has no `operation`, `directory`, `maxResults`, `limit`, or `maxFiles`. For file discovery, `structureSearch` requires `operation:"files"` with `names` (basename or path globs) and/or `extensions`; its default operation is `tree`.
 
 Skills are the default entry point for research, architecture, and eval work:
 

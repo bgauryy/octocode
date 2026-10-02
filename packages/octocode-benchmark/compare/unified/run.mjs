@@ -134,7 +134,8 @@ async function session({ dir, prompt, worker, label, turns = maxTurns, timeout =
   let completed;
   try {
     const hasMcp = Object.keys(worker.profile.mcpServers ?? {}).length > 0;
-    boundary = await solverBoundary({ cwd, corpus, repoRoot: REPO_ROOT, mcp: hasMcp, statsHome: path.join(dir, 'native-home'), ...credentials });
+    const mcpServer = hasMcp ? mcpServersFor(worker, corpus).octocode ?? null : null;
+    boundary = await solverBoundary({ cwd, corpus, repoRoot: REPO_ROOT, mcp: hasMcp, mcpServer, statsHome: path.join(dir, 'native-home'), ...credentials });
     const doc = path.join(cwd, 'WORKER.md');
     fs.copyFileSync(worker.docPath, doc);
     const profile = structuredClone(worker);

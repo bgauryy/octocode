@@ -661,28 +661,85 @@ fn row_part_chars(part: usize, of: usize) -> usize {
     json_chars(&json!({"rowPart": {"part": part, "of": of}})) - 1
 }
 
-/// Serialized `"next":…,` a row carries under `data` (or at its top level).
-/// A split row keeps its `next.*` only on its first part, next to the head
-/// of its evidence; later parts omit it so each part set rebuilds the row.
-fn row_next_chars(row: &Value) -> usize {
+/// The part of a split row a `next.*` call rides. Page continuations
+/// (`next*`, `continue*`) resume after the row's last shown evidence, so they
+/// ride its last part: following one from an earlier part would silently
+/// skip the parts between. Every other call (drill-down, handoff, recovery)
+/// rides the first part, beside the head of the evidence. Middle parts carry
+/// none, so each call appears exactly once across the part set.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PartShare {
+    Whole,
+    First,
+    Middle,
+    Last,
+}
+
+impl PartShare {
+    fn of(part: usize, of: usize) -> Self {
+        match (part, of) {
+            (_, 1) => Self::Whole,
+            (1, _) => Self::First,
+            (part, of) if part == of => Self::Last,
+            _ => Self::Middle,
+        }
+    }
+
+    fn keeps(self, name: &str) -> bool {
+        let page = crate::runtime::response::is_page_continuation_name(name);
+        match self {
+            Self::Whole => true,
+            Self::First => !page,
+            Self::Middle => false,
+            Self::Last => page,
+        }
+    }
+}
+
+/// The `next` objects a row carries under `data` and at its top level.
+fn row_nexts(row: &Value) -> impl Iterator<Item = &Map<String, Value>> {
     [
         row.get("data").and_then(|data| data.get("next")),
         row.get("next"),
     ]
     .into_iter()
     .flatten()
-    .map(|next| json_chars(&json!({"next": next})) - 1)
-    .sum()
+    .filter_map(Value::as_object)
 }
 
-/// Drop the row-level continuations from a later `rowPart`.
-fn strip_row_next(value: &mut Value) {
-    if let Some(data) = value.get_mut("data").and_then(Value::as_object_mut) {
-        data.remove("next");
-    }
-    if let Some(row) = value.as_object_mut() {
-        row.remove("next");
-    }
+/// Serialized `"next":…,` chars a row's `share` keeps of its continuations.
+fn row_next_chars(row: &Value, share: PartShare) -> usize {
+    row_nexts(row)
+        .map(|next| {
+            let kept: Map<String, Value> = next
+                .iter()
+                .filter(|(name, _)| share.keeps(name))
+                .map(|(name, call)| (name.clone(), call.clone()))
+                .collect();
+            if kept.is_empty() {
+                0
+            } else {
+                json_chars(&json!({"next": kept})) - 1
+            }
+        })
+        .sum()
+}
+
+/// Keep only the continuations a row part rides (see [`PartShare`]).
+fn keep_row_next(value: &mut Value, share: PartShare) {
+    let mut retain = |slot: Option<&mut Map<String, Value>>| {
+        let Some(slot) = slot else {
+            return;
+        };
+        if let Some(next) = slot.get_mut("next").and_then(Value::as_object_mut) {
+            next.retain(|name, _| share.keeps(name));
+            if next.is_empty() {
+                slot.remove("next");
+            }
+        }
+    };
+    retain(value.get_mut("data").and_then(Value::as_object_mut));
+    retain(value.as_object_mut());
 }
 
 /// Page-one share of `capacity` for rows of `sizes`: an equal split, where a
@@ -713,9 +770,10 @@ struct Placed {
 /// Row-aware pages: pack whole rows (or fragments of oversized rows) into
 /// complete envelopes. `responseCharOffset` addresses the zero-based page.
 /// The first page gives every row a fair share of the budget, so each row
-/// shows its head (and its `next.*`) before any row continues; the rest of
-/// each row follows in row order. Pages are assigned from fragment sizes;
-/// only the requested page is built.
+/// shows its head (with its drill-downs and handoffs) before any row
+/// continues; the rest of each row follows in row order, and a split row's
+/// page continuations ride its last part ([`PartShare`]). Pages are assigned
+/// from fragment sizes; only the requested page is built.
 fn paginate_rows(
     mut structured: Map<String, Value>,
     full: &str,
@@ -752,16 +810,21 @@ fn paginate_rows(
                 .saturating_sub(1 + reserves[position] + part_overhead)
                 .max(1)
         };
-        let next_chars = row_next_chars(&row);
+        let next_chars = row_next_chars(&row, PartShare::Whole);
+        let kept_next_chars = [PartShare::First, PartShare::Middle, PartShare::Last]
+            .map(|share| row_next_chars(&row, share));
         let mut fragments = Vec::new();
         arena.plan(row, head, row_budget, &mut fragments);
         let of = fragments.len();
         for (index, (fragment, chars)) in fragments.into_iter().enumerate() {
             let part = index + 1;
-            let (added, stripped) = if part == 1 {
-                (reserves[position], 0)
-            } else {
-                (0, next_chars)
+            let share = PartShare::of(part, of);
+            let added = if part == 1 { reserves[position] } else { 0 };
+            let stripped = match share {
+                PartShare::Whole => 0,
+                PartShare::First => next_chars - kept_next_chars[0],
+                PartShare::Middle => next_chars - kept_next_chars[1],
+                PartShare::Last => next_chars - kept_next_chars[2],
             };
             let part_chars = if of > 1 { row_part_chars(part, of) } else { 0 };
             let chars = (chars + 1 + part_chars + added).saturating_sub(stripped);
@@ -831,16 +894,15 @@ fn paginate_rows(
         .into_iter()
         .map(|p| {
             let mut value = arena.materialize(&p.fragment);
-            if p.part == 1 {
-                if let (Some(fields), Some(data)) = (
+            if p.part == 1
+                && let (Some(fields), Some(data)) = (
                     volatile[p.row].take(),
                     value.get_mut("data").and_then(Value::as_object_mut),
-                ) {
-                    data.extend(fields);
-                }
-            } else {
-                strip_row_next(&mut value);
+                )
+            {
+                data.extend(fields);
             }
+            keep_row_next(&mut value, PartShare::of(p.part, p.of));
             if p.of > 1 {
                 value["rowPart"] = json!({"part": p.part, "of": p.of});
             }
@@ -1775,7 +1837,8 @@ mod lazy_page_tests {
     }
 
     /// B2: one broad row must not fill the first pages alone; every row of a
-    /// batch shows its head on page one, within the budget.
+    /// batch shows its head on page one, within the budget. Each split row's
+    /// page continuation waits for its last part.
     #[test]
     fn the_first_page_shows_every_rows_head() {
         let rows = (0..5)
@@ -1802,20 +1865,13 @@ mod lazy_page_tests {
             .as_array()
             .expect("rows")
             .iter()
-            .map(|row| {
-                (
-                    row["index"].as_u64(),
-                    row["rowPart"]["part"].as_u64(),
-                    row["data"].get("next").is_some(),
-                )
-            })
+            .map(|row| (row["index"].as_u64(), row["rowPart"]["part"].as_u64()))
             .collect();
         assert_eq!(
             heads,
-            (0..5)
-                .map(|index| (Some(index), Some(1), true))
-                .collect::<Vec<_>>()
+            (0..5).map(|index| (Some(index), Some(1))).collect::<Vec<_>>()
         );
+        let mut carriers = std::collections::BTreeMap::new();
         for (page, pagination) in &pages {
             assert!(
                 pagination.char_length <= 20_000,
@@ -1823,29 +1879,56 @@ mod lazy_page_tests {
                 pagination.char_length
             );
             assert!(pagination.oversized.is_none(), "{page:?}");
+            for row in page["results"].as_array().expect("rows") {
+                let part = row["rowPart"]["part"].as_u64().expect("split");
+                let of = row["rowPart"]["of"].as_u64().expect("split");
+                if row["data"].get("next").is_some() {
+                    assert_eq!(part, of, "{row}");
+                    *carriers.entry(row["index"].as_u64()).or_insert(0) += 1;
+                }
+            }
         }
+        assert_eq!(carriers.len(), 5, "{carriers:?}");
+        assert!(carriers.values().all(|count| *count == 1), "{carriers:?}");
         assert_eq!(delivered(&pages).len(), 1_500);
     }
 
-    /// B3: a split row's `next.*` rides its first part, beside the head of its
-    /// evidence, and appears exactly once.
+    /// B3: a split row's page continuation rides its last part, so a caller
+    /// following it never skips the parts in between; a drill-down rides the
+    /// first part, beside the head of the evidence. Each appears once.
     #[test]
-    fn split_row_next_travels_with_its_first_part() {
-        let pages = walk(&envelope(), 1_000);
+    fn split_row_continuations_ride_the_part_they_follow() {
+        let mut structured = envelope();
+        structured["results"][0]["data"]["next"]["readTopMatch"] =
+            json!({"tool": "localFetch", "query": {"path": "a.rs"}});
+        structured["results"][0]["data"]["next"]["nextPage"] =
+            json!({"tool": "localSearch", "query": {"page": 2}});
+        let pages = walk(&structured, 1_000);
         assert!(pages.len() > 2);
         let mut carriers = Vec::new();
+        let mut parts = 0;
         for (page, _) in &pages {
             for row in page["results"].as_array().expect("rows") {
                 if row["index"] != 0 {
                     continue;
                 }
                 let part = row["rowPart"]["part"].as_u64().expect("row 0 is split");
-                if row["data"].get("next").is_some() {
-                    carriers.push(part);
+                parts = row["rowPart"]["of"].as_u64().expect("row 0 is split");
+                for name in row["data"]["next"].as_object().into_iter().flatten().map(|(name, _)| name) {
+                    carriers.push((name.clone(), part));
                 }
             }
         }
-        assert_eq!(carriers, vec![1]);
+        carriers.sort();
+        assert!(parts > 2, "{parts}");
+        assert_eq!(
+            carriers,
+            vec![
+                ("charOffset".to_owned(), 1),
+                ("nextPage".to_owned(), parts),
+                ("readTopMatch".to_owned(), 1),
+            ]
+        );
     }
 
     #[test]

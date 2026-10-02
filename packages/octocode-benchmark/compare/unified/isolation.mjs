@@ -61,21 +61,42 @@ export function verifySandbox(cwd, corpus = []) {
   } finally { fs.rmSync(privateDir, { recursive: true, force: true }); }
 }
 
-export function nativeSandboxPolicy(corpus) {
+// The native server runs outside the solver sandbox, so its own path policy is the only read
+// boundary unless this one denies evaluator surfaces too: answer keys/results (octocode-benchmark),
+// .octocode notes/credentials, Claude history/memory and gh credentials. Builds whose local tools
+// can read anywhere under HOME (published 19.x) would otherwise leak references. The session's own
+// stats home (under results/) stays readable; later SBPL rules win.
+export function nativeSandboxPolicy(corpus, statsHome = null) {
   if (process.platform !== 'darwin' || !fs.existsSync('/usr/bin/sandbox-exec')) throw new Error('Verified native corpus write isolation requires macOS sandbox-exec.');
-  return `(version 1)\n(allow default)\n${corpus.map(p => `(deny file-write* (subpath ${quoted(fs.realpathSync(p))}))`).join('\n')}\n`;
+  const home = os.homedir();
+  const reads = [
+    '(deny file-read* (regex #"(^|/)octocode-benchmark(/|$)") (regex #"(^|/)\\.octocode(/|$)") (regex #"(^|/)\\.git-credentials$"))',
+    `(deny file-read* (subpath ${quoted(path.join(home, '.claude'))}) (subpath ${quoted(path.join(home, '.config/gh'))}))`,
+    ...(statsHome ? [`(allow file-read* (subpath ${quoted(fs.realpathSync(statsHome))}))`] : []),
+  ];
+  return `(version 1)\n(allow default)\n${reads.join('\n')}\n${corpus.map(p => `(deny file-write* (subpath ${quoted(fs.realpathSync(p))}))`).join('\n')}\n`;
 }
 
-function upstreamMcp(corpus, repoRoot, statsHome, githubToken) {
+// The worker profile's MCP server command (expanded by mcpServersFor). `node` resolves to the
+// evaluator's own node binary; absent a server spec, the latest local build is used. An optional
+// `cwd` (default: repo root) lets package runners such as npx start outside the yarn workspace,
+// whose benchmark package.json the native sandbox denies.
+export function upstreamCommand(repoRoot, server) {
+  if (!server?.command) return [process.execPath, path.join(repoRoot, 'packages/octocode-mcp/dist/index.js')];
+  const command = server.command === 'node' ? process.execPath : execFileSync('/usr/bin/which', [server.command], { encoding: 'utf8' }).trim();
+  return [command, ...(server.args ?? [])];
+}
+
+function upstreamMcp(corpus, repoRoot, statsHome, githubToken, server) {
   const env = { ...process.env };
   propagateOctocodeEnv({ cwd: repoRoot, env });
   fs.mkdirSync(statsHome, { recursive: true });
   const nativeProfile = path.join(statsHome, 'native-readonly.sb');
-  fs.writeFileSync(nativeProfile, nativeSandboxPolicy(corpus));
+  fs.writeFileSync(nativeProfile, nativeSandboxPolicy(corpus, statsHome));
   const config = path.join(getOctocodeHome(), '.octocoderc');
   if (fs.existsSync(config)) fs.copyFileSync(config, path.join(statsHome, '.octocoderc'));
-  const child = spawn('/usr/bin/sandbox-exec', ['-f', nativeProfile, process.execPath, path.join(repoRoot, 'packages/octocode-mcp/dist/index.js')], {
-    detached: true, cwd: repoRoot, env: { ...env, ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}), OCTOCODE_HOME: statsHome, OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: 'persistent', ENABLE_LOCAL: 'true', WORKSPACE_ROOT: corpus[0] ?? repoRoot, ALLOWED_PATHS: corpus.join(','), DISABLE_TOOLS: 'astRewrite,ghCloneRepo' }, stdio: ['pipe', 'pipe', 'pipe'],
+  const child = spawn('/usr/bin/sandbox-exec', ['-f', nativeProfile, ...upstreamCommand(repoRoot, server)], {
+    detached: true, cwd: server?.cwd ?? repoRoot, env: { ...env, ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}), OCTOCODE_HOME: statsHome, OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: 'persistent', ENABLE_LOCAL: 'true', WORKSPACE_ROOT: corpus[0] ?? repoRoot, ALLOWED_PATHS: corpus.join(','), DISABLE_TOOLS: 'astRewrite,ghCloneRepo' }, stdio: ['pipe', 'pipe', 'pipe'],
   });
   let buffer = '', id = 0;
   const waiting = new Map();
@@ -124,7 +145,7 @@ export function evaluatorCredentials() {
   return { githubToken, oauthToken };
 }
 
-export async function solverBoundary({ cwd, corpus, repoRoot, mcp = false, statsHome, githubToken, oauthToken, githubFetch = fetch }) {
+export async function solverBoundary({ cwd, corpus, repoRoot, mcp = false, mcpServer = null, statsHome, githubToken, oauthToken, githubFetch = fetch }) {
   const sandboxProfile = verifySandbox(cwd, corpus);
   if (!oauthToken && !process.env.ANTHROPIC_API_KEY) throw new Error('Claude authentication must be supplied by evaluator outside isolated solver home.');
   const secret = randomBytes(24).toString('hex');
@@ -135,7 +156,7 @@ export async function solverBoundary({ cwd, corpus, repoRoot, mcp = false, stats
   const sockets = new Set();
   const close = async () => { for (const s of sockets) s.destroy(); await Promise.all([upstream?.close(), shutdown(gateway), shutdown(github)]); };
   try {
-    upstream = mcp ? upstreamMcp(corpus, repoRoot, statsHome, githubToken) : null;
+    upstream = mcp ? upstreamMcp(corpus, repoRoot, statsHome, githubToken, mcpServer) : null;
     github = http.createServer(async (req, res) => {
       if (!['GET', 'HEAD'].includes(req.method)) { traffic.githubRejectedWrites++; res.writeHead(405); res.end('Read-only gateway: REST GET/HEAD only; GraphQL POST is unavailable.'); return; }
       traffic.githubGetRequests++;

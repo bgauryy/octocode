@@ -11,9 +11,9 @@ export const REPOS = path.join(TESTING, 'repos');
 export const FIXTURES = path.join(TESTING, 'fixtures');
 export const RESULTS = path.join(TESTING, 'results');
 
-export async function startServer({ env = {}, timeoutMs = Number(process.env.OCTOCODE_TEST_CALL_TIMEOUT_MS ?? 240_000) } = {}) {
+export async function startServer({ env = {}, cwd = ROOT, timeoutMs = Number(process.env.OCTOCODE_TEST_CALL_TIMEOUT_MS ?? 240_000) } = {}) {
   const server = spawn(process.execPath, [path.join(ROOT, 'packages/octocode-mcp/dist/index.js')], {
-    cwd: ROOT,
+    cwd,
     env: { ...process.env, ...env },
     stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
   });

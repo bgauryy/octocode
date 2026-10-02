@@ -139,7 +139,10 @@ fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> O
         .collect();
     // A bare identifier is a literal lookup: clasify would route it straight
     // back to localSearch without a read, so offering it only adds a turn.
-    if goal.trim().is_empty() || super::clasify_locate::bare_identifier(&goal).is_some() {
+    if goal.trim().is_empty()
+        || super::clasify_locate::bare_identifier(&goal).is_some()
+        || generic_read_goal(&goal)
+    {
         return None;
     }
     let mut read = Map::new();
@@ -165,6 +168,28 @@ fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> O
             "questions": [{"id": "target", "type": "locate", "ask": goal}],
         },
     }))
+}
+
+/// Words that describe reading itself, not what to find in the file.
+const GENERIC_READ_WORDS: &[&str] = &[
+    "a", "about", "all", "an", "and", "any", "are", "as", "at", "body", "browse", "by", "check",
+    "code", "content", "contents", "context", "detail", "details", "do", "does", "entire",
+    "explore", "file", "files", "first", "flow", "flows", "for", "from", "full", "get", "here",
+    "how", "i", "important", "in", "inspect", "into", "is", "it", "its", "key", "learn", "line",
+    "lines", "logic", "look", "lookup", "main", "me", "more", "next", "of", "on", "or", "overview",
+    "page", "pages", "part", "parts", "read", "relevant", "remaining", "rest", "review", "scan",
+    "section", "sections", "see", "skim", "source", "structure", "subset", "summary", "the",
+    "these", "this", "those", "to", "top", "understand", "understanding", "we", "what", "where",
+    "which", "whole",
+];
+
+/// Whether a read goal names nothing to locate ("read key sections",
+/// "understand this code"): a locate over it judges every window against the
+/// act of reading and only adds provider calls.
+fn generic_read_goal(goal: &str) -> bool {
+    goal.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .all(|word| GENERIC_READ_WORDS.contains(&word.to_lowercase().as_str()))
 }
 
 /// Whether a search term already names what it wants, so its hits are the
@@ -373,6 +398,32 @@ mod tests {
             assert!(
                 large_read_handoff(tool, &query, data.as_object().unwrap()).is_none(),
                 "{query}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_generic_read_goal_gets_no_large_read_locate() {
+        let paged = json!({"totalLines":8615,"pagination":{"hasMore":true}});
+        for goal in [
+            "read key sections",
+            "Understand the flow",
+            "read the rest of this file",
+            "lookup: subset of the main sections",
+            "understand this code",
+        ] {
+            let query = json!({"path":"src/server.c","goal":goal,"reasoning":"r"});
+            assert!(
+                large_read_handoff("localFetch", &query, paged.as_object().unwrap()).is_none(),
+                "{goal}"
+            );
+        }
+        // A goal with one content term still names a target to locate.
+        for goal in ["understand the eviction policy", "read key sections on retries"] {
+            let query = json!({"path":"src/server.c","goal":goal,"reasoning":"r"});
+            assert!(
+                large_read_handoff("localFetch", &query, paged.as_object().unwrap()).is_some(),
+                "{goal}"
             );
         }
     }

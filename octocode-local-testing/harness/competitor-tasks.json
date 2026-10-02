@@ -16,6 +16,7 @@
       "kind": "local",
       "source": "W1 (workflow-rating-2026-10-02)",
       "question": "Where is toValidURL defined in excalidraw?",
+      "goal": "Find toValidURL def",
       "truth": {
         "hits": [
           { "file": "packages/common/src/url.ts", "line": 21 }
@@ -44,6 +45,7 @@
       "kind": "local",
       "source": "W1 read step",
       "question": "Read the whole toValidURL function body.",
+      "goal": "Read toValidURL body",
       "truth": {
         "range": {
           "file": "packages/common/src/url.ts",
@@ -65,6 +67,13 @@
           }
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "rg -n -C30 'export const toValidURL' $T/tsx/packages/common/src/url.ts",
+          "parse": "numbered",
+          "file": "packages/common/src/url.ts"
+        }
+      ],
       "competitor": [
         {
           "sh": "sed -n 21,45p $T/tsx/packages/common/src/url.ts",
@@ -80,6 +89,7 @@
       "kind": "local",
       "source": "W1 callers",
       "question": "Which call sites call toValidURL?",
+      "goal": "toValidURL call sites",
       "truth": {
         "exactHits": [
           { "file": "packages/excalidraw/renderer/staticSvgScene.ts", "line": 359 },
@@ -113,6 +123,7 @@
       "beta": true,
       "source": "W2",
       "question": "Which files directly import packages/excalidraw/data/library.ts (aliases included)?",
+      "goal": "Importers of library.ts",
       "truth": {
         "exactFiles": [
           "excalidraw-app/App.tsx",
@@ -151,6 +162,7 @@
       "kind": "local",
       "source": "W3 (literal-known path)",
       "question": "Where does tokio force Poll::Pending once the coop budget is exhausted?",
+      "goal": "Where coop forces Pending",
       "truth": {
         "range": {
           "file": "tokio/src/task/coop/mod.rs",
@@ -179,6 +191,17 @@
           }
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "rg -n register_waker $T/rust/tokio/src/task/coop",
+          "parse": "rg"
+        },
+        {
+          "sh": "rg -n -C30 'register_waker\\(cx\\);' $T/rust/tokio/src/task/coop/mod.rs",
+          "parse": "numbered",
+          "file": "tokio/src/task/coop/mod.rs"
+        }
+      ],
       "competitor": [
         {
           "sh": "rg -n register_waker $T/rust/tokio/src/task/coop",
@@ -198,6 +221,7 @@
       "kind": "local",
       "source": "W10 (matchString path)",
       "question": "Where does the runtime Builder reject zero worker threads (2,270-line builder.rs)?",
+      "goal": "Zero worker threads check",
       "truth": {
         "hits": [
           { "file": "tokio/src/runtime/builder.rs", "line": 583 }
@@ -231,6 +255,7 @@
       "kind": "local",
       "source": "W11b (pagination integrity)",
       "question": "Every line mentioning budget (case-insensitive) in tokio/src.",
+      "goal": "All budget mentions",
       "truth": {
         "count": 182
       },
@@ -265,6 +290,7 @@
       "kind": "local",
       "source": "localSearch PLAN T1 (L03 #1)",
       "question": "All run_on_commit lines in django/db.",
+      "goal": "run_on_commit lines",
       "truth": {
         "exactHits": [
           { "file": "django/db/backends/base/base.py", "line": 102 },
@@ -310,6 +336,7 @@
       "kind": "local",
       "source": "localSearch PLAN T4",
       "question": "Every ctx.Done() line across prometheus.",
+      "goal": "Every ctx.Done() line",
       "truth": {
         "count": 121
       },
@@ -344,6 +371,7 @@
       "kind": "local",
       "source": "localSearch PLAN T6",
       "question": "Every whole-word try_read_output line in tokio.",
+      "goal": "try_read_output lines",
       "truth": {
         "exactHits": [
           { "file": "tokio/src/runtime/task/harness.rs", "line": 281 },
@@ -387,6 +415,7 @@
       "kind": "local",
       "source": "localFetch PLAN R2 (L03, 4 ranges of one file)",
       "question": "Read lines 95-105, 255-265, 340-350 and 410-420 of django base.py.",
+      "goal": "Read base.py ranges",
       "truth": {
         "ranges": [
           {
@@ -440,6 +469,7 @@
       "kind": "local",
       "source": "structureSearch PLAN D2",
       "question": "List the *_test.go files under prometheus scrape/.",
+      "goal": "scrape test files",
       "truth": {
         "exactFiles": [
           "scrape/helpers_test.go",
@@ -475,6 +505,7 @@
       "kind": "local",
       "source": "structureSearch PLAN D4",
       "question": "List every .py file under django/db.",
+      "goal": "List django/db .py files",
       "truth": {
         "exactFiles": [
           "django/db/__init__.py",
@@ -634,6 +665,7 @@
       "kind": "local",
       "source": "this repo (live truth)",
       "question": "Where is merge_near_windows defined in octocode-native?",
+      "goal": "Find merge_near_windows",
       "truth": {
         "live": {
           "file": "packages/octocode-native/crates/runtime/src/runtime/clasify_batch.rs",
@@ -663,6 +695,7 @@
       "kind": "local",
       "source": "all-tools rating astSearch match",
       "question": "Every $X.unwrap() call in tokio/src/fs.",
+      "goal": "unwrap calls in fs",
       "truth": {
         "exactHits": [
           { "file": "tokio/src/fs/read_dir.rs", "line": 105 },
@@ -699,6 +732,7 @@
       "kind": "local",
       "source": "astSearch PLAN T2",
       "question": "Every Pin::new_unchecked($A) call in tokio/src.",
+      "goal": "Pin::new_unchecked calls",
       "truth": {
         "exactHits": [
           { "file": "tokio/src/future/maybe_done.rs", "line": 110 },
@@ -737,6 +771,7 @@
       "kind": "local",
       "source": "astSearch PLAN T1b (outline named_pipe.rs)",
       "question": "Outline tokio named_pipe.rs: its top-level types with start lines and the NamedPipeServer methods.",
+      "goal": "Outline named_pipe.rs",
       "truth": {
         "hits": [
           { "file": "named_pipe.rs", "line": 105 },
@@ -777,6 +812,7 @@
       "kind": "local",
       "source": "lspSearch PLAN P1",
       "question": "References of Harness::try_read_output (harness.rs:281) only, not the same-named RawTask/vtable symbols.",
+      "goal": "try_read_output refs",
       "truth": {
         "exactHits": [
           { "file": "tokio/src/runtime/task/harness.rs", "line": 281 },
@@ -810,6 +846,7 @@
       "surface": "cli",
       "source": "W4 (preview only)",
       "question": "Preview rewriting $A.indexOf($B) !== -1 to $A.includes($B) in excalidraw common/src.",
+      "goal": "indexOf to includes",
       "truth": {
         "text": [
           "\\.includes\\(\"Chrome\"\\)",
@@ -844,6 +881,7 @@
       "surface": "cli",
       "source": "W9 / ghCloneRepo PLAN T2 (fresh sparse clone)",
       "question": "Clone express v5.1.0 (lib/ only) and find where createApplication is defined.",
+      "goal": "Find createApplication",
       "truth": {
         "hits": [
           { "file": "lib/express.js", "line": 36 }
@@ -887,6 +925,7 @@
       "codeSearch": true,
       "source": "W5",
       "question": "What is tokio's default max_blocking_threads and in which file is it set?",
+      "goal": "Blocking threads default",
       "truth": {
         "files": [
           "tokio/src/runtime/builder.rs"
@@ -927,6 +966,7 @@
       "kind": "github",
       "source": "W5 pinned read",
       "question": "At tokio facc6fc, on which line of builder.rs is the max_blocking_threads default set?",
+      "goal": "Line of blocking default",
       "truth": {
         "hits": [
           { "file": "tokio/src/runtime/builder.rs", "line": 324 }
@@ -960,6 +1000,7 @@
       "kind": "github",
       "source": "ghGetFileContent PLAN T1 (regex grep map)",
       "question": "At tokio facc6fc, list every `pub fn` line of builder.rs with its line number.",
+      "goal": "pub fns in builder.rs",
       "truth": {
         "exactHits": [
           { "file": "tokio/src/runtime/builder.rs", "line": 278 },
@@ -1036,6 +1077,7 @@
       "kind": "github",
       "source": "W8",
       "question": "In express@4.21.2, what status does res.redirect default to (release-pinned source)?",
+      "goal": "redirect default status",
       "truth": {
         "hits": [
           { "file": "lib/response.js", "line": 949 }
@@ -1063,8 +1105,23 @@
             "branch": "{{hint:viewReleaseSource.query.branch}}",
             "path": "lib/response.js",
             "matchString": "res.redirect = function",
-            "block": true
+            "contextLines": 5
           }
+        }
+      ],
+      "unfiltered": [
+        {
+          "sh": "npm view express@4.21.2",
+          "parse": "text"
+        },
+        {
+          "sh": "npm view express@4.21.2 gitHead",
+          "parse": "text"
+        },
+        {
+          "sh": "gh api 'repos/expressjs/express/contents/lib/response.js?ref=1faf228935aa0a13111f92c28ee795be64ce3f0f' -H 'Accept: application/vnd.github.raw' | grep -n -C5 'res.redirect = function'",
+          "parse": "numbered",
+          "file": "lib/response.js"
         }
       ],
       "competitor": [
@@ -1073,7 +1130,7 @@
           "parse": "text"
         },
         {
-          "sh": "gh api 'repos/expressjs/express/contents/lib/response.js?ref=1faf228935aa0a13111f92c28ee795be64ce3f0f' -H 'Accept: application/vnd.github.raw' | grep -n -A5 'res.redirect = function'",
+          "sh": "gh api 'repos/expressjs/express/contents/lib/response.js?ref=1faf228935aa0a13111f92c28ee795be64ce3f0f' -H 'Accept: application/vnd.github.raw' | grep -n -C5 'res.redirect = function'",
           "parse": "numbered",
           "file": "lib/response.js"
         }
@@ -1085,6 +1142,7 @@
       "kind": "github",
       "source": "artifactSearch PLAN A6",
       "question": "requests==2.31.0 on PyPI: confirm the version and its requires_python.",
+      "goal": "requests 2.31.0 metadata",
       "truth": {
         "text": [
           "2\\.31\\.0",
@@ -1102,6 +1160,12 @@
           }
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "curl -s https://pypi.org/pypi/requests/2.31.0/json",
+          "parse": "text"
+        }
+      ],
       "competitor": [
         {
           "sh": "curl -s https://pypi.org/pypi/requests/2.31.0/json | jq -c '.info|{version,requires_python,license}'",
@@ -1115,6 +1179,7 @@
       "kind": "github",
       "source": "artifactSearch PLAN A7",
       "question": "serde 1.0.100 on crates.io: license and publish date.",
+      "goal": "serde 1.0.100 license",
       "truth": {
         "text": [
           "1\\.0\\.100",
@@ -1133,6 +1198,12 @@
           }
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "curl -s -A octocode-competitors https://crates.io/api/v1/crates/serde/1.0.100",
+          "parse": "text"
+        }
+      ],
       "competitor": [
         {
           "sh": "curl -s -A octocode-competitors https://crates.io/api/v1/crates/serde/1.0.100 | jq -c '.version|{num,license,created_at}'",
@@ -1146,6 +1217,7 @@
       "kind": "github",
       "source": "ghStructure PLAN T5",
       "question": "Find _exception_handler.py in starlette at 63c5760d.",
+      "goal": "Find _exception_handler",
       "truth": {
         "exactFiles": [
           "starlette/_exception_handler.py"
@@ -1176,6 +1248,7 @@
       "kind": "github",
       "source": "ghStructure PLAN T2",
       "question": "List the files directly inside starlette/ at 63c5760d.",
+      "goal": "Files in starlette/",
       "truth": {
         "exactFiles": [
           "starlette/__init__.py",
@@ -1235,6 +1308,7 @@
       "kind": "github",
       "source": "ghSearchRepo PLAN R1 shape",
       "question": "Which repository is the most-starred Rust repo matching 'tokio'?",
+      "goal": "Top Rust repo for tokio",
       "truth": {
         "text": [
           "tokio-rs/tokio"
@@ -1267,6 +1341,7 @@
       "kind": "github",
       "source": "ghSearchHistory PLAN T1",
       "question": "Which merged PR fixed pydantic issue #13786?",
+      "goal": "PR that fixed #13786",
       "truth": {
         "text": [
           "13825",
@@ -1287,6 +1362,12 @@
           }
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "gh pr list -R pydantic/pydantic --search 13786 --state all",
+          "parse": "text"
+        }
+      ],
       "competitor": [
         {
           "sh": "gh pr list -R pydantic/pydantic --search 13786 --state all --json number,title,state,mergedAt",
@@ -1300,6 +1381,7 @@
       "kind": "github",
       "source": "ghSearchHistory PLAN T3 (date-frozen)",
       "question": "The last 5 commits touching fastapi/routing.py before 2026-09-01.",
+      "goal": "Last 5 routing.py commits",
       "truth": {
         "text": [
           "d62354434b",
@@ -1323,6 +1405,12 @@
           }
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "gh api 'repos/fastapi/fastapi/commits?path=fastapi/routing.py&until=2026-09-01T00:00:00Z&per_page=5'",
+          "parse": "text"
+        }
+      ],
       "competitor": [
         {
           "sh": "gh api 'repos/fastapi/fastapi/commits?path=fastapi/routing.py&until=2026-09-01T00:00:00Z&per_page=5' --jq '.[]|.sha[0:10]+\" \"+.commit.committer.date+\" \"+(.commit.message|split(\"\\n\")[0])'",
@@ -1336,6 +1424,7 @@
       "kind": "github",
       "source": "W6",
       "question": "cli/cli PR #13541: where is MatchCategory defined and used, when was it merged and what is the merge commit?",
+      "goal": "MatchCategory in PR 13541",
       "truth": {
         "exactFiles": [
           "pkg/cmd/discussion/shared/categories.go",
@@ -1387,6 +1476,7 @@
       "kind": "github",
       "source": "ghGetHistoryItem PLAN T1",
       "question": "fastapi PR #16403 summary: state, mergedAt, merge commit, size.",
+      "goal": "PR 16403 summary",
       "truth": {
         "text": [
           "2026-09-29T17:25:55Z",
@@ -1406,6 +1496,12 @@
           }
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "gh pr view 16403 -R fastapi/fastapi",
+          "parse": "text"
+        }
+      ],
       "competitor": [
         {
           "sh": "gh pr view 16403 -R fastapi/fastapi --json number,title,state,mergedAt,mergeCommit,changedFiles,additions,deletions",
@@ -1419,6 +1515,7 @@
       "kind": "github",
       "source": "W7 (bug RCA)",
       "question": "Which PR fixed cli/cli#14404 and what did it change in merge.go?",
+      "goal": "Fix PR for #14404",
       "truth": {
         "text": [
           "14429",
@@ -1441,6 +1538,20 @@
           "follow": "readFixPr"
         }
       ],
+      "unfiltered": [
+        {
+          "sh": "gh issue view 14404 -R cli/cli",
+          "parse": "text"
+        },
+        {
+          "sh": "gh pr list -R cli/cli --search 14404 --state merged",
+          "parse": "text"
+        },
+        {
+          "sh": "gh pr diff 14429 -R cli/cli",
+          "parse": "text"
+        }
+      ],
       "competitor": [
         {
           "sh": "gh api graphql -f query='{repository(owner:\"cli\",name:\"cli\"){issue(number:14404){closedByPullRequestsReferences(first:5,includeClosedPrs:true){nodes{number state mergedAt}}}}}'",
@@ -1458,6 +1569,7 @@
       "kind": "github",
       "source": "W11a (all patches of a 29-file PR)",
       "question": "Read every patch of cli/cli PR #13541.",
+      "goal": "Read all PR 13541 patches",
       "truth": {
         "exactFiles": [
           "acceptance/README.md",
@@ -1530,6 +1642,7 @@
       "codeSearch": true,
       "source": "ghSearchCode PLAN S1",
       "question": "Which starlette files use wrap_app_handling_exceptions?",
+      "goal": "wrap_app_handling users",
       "truth": {
         "files": [
           "starlette/routing.py",
@@ -1563,6 +1676,7 @@
       "kind": "github",
       "source": "W11a explicit walk (all patches of a 29-file PR, responseCharLength 50000 on every call)",
       "question": "Read every patch of cli/cli PR #13541, asking for the largest response page.",
+      "goal": "Read all PR 13541 patches",
       "truth": {
         "exactFiles": [
           "acceptance/README.md",
@@ -1640,6 +1754,7 @@
       "kind": "clasify",
       "source": "W10 (prefilter locate) / clasify PLAN C1 shape",
       "question": "Where does the runtime Builder reject a worker thread count of zero? (builder.rs, 2,270 lines)",
+      "goal": "Zero worker threads check",
       "truth": {
         "hits": [
           { "file": "tokio/src/runtime/builder.rs", "line": 583 }
@@ -1695,6 +1810,7 @@
       "kind": "clasify",
       "source": "W3 (semantic locate)",
       "question": "Where is a task forced to return Pending because its coop budget is exhausted? (coop/mod.rs)",
+      "goal": "Where coop forces Pending",
       "truth": {
         "range": {
           "file": "tokio/src/task/coop/mod.rs",

@@ -1015,6 +1015,13 @@ pub fn is_remaining_continuation_name(name: &str) -> bool {
     has_prefix(&name, PAGE_CONTINUATION_PREFIXES) || has_prefix(&name, RESUME_CONTINUATION_PREFIXES)
 }
 
+/// A `next.*` name (any case) that continues this result after the evidence
+/// a row shows (`next*`, `continue*`): following it from an earlier part of
+/// a split row would skip the parts between, so it rides the row's last part.
+pub fn is_page_continuation_name(name: &str) -> bool {
+    has_prefix(&name.to_lowercase(), PAGE_CONTINUATION_PREFIXES)
+}
+
 /// Whether `value` holds, at any depth, an executable `{tool, query}` call
 /// under a key whose lowercased name satisfies `key_matches`.
 pub fn continuation(value: &Value, key_matches: &impl Fn(&str) -> bool) -> bool {
@@ -2420,6 +2427,7 @@ mod tests {
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(1),
             output_bytes: 16_000,
             walk_threads: None,
+            response_window: None,
         }
     }
 

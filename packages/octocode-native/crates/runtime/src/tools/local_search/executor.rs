@@ -41,14 +41,9 @@ const DEFAULT_MATCH_CONTENT_LENGTH: u32 = 200;
 const MAX_DEFAULT_MATCH_CONTENT_LENGTH: u32 = 4000;
 /// Rows per file when a result is too large to show whole.
 const DEFAULT_MAX_MATCHES_PER_FILE: u32 = 10;
-/// Estimated JSON bytes of the file and row entries one default-layout page
-/// may carry. A result within it is one page; a larger one is cut into pages
-/// of about this size, so walking it costs about total/budget calls.
-pub(super) const PAGE_BUDGET_BYTES: usize = 24_000;
-/// Estimated JSON bytes around one row's value (`{"line":N,"value":""},`).
-const ROW_OVERHEAD_BYTES: usize = 24;
-/// Estimated JSON bytes around one file's rows (`{"path":"","matches":[]},`).
-const FILE_OVERHEAD_BYTES: usize = 26;
+/// Row continuations that copy the query: `next.nextPage` and the clasify
+/// handoff's search resource.
+const ROW_QUERY_COPIES: usize = 2;
 /// Files per page for snippet views (the first page of a default-layout
 /// result larger than the budget); path-only list views stay at 100.
 const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
@@ -60,6 +55,7 @@ pub fn execute_local_search(
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
     walk_threads: Option<u32>,
+    response_window: Option<usize>,
 ) -> Result<LocalSearchResult, LocalSearchError> {
     cancel.check().map_err(cancelled)?;
     if query.search_text.is_empty() {
@@ -277,7 +273,23 @@ pub fn execute_local_search(
                 next: None,
             })?;
     }
-    let result_identity = fingerprint(query, &validated.canonical, &parsed.files, &parsed.stats);
+    // Pages are cut from serialized sizes so a default-layout page, with
+    // the row around it, fits one response window.
+    let streamed = streamed_layout(query);
+    let page_budget = crate::tools::stream_page::page_chars(
+        response_window,
+        crate::tools::stream_page::reserve_chars(
+            &normalized_query(query, streamed),
+            ROW_QUERY_COPIES,
+        ),
+    );
+    let result_identity = fingerprint(
+        query,
+        &validated.canonical,
+        &parsed.files,
+        &parsed.stats,
+        page_budget,
+    );
     // Kept only when the response will offer a continuation (below).
     let reusable =
         (!from_manifest && super::manifest::fits(&parsed).is_some()).then(|| parsed.clone());
@@ -390,30 +402,30 @@ pub fn execute_local_search(
     );
     // Rows render with workspace-relative paths, so a file entry costs its
     // root prefix too.
-    let prefix_bytes = match paths.workspace_relative(output_root).as_deref() {
+    let prefix_chars = match paths.workspace_relative(output_root).as_deref() {
         Some(".") => 0,
-        Some(relative) => relative.len() + 1,
-        None => output_root.as_os_str().len() + 1,
+        Some(relative) => crate::tools::stream_page::json_text_chars(relative) + 1,
+        None => crate::tools::stream_page::json_text_chars(&output_root.to_string_lossy()) + 1,
     };
-    let file_bytes = |file: &octocode_engine::types::RipgrepFile| {
-        file.path.len() + prefix_bytes + FILE_OVERHEAD_BYTES
+    let file_chars = |file: &octocode_engine::types::RipgrepFile| {
+        crate::tools::stream_page::json_text_chars(&file.path) + prefix_chars + FILE_ENTRY_CHARS
+    };
+    // matchOnly rows show their exact span clipped to the display bound.
+    let match_only_limit = (view == LocalSearchQueryResultView::MatchOnly)
+        .then_some(effective_match_content_length(query) as usize);
+    let row_chars = |matched: &octocode_engine::types::RipgrepMatch| {
+        row_chars(matched, match_only_limit, view == LocalSearchQueryResultView::MatchOnly)
     };
     let hits_total: usize = if list {
         0
     } else {
         parsed.files.iter().map(|file| file.matches.len()).sum()
     };
-    let result_bytes: usize = if list {
-        0
-    } else {
-        parsed
-            .files
-            .iter()
-            .map(|file| file_bytes(file) + file.matches.iter().map(row_bytes).sum::<usize>())
-            .sum()
-    };
-    let show_all =
-        !list && query.max_matches_per_file().is_none() && result_bytes <= PAGE_BUDGET_BYTES;
+    let show_all = !list
+        && query.max_matches_per_file().is_none()
+        && fits_within(&parsed.files, page_budget, |file| {
+            file_chars(file) + file.matches.iter().map(row_chars).sum::<usize>()
+        });
     let matches_per = query
         .max_matches_per_file()
         .unwrap_or(if show_all {
@@ -441,9 +453,17 @@ pub fn execute_local_search(
     // pages are cut from one row stream by the response budget, so a walk
     // never pages a hot file ten rows at a time. A caller layout keeps the
     // file-page x match-page grid.
-    let streamed = streamed_layout(query);
     let (shown, total_pages, files_per_page) = if streamed {
-        let mut pages = stream_pages(&parsed.files, matches_per as usize, show_all, file_bytes);
+        let mut pages = stream_pages(
+            &parsed.files,
+            matches_per as usize,
+            show_all,
+            page_budget,
+            StreamCosts {
+                file: &file_chars,
+                row: &row_chars,
+            },
+        );
         let total_pages = u32::try_from(pages.len()).unwrap_or(u32::MAX).max(1);
         let shown = if (page as usize) <= pages.len() {
             pages.swap_remove(page as usize - 1)
@@ -568,9 +588,8 @@ pub fn execute_local_search(
         streamed,
     );
     // Keep full values for identity, unique grouping and counts. The engine's
-    // match-only path emits exact spans, so apply the public display bound here.
-    let match_only_limit = (view == LocalSearchQueryResultView::MatchOnly)
-        .then_some(effective_match_content_length(query) as usize);
+    // match-only path emits exact spans, so apply the public display bound
+    // (`match_only_limit`) here.
     // Distribute the response value-char budget across the matches shown
     // on this page. `display_cap` is the tighter of the matchOnly display bound
     // and the budget-derived per-match cap; a giant match is clipped (flagged
@@ -847,9 +866,64 @@ pub fn execute_local_search(
     })
 }
 
-/// Estimated JSON bytes of one match row.
-fn row_bytes(matched: &octocode_engine::types::RipgrepMatch) -> usize {
-    matched.value.len() + ROW_OVERHEAD_BYTES
+/// Serialized chars of one file entry around its rows and path,
+/// `{"path":"","matches":[]},`.
+const FILE_ENTRY_CHARS: usize = 25;
+
+/// Serialized chars of one match row as a page shows it, with its separator.
+fn row_chars(
+    matched: &octocode_engine::types::RipgrepMatch,
+    display_cap: Option<usize>,
+    span_rows: bool,
+) -> usize {
+    let mut row = project_match(matched, display_cap);
+    if !span_rows {
+        row.column = None;
+    }
+    crate::tools::stream_page::json_chars(&row) + 1
+}
+
+/// Most chars a streamed file entry's `pagination` can take: its later rows
+/// are named as at most [`MAX_MORE_LINE_RANGES`] line ranges plus a count.
+fn pagination_chars(file: &octocode_engine::types::RipgrepFile) -> usize {
+    let digits = |n: u64| n.checked_ilog10().map_or(1, |log| log as usize + 1);
+    let total = file.matches.len();
+    let widest_line = file.matches.iter().map(|m| m.line).max().unwrap_or(0);
+    let ranges = total.saturating_sub(1).min(MAX_MORE_LINE_RANGES);
+    let more_lines = ranges * (2 * digits(u64::from(widest_line)) + 2)
+        + ",+ more".len()
+        + digits(total as u64);
+    let empty = ItemPagination {
+        current_page: None,
+        total_pages: None,
+        total_matches: u32::try_from(total).unwrap_or(u32::MAX),
+        has_more: true,
+        next_match_page: None,
+        more_lines: Some(String::new()),
+        out_of_range: false,
+    };
+    ",\"pagination\":".len() + crate::tools::stream_page::json_chars(&empty) + more_lines
+}
+
+/// Whether every file entry, with all its rows, fits `budget` chars.
+fn fits_within(
+    files: &[octocode_engine::types::RipgrepFile],
+    budget: usize,
+    entry_chars: impl Fn(&octocode_engine::types::RipgrepFile) -> usize,
+) -> bool {
+    let mut used = 0usize;
+    files.iter().all(|file| {
+        used = used.saturating_add(entry_chars(file));
+        used <= budget
+    })
+}
+
+/// Serialized sizes a streamed page is cut by.
+struct StreamCosts<'a> {
+    /// A file entry around its rows.
+    file: &'a dyn Fn(&octocode_engine::types::RipgrepFile) -> usize,
+    /// One match row.
+    row: &'a dyn Fn(&octocode_engine::types::RipgrepMatch) -> usize,
 }
 
 /// Rows one page shows: (file index, rank-order row range), in page order.
@@ -871,17 +945,19 @@ fn streamed_layout(q: &LocalSearchQuery) -> bool {
 
 /// Default-layout pages, cut from one row stream: each file's first
 /// `per_file` ranked rows in file order, then every file's remaining rows.
-/// Each page holds as much of the stream as fits [`PAGE_BUDGET_BYTES`] (at
-/// least one row); the first holds only first-pass rows of at most
-/// [`DEFAULT_SNIPPET_PAGE_SIZE`] files, so a large result opens with a lean
-/// overview. `whole` puts the
-/// entire result on one page. A file's rows on one page are always one
-/// contiguous rank range, and its later rows follow on later pages.
+/// Each page holds as much of the stream as fits `budget` serialized chars
+/// (at least one row), counting a file's `pagination` whenever its later
+/// rows may fall on a later page; the first holds only first-pass rows of
+/// at most [`DEFAULT_SNIPPET_PAGE_SIZE`] files, so a large result opens with
+/// a lean overview. `whole` puts the entire result on one page. A file's
+/// rows on one page are always one contiguous rank range, and its later
+/// rows follow on later pages.
 fn stream_pages(
     files: &[octocode_engine::types::RipgrepFile],
     per_file: usize,
     whole: bool,
-    file_bytes: impl Fn(&octocode_engine::types::RipgrepFile) -> usize,
+    budget: usize,
+    costs: StreamCosts<'_>,
 ) -> Vec<PageRows> {
     if whole {
         return vec![
@@ -905,6 +981,8 @@ fn stream_pages(
     let mut pages: Vec<PageRows> = Vec::new();
     let mut page: PageRows = Vec::new();
     let mut slot = std::collections::HashMap::<usize, usize>::new();
+    // Files whose `pagination` this page already counts.
+    let mut paged = std::collections::HashSet::<usize>::new();
     let mut used = 0usize;
     for (index, rows, overview) in first.chain(rest) {
         let file = &files[index];
@@ -915,21 +993,31 @@ fn stream_pages(
             rows.map(Some).collect()
         };
         for row in entries {
-            let cost = |page_has_file: bool| {
-                row.map_or(0, |row| row_bytes(&file.matches[row]))
-                    + if page_has_file { 0 } else { file_bytes(file) }
+            let more_after = row.is_some_and(|row| row + 1 < file.matches.len());
+            let cost = |page_has_file: bool, page_counts_pagination: bool| {
+                row.map_or(0, |row| (costs.row)(&file.matches[row]))
+                    + if page_has_file { 0 } else { (costs.file)(file) }
+                    + if more_after && !page_counts_pagination {
+                        pagination_chars(file)
+                    } else {
+                        0
+                    }
             };
             let has_file = slot.contains_key(&index);
-            let over_budget = used + cost(has_file) > PAGE_BUDGET_BYTES;
+            let over_budget = used + cost(has_file, paged.contains(&index)) > budget;
             let first_page_full =
                 pages.is_empty() && (!overview || (!has_file && page.len() >= first_page_files));
             if !page.is_empty() && (over_budget || first_page_full) {
                 pages.push(std::mem::take(&mut page));
                 slot.clear();
+                paged.clear();
                 used = 0;
             }
             let has_file = slot.contains_key(&index);
-            used += cost(has_file);
+            used += cost(has_file, paged.contains(&index));
+            if more_after {
+                paged.insert(index);
+            }
             let span = row.map_or(0..0, |row| row..row + 1);
             match slot.get(&index) {
                 Some(&position) => {
@@ -1914,8 +2002,12 @@ fn fingerprint(
     root: &std::path::Path,
     files: &[octocode_engine::types::RipgrepFile],
     stats: &octocode_engine::types::RipgrepStats,
+    page_budget: usize,
 ) -> String {
     let mut identity = serde_json::Map::new();
+    // The page cut: a continuation served under another response window
+    // would cut other pages, so it restarts instead of skipping rows.
+    identity.insert("pageChars".into(), json!(page_budget));
     identity.insert(
         "defaultExcludes".into(),
         json!(q.default_excludes.defaults()),

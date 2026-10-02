@@ -257,6 +257,7 @@ mod tests {
             deadline: Instant::now() + Duration::from_secs(30),
             output_bytes: 1 << 20,
             walk_threads: None,
+            response_window: None,
         }
     }
 

@@ -1,0 +1,7 @@
+1. **Helped:** A single `ghGetHistoryItem` call (operation `pullRequest`, #3866, with body, files and patches) answered the question. It returned the PR description, the `CHANGES.md` and upgrade-guide text, and the `core.py` diff with `_check_name_is_usable` and `_check_name_is_normalized`. That covered both the deprecation and the declarations that warn.
+
+2. **Did not help:** The patch output was paginated (`isPartial`, `contentPagination`). The test files, including `tests/test_options.py` and `tests/test_deprecations.py`, were cut off, and I never fetched the rest. Diffs also had `...` elisions, so I could cite hunks but not `path:line` numbers. The expected line-pinned citations are therefore missing from my answer, and I said so.
+
+3. **Next time:** I would follow up with `ghGetFileContent` at the `readAtMerge` ref (`06b2a67…`) using `matchString` on `_check_name_is_usable`. That would give exact line numbers for `core.py`. I would also use the `continuePatch` query to check the remaining tests, such as `test_deprecations.py`, for any warning case I missed.
+
+4. **Confidence:** High on the substance, because it comes straight from the merged diff and the PR's own docs. Medium on completeness, since part of the test diff went unread and the line citations are unpinned.

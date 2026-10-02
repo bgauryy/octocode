@@ -1,0 +1,345 @@
+{
+  "qid": "L04",
+  "worker": "rg-gh",
+  "started": "2026-10-02T15:29:40.217Z",
+  "promptSha256": "f4cee42b52338a0873fa6e71eaf9101319f6f13f49dc303f96b8491bb825ed2f",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 21223,
+  "status": "ok",
+  "answer": "**Short answer:** `@tool(parse_docstring=True)` builds an inferred Pydantic model from the function signature. It then rebuilds that model as a subset model, with argument descriptions taken from the Google-style `Args:` block and the model's `__doc__` set to the docstring summary. `StructuredTool.from_function` then uses that summary as the tool description. All paths are under `libs/core/langchain_core/`.\n\n**1. Decorator path**\n- `tools/convert.py:317-327`: `_tool_factory` calls `StructuredTool.from_function(...)`. It passes `parse_docstring` and `error_on_invalid_docstring` when `infer_schema` is true or an `args_schema` is given.\n- `tools/structured.py:258-265`: if `args_schema is None and infer_schema`, it calls `create_schema_from_function(name, source_function, parse_docstring=..., filter_args=_filter_schema_args(...))`.\n\n**2. Schema construction** (`tools/base.py:263-368`, `create_schema_from_function`)\n- It runs `validate_arguments(func)`, or the v1 variant when the annotations are Pydantic v1 (`base.py:~308-318`). The resulting `validated.model` is the inferred model.\n- It builds a filter list: `self`/`cls` for methods, plus `FILTERED_ARGS`. Injected args are added only when `include_injected` is false.\n- It calls `_infer_arg_descriptions(...)` at `base.py:343`.\n- It drops Pydantic's placeholder fields (`args`, `kwargs`, `v__duplicate_kwargs`) and any filtered args.\n- It calls `_create_subset_model(model_name, inferred_model, valid_properties, descriptions=arg_descriptions, fn_description=description)` at `base.py:363-368`.\n\n**3. Docstring parsing**\n- `_infer_arg_descriptions` (`base.py:170-201`) reads the type hints with `get_type_hints(include_extras=True)`.\n  - With `parse_docstring`, it calls `_parse_python_function_docstring`, which runs `inspect.getdoc` and then `_parse_google_docstring` (`base.py:126-150`).\n  - It then checks that every documented arg exists in the annotations (`_validate_docstring_args_against_annotations`, `base.py:152-167`). An unknown arg raises `ValueError`.\n  - Finally, for args the docstring doesn't cover, it falls back to the `Annotated[..., \"str\"]` or `FieldInfo.description` annotation (`base.py:196-200`, using `_get_annotation_description` at `base.py:105`).\n- `_parse_google_docstring` (`utils/function_calling.py:735-815`):\n  - It splits the docstring on blank lines (`\"\\n\\n\"`).\n  - The function description is the blocks before `Args:`, skipping `Returns:`/`Example:` blocks, joined with spaces (`:771-782`). If there is no docstring, the description is `\"\"`.\n  - It parses the `Args:` block line by line. The first line containing a colon latches the base indent. Deeper-indented lines are appended to the previous arg as continuations. Otherwise the line is split on the first `:` into a name and description. A `name (type)` form is reduced to `name` (`:789-815`).\n  - With `error_on_invalid_docstring`, it raises `ValueError(\"Found invalid Google-Style docstring.\")` if there is no docstring, or if annotated args exist but no `Args:` block follows the first block (`:756-767`, `:784-786`). It ignores `run_manager`, `callbacks`, `runtime` and `return` for this check.\n\n**4. Subset model** (`utils/pydantic.py:234-277`, `_create_subset_model_v2`)\n- Each field gets `description = descriptions.get(name, field.description)`, so the docstring description wins over any existing one. The default or `default_factory` and any metadata are kept.\n- It creates the model with `arbitrary_types_allowed=True`.\n- It sets `rtn.__doc__ = textwrap.dedent(fn_description or model.__doc__ or \"\")`, so the parsed summary becomes the schema's docstring.\n\n**5. Tool description** (`tools/structured.py:267-297`)\n- An explicit `description` wins.\n- If `description is None and not parse_docstring`, it uses the raw `func.__doc__` (`:268-269`). With `parse_docstring=True` this is skipped, so the description falls through to `args_schema.__doc__`, which is the parsed summary from step 4 (`:270-273`). For a dict schema it uses `args_schema[\"description\"]`.\n- It raises `ValueError` if the description is still `None`. When the description came from the docstring, it is dedented and stripped (`:288-297`).\n\n**Uncertainty:** I didn't run the code. The v1 versus v2 branch in `create_schema_from_function` and `_create_subset_model_v1` (`utils/pydantic.py:205`) are described only from a partial read. The `Tool` fallback in `convert.py:331-351` (used when `infer_schema=False`) doesn't parse docstrings.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 14240,
+    "cache_read_input_tokens": 41658,
+    "output_tokens": 2414,
+    "context_tokens": 55908,
+    "total_tokens": 58322,
+    "first_request_context": 4778,
+    "fixed_overhead_tokens": 23890,
+    "research_tokens": 34432,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 14240,
+      "cache_read_input_tokens": 41658,
+      "output_tokens": 866
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1548
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 14240,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 16036
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2982,
+      "cache_read_input_tokens": 1794,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2264,
+      "cache_read_input_tokens": 4776,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5690,
+      "cache_read_input_tokens": 7040,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2588,
+      "cache_read_input_tokens": 12730,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 716,
+      "cache_read_input_tokens": 15318,
+      "output_tokens": 801
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 14240,
+    "cache_read_input_tokens": 41658,
+    "output_tokens": 2414
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 2414,
+      "cacheReadInputTokens": 41658,
+      "cacheCreationInputTokens": 14240,
+      "webSearchRequests": 0,
+      "costUSD": 0.08945159999999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.08945159999999999,
+  "costVerified": true,
+  "duration_ms": 20676,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "Bash:invocation": 4
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core/tools; rg -n \\\"parse_docstring|def create_schema_from_function|def _infer_arg_descriptions|def _parse_python_function_docstring|def _get_filtered_args|description\\\" convert.py base.py | head -80\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core/tools; sed -n 126,205p base.py; sed -n 263,385p base.py; sed -n 275,350p convert.py; rg -n \\\"def _create_subset_model|def create_schema_from_function|def _create_subset_model_v2\\\" -A3 ../utils/pydantic.py | head -30; rg -n \\\"_create_subset_model_v2\\\" -A45 ../utils/pydantic.py | sed -n 1,80p; rg -n \\\"description|parse_docstring|from_function\\\" structured.py | head -40\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core; sed -n 245,300p tools/structured.py; rg -n \\\"def _parse_google_docstring\\\" -A50 tools/base.py ../langchain_core/utils/*.py | head -70\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core; sed -n 785,815p utils/function_calling.py\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "**1. Helped:** The first `rg -n \"parse_docstring|def create_schema_from_function|...\" convert.py base.py` call mapped the whole flow in one shot. The follow-up call printed `base.py:126-205` and `263-385`, `convert.py:275-350`, and `structured.py:245-300`, which covered the decorator, schema and description logic. The last call pulled `_parse_google_docstring` from `utils/function_calling.py`, where I had guessed it would be in `base.py`.\n\n**2. Did not help:**\n- Every Bash call printed `/dev/null: Operation not permitted`. This was harmless noise, but it appeared on every call.\n- The big combined `sed` and `rg` call blended outputs, so I had to work out line numbers by hand. Some of my cites were approximate (`base.py:~308-318`, `convert.py:331-351`).\n- My `rg ... -A45 | sed -n 1,80p` pipeline cut off output.\n- I never ran `git rev-parse HEAD` to confirm the checkout was at 67ee6cb63d. I only assumed it.\n- I stopped reading `_parse_google_docstring` at line 815, so the end of arg parsing is unseen.\n- I did not run any code.\n\n**3. Next time:** Verify HEAD first. Use `rg -n` with targeted `sed` ranges, one file per call, so line numbers are exact. Read each function to its end.\n\n**4. Confidence:** Medium-high. The control flow is directly read and cited. The weak spots are the approximate line numbers, the unconfirmed commit, the unread v1 branch and the tail of the parser.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 17034,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 699,
+      "context_tokens": 17036,
+      "total_tokens": 17735,
+      "first_request_context": 17036,
+      "fixed_overhead_tokens": 17036,
+      "research_tokens": 699,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 17034,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -696
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 17034,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": null,
+      "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+      "max_request_context": 17036
+    },
+    "cost_usd": 0.07513,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 17034,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 699,
+        "context_tokens": 17036,
+        "total_tokens": 17735,
+        "first_request_context": 17036,
+        "fixed_overhead_tokens": 17036,
+        "research_tokens": 699,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 17034,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -696
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 17034,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 17036
+      },
+      "cost_usd": 0.07513,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 17034,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 699,
+          "costUSD": 0.07513
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 2414,
+            "cacheReadInputTokens": 41658,
+            "cacheCreationInputTokens": 14240,
+            "webSearchRequests": 0,
+            "costUSD": 0.08945159999999999,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.08945159999999999
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 12,
+            "outputTokens": 3113,
+            "thinkingTokens": 156,
+            "cacheReadInputTokens": 41658,
+            "cacheCreationInputTokens": 31274,
+            "webSearchRequests": 0,
+            "costUSD": 0.1645816,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1645816
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 17034,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 699
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 17034,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}
