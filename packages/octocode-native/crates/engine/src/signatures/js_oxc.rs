@@ -15,7 +15,8 @@
 use oxc_ast::ast::{
     ArrowFunctionBody, BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration,
     ExportDeclaration, ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function,
-    ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind,
+    ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, MemberExpression,
+    MethodDefinitionKind,
     Program, Statement, TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration,
     TSGlobalDeclaration, TSInterfaceDeclaration, TSModuleReference, TSNamespaceDeclaration,
     TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration, VariableDeclaration,
@@ -534,6 +535,8 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> 
         let line_index = LineIndex::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
+        collect_member_functions(&parser_ret.program.body, &line_index, &mut symbols);
+        symbols.sort_by_key(|symbol| (symbol.range.start.line, symbol.range.start.character));
         let mut local_exports = LocalExports::default();
         let mut imports = Vec::new();
         let mut exports = Vec::new();
@@ -1431,6 +1434,75 @@ fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSym
             }
         }
         _ => {}
+    }
+}
+
+/// Functions and classes assigned to a member at module scope
+/// (`res.redirect = function () {}`, `exports.handler = () => {}`,
+/// `Widget.prototype.render = function () {}`): CommonJS and prototype-style
+/// modules declare their API this way. Each spans its whole statement and is
+/// named by its member path. Only the declaration outline collects them; the
+/// dependency graph keeps its binding-based declarations.
+fn collect_member_functions(statements: &[Statement], li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
+    for stmt in statements {
+        let Statement::ExpressionStatement(statement) = stmt else {
+            continue;
+        };
+        if let Some(body) = iife_statements(&statement.expression) {
+            collect_member_functions(body, li, out);
+            continue;
+        }
+        let Expression::AssignmentExpression(assignment) =
+            statement.expression.without_parentheses()
+        else {
+            continue;
+        };
+        let Some(MemberExpression::StaticMemberExpression(target)) =
+            assignment.left.as_member_expression()
+        else {
+            continue;
+        };
+        let Some(object) = member_path(&target.object) else {
+            continue;
+        };
+        let Some((symbol_kind, value)) = assigned_definition(&assignment.right) else {
+            continue;
+        };
+        out.push(container(
+            &format!("{object}.{}", target.property.name),
+            symbol_kind,
+            statement.span,
+            target.span,
+            function_value_children(value, li).unwrap_or_default(),
+            li,
+        ));
+    }
+}
+
+/// `a`, `this`, or a static member chain `a.b.c`, as written.
+fn member_path(expression: &Expression) -> Option<String> {
+    match expression.without_parentheses() {
+        Expression::Identifier(identifier) => Some(identifier.name.to_string()),
+        Expression::ThisExpression(_) => Some("this".into()),
+        Expression::StaticMemberExpression(member) => Some(format!(
+            "{}.{}",
+            member_path(&member.object)?,
+            member.property.name
+        )),
+        _ => None,
+    }
+}
+
+/// The function or class an assignment's right side defines, through chained
+/// assignments (`a.x = b.x = function () {}`).
+fn assigned_definition<'a>(expression: &'a Expression<'a>) -> Option<(u8, &'a Expression<'a>)> {
+    match expression.without_parentheses() {
+        value @ (Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)) => {
+            Some((kind::FUNCTION, value))
+        }
+        value @ Expression::ClassExpression(_) => Some((kind::CLASS, value)),
+        Expression::AssignmentExpression(inner) => assigned_definition(&inner.right),
+        _ => None,
     }
 }
 

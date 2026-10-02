@@ -413,9 +413,14 @@ Request selected PR patches instead of every patch for large PRs, and leave
 commit diffs off until the relevant commit is known. A PR summary offers at
 most four reads: `getChangedFiles` (the body rides along when the preview cuts
 it), `reviewPatches` (every patch on a small PR), `getDiscussion` (comments and
-reviews), and `getMergeCommit`. An inventory read offers `reviewPatches`: up to
-30 source files (no tests, docs, lockfiles, generated or binary files), the
-ones that fit one patch budget first, the rest through `continuePatch`.
+reviews), and `getMergeCommit` (with the diff when the PR is small). A merged
+PR whose patches were read also offers `readAtMerge`: the first changed source
+file at the merge commit, as a `block` read anchored on its first added line.
+An inventory read offers `reviewPatches`: up to 30 source files (no tests,
+docs, lockfiles, generated or binary files; tests by each language's layout
+and naming, such as `_test.go`, `test_*.py`, `FooTest.java`, `_spec.rb`, or a
+`test/` directory), the ones that fit one patch budget first, the rest through
+`continuePatch`.
 Rows of one call share one patch budget, so a multi-row patch read fits one
 response page.
 
@@ -458,9 +463,14 @@ full follow-up menu, unless `debug: true`.
 
 PR details accept `minify:"none"` or `"standard"`. `none` preserves selected
 body, discussion/inline comments, reviews, and all/selected patch text after
-security redaction. `standard` compacts Markdown and unchanged diff context
-before computing offsets; it preserves changed source lines regardless of
-language. Match-filtered reads preserve source anchors.
+security redaction. `standard` (the default) compacts Markdown and unchanged
+diff context before computing offsets; it preserves changed source lines
+regardless of language. In a patch over 30 lines it keeps the hunk headers and
+2 context lines around each change, and replaces each run of other context
+lines with one `...` line, so patch lengths differ from GitHub's and line
+numbers cannot be counted from a hunk header across a `...`. Pass
+`minify:"none"` for the verbatim patch. Match-filtered reads preserve source
+anchors.
 
 Issue, commit, and compare details do not accept `minify`; they return exact
 selected text after redaction. Issue bodies and comment bodies use
@@ -965,11 +975,12 @@ Read a known local path. Path-only reads are valid and return exact source subje
 | --- | --- |
 | `chunkType` | `lines` (default) or UTF-8 `bytes` in the selected returned view. |
 | `offset` | Zero-based view offset; byte offsets must start on code-point boundaries. Default 0. |
-| `chunkSize` | Requested lines or bytes, 1–50000. Omitted, a line page fills the 16 KiB page budget (the continuation carries the line count it used); a byte page is 16384 bytes. |
+| `chunkSize` | Requested lines or bytes, 1–50000. Omitted, a line page fills the 16 KiB page budget (the continuation carries the line count it used); a byte page is 16384 bytes. A first read of a file of at least 2,000 lines with no selector (no `matchString`, range, `block`, `offset`, `chunkType`, `chunkSize`, `minify` view, or `fullContent`) returns only its first 50 lines with a hint; `next.continue` pages on at the default size and `fullContent: true` reads it whole. |
 | `matchString` | Nonempty literal source text; enable `matchStringIsRegex` for regex or `matchStringCaseSensitive` for case sensitivity. |
 | `contextLines` | Explicit source-line context per side; default 5 for line chunks. Values above 100 clamp to 100 with a warning; the schema rejects values above 10000. Exclusive with `contextBytes`. |
 | `contextBytes` | UTF-8 context bytes per side, 0–16384; default 256 for byte chunks. Requires `matchString`. Full-source redaction precedes byte matching; edges expand to whole code points, and disjoint windows are separated by a `... [N bytes omitted] ...` marker. |
 | `minify` | `none` (default), `standard` compact source, or `symbols` whole-file outline. Match views preserve source text; symbols cannot accompany range/match selectors. |
+| `block` | Widen each range or match window to its enclosing declaration (at most 400 lines). JS/TS functions assigned to a member (`res.redirect = function () {}`, `exports.x = () => {}`) are declarations. A window that no declaration encloses keeps its lines and says so in a `block:` warning. |
 | `fullContent` | Complete unpaged view within resource/security limits; cannot accompany chunk controls. |
 | `snapshot` | Copied from a continuation; a file that changed since is rejected rather than mixed. |
 

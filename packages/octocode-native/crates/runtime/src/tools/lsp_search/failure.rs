@@ -48,7 +48,7 @@ impl LspFailure {
         use crate::policy::PolicyErrorCode;
         let hint = match error.code {
             PolicyErrorCode::OutsideAllowedRoots | PolicyErrorCode::SymlinkEscape => {
-                "The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."
+                crate::runtime::response::SANDBOX_HINT
             }
             _ => {
                 "Verify the path with structureSearch operation:\"files\", then retry the exact path."

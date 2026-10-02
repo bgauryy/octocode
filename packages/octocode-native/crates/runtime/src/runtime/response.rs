@@ -157,7 +157,7 @@ fn fallback_hint(tool: ToolId, query: &Value) -> &'static str {
         ToolId::StructureSearch => "Broaden path, depth, or file filters.",
         // A pattern must parse as one complete node of the target grammar.
         ToolId::AstSearch if query["operation"] == "match" && query["pattern"].is_string() => {
-            "Write the pattern as a complete node with its body, check a tree view, then broaden path or filters."
+            "If a match was expected, write the pattern as a complete node with its body, check a tree view, then broaden path or filters."
         }
         ToolId::AstSearch => "Broaden the syntax/name query, path, or filters.",
         ToolId::AstTopology => "Inspect diagnostics, then broaden the graph scope if needed.",
@@ -167,7 +167,9 @@ fn fallback_hint(tool: ToolId, query: &Value) -> &'static str {
     }
 }
 
-const SANDBOX_HINT: &str = "The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT.";
+/// Roots are widened only from a trusted source, so the hint names where the
+/// setting is read: a workspace `.env` or `.octocoderc` is ignored for it.
+pub(crate) const SANDBOX_HINT: &str = "Outside allowed roots: add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.";
 
 /// Recovery keyed by the exact `errorCode` values the runtime emits
 /// (provider kinds, policy/AST/LSP/clone/classification codes). Codes not
@@ -1190,10 +1192,8 @@ fn compact(mut rows: Vec<Value>, base: Option<String>) -> Value {
             .iter()
             .any(|path| path == base || path.starts_with(&inside))
     });
-    if let Some(base) = &base {
-        for row in &mut rows {
-            rewrite_paths(&mut row["data"], 0, base);
-        }
+    for row in &mut rows {
+        rewrite_paths(&mut row["data"], 0, base.as_deref());
     }
     let shared = hoist_shared_fields(&mut rows);
     let mut value = json!({"results":rows});
@@ -1378,18 +1378,27 @@ fn common_directory(paths: &[String]) -> Option<String> {
     (slash > 1).then(|| first[..slash].into())
 }
 
-fn rewrite_paths(value: &mut Value, depth: usize, base: &str) {
+/// Name every file location by `path`: relative to `base` under it, else
+/// absolute (a `file://` uri outside `base` becomes its absolute path).
+fn rewrite_paths(value: &mut Value, depth: usize, base: Option<&str>) {
     if depth > 8 {
         return;
     }
     match value {
         Value::Object(map) => {
+            let file_uri = map
+                .get("uri")
+                .and_then(Value::as_str)
+                .is_some_and(|uri| uri.starts_with("file://"));
             if let Some(path) = absolute_path(map).and_then(|p| {
-                if p == base {
-                    Some(".".to_owned())
-                } else {
-                    p.strip_prefix(&format!("{base}/")).map(str::to_owned)
-                }
+                let relative = base.and_then(|base| {
+                    if p == base {
+                        Some(".".to_owned())
+                    } else {
+                        p.strip_prefix(&format!("{base}/")).map(str::to_owned)
+                    }
+                });
+                relative.or_else(|| file_uri.then_some(p))
             }) {
                 map.shift_remove("absolutePath");
                 map.shift_remove("uri");
@@ -1740,6 +1749,12 @@ mod tests {
             );
         }
         assert!(
+            SANDBOX_HINT.contains("~/.octocode/.env")
+                && SANDBOX_HINT.contains("not a workspace file")
+                && SANDBOX_HINT.chars().count() <= MAX_GUIDANCE_CHARS,
+            "the hint names the trusted place to widen roots and is delivered uncut: {SANDBOX_HINT}"
+        );
+        assert!(
             !error_hint(
                 "localSearch",
                 &json!({"path":"/etc"}),
@@ -1942,6 +1957,18 @@ mod tests {
             value["results"][0]["data"]["files"][0]["path"],
             outside.as_str()
         );
+
+        // LSP locations outside the workspace name the same `path` field,
+        // absolute, beside workspace-relative ones.
+        let lsp = json!({"index":0,"data":{"type":"callers","items":[
+            {"name":"inside","uri":format!("file://{root}/src/a.rs")},
+            {"name":"outside","uri":format!("file://{outside}")}
+        ]}});
+        let value = envelope_in(vec![lsp], ToolId::LspSearch, &[Some(&json!({}))], &ws.paths);
+        let items = &value["results"][0]["data"]["items"];
+        assert_eq!(items[0]["path"], "src/a.rs", "{value}");
+        assert_eq!(items[1]["path"], outside.as_str(), "{value}");
+        assert!(items[1].get("uri").is_none(), "{value}");
     }
 
     #[test]

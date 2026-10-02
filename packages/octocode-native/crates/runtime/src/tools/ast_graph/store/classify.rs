@@ -53,45 +53,23 @@ fn path_roles(path: &str) -> u8 {
     let dirs = &segments[..segments.len().saturating_sub(1)];
     let mut roles = 0;
 
-    let test_dir = dirs.iter().any(|dir| {
+    // Beyond tests proper, examples, benchmarks, stories, and test setup
+    // files are not production code either.
+    let support_dir = dirs.iter().any(|dir| {
         matches!(
             *dir,
-            "test"
-                | "tests"
-                | "__tests__"
-                | "__mocks__"
-                | "spec"
-                | "specs"
-                | "testdata"
-                | "e2e"
-                | "fixtures"
-                | "__fixtures__"
-                | "testing"
-                | "examples"
-                | "example"
-                | "benches"
-                | "benchmarks"
+            "testing" | "examples" | "example" | "benches" | "benchmarks"
         )
     });
-    let test_name = [".test.", ".spec.", ".e2e.", ".bench.", ".stories."]
+    let support_name = [".bench.", ".stories."]
         .iter()
         .any(|marker| name.contains(marker))
         || name.starts_with("setuptests.")
         || name.starts_with("jest.setup")
         || name.starts_with("vitest.setup")
         || name.starts_with("test-setup.")
-        || name.starts_with("testsetup.")
-        || name.ends_with("_test.go")
-        || name.ends_with("_test.rs")
-        || name == "tests.rs"
-        || name == "test.rs"
-        || name.ends_with("_tests.rs")
-        || (name.starts_with("test_") && name.ends_with(".py"))
-        || name.ends_with("_test.py")
-        || name == "conftest.py"
-        || (name.ends_with("test.java") || name.ends_with("tests.java"))
-        || name.ends_with("test.kt");
-    if test_dir || test_name {
+        || name.starts_with("testsetup.");
+    if crate::content::is_test_path(path) || support_dir || support_name {
         roles |= ROLE_TEST;
     }
 

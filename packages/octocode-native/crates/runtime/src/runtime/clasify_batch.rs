@@ -26,7 +26,7 @@ use secrecy::SecretString;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::Path,
     sync::{
         Condvar, Mutex, PoisonError,
@@ -567,6 +567,65 @@ fn merge_near_windows(windows: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     merged
 }
 
+/// Lines a hydrated span may grow at each edge to take in a declaration it
+/// cuts.
+const DECLARATION_SNAP_LINES: u64 = HYDRATED_LINE_RADIUS;
+
+/// `span` grown so neither edge cuts a declaration: an edge inside a
+/// declaration that otherwise lies within the span moves out to that
+/// declaration's boundary, when the boundary is at most
+/// [`DECLARATION_SNAP_LINES`] away. A declaration that also crosses the other
+/// edge (an enclosing impl, class, or module) is not completed by moving one
+/// edge, so it leaves the span alone. `spans` are 1-based inclusive.
+fn snap_to_declarations((start, end): (u64, u64), spans: &[(usize, usize)]) -> (u64, u64) {
+    let spans = spans
+        .iter()
+        .map(|&(first, last)| (first as u64, last as u64));
+    let snapped_start = spans
+        .clone()
+        .filter(|&(first, last)| {
+            first < start && start <= last && last <= end && start - first <= DECLARATION_SNAP_LINES
+        })
+        .map(|(first, _)| first)
+        .min()
+        .unwrap_or(start);
+    let snapped_end = spans
+        .filter(|&(first, last)| {
+            first <= end && end < last && first >= snapped_start && last - end <= DECLARATION_SNAP_LINES
+        })
+        .map(|(_, last)| last)
+        .max()
+        .unwrap_or(end);
+    (snapped_start, snapped_end)
+}
+
+/// Declaration spans of each local candidate file, for snapping its hydrated
+/// windows. Read through the path policy; a file it refuses, a file too
+/// large to outline, or a language without an outline has none.
+fn local_declaration_spans(
+    paths: &PathPolicy,
+    candidates: &[Value],
+) -> HashMap<String, Vec<(usize, usize)>> {
+    candidates
+        .iter()
+        .filter_map(|candidate| {
+            let file = candidate.pointer("/results/0/data/files/0")?;
+            let path = candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)?;
+            let validated = paths.validate_read(&path).ok()?;
+            let size = std::fs::metadata(&validated.canonical).ok()?.len();
+            if size > octocode_engine::signatures::MAX_PARSE_SIZE as u64 {
+                return None;
+            }
+            let bytes = std::fs::read(&validated.canonical).ok()?;
+            let spans = crate::tools::local_fetch::declaration_spans(
+                &String::from_utf8_lossy(&bytes),
+                &path,
+            )?;
+            Some((path, spans))
+        })
+        .collect()
+}
+
 fn local_window_read(path: &str, (start, end): (u64, u64), max_bytes: usize) -> Value {
     json!({
         "tool":ToolId::LocalFetch.as_str(),
@@ -1083,6 +1142,7 @@ fn candidate_jobs(
     candidates: &[Value],
     max_bytes: usize,
     page_budget: usize,
+    declarations: &HashMap<String, Vec<(usize, usize)>>,
 ) -> Vec<Option<Vec<HydrationJob>>> {
     if source.get("tool").and_then(Value::as_str) != Some(ToolId::LocalSearch.as_str()) {
         return candidates
@@ -1119,6 +1179,7 @@ fn candidate_jobs(
                 inherit_search_goal(&mut read, source);
                 read
             };
+            let spans = declarations.get(&path).map_or(&[][..], Vec::as_slice);
             Some(
                 merge_near_windows(windows.clone())
                     .into_iter()
@@ -1128,10 +1189,17 @@ fn candidate_jobs(
                             .filter(|window| span.0 <= window.0 && window.1 <= span.1)
                             .map(|window| read(*window))
                             .collect::<Vec<_>>();
+                        // A snapped span is judged whole only when it fits
+                        // one page; otherwise its unsnapped windows are.
+                        let snapped = snap_to_declarations(span, spans);
                         HydrationJob {
-                            read: read(span),
+                            read: read(snapped),
                             anchored: true,
-                            parts: if parts.len() > 1 { parts } else { Vec::new() },
+                            parts: if parts.len() > 1 || snapped != span {
+                                parts
+                            } else {
+                                Vec::new()
+                            },
                         }
                     })
                     .collect(),
@@ -1151,7 +1219,14 @@ fn hydrate_candidates(
     execution: &ExecutionContext,
     reads: &ReadLimiter,
 ) -> Result<Vec<CapturedPage>, ExecutionError> {
-    let planned = candidate_jobs(source, &candidates, 1, page_budget)
+    let declarations = if source.get("tool").and_then(Value::as_str)
+        == Some(ToolId::LocalSearch.as_str())
+    {
+        local_declaration_spans(&dispatcher.paths, &candidates)
+    } else {
+        HashMap::new()
+    };
+    let planned = candidate_jobs(source, &candidates, 1, page_budget, &declarations)
         .iter()
         .flatten()
         .map(Vec::len)
@@ -1160,7 +1235,7 @@ fn hydrate_candidates(
         .checked_div(planned.max(1))
         .unwrap_or(budget)
         .clamp(1, MAX_HYDRATED_CHARS);
-    let jobs = candidate_jobs(source, &candidates, max_bytes, page_budget);
+    let jobs = candidate_jobs(source, &candidates, max_bytes, page_budget, &declarations);
     std::thread::scope(|scope| {
         let mut completed = Vec::with_capacity(candidates.len());
         let mut tasks = Vec::with_capacity(candidates.len());
@@ -3247,6 +3322,63 @@ mod tests {
             [(1, 363), (364, 484)]
         );
         assert_eq!(merge_near_windows(vec![(5, 125)]), [(5, 125)]);
+    }
+
+    /// A hydrated window whose edge cuts a declaration grows to that
+    /// declaration's boundary when it is near; a far boundary (an enclosing
+    /// impl or module) leaves the edge where the hits put it.
+    #[test]
+    fn hydrated_windows_snap_to_nearby_declaration_boundaries() {
+        // `poll_proceed` 343-364 inside a 60-574 module; `Coop` 400-460.
+        let spans = [(60, 574), (290, 320), (343, 364), (400, 460)];
+        assert_eq!(snap_to_declarations((72, 350), &spans), (72, 364));
+        assert_eq!(snap_to_declarations((407, 527), &spans), (400, 527));
+        // Edges outside every nearby declaration stay.
+        assert_eq!(snap_to_declarations((321, 342), &spans), (321, 342));
+        assert_eq!(snap_to_declarations((5, 50), &[]), (5, 50));
+    }
+
+    /// Snapped spans are judged whole only when they fit the page; the
+    /// unsnapped windows stay as the fallback, so a declaration never costs
+    /// the hit its window was centered on.
+    #[test]
+    fn snapped_jobs_keep_the_unsnapped_windows_as_fallback() {
+        let source = json!({"tool":"localSearch","query":{"path":"src","searchText":"task budget"}});
+        let candidate = json!({"results":[{"data":{"files":[{
+            "path":"src/coop.rs","matches":[{"line":129},{"line":136},{"line":271},{"line":291},{"line":310}]
+        }]}}]});
+        let spans = HashMap::from([("src/coop.rs".to_owned(), vec![(343, 364)])]);
+        let jobs = candidate_jobs(&source, &[candidate.clone()], 4_000, 10, &spans);
+        let [Some(jobs)] = &jobs[..] else {
+            panic!("one candidate");
+        };
+        let [job] = &jobs[..] else {
+            panic!("one merged span");
+        };
+        assert_eq!(job.read["query"]["startLine"], 72);
+        assert_eq!(job.read["query"]["endLine"], 364);
+        let parts: Vec<_> = job
+            .parts
+            .iter()
+            .map(|part| (part["query"]["startLine"].clone(), part["query"]["endLine"].clone()))
+            .collect();
+        assert_eq!(parts, [(json!(72), json!(192)), (json!(230), json!(350))]);
+        // A single window that snaps falls back to itself.
+        let single = json!({"results":[{"data":{"files":[{
+            "path":"src/coop.rs","matches":[{"line":300}]
+        }]}}]});
+        let jobs = candidate_jobs(&source, &[single], 4_000, 10, &spans);
+        let job = &jobs[0].as_ref().expect("job")[0];
+        assert_eq!(
+            (job.read["query"]["startLine"].clone(), job.read["query"]["endLine"].clone()),
+            (json!(240), json!(364))
+        );
+        assert_eq!(job.parts.len(), 1);
+        assert_eq!(job.parts[0]["query"]["endLine"], 360);
+        // Without spans nothing changes.
+        let plain = candidate_jobs(&source, &[candidate], 4_000, 10, &HashMap::new());
+        let job = &plain[0].as_ref().expect("job")[0];
+        assert_eq!(job.read["query"]["endLine"], 350);
     }
 
     #[test]

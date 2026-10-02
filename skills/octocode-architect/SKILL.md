@@ -5,7 +5,7 @@ description: "Use when an architecture decision or refactor needs evidence about
 
 # Octocode Architect
 
-tools: `npx octocode` / `octocode-mcp`
+tools: `octocode-mcp` / `npx octocode` — topology via beta `astTopology` (`OCTOCODE_BETA=true`) or the `octocode graph` CLI
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
@@ -28,9 +28,9 @@ Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
 
 ## Workflow
 
-1. **FRAME** — state the decision, quality attribute (performance/maintainability/correctness), scope, and consequence. Stop if the decision is open-ended without a named attribute — clarify first.
-2. **MODEL** — map boundaries, contracts, and representative data/control flows from exact source using `octocode-research`. Separate declared architecture from observed structure; a graph edge or folder name is a hypothesis, not a flaw. Load `references/architecture-lenses.md` when layers, ownership, or blast radius need a structured lens. Load `references/contract-data-flow-checks.md` when a path crosses trust or process boundaries.
-3. **PROVE** — confirm hypotheses with exact code, AST/LSP identity, and tests before reporting a finding. Load `references/algorithm-review.md` for correctness/complexity/concurrency questions. Load `references/architecture-analysis.md` for dependency topology, cycles, dead code, or hot paths.
+1. **FRAME** — state the decision, quality attribute (performance/maintainability/correctness), scope, and consequence. Pin the review target (commit, branch, or working tree) and run baseline sensors before findings. Stop if the decision is open-ended without a named attribute — clarify first.
+2. **MODEL** — map boundaries, contracts, and representative data/control flows from exact source using `octocode-research`. Load `references/architecture-lenses.md` when layers, ownership, or blast radius need a structured lens. Load `references/contract-data-flow-checks.md` when a path crosses trust or process boundaries.
+3. **PROVE** — confirm hypotheses with exact code, AST/LSP identity, and tests before reporting a finding. Rate each finding `confirmed | likely | candidate | dismissed`: confirmed needs exact code plus an executed command or test; anything weaker names the missing decisive evidence. A fixture or test proves a hypothesis only if it could fail it: give every identity the hypothesis distinguishes (IDs, SHAs, paths, versions, roots) a distinct value, and make a negative test assert the specific error, not any rejection. When a sharper fixture contradicts a finding, dismiss it and keep the disproof. Load `references/algorithm-review.md` for correctness/complexity/concurrency questions. Load `references/architecture-analysis.md` for dependency topology, cycles, dead code, or hot paths.
 4. **CHANGE** — only when the request authorizes edits and evidence names a specific seam. Implement one vertical slice; keep cleanup within the changed area. Load `references/refactoring.md` and `references/delivery-discipline.md` before any source edit.
 5. **VERIFY** — rerun the pre-change checks and confirm the diff is within authorized scope. Review-only requests stop here and return findings + a plan, not edits. Load `references/agent-defect-classes.md` for agent-authored work quality checks, and `references/agent-defect-evidence.md` when a class's prevalence or rigor is disputed. Load `references/output-contracts.md` when a consequential result needs an explicit decision record.
 
@@ -43,4 +43,4 @@ Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
 - Unimplemented reachable paths fail explicitly. Tests prove outcomes, not merely calls.
 - Chat-only output stays in chat. Requested source edits stay in their named repo; do not create planning artifacts unless asked.
 
-For skill maintenance, run `node scripts/eval-architect.mjs --self-test`, `node scripts/eval-architect.mjs --json`, and the `octocode-skills` review. Research provenance is in `references/references.md`; load it only when auditing these rules.
+Skill maintenance: run `node scripts/eval-architect.mjs --self-test` and `node scripts/eval-architect.mjs --json` after editing rules or `evals/cases.json`, then the `octocode-skills` review; load `references/references.md` only when auditing where these rules come from.

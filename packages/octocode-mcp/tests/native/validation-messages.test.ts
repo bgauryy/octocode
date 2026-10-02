@@ -223,6 +223,33 @@ describe('ghGetHistoryItem mixed batch (09-24 opaque failure regression)', () =>
   });
 });
 
+describe('batch and brief placement slips from recorded sessions (CLI parity)', () => {
+  it('says how to split a batch over the row limit', async () => {
+    const message = await sdkMessage('localFetch', {
+      queries: Array.from({ length: 7 }, () => ({
+        path: 'package.json',
+        goal: 'g',
+        reasoning: 'r',
+      })),
+    });
+    expect(message).toContain(
+      'Send at most 5 rows per call: split the batch into 2 calls.'
+    );
+  });
+
+  it('moves a top-level goal into each queries row', async () => {
+    const message = await sdkMessage('ghSearchCode', {
+      goal: 'g',
+      queries: [
+        { owner: 'o', repo: 'r', keywords: ['k'], goal: 'g', reasoning: 'r' },
+      ],
+    });
+    expect(message).toContain(
+      "Move 'goal' into each queries[] row: a top-level goal is not inherited."
+    );
+  });
+});
+
 describe('shape slips found in agent transcripts', () => {
   const clasify = (
     context: Record<string, unknown>,

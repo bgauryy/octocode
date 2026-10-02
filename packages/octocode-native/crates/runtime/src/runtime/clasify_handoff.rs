@@ -85,8 +85,11 @@ pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Valu
 }
 
 /// Lines a file must have before a paged read without `matchString` offers a
-/// clasify locate instead of the next page.
-const LARGE_READ_LINES: u64 = 2_000;
+/// clasify locate instead of the next page (the read returned only its head).
+const LARGE_READ_LINES: u64 = crate::tools::local_fetch::LARGE_READ_LINES as u64;
+
+/// Goal identifiers a large-read locate prefilters on, at most.
+const MAX_GOAL_PREFILTER: usize = 3;
 
 /// `next.clasify` for one file-read row (`localFetch` / `ghGetFileContent`):
 /// a read of a file of at least [`LARGE_READ_LINES`] lines that stopped
@@ -145,13 +148,19 @@ fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> O
         }
     }
     read.get("path")?;
+    let mut resource = json!({"id": "file", "tool": tool, "query": Value::Object(read)});
+    // Identifiers the goal names pick the hit windows to judge.
+    let literals = super::clasify_locate::goal_literals(&goal, MAX_GOAL_PREFILTER);
+    if !literals.is_empty() {
+        resource["prefilter"] = json!(literals);
+    }
     Some(json!({
         "tool": ToolId::Clasify.as_str(),
         "confidence": "medium",
         "query": {
             "goal": goal,
             "reasoning": "Locate the deciding lines of this large file before reading more pages.",
-            "resources": [{"id": "file", "tool": tool, "query": Value::Object(read)}],
+            "resources": [resource],
             "questions": [{"id": "target", "type": "locate", "ask": goal}],
         },
     }))
@@ -296,6 +305,21 @@ mod tests {
             nested["resources"][0]["context"]["query"]["fullContent"],
             true
         );
+        // A goal that names identifiers narrows the locate to their hit
+        // windows (no hits falls back to the whole file).
+        let named = json!({"path":"src/builder.rs","goal":"why does worker_threads reject 0 in Builder::new or maxThreads","reasoning":"r"});
+        let offer = large_read_handoff("localFetch", &named, paged.as_object().unwrap())
+            .expect("offer");
+        assert_eq!(
+            offer["query"]["resources"][0]["prefilter"],
+            json!(["worker_threads", "Builder::new", "maxThreads"])
+        );
+        crate::contracts::prepare_many_and_validate(
+            "clasify",
+            offer["query"].clone(),
+            crate::contracts::PrepareOptions::default(),
+        )
+        .expect("the prefiltered offer validates");
         let gh = json!({"owner":"o","repo":"r","path":"a.go","branch":"main","goal":"g","reasoning":"r"});
         let partial = json!({"totalLines":2000,"isPartial":true});
         assert!(

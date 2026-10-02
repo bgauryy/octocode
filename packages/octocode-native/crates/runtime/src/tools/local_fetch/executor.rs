@@ -380,11 +380,26 @@ pub fn process_fetched_content(
     } else {
         q
     };
+    // An untargeted first read of a large file returns its head: paging
+    // through every line is rarely what an unanchored read needs, and the
+    // head plus a locate (or an anchored read) costs a fraction of a page.
+    let head = unanchored_first_read(q) && applied == MinifyMode::None && total_lines >= LARGE_READ_LINES;
+    let head_view;
+    let page_q = if head {
+        head_view = LocalFetchQuery {
+            chunk_type: Some(ChunkType::Lines),
+            chunk_size: wire_positive(HEAD_LINES),
+            ..q.clone()
+        };
+        &head_view
+    } else {
+        q
+    };
     // A line or byte page is scanned on its own window (see
     // `sanitize_line_page` / `sanitize_byte_page`); complete views keep the
     // whole-view scan because they return the whole view.
     let line_page = if q.full_content != Some(true) {
-        match page(&selected, q) {
+        match page(&selected, page_q) {
             // A window scan error falls back to the whole-view scan, which
             // owns the typed security-limit recovery.
             Ok(raw) if raw.pagination.chunk_type == ChunkType::Lines => {
@@ -440,7 +455,7 @@ pub fn process_fetched_content(
         if let Err(e) = cancel.check() {
             return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
         }
-        let pg = match page(&safe, q) {
+        let pg = match page(&safe, page_q) {
             Ok(p) => p,
             Err(e) => return LocalFetchResult::error(q.path.to_string(), "invalidPagination", e),
         };
@@ -494,8 +509,23 @@ pub fn process_fetched_content(
             }),
         })
     } else {
-        continuation(q, &pg.pagination)
+        let mut next = continuation(q, &pg.pagination);
+        // Paging on from the head uses the default page size.
+        if head
+            && let Some(read) = next.as_mut().and_then(|next| next.r#continue.as_mut())
+        {
+            read.query.chunk_size = None;
+            read.query.chunk_type = None;
+        }
+        next
     };
+    let mut hints = Vec::new();
+    if head && pg.pagination.has_more {
+        hints.push(format!(
+            "Large file ({total_lines} lines) read without an anchor: returned its first {} lines. Target the answer with matchString or startLine/endLine (or next.clasify when offered); next.continue pages on, fullContent:true reads it whole.",
+            pg.view_lines.1
+        ));
+    }
     // Redaction (source-wide for matchString, or on the page) replaces text
     // within lines; the anchors stay and the warning above says the text is
     // not verbatim.
@@ -535,7 +565,7 @@ pub fn process_fetched_content(
         error: None,
         resolved_path: None,
         warnings,
-        hints: vec![],
+        hints,
         total_lines: Some(total_lines),
         start_line: ext.start,
         end_line: ext.end,
@@ -563,6 +593,20 @@ pub fn process_fetched_content(
         out_of_range,
         next,
     }
+}
+
+/// A first read with nothing selecting what to return: no match, range,
+/// block, page cursor, page size, or whole-file request.
+fn unanchored_first_read(q: &LocalFetchQuery) -> bool {
+    q.match_string.is_none()
+        && !q.has_ranges()
+        && q.start_line().is_none()
+        && q.end_line().is_none()
+        && !q.block()
+        && q.full_content != Some(true)
+        && q.offset().is_none()
+        && q.chunk_size().is_none()
+        && q.chunk_type.is_none()
 }
 
 /// Complete views larger than this return page 1 plus next.continue.
@@ -1109,6 +1153,48 @@ mod line_page_scan_tests {
         (1..=n)
             .map(|i| format!("const filler_{i} = {i};\n"))
             .collect()
+    }
+
+    /// A large file read with no anchor returns a short head instead of a
+    /// full page: the read is not targeted yet. Paging on (default page
+    /// size) and whole-file reads are unchanged; small files and anchored
+    /// reads keep their pages.
+    #[test]
+    fn an_unanchored_read_of_a_large_file_returns_a_head() {
+        let source = filler(LARGE_READ_LINES);
+        let plain = LocalFetchQuery {
+            path: "/fixture/app.ts".parse().expect("path"),
+            ..LocalFetchQuery::test_default()
+        };
+        let head = fetch(&source, &plain);
+        assert_eq!(head.returned_lines, Some(HEAD_LINES), "{head:?}");
+        assert!(head.hints.iter().any(|hint| hint.contains("first")), "{:?}", head.hints);
+        let next = head.next.and_then(|next| next.r#continue).expect("continue");
+        assert_eq!(next.query.offset(), Some(HEAD_LINES));
+        assert_eq!(next.query.chunk_size(), None);
+        let page = fetch(&source, &next.query);
+        assert!(page.returned_lines.expect("lines") > HEAD_LINES, "{page:?}");
+        // Whole-file, anchored, and small reads are unchanged.
+        let whole = fetch(
+            &source,
+            &LocalFetchQuery {
+                full_content: Some(true),
+                ..plain.clone()
+            },
+        );
+        assert!(whole.returned_lines.expect("lines") > HEAD_LINES);
+        let ranged = fetch(
+            &source,
+            &LocalFetchQuery {
+                start_line: wire_positive(10),
+                end_line: wire_positive(200),
+                ..plain.clone()
+            },
+        );
+        assert_eq!(ranged.returned_lines, Some(191));
+        let small = fetch(&filler(LARGE_READ_LINES - 1), &plain);
+        assert!(small.returned_lines.expect("lines") > HEAD_LINES);
+        assert!(small.hints.is_empty(), "{:?}", small.hints);
     }
 
     #[test]

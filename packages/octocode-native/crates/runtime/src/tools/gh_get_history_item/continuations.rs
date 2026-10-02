@@ -158,6 +158,21 @@ fn fresh_pr_query(query: &HistoryItemRequest) -> Value {
     target
 }
 
+/// Whether a pull request's whole diff fits one patch read: at most
+/// `SMALL_DIFF_LINES` changed lines over at most
+/// [`INVENTORY_ALL_PATCHES_FILES`] files (an unknown file count passes). An
+/// unknown line count is never small.
+pub(super) fn is_small_pr(
+    additions: Option<u64>,
+    deletions: Option<u64>,
+    changed_files: Option<u64>,
+) -> bool {
+    matches!(
+        (additions, deletions),
+        (Some(additions), Some(deletions)) if additions + deletions <= SMALL_DIFF_LINES
+    ) && changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES)
+}
+
 /// Per-row menu of first-page fetches for content the call did not request:
 /// at most four entries (`getChangedFiles`, `reviewPatches`, `getDiscussion`,
 /// `getMergeCommit`; an inventory read may add `getAllPatches`).
@@ -186,12 +201,7 @@ pub(super) fn pr_next_menu(
     let want_body = !content_flag(content, "body") && !body_in_preview;
     let changed_files = count("changed_files");
     let has_files = changed_files != Some(0);
-    let small_diff = matches!(
-        (count("additions"), count("deletions")),
-        (Some(additions), Some(deletions)) if additions + deletions <= SMALL_DIFF_LINES
-    );
-    let small_pr =
-        small_diff && changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES);
+    let small_pr = is_small_pr(count("additions"), count("deletions"), changed_files);
     let no_comments = count("comments") == Some(0) && count("review_comments") == Some(0);
     // Each menu entry is a fresh first-page fetch: the base public query
     // without the current content selection or any per-surface cursor.
@@ -260,17 +270,83 @@ pub(super) fn pr_next_menu(
             .and_then(Value::as_str)
             .filter(|sha| !sha.is_empty())
     {
-        next.insert(
-            "getMergeCommit".into(),
-            continuation(json!({
-                "operation":"commit",
-                "owner":target["owner"],
-                "repo":target["repo"],
-                "ref":sha
-            })),
-        );
+        let mut commit = json!({
+            "operation":"commit",
+            "owner":target["owner"],
+            "repo":target["repo"],
+            "ref":sha
+        });
+        // A small fix's diff fits the commit read; without it the stats
+        // alone cost another hop.
+        if small_pr {
+            commit["includeDiff"] = json!(true);
+        }
+        next.insert("getMergeCommit".into(), continuation(commit));
     }
     Value::Object(next)
+}
+
+/// Longest added line `next.readAtMerge` anchors its read on.
+const MERGE_ANCHOR_CHARS: usize = 120;
+
+/// `next.readAtMerge`: a merged pull request whose patch rows were read
+/// offers its first changed source file (else its first changed file) at the
+/// merge commit, as a block read anchored on that file's first added line,
+/// so the fix is checked in the code that shipped. `None` for unmerged pull
+/// requests and for rows without an added line to anchor on.
+pub(super) fn read_at_merge(
+    query: &HistoryItemRequest,
+    raw: &Value,
+    files: &Value,
+) -> Option<Value> {
+    use crate::content::{FileType, classify_file_type, is_test_path};
+    raw.get("merged_at").filter(|merged| !merged.is_null())?;
+    let sha = raw
+        .get("merge_commit_sha")
+        .and_then(Value::as_str)
+        .filter(|sha| !sha.is_empty())?;
+    let patched = files
+        .as_array()?
+        .iter()
+        .filter_map(|file| {
+            let path = file.get("path")?.as_str()?;
+            Some((path, first_added_line(file.get("patch")?.as_str()?)?))
+        })
+        .collect::<Vec<_>>();
+    let (path, anchor) = patched
+        .iter()
+        .find(|(path, _)| {
+            classify_file_type(path) == Some(FileType::Code) && !is_test_path(path)
+        })
+        .or_else(|| patched.first())?;
+    Some(json!({
+        "tool": ToolId::GhGetFileContent.as_str(),
+        "confidence": "high",
+        "query": {
+            "owner": query.owner(),
+            "repo": query.repo(),
+            "branch": sha,
+            "path": path,
+            "matchString": anchor,
+            "block": true,
+        },
+    }))
+}
+
+/// The first added patch line with something to match on (not a lone
+/// brace or a redaction placeholder), trimmed and cut to
+/// [`MERGE_ANCHOR_CHARS`].
+fn first_added_line(patch: &str) -> Option<String> {
+    patch
+        .lines()
+        .filter(|line| !line.starts_with("+++"))
+        .filter_map(|line| line.strip_prefix('+'))
+        .map(str::trim)
+        .find(|text| {
+            text.chars().filter(|c| c.is_alphanumeric()).count() >= 3
+                && !text.contains("[REDACTED")
+        })
+        .map(|text| text.chars().take(MERGE_ANCHOR_CHARS).collect::<String>().trim_end().to_owned())
 }
 
 /// A pull-request `contentPagination` axis: its `next.*` name, the page field
@@ -902,6 +978,14 @@ mod tests {
             menu["getMergeCommit"]["query"],
             json!({"operation":"commit","owner":"o","repo":"r","ref":"facc6fc"})
         );
+        // A small merged fix reads its merge commit with the diff: the stats
+        // alone would cost another hop.
+        let small = json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc",
+            "changed_files":3,"additions":63,"deletions":4});
+        assert_eq!(
+            pr_next_menu(&query, None, "none", &[], &small)["getMergeCommit"]["query"],
+            json!({"operation":"commit","owner":"o","repo":"r","ref":"facc6fc","includeDiff":true})
+        );
         // An open PR's merge_commit_sha is GitHub's test merge, not a real commit.
         let open = json!({"merged_at":null,"merge_commit_sha":"deadbee"});
         assert!(
@@ -909,6 +993,38 @@ mod tests {
                 .get("getMergeCommit")
                 .is_none()
         );
+    }
+
+    /// A merged PR whose patches were read offers the first changed source
+    /// file at the merge commit, anchored on its first added line.
+    #[test]
+    fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"cli","repo":"cli","number":14429
+        }))
+        .expect("pr query");
+        let merged = json!({"merged_at":"2026-09-11T15:55:40Z","merge_commit_sha":"8fcd6a6"});
+        let files = json!([
+            {"path":"acceptance/testdata/pr/merge.txtar","stat":"M +6 -2","patch":"@@ -33,2 +33,2 @@\n-# Merge\n+# Merge and delete"},
+            {"path":"pkg/cmd/pr/merge/merge.go","stat":"M +2 -2","patch":"@@ -589,7 +589,7 @@ func New() {\n \t\tdeleteBranch: opts.DeleteBranch,\n-\t\tcrossRepoPR: pr.HeadRepositoryOwner.Login != baseRepo.RepoOwner(),\n+\t\t}\n+\t\tcrossRepoPR:        pr.IsCrossRepository,"},
+            {"path":"pkg/cmd/pr/merge/merge_test.go","stat":"M +55 -0","patch":"@@ -1 +1 @@\n+func TestX() {}"}
+        ]);
+        let read = read_at_merge(&query, &merged, &files).expect("offer");
+        assert_eq!(read["tool"], "ghGetFileContent");
+        assert_eq!(
+            read["query"],
+            json!({"owner":"cli","repo":"cli","branch":"8fcd6a6",
+                "path":"pkg/cmd/pr/merge/merge.go",
+                "matchString":"crossRepoPR:        pr.IsCrossRepository,","block":true})
+        );
+        // Open PRs, inventories without patches, and patches with nothing
+        // added offer nothing.
+        let open = json!({"merged_at":null,"merge_commit_sha":"deadbee"});
+        assert!(read_at_merge(&query, &open, &files).is_none());
+        let inventory = json!(["M +2 -2 pkg/cmd/pr/merge/merge.go"]);
+        assert!(read_at_merge(&query, &merged, &inventory).is_none());
+        let removed = json!([{"path":"a.go","stat":"M +0 -1","patch":"@@ -1 +0,0 @@\n-x := 1"}]);
+        assert!(read_at_merge(&query, &merged, &removed).is_none());
     }
 
     #[test]

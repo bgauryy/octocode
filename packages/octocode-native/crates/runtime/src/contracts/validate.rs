@@ -94,6 +94,7 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
                 (Some(requires), _) => {
                     format!("Remove '{field}' from {query}: it applies only with {requires}.")
                 }
+                _ if is_root_brief(&issue.path) => root_brief_message(field),
                 (None, Some(s)) => {
                     format!("Remove unknown field '{field}' from {query} (did you mean '{s}'?)")
                 }
@@ -101,6 +102,7 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
             };
             details.push(msg);
         }
+        details.extend(routing_details(tool_name, &error.issues));
         details.push(if mcp {
             format!("See the {tool_name} inputSchema for valid fields.")
         } else {
@@ -124,6 +126,9 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
                     .flatten()
                     .filter_map(|v| v.as_str())
                     .collect();
+                if is_root_brief(&issue.path) && sibling_requirement(issue).is_none() {
+                    return root_brief_message(field);
+                }
                 let base = if path.is_empty() {
                     issue.message.clone()
                 } else {
@@ -140,8 +145,190 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
                 format!("{path}: {}", issue.message)
             }
         })
+        .chain(routing_details(tool_name, &error.issues))
         .collect::<Vec<_>>();
     serde_json::json!({"kind":"octocode.toolError","version":1,"tool":tool_name,"error":"Check the query fields.","details":details})
+}
+
+/// `goal`/`reasoning` sent beside `queries` instead of inside each row.
+fn is_root_brief(path: &[String]) -> bool {
+    matches!(path, [field] if field == "goal" || field == "reasoning")
+}
+
+fn root_brief_message(field: &str) -> String {
+    format!("Move '{field}' into each queries[] row: a top-level {field} is not inherited.")
+}
+
+/// Guidance that names the fix beyond the field-level issues: the tool that
+/// owns a row's unknown fields or operation, and how to split an oversized
+/// batch.
+fn routing_details(tool_name: &str, issues: &[ValidationIssue]) -> Vec<String> {
+    let mut details = Vec::new();
+    // Per row: its unknown fields and whether each has an in-tool suggestion.
+    let mut rows: Vec<(String, Vec<(&str, bool)>)> = Vec::new();
+    for issue in issues {
+        match (issue.rule_id.as_str(), issue.path.as_slice()) {
+            ("schema.unknown-field", [queries, _, field]) if queries == "queries" => {
+                let label = query_label(&issue.path);
+                let known = issue
+                    .schema
+                    .as_ref()
+                    .and_then(|s| s["knownFields"].as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>();
+                let entry = (field.as_str(), suggest_field(field, &known).is_some());
+                match rows.iter_mut().find(|(row, _)| *row == label) {
+                    Some((_, fields)) => fields.push(entry),
+                    None => rows.push((label, vec![entry])),
+                }
+            }
+            ("schema.enum", [.., last]) if last == "operation" => {
+                if let Some(operation) = issue.received.as_ref().and_then(Value::as_str) {
+                    let owners = owning_tools(tool_name, |tool| {
+                        operations(tool).iter().any(|name| name == operation)
+                    });
+                    if let Some(owners) = owners {
+                        details.push(format!(
+                            "operation \"{operation}\" is a {owners} operation: send that row to {owners}."
+                        ));
+                    }
+                }
+            }
+            ("schema.size", [queries]) if queries == "queries" => {
+                if let Some(message) = split_batch_message(&issue.message) {
+                    details.push(message);
+                }
+            }
+            _ => {}
+        }
+    }
+    for (label, mut entries) in rows {
+        entries.sort_unstable();
+        entries.dedup();
+        // One misspelled field the tool itself can name needs no rerouting.
+        if let [(_, true)] = entries.as_slice() {
+            continue;
+        }
+        let fields = entries.iter().map(|(field, _)| *field).collect::<Vec<_>>();
+        let owners = owning_tools(tool_name, |tool| {
+            let known = query_fields(tool);
+            fields
+                .iter()
+                .all(|field| known.iter().any(|name| name == field))
+        });
+        if let Some(owners) = owners {
+            let (subject, noun) = if fields.len() == 1 {
+                (format!("{} is a", fields[0]), "field")
+            } else {
+                (format!("{} are", fields.join(", ")), "fields")
+            };
+            details.push(format!(
+                "{subject} {owners} {noun}: send {label} to {owners}."
+            ));
+        }
+    }
+    details.dedup();
+    details
+}
+
+/// `Value length 7 exceeds the maximum of 5` → how many calls to send.
+fn split_batch_message(message: &str) -> Option<String> {
+    let numbers = message
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|part| part.parse::<usize>().ok())
+        .collect::<Vec<_>>();
+    let [length, maximum] = numbers.as_slice() else {
+        return None;
+    };
+    (message.contains("exceeds") && *maximum > 0).then(|| {
+        format!(
+            "Send at most {maximum} rows per call: split the batch into {} calls.",
+            length.div_ceil(*maximum)
+        )
+    })
+}
+
+/// The one other non-beta tool of the same family (or `a or b` for two)
+/// whose query schema satisfies `owns`; `None` when no tool or too many do.
+fn owning_tools(tool_name: &str, owns: impl Fn(&Value) -> bool) -> Option<String> {
+    let contract = super::parsed_contract().ok()?;
+    let tools = contract["tools"].as_array()?;
+    let family = &tools.iter().find(|tool| tool["name"] == tool_name)?["family"];
+    let owners = tools
+        .iter()
+        .filter(|tool| tool["name"] != tool_name && tool["beta"] != Value::Bool(true))
+        .filter(|tool| &tool["family"] == family)
+        .filter(|tool| owns(tool))
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    match owners.as_slice() {
+        [one] => Some((*one).to_owned()),
+        [a, b] => Some(format!("{a} or {b}")),
+        _ => None,
+    }
+}
+
+/// Every property name any branch of a tool's query schema declares.
+fn query_fields(tool: &Value) -> Vec<String> {
+    let mut fields = Vec::new();
+    walk_query_schema(tool, &mut |schema| {
+        if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+            fields.extend(properties.keys().cloned());
+        }
+    });
+    fields
+}
+
+/// Every `operation` value any branch of a tool's query schema allows.
+fn operations(tool: &Value) -> Vec<String> {
+    let mut values = Vec::new();
+    walk_query_schema(tool, &mut |schema| {
+        if let Some(operation) = schema.pointer("/properties/operation") {
+            let pinned = operation.get("const").into_iter();
+            let listed = operation
+                .get("enum")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten();
+            values.extend(
+                pinned
+                    .chain(listed)
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned),
+            );
+        }
+    });
+    values
+}
+
+fn walk_query_schema(tool: &Value, visit: &mut dyn FnMut(&Value)) {
+    fn walk(root: &Value, schema: &Value, depth: usize, visit: &mut dyn FnMut(&Value)) {
+        if depth > 16 {
+            return;
+        }
+        let schema = match schema.get("$ref").and_then(Value::as_str) {
+            Some(reference) => match reference.strip_prefix('#') {
+                Some(pointer) => root.pointer(pointer).unwrap_or(&Value::Null),
+                None => return,
+            },
+            None => schema,
+        };
+        visit(schema);
+        for key in ["anyOf", "oneOf", "allOf"] {
+            for branch in schema
+                .get(key)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                walk(root, branch, depth + 1, visit);
+            }
+        }
+    }
+    let root = &tool["querySchema"];
+    walk(root, root, 0, visit);
 }
 
 impl Display for ContractValidationError {
@@ -1025,28 +1212,43 @@ fn internal(message: String) -> ContractValidationError {
     issue("contract.generated-json", vec![], message)
 }
 
-/// Return the closest name from `known` that differs from `unknown` by at most
-/// `max_dist` edits (Levenshtein distance), or `None` if no match is close enough.
 /// Legacy or commonly guessed field names agents send (observed in blind
-/// evals), mapped to the canonical field when the query accepts it.
-const FIELD_ALIASES: [(&str, &str); 8] = [
+/// evals and recorded sessions), mapped to the canonical field when the query
+/// accepts it. A name may map to several fields; the first one the query
+/// accepts wins.
+const FIELD_ALIASES: [(&str, &str); 21] = [
     ("type", "operation"),
     ("keywordsToSearch", "keywords"),
     ("matchStringContextLines", "contextLines"),
     ("pattern", "searchText"),
+    ("pattern", "names"),
     ("filesOnly", "resultView"),
     ("filePath", "path"),
     ("maxResults", "pageSize"),
     ("limit", "pageSize"),
+    ("depth", "maxDepth"),
+    ("lineStart", "startLine"),
+    ("lineEnd", "endLine"),
+    ("searchText", "matchString"),
+    ("filePattern", "include"),
+    ("fileFilter", "include"),
+    ("includePattern", "include"),
+    ("glob", "include"),
+    ("useRegex", "regex"),
+    ("isRegex", "regex"),
+    ("includeHidden", "hidden"),
+    ("showHidden", "hidden"),
 ];
 
+/// The field `known` most likely meant by `unknown`: an alias, a known field
+/// that prefixes it, or the nearest spelling. The edit budget scales with the
+/// name so a short guess (`depth`, `mode`) never lands on an unrelated field.
 fn suggest_field<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
-    const MAX_DIST: usize = 3;
     let accepted = |name: &str| known.iter().copied().find(|k| *k == name);
     if let Some(target) = FIELD_ALIASES
         .iter()
-        .find(|(alias, _)| *alias == unknown)
-        .and_then(|(_, target)| accepted(target))
+        .filter(|(alias, _)| *alias == unknown)
+        .find_map(|(_, target)| accepted(target))
     {
         return Some(target);
     }
@@ -1059,11 +1261,13 @@ fn suggest_field<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
     {
         return Some(prefix);
     }
+    let max_dist = (unknown.chars().count() / 3).clamp(2, 3);
+    let lowered = unknown.to_lowercase();
     known
         .iter()
         .filter_map(|&k| {
-            let d = levenshtein(unknown, k);
-            (d <= MAX_DIST).then_some((d, k))
+            let d = levenshtein(&lowered, &k.to_lowercase());
+            (d <= max_dist).then_some((d, k))
         })
         .min_by_key(|(d, _)| *d)
         .map(|(_, k)| k)
@@ -1689,5 +1893,130 @@ mod tests {
                 assert_eq!(&normalized, expected, "{}", fixture["id"]);
             }
         }
+    }
+
+    /// Field names agents sent in real sessions point at the accepted field,
+    /// never at an unrelated near-spelling.
+    #[test]
+    fn observed_wrong_field_names_suggest_the_accepted_field() {
+        let local_fetch = [
+            "path",
+            "startLine",
+            "endLine",
+            "matchString",
+            "contextLines",
+        ];
+        assert_eq!(
+            super::suggest_field("lineStart", &local_fetch),
+            Some("startLine")
+        );
+        assert_eq!(
+            super::suggest_field("lineEnd", &local_fetch),
+            Some("endLine")
+        );
+        assert_eq!(
+            super::suggest_field("searchText", &local_fetch),
+            Some("matchString")
+        );
+        let local_search = ["searchText", "include", "regex", "hidden", "page", "goal"];
+        for (guess, field) in [
+            ("filePattern", "include"),
+            ("fileFilter", "include"),
+            ("includePattern", "include"),
+            ("useRegex", "regex"),
+            ("isRegex", "regex"),
+            ("includeHidden", "hidden"),
+        ] {
+            assert_eq!(
+                super::suggest_field(guess, &local_search),
+                Some(field),
+                "{guess}"
+            );
+        }
+        assert_eq!(
+            super::suggest_field("mode", &local_search),
+            None,
+            "not 'goal'"
+        );
+        let structure = ["path", "maxDepth", "debug", "names", "detail"];
+        assert_eq!(super::suggest_field("depth", &structure), Some("maxDepth"));
+        assert_eq!(super::suggest_field("pattern", &structure), Some("names"));
+        assert_eq!(
+            super::suggest_field("depth", &["debug", "detail"]),
+            None,
+            "a short name never matches an unrelated field three edits away"
+        );
+    }
+
+    #[test]
+    fn a_row_sent_to_the_wrong_tool_names_the_tool_that_owns_its_fields() {
+        let error = validate(
+            "localFetch",
+            json!({"queries":[{"path":"package.json","searchText":"name","pageSize":3,"goal":"g","reasoning":"r"}]}),
+        )
+        .expect_err("localSearch fields");
+        let formatted = format_input_error("localFetch", &error, false).to_string();
+        assert!(
+            formatted.contains("did you mean 'matchString'?"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("pageSize, searchText are localSearch fields"),
+            "{formatted}"
+        );
+
+        let error = validate(
+            "structureSearch",
+            json!({"queries":[{"path":"packages","depth":2,"goal":"g","reasoning":"r"}]}),
+        )
+        .expect_err("misspelled maxDepth");
+        let formatted = format_input_error("structureSearch", &error, false).to_string();
+        assert!(
+            formatted.contains("did you mean 'maxDepth'?"),
+            "{formatted}"
+        );
+        assert!(
+            !formatted.contains("send queries[0] to"),
+            "a field the tool can name is not rerouted: {formatted}"
+        );
+
+        let error = validate(
+            "astSearch",
+            json!({"queries":[{"path":"packages","operation":"files","pageSize":5,"goal":"g","reasoning":"r"}]}),
+        )
+        .expect_err("structureSearch operation");
+        let formatted = format_input_error("astSearch", &error, false).to_string();
+        assert!(
+            formatted.contains("operation \\\"files\\\" is a structureSearch operation"),
+            "{formatted}"
+        );
+    }
+
+    #[test]
+    fn an_oversized_batch_says_how_to_split_it() {
+        let rows = (0..7)
+            .map(|_| json!({"path":"package.json","goal":"g","reasoning":"r"}))
+            .collect::<Vec<_>>();
+        let error = validate("localFetch", json!({ "queries": rows })).expect_err("too many rows");
+        let formatted = format_input_error("localFetch", &error, false).to_string();
+        assert!(
+            formatted.contains("split the batch into 2 calls"),
+            "{formatted}"
+        );
+    }
+
+    #[test]
+    fn a_top_level_brief_is_moved_into_each_row() {
+        let error = crate::contracts::prepare_many_and_validate(
+            "localSearch",
+            json!({"goal":"g","queries":[{"path":".","searchText":"x","goal":"g","reasoning":"r"}]}),
+            PrepareOptions { source_label: "test" },
+        )
+        .expect_err("goal is per row");
+        let formatted = format_input_error("localSearch", &error, false).to_string();
+        assert!(
+            formatted.contains("Move 'goal' into each queries[] row"),
+            "{formatted}"
+        );
     }
 }

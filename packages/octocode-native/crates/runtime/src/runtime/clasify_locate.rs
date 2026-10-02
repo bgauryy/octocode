@@ -663,11 +663,31 @@ pub(super) fn bare_target_hint(identifier: &str) -> String {
     )
 }
 
-fn literal_target(target: &str) -> Option<&str> {
+/// Identifier-shaped tokens a target names (`snake_case`, `camelCase`,
+/// `Path::name`), in order.
+fn identifier_tokens(target: &str) -> impl Iterator<Item = &str> {
     target
         .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '"' | '\'' | '`' | '?' | '!'))
         .map(|token| token.trim_end_matches(['.', ')']).trim_end_matches('('))
-        .find(|token| looks_like_identifier(token))
+        .filter(|token| looks_like_identifier(token))
+}
+
+fn literal_target(target: &str) -> Option<&str> {
+    identifier_tokens(target).next()
+}
+
+/// Up to `limit` distinct identifiers a goal names, as prefilter literals.
+pub(super) fn goal_literals(goal: &str, limit: usize) -> Vec<String> {
+    let mut literals: Vec<String> = Vec::new();
+    for token in identifier_tokens(goal) {
+        if literals.len() == limit {
+            break;
+        }
+        if !literals.iter().any(|seen| seen == token) {
+            literals.push(token.to_owned());
+        }
+    }
+    literals
 }
 
 /// `next.localSearch`: the first identifier a locate target names, searched

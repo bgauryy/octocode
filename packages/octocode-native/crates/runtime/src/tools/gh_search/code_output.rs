@@ -252,6 +252,7 @@ pub(super) async fn resolve_lines<
         &sha,
         &paths,
         &query.keywords,
+        &query.goal,
         context,
         security,
     )
@@ -304,6 +305,7 @@ pub(super) fn shape_files(
                     lines,
                     first,
                     last,
+                    best,
                     total,
                     line_count,
                 } => {
@@ -318,7 +320,7 @@ pub(super) fn shape_files(
                         top = Some(line_read(
                             query,
                             row,
-                            (*first, *last),
+                            (*first, *last, *best),
                             *line_count,
                             &resolution.sha,
                         ));
@@ -375,20 +377,22 @@ fn scoped_fragment_read(
     Some(read)
 }
 
-/// ghGetFileContent read of a resolved file's first hit (5 lines before it),
-/// widened to its last hit when that is close.
+/// ghGetFileContent read of a resolved file's best hit for the goal (5 lines
+/// before it); a read anchored on the first hit widens to the last hit when
+/// that is close.
 fn line_read(
     query: &GhSearchCodeQuery,
     row: &serde_json::Map<String, Value>,
-    (first, last): (u32, u32),
+    (first, last, best): (u32, u32, u32),
     line_count: usize,
     sha: &str,
 ) -> Option<Value> {
     let path = row.get("path")?.as_str()?;
     let repo = query.repo.as_deref()?;
-    let start = first.saturating_sub(5).max(1);
-    let mut end = first.saturating_add(17);
-    if last.saturating_sub(first) <= 40 {
+    let anchor = if best == 0 { first } else { best };
+    let start = anchor.saturating_sub(5).max(1);
+    let mut end = anchor.saturating_add(17);
+    if anchor == first && last.saturating_sub(first) <= 40 {
         end = end.max(last.saturating_add(3));
     }
     let end = end.min(u32::try_from(line_count).unwrap_or(u32::MAX).max(start));

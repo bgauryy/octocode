@@ -503,6 +503,16 @@ mod drift_tests {
             .find(|row| row["file"] == "a.ts")
             .unwrap();
         assert_eq!(a["importLine"], 1, "{out}");
+        // A re-export is the dependent's import statement too.
+        for file in ["index.ts", "star.ts"] {
+            let row = out["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["file"] == file)
+                .unwrap();
+            assert_eq!(row["importLine"], 1, "{file}: {out}");
+        }
     }
 
     #[test]

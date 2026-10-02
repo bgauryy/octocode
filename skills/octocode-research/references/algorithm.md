@@ -5,12 +5,12 @@ Load when the task class or first move is unclear. The strongest handle decides 
 | Handle | First move |
 |---|---|
 | none | docs entry points, else tree depth 1-2 + match counts; re-enter at hotspots |
-| concept/behavior | guess a literal or synonym regex → anchors; `clasify` only inside a known large file |
+| concept/behavior | guess a literal or synonym alternation (`a\|b`) → anchors → `matchString` read; `clasify` for a described target inside a known large file or via a search handoff |
 | identifier | text search or `workspaceSymbol`; LSP when identity matters |
 | code shape | `astSearch operation:"match"` |
 | file topology | `octocode graph` or beta `astTopology` |
-| installed package | resolved version, then the matching upstream release |
-| why/history | PR/commit history on the path |
+| installed package | resolved version → `artifactSearch` `version` → `next.viewReleaseSource` |
+| why/history | PR/commit history on the path; issue → `closedBy` → fix PR |
 
 Pick a surface and a task; skip irrelevant or redundant stages when a known anchor already answers.
 - Surface: local → `workflow-local.md`; remote, docs, or local ↔ remote → `workflow-external.md`.

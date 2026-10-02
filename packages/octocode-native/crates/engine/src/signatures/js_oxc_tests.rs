@@ -1019,3 +1019,35 @@ fn nested_function_declarations_carry_their_parent() {
     // named declaration.
     assert_eq!(parent_of("inCallback"), "run");
 }
+
+/// CommonJS and prototype-style modules define their API by assigning
+/// functions to members (`res.redirect = function () {}`,
+/// `exports.x = () => {}`): those assignments are declarations spanning the
+/// function, so a block read or a declaration outline covers the body.
+#[test]
+fn member_assigned_functions_are_declarations() {
+    let src = "'use strict';\nvar res = module.exports = {};\n\nres.redirect = function redirect(url) {\n  var status = 302;\n  return status;\n};\n\nexports.handler = (req) => {\n  return req;\n};\n\nWidget.prototype.render = Other.render = function () {\n  return 1;\n};\n\nres.count = 1;\nres.once = function () { return 0; };\n";
+    let facts: Value =
+        serde_json::from_str(&extract_declarations(src, "lib/response.js").expect("declarations"))
+            .expect("json");
+    let declarations = facts["declarations"].as_array().expect("declarations");
+    let span = |name: &str| {
+        let row = declarations
+            .iter()
+            .find(|d| d["name"] == name)
+            .unwrap_or_else(|| panic!("missing {name}: {facts}"));
+        (
+            row["range"]["start"]["line"].as_u64().unwrap() + 1,
+            row["range"]["end"]["line"].as_u64().unwrap() + 1,
+        )
+    };
+    assert_eq!(span("res.redirect"), (4, 7));
+    assert_eq!(span("exports.handler"), (9, 11));
+    assert_eq!(span("Widget.prototype.render"), (13, 15));
+    assert_eq!(span("res.once"), (18, 18));
+    // A member assigned a plain value is not a declaration.
+    assert!(
+        declarations.iter().all(|d| d["name"] != "res.count"),
+        "{facts}"
+    );
+}

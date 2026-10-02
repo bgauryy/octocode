@@ -11,6 +11,8 @@
 //!
 //! Both are lexical, per-line, and allocation-free: no parser, no index.
 
+use crate::text::test_paths::is_test_path;
+
 /// Weight of a matched line whose first match starts at byte `first_match`.
 pub(crate) const DECLARATION_WEIGHT: u32 = 2;
 const CODE_WEIGHT: u32 = 1;
@@ -338,17 +340,9 @@ impl Iterator for Words<'_> {
     }
 }
 
-/// Directory names whose files rank after source files.
+/// Directory names of generated, bundled, and vendored files, which rank
+/// after source files (test directories are [`is_test_path`]'s).
 const DEMOTED_DIRECTORIES: &[&str] = &[
-    "test",
-    "tests",
-    "__tests__",
-    "spec",
-    "specs",
-    "testdata",
-    "fixtures",
-    "__fixtures__",
-    "__mocks__",
     "generated",
     "__generated__",
     "dist",
@@ -357,28 +351,20 @@ const DEMOTED_DIRECTORIES: &[&str] = &[
     "third_party",
 ];
 
-/// File-name fragments that mark test, generated, or minified files.
-const DEMOTED_FILE_MARKERS: &[&str] = &[
-    "_test.",
-    ".test.",
-    "_spec.",
-    ".spec.",
-    ".generated.",
-    "_generated.",
-    ".pb.",
-    "_pb2.",
-    ".min.",
-];
+/// File-name fragments that mark generated or minified files.
+const DEMOTED_FILE_MARKERS: &[&str] = &[".generated.", "_generated.", ".pb.", "_pb2.", ".min."];
 
 /// Whether a root-relative path is a test, fixture, generated, bundled, or
 /// vendored file. Only the path below the search root is judged, so searching
 /// inside `tests/` itself does not demote every result.
 pub(crate) fn is_demoted_path(relative: &str) -> bool {
+    if is_test_path(relative) {
+        return true;
+    }
     let lower = relative.to_ascii_lowercase().replace('\\', "/");
     let mut parts = lower.rsplit('/');
     let name = parts.next().unwrap_or_default();
     parts.any(|dir| DEMOTED_DIRECTORIES.contains(&dir))
-        || name.starts_with("test_")
         || DEMOTED_FILE_MARKERS
             .iter()
             .any(|marker| name.contains(marker))

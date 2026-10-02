@@ -22,6 +22,8 @@ FRAME → MODEL → PROVE → CHANGE → VERIFY
 
 Review-only tasks stop at evidence-backed findings. Authorized implementation tasks include the smallest verified refactor needed for the named quality goal.
 
+Evidence comes through `octocode-research`. File topology uses beta `astTopology` (set `OCTOCODE_BETA=true`) or the persisted `octocode graph ingest` / `octocode graph query` CLI; both return syntactic leads that need exact reads and LSP identity before a verdict.
+
 ## Install
 
 ```bash

@@ -4,21 +4,24 @@ Load for a remote repository, package, upstream change, docs or web evidence, or
 
 | Handle | Next call |
 |---|---|
-| package name / concept | `artifactSearch` `type` + `packageName` (exact) / `keywords` (discovery; PyPI exact-only) |
-| repository concept | `ghSearchRepo`, one query per concept |
+| package name / concept | `artifactSearch` `type` + `packageName` (exact, optional `version`) / `keywords` (discovery; not PyPI) |
+| repository concept | `ghSearchRepo`, one query per concept; extra filters in `qualifiers`, dedicated fields (`stars`, `language`) stay fields |
 | code term | `ghSearchCode`, then exact-read decisive hits |
+| path by name at any ref | `ghStructure` `pattern` (`**/x.py`) |
 | known file/ref | `ghGetFileContent` (`matchString`, `ranges`, `block`); described target in a large file → `clasify` |
 | known history item | `ghGetHistoryItem` directly |
 
 ## Code and packages
-- `ghSearchCode` searches code on the indexed default branch only; GitHub caps at 1,000 results and may be incomplete, so zero hits never prove absence.
-- `ghGetFileContent` honors an explicit `branch` (omitted = default branch). A 404 means an unreadable path/ref or missing access; never substitute another ref. Pin a commit for citations.
-- Resolve dependencies with `artifactSearch` before guessing a repository; match the installed version to its release tag or `gitHead` commit and `repositoryDirectory`. The default branch is not the shipped version.
+- `ghSearchCode` searches code on the indexed default branch only (`owner` required); GitHub caps at 1,000 results and may be incomplete, so zero hits never prove absence. Hits carry numbered `lines` that often already state the answer; `next.readTopMatch` reads around the top hit, so pick the deciding line yourself when it differs. `branch` sets the ref those reads use, not the index.
+- `ghGetFileContent` honors an explicit `branch` (omitted = default branch). A 404 means an unreadable path/ref or missing access (`next.viewTree` lists the nearest directory); an unknown ref is rejected. Never substitute another ref. Pin a commit for citations.
+- Resolve dependencies with `artifactSearch` before guessing a repository. For the installed version, `next.viewReleaseSource` pins the release commit; its `source.verification` says `provenance` or `unverified`. `next.viewRepo` is default-branch code, not release evidence.
 
 ## History
-- `ghSearchHistory` discovers `pullRequest`/`issue`/`commit`; commit keywords search default-branch messages, so omit `keywords` to walk by path, branch, or date.
-- Exact reads: `pullRequest`/`issue` by `number`; `commit` by `ref`; `compare` by `base` + `head`.
-- PR: `matchString` + `files` for hit lines, else `include:["files"]` → `next.reviewPatches`. Open PRs at `sourceSha`, merged behavior at `mergeCommitSha`.
+- `ghSearchHistory` discovers `pullRequest`/`issue`/`commit`; commit keywords search default-branch messages, so omit `keywords` to walk by path, branch, or date. Extra filters go in `qualifiers`; PR negation supports only `-is:draft`. `next.readPr` prefers merged candidates; a search for a bare issue number offers `next.readIssueLinks`.
+- Exact reads: `pullRequest`/`issue` by `number`; `commit` by `ref`; `compare` by `base` + `head` (or `commit` with `base`).
+- Issue → fix: read the issue; `closedBy` lists the PRs (with merge state) and `next.readFixPr` reads the fix.
+- PR: `matchString` + `files` for hit lines; else `include:["files"]` → `next.reviewPatches`. `unsearchedFiles` (too large to patch) close via `next.searchUnpatchedFile`. Every PR row carries `mergedAt`; open PRs read at `sourceSha`, merged behavior at `mergeCommitSha`.
+- Patch windows share one budget across rows. Finish `responsePagination` pages before a row's `next.continuePatch`, and keep `charLength` at its default. Commit diffs: `include:["patches"]` (+`files`); compare diffs: `next.includeDiff`.
 - Issues report observations and PRs state intent; code + tests at the version establish behavior.
 
 ## Docs and web
@@ -29,8 +32,8 @@ Load for a remote repository, package, upstream change, docs or web evidence, or
 
 ## Local ↔ remote
 - Local → upstream: resolve the local version or error anchor first; return to local callers and config before claiming an upstream fix applies.
-- Remote → local, smallest scope: one read → `ghGetFileContent`; a directory → `ghStructure`; repeated subtree reads → `ghCloneRepo` + `sparsePath`; repo-wide graph/LSP → full clone.
-- Clone `complete` is relative to the requested scope, and shallow history is not full history. Use `location.localPath`; keep the resolved ref and `commitSha`.
-- `ghCloneRepo` is CLI-only and needs `ENABLE_LOCAL` + persistent `OCTOCODE_STORAGE_MODE`; `ENABLE_CLONE` is legacy and ignored. Never change config automatically. Cloning is not executing.
+- Remote → local, smallest scope: one read → `ghGetFileContent`; a directory → `ghStructure` (`materialize` small sets, then `localSearch` at `location.localPath`); repeated subtree reads → `ghCloneRepo` + `sparsePath` (a path or a list); repo-wide graph/LSP → full clone.
+- Clone completeness is relative to the requested scope: a sparse clone proves nothing about omitted paths, and shallow history (`depth`, default 1) is not full history. Use `location.localPath` (or `next.exploreClone`); keep the resolved ref and `commitSha`. Refresh with `forceRefresh` when currency matters.
+- `ghCloneRepo` is CLI-only and needs `ENABLE_LOCAL` + persistent `OCTOCODE_STORAGE_MODE` (the default); `ENABLE_CLONE` is legacy and ignored. Never change config automatically. Cloning is not executing.
 
 Next: materialized path → `workflow-local.md`; comparisons → `campaigns.md`.

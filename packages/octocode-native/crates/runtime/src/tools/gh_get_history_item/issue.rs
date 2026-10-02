@@ -142,7 +142,7 @@ pub(super) async fn issue<R: CredentialResolver>(
     }
     let closed = raw.get("state").and_then(Value::as_str) == Some("closed");
     if let Some(references) = closed_by.as_ref().filter(|refs| !refs.prs.is_empty()) {
-        row["closedBy"] = json!(references.prs);
+        row["closedBy"] = Value::Array(references.prs.iter().map(|pr| pr.row.clone()).collect());
     }
     let mut out = json!({"type":"issues","owner":query.owner(),"repo":query.repo(),"issues":[row],"totalCount":1});
     promote_issue_continuations(&mut out, query);
@@ -175,12 +175,19 @@ pub(super) async fn issue<R: CredentialResolver>(
 const MAX_CLOSING_REFERENCES: usize = 25;
 
 /// The closing-reference lookup; `first` is [`MAX_CLOSING_REFERENCES`].
-pub(super) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage } nodes{ number state mergedAt } } } } }";
+pub(super) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage } nodes{ number state mergedAt additions deletions changedFiles } } } } }";
+
+/// One linked pull request: its public `closedBy` row and whether its whole
+/// diff fits one patch read.
+struct ClosingPr {
+    row: Value,
+    small: bool,
+}
 
 /// The linked pull requests one read returned, merged first, and GitHub's
 /// total when more exist than were returned.
 struct ClosingReferences {
-    prs: Vec<Value>,
+    prs: Vec<ClosingPr>,
     bounded_total: Option<u64>,
 }
 
@@ -226,22 +233,28 @@ async fn closing_pull_requests<R: CredentialResolver>(
     })
 }
 
-fn map_closing_pull_requests(nodes: &[Value]) -> Vec<Value> {
+fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
     let mut prs = nodes
         .iter()
         .filter_map(|node| {
             let number = node.get("number").and_then(Value::as_u64)?;
-            let mut pr = json!({
+            let mut row = json!({
                 "number": number,
                 "state": str_at(node, "/state").unwrap_or("closed").to_ascii_lowercase(),
                 "mergedAt": node.get("mergedAt").filter(|v| !v.is_null()),
             });
-            remove_nulls(&mut pr);
-            Some(pr)
+            remove_nulls(&mut row);
+            let count = |key: &str| node.get(key).and_then(Value::as_u64);
+            let small = super::continuations::is_small_pr(
+                count("additions"),
+                count("deletions"),
+                count("changedFiles"),
+            );
+            Some(ClosingPr { row, small })
         })
         .collect::<Vec<_>>();
     // Stable: merged first, otherwise GitHub's order.
-    prs.sort_by_key(|pr| pr.get("mergedAt").is_none());
+    prs.sort_by_key(|pr| pr.row.get("mergedAt").is_none());
     prs
 }
 
@@ -250,17 +263,20 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<Value> {
 fn attach_fix_pr(
     out: &mut Value,
     query: &HistoryItemRequest,
-    closed_by: Option<&[Value]>,
+    closed_by: Option<&[ClosingPr]>,
     closed: bool,
     bounded: bool,
 ) {
     let confidence = if bounded { "medium" } else { "high" };
-    let next = match closed_by.and_then(<[Value]>::first) {
+    let next = match closed_by.and_then(<[ClosingPr]>::first) {
+        // A small fix reads whole in one call; a larger one names its
+        // files first so the review can pick patches.
         Some(pr) => (
             "readFixPr",
             json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":confidence,"query":{
                 "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
-                "number":pr["number"],"include":["body","files"]}}),
+                "number":pr.row["number"],
+                "include":["body", if pr.small { "patches" } else { "files" }]}}),
         ),
         None if closed && closed_by.is_none() => (
             "findFixPr",
@@ -274,4 +290,55 @@ fn attach_fix_pr(
         out["next"] = json!({});
     }
     out["next"][next.0] = next.1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A small merged fix is read with its patches in the same call; a large
+    /// one (or one GitHub sized nothing for) reads its file inventory first.
+    #[test]
+    fn read_fix_pr_carries_the_patches_of_a_small_fix() {
+        let query = HistoryItemRequest::from_row(json!({
+            "operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1
+        }))
+        .expect("issue query");
+        let prs = map_closing_pull_requests(&[
+            json!({"number":7,"state":"CLOSED","mergedAt":null,"additions":1,"deletions":0,"changedFiles":1}),
+            json!({"number":8,"state":"MERGED","mergedAt":"2026-09-11T15:55:40Z",
+                "additions":63,"deletions":4,"changedFiles":3}),
+        ]);
+        assert_eq!(
+            prs.iter().map(|pr| pr.row.clone()).collect::<Vec<_>>(),
+            [
+                json!({"number":8,"state":"merged","mergedAt":"2026-09-11T15:55:40Z"}),
+                json!({"number":7,"state":"closed"}),
+            ]
+        );
+        let mut out = json!({});
+        attach_fix_pr(&mut out, &query, Some(&prs), true, false);
+        assert_eq!(out["next"]["readFixPr"]["query"]["number"], 8);
+        assert_eq!(
+            out["next"]["readFixPr"]["query"]["include"],
+            json!(["body", "patches"])
+        );
+        for node in [
+            json!({"number":9,"state":"MERGED","mergedAt":"x","additions":900,"deletions":4,"changedFiles":3}),
+            json!({"number":9,"state":"MERGED","mergedAt":"x"}),
+        ] {
+            let mut out = json!({});
+            attach_fix_pr(
+                &mut out,
+                &query,
+                Some(&map_closing_pull_requests(&[node])),
+                true,
+                false,
+            );
+            assert_eq!(
+                out["next"]["readFixPr"]["query"]["include"],
+                json!(["body", "files"])
+            );
+        }
+    }
 }

@@ -18,6 +18,8 @@ export interface RawIssue {
   errors?: readonly (readonly RawIssue[])[];
   /** Zod discriminatedUnion: the allowed discriminator values. */
   options?: readonly unknown[];
+  /** Zod too_big: the inclusive upper bound. */
+  maximum?: number | bigint;
 }
 
 export interface FormattedIssue {
@@ -370,6 +372,20 @@ export function formatIssues(
             });
             continue;
           }
+          // `goal`/`reasoning` beside `queries`: each row states its own.
+          if (
+            path.length === 0 &&
+            (key === 'goal' || key === 'reasoning') &&
+            supplied !== null &&
+            typeof supplied === 'object' &&
+            Object.hasOwn(supplied, 'queries')
+          ) {
+            out.push({
+              path,
+              message: `Move '${key}' into each queries[] row: a top-level ${key} is not inherited.`,
+            });
+            continue;
+          }
           out.push({
             path,
             message: `Remove unknown field '${key}'${didYouMean(key, valid)}`,
@@ -382,6 +398,24 @@ export function formatIssues(
           });
         }
         return;
+      }
+      case 'too_big': {
+        const rows = Array.isArray(supplied) ? supplied.length : undefined;
+        const maximum = Number(issue.maximum);
+        if (
+          path.length === 1 &&
+          path[0] === 'queries' &&
+          rows !== undefined &&
+          maximum > 0
+        ) {
+          out.push({ path, message: issue.message });
+          out.push({
+            path,
+            message: `Send at most ${maximum} rows per call: split the batch into ${Math.ceil(rows / maximum)} calls.`,
+          });
+          return;
+        }
+        break;
       }
       case 'invalid_value':
         if (issue.values?.length) {

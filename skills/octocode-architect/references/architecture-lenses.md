@@ -12,7 +12,7 @@ At each hop, name the data shape, owner, invariant, failure mode, and interface.
 
 Record `module/layer → responsibility → owned data/invariants → public interface → allowed dependencies`. Mark rules `declared`, `observed`, or `inferred`; only a declared rule can directly prove a violation.
 
-## Cross-check four views
+## Cross-check the views
 
 | View | Question |
 |---|---|

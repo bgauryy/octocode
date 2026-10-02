@@ -26,6 +26,8 @@ pub(super) enum FileHits {
         lines: Vec<String>,
         first: u32,
         last: u32,
+        /// The hit that best fits the goal ([`best_hit`]).
+        best: u32,
         total: usize,
         line_count: usize,
     },
@@ -67,6 +69,7 @@ pub(super) async fn resolve_files<
     sha: &str,
     paths: &[String],
     keywords: &[String],
+    goal: &str,
     context: &RequestContext,
     security: &impl ContentScan,
 ) -> Result<Vec<FileHits>, ProviderError> {
@@ -89,7 +92,7 @@ pub(super) async fn resolve_files<
     let mut out = Vec::with_capacity(paths.len());
     for (path, result) in paths.iter().zip(fetched) {
         out.push(match result {
-            Ok(content) => scan(&content.bytes, path, keywords, security),
+            Ok(content) => scan(&content.bytes, path, keywords, goal, security),
             Err(error) if error.kind == ProviderErrorKind::Cancelled => return Err(error),
             Err(error)
                 if error.kind == ProviderErrorKind::NotFound || error.status == Some(404) =>
@@ -107,6 +110,7 @@ pub(super) fn scan(
     bytes: &[u8],
     path: &str,
     keywords: &[String],
+    goal: &str,
     security: &impl ContentScan,
 ) -> FileHits {
     if bytes.len() > MAX_SCAN_BYTES || bytes.iter().take(8192).any(|byte| *byte == 0) {
@@ -127,17 +131,24 @@ pub(super) fn scan(
     let mut last = 0;
     let mut total = 0;
     let mut line_count = 0;
+    let lowered: Vec<String> = text.lines().map(str::to_lowercase).collect();
+    let terms = goal_terms(goal, &needles);
+    let mut best = (0, 0);
     for (index, line) in text.lines().enumerate() {
         line_count = index + 1;
-        let lower = line.to_lowercase();
-        let Some(at) = needles
+        let lower = &lowered[index];
+        let Some((at, needle)) = needles
             .iter()
-            .filter_map(|needle| lower.find(needle.as_str()))
+            .filter_map(|needle| lower.find(needle.as_str()).map(|at| (at, needle)))
             .min()
         else {
             continue;
         };
         let number = u32::try_from(index + 1).unwrap_or(u32::MAX);
+        let score = hit_score(&lowered, index, at + needle.len(), &terms);
+        if first == 0 || score > best.1 {
+            best = (number, score);
+        }
         total += 1;
         if first == 0 {
             first = number;
@@ -152,7 +163,7 @@ pub(super) fn scan(
         let shown = if in_key_block {
             crate::security::key_fragment_placeholder()
         } else {
-            let window = clip(line, lower_to_char_index(line, &lower, at));
+            let window = clip(line, lower_to_char_index(line, lower, at));
             security
                 .sanitize(&window, Path::new(path))
                 .map(|(clean, _)| clean)
@@ -170,9 +181,87 @@ pub(super) fn scan(
         lines,
         first,
         last,
+        best: best.0,
         total,
         line_count,
     }
+}
+
+/// Lines on each side of a hit searched for the goal's other terms.
+const GOAL_CONTEXT_LINES: usize = 8;
+
+/// Words of a goal that say what to look for, not how to ask.
+const GOAL_STOP_WORDS: &[&str] = &[
+    "the", "and", "for", "with", "from", "that", "this", "into", "find", "where", "what",
+    "which", "how", "does", "show", "used", "uses", "use", "code", "file", "files", "line",
+    "lines", "read", "search", "look", "locate", "repo", "repository", "its", "are", "was",
+    "were", "has", "have", "who", "why", "when",
+];
+
+/// Lowercase goal words (three or more characters) that are not stop words
+/// and not part of a searched keyword: the evidence a hit's neighborhood can
+/// add beyond the keyword itself.
+fn goal_terms(goal: &str, needles: &[String]) -> Vec<String> {
+    let mut terms: Vec<String> = goal
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| word.chars().count() >= 3 && !GOAL_STOP_WORDS.contains(word))
+        .filter(|word| !needles.iter().any(|needle| needle.contains(word)))
+        .map(str::to_owned)
+        .collect();
+    terms.sort_unstable();
+    terms.dedup();
+    terms
+}
+
+/// How well hit line `index` (keyword ending at byte `after`) fits the goal:
+/// two points per goal term named within [`GOAL_CONTEXT_LINES`], plus the
+/// hit's own shape: a literal value assigned to the keyword (`x = 512`,
+/// `x: 512`) 3, any other assignment or declaration 2, other code 1, a
+/// comment 0.
+fn hit_score(lowered: &[String], index: usize, after: usize, terms: &[String]) -> usize {
+    let window = &lowered[index.saturating_sub(GOAL_CONTEXT_LINES)
+        ..(index + GOAL_CONTEXT_LINES + 1).min(lowered.len())];
+    let named = terms
+        .iter()
+        .filter(|term| window.iter().any(|line| line.contains(term.as_str())))
+        .count();
+    2 * named + hit_shape(&lowered[index], after)
+}
+
+fn hit_shape(lower: &str, after: usize) -> usize {
+    let code = lower.trim_start();
+    if ["//", "#", "/*", "*", "--", "<!--", "\"\"\""]
+        .iter()
+        .any(|marker| code.starts_with(marker))
+    {
+        return 0;
+    }
+    let rest = lower.get(after..).unwrap_or_default().trim_start();
+    let value = rest
+        .strip_prefix(":=")
+        .or_else(|| {
+            rest.strip_prefix('=')
+                .filter(|value| !value.starts_with(['=', '>']))
+        })
+        .or_else(|| rest.strip_prefix(':').filter(|value| !value.starts_with(':')))
+        .map(str::trim_start);
+    if let Some(value) = value {
+        let literal = value.starts_with(|c: char| c.is_ascii_digit() || matches!(c, '"' | '\'' | '`'))
+            || (value.starts_with('-') && value[1..].starts_with(|c: char| c.is_ascii_digit()))
+            || ["true", "false", "none", "null", "nil"]
+                .iter()
+                .any(|word| value.starts_with(word));
+        return if literal { 3 } else { 2 };
+    }
+    let before = lower.get(..after).unwrap_or_default();
+    let declared = [
+        "fn ", "def ", "func ", "function ", "class ", "const ", "let ", "var ", "static ",
+        "type ", "struct ", "interface ", "enum ",
+    ]
+    .iter()
+    .any(|word| before.contains(word));
+    if declared { 2 } else { 1 }
 }
 
 /// Char index in `line` of byte offset `at` in its lowercase form (lowercasing
@@ -223,7 +312,7 @@ mod tests {
     #[test]
     fn every_keyword_line_is_numbered_case_insensitively() {
         let text = "import x\nawait Wrap_App(app)\nother\n    await wrap_app(s)\n";
-        let hits = scan(text.as_bytes(), "a.py", &["wrap_app".into()], &Passthrough);
+        let hits = scan(text.as_bytes(), "a.py", &["wrap_app".into()], "", &Passthrough);
         assert_eq!(
             hits,
             FileHits::Lines {
@@ -233,12 +322,13 @@ mod tests {
                 ],
                 first: 2,
                 last: 4,
+                best: 2,
                 total: 2,
                 line_count: 4,
             }
         );
         assert_eq!(
-            scan(text.as_bytes(), "a.py", &["absent".into()], &Passthrough),
+            scan(text.as_bytes(), "a.py", &["absent".into()], "", &Passthrough),
             FileHits::Unmatched
         );
         assert_eq!(
@@ -246,17 +336,55 @@ mod tests {
                 b"bin\0ary needle",
                 "a.bin",
                 &["needle".into()],
+                "",
                 &Passthrough
             ),
             FileHits::Unavailable
         );
     }
 
+    /// The read anchors on the hit that best fits the goal: a hit whose
+    /// neighborhood names the goal's other terms, and that assigns a literal,
+    /// beats an earlier type declaration or a later use.
+    #[test]
+    fn the_best_hit_for_the_goal_anchors_the_read() {
+        let mut text = String::from("struct Builder {\n    /// Cap on thread usage.\n    max_blocking_threads: usize,\n}\n");
+        text.push_str(&"\n".repeat(20));
+        text.push_str("fn new() -> Builder {\n    Builder {\n        // Defaults for the pool.\n        max_blocking_threads: 512,\n    }\n}\n");
+        text.push_str(&"\n".repeat(20));
+        text.push_str("fn spawn(&self) {\n    pool(self.max_blocking_threads);\n}\n");
+        let best = |goal: &str| match scan(
+            text.as_bytes(),
+            "builder.rs",
+            &["max_blocking_threads".into()],
+            goal,
+            &Passthrough,
+        ) {
+            FileHits::Lines { first, best, .. } => (first, best),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(best("Find default max_blocking_threads in the Builder"), (3, 28));
+        // Without goal terms a literal assignment still outranks a type.
+        assert_eq!(best(""), (3, 28));
+        // A comment hit never anchors over code.
+        let commented = "// max_blocking_threads = 1 by default\nlet max_blocking_threads = config();\n";
+        let FileHits::Lines { best, .. } = scan(
+            commented.as_bytes(),
+            "a.rs",
+            &["max_blocking_threads".into()],
+            "default max_blocking_threads",
+            &Passthrough,
+        ) else {
+            panic!("hit");
+        };
+        assert_eq!(best, 2);
+    }
+
     #[test]
     fn long_lines_keep_a_window_around_the_keyword() {
         let line = format!("{}needle{}", "a".repeat(500), "b".repeat(500));
         let FileHits::Lines { lines, .. } =
-            scan(line.as_bytes(), "a.js", &["needle".into()], &Passthrough)
+            scan(line.as_bytes(), "a.js", &["needle".into()], "", &Passthrough)
         else {
             panic!("hit");
         };
@@ -270,7 +398,7 @@ mod tests {
         let text = "needle\n".repeat(30);
         let FileHits::Lines {
             lines, total, last, ..
-        } = scan(text.as_bytes(), "a.rs", &["needle".into()], &Passthrough)
+        } = scan(text.as_bytes(), "a.rs", &["needle".into()], "", &Passthrough)
         else {
             panic!("hit");
         };

@@ -20,6 +20,7 @@ node octocode-local-testing/harness/debug-call.mjs localFetch '{"path":"/abs/fil
 |---|---|
 | `harness/mcp-client.mjs` | Shared stdio MCP client, `next.*` walker, check recorder |
 | `harness/workflows.mjs` | Regression checks for every fixed defect + continuation hygiene |
+| `harness/usage-regressions.mjs` | Input shapes and failures mined from recorded agent sessions, replayed on MCP and the CLI: batch/brief placement, guessed field names, wrong-tool rows, regex repairs, bounded large reads, root-policy hints, warm LSP |
 | `harness/grammar.mjs` | All 12 Tree-sitter grammars and their extensions on small fixtures |
 | `harness/navigate.mjs` | Agent-style ORIENT → SEARCH → READ → PROVE walk per grammar repo, each hop fed only by copied values; hop/byte budget |
 | `harness/remote.mjs` | GitHub search/read/history, artifactSearch, clasify; every returned `next.*` must execute |

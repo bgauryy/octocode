@@ -257,6 +257,8 @@ pub(crate) struct FileFacts {
     pub declarations: Vec<Declaration>,
     pub imports: Vec<Import>,
     pub reexports: Vec<Reexport>,
+    /// Line of each linked re-export statement (named or `*`), by target.
+    pub reexport_lines: Vec<(String, u32)>,
     pub calls: Vec<Call>,
     /// Base-type relations of this file's declarations.
     pub heritage: Vec<Heritage>,

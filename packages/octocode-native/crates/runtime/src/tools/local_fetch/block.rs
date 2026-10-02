@@ -10,7 +10,7 @@ use super::types::LineRange;
 pub const BLOCK_MAX_LINES: usize = 400;
 
 /// 1-based inclusive spans of the multi-line declarations the engine outlines.
-fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize, usize)>> {
+pub(crate) fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize, usize)>> {
     let raw = octocode_engine::portable::extract_declarations(content, path)?;
     let facts: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let line = |declaration: &serde_json::Value, pointer: &str| {
@@ -106,6 +106,7 @@ pub fn widen_matches(
         return windows;
     };
     let mut oversized = 0;
+    let mut unenclosed = Vec::new();
     let widened = hits
         .iter()
         .zip(windows)
@@ -115,9 +116,18 @@ pub fn widen_matches(
                 oversized += 1;
                 window
             }
-            None => window,
+            None => {
+                unenclosed.push(hit.to_string());
+                window
+            }
         })
         .collect();
+    if !unenclosed.is_empty() {
+        warnings.push(format!(
+            "block: no declaration encloses line {}; returned the match context window instead. Read on with startLine/endLine.",
+            unenclosed.join(", ")
+        ));
+    }
     if oversized > 0 {
         warnings.push(format!(
             "block: {oversized} match(es) sit in declarations over {BLOCK_MAX_LINES} lines; those keep their context window."
@@ -219,5 +229,48 @@ mod tests {
             &mut warnings,
         );
         assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn a_match_outside_every_declaration_says_block_did_not_apply() {
+        let mut warnings = vec![];
+        let windows = widen_matches(
+            PY,
+            "m.py",
+            &[1, 10],
+            vec![
+                LineRange { start: 1, end: 2 },
+                LineRange { start: 9, end: 11 },
+            ],
+            &mut warnings,
+        );
+        assert_eq!(
+            windows,
+            vec![
+                LineRange { start: 1, end: 2 },
+                LineRange { start: 8, end: 11 }
+            ]
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with("block: no declaration encloses line 1;"),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn javascript_member_assigned_functions_are_blocks() {
+        let source = "var res = module.exports = {};\n\nres.redirect = function redirect(url) {\n  var status = 302;\n  if (url) {\n    status = 301;\n  }\n  return status;\n};\n";
+        let mut warnings = vec![];
+        let windows = widen_matches(
+            source,
+            "lib/response.js",
+            &[3],
+            vec![LineRange { start: 1, end: 5 }],
+            &mut warnings,
+        );
+        assert_eq!(windows, vec![LineRange { start: 3, end: 9 }]);
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

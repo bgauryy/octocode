@@ -1369,9 +1369,21 @@ fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError 
         }
     }
     let pcre2 = query.regex == LocalSearchQueryRegex::Pcre2;
-    // An alternation stays a regex: a literal search for `a(|b(` matches
-    // nothing, while each alternative escaped finds every anchor.
-    let why = if let Some(text) = repair_alternation(&query.search_text, pcre2) {
+    let mut hints = vec![
+        "Use regex:\"literal\" for exact text, or escape metacharacters ( [ . per alternative to keep regex matching.".to_owned(),
+    ];
+    // `poll_(proceed|budget` means the group `poll_(proceed|budget)`: closing
+    // it keeps every alternative anchored, where escaping the `(` would turn
+    // `budget` into a bare, much broader alternative. Otherwise an alternation
+    // stays a regex: a literal search for `a(|b(` matches nothing, while each
+    // alternative escaped finds every anchor.
+    let why = if let Some(text) = close_unclosed_group(&query.search_text, pcre2) {
+        hints.push(format!(
+            "The repair reads searchText as `{text}`; send regex:\"literal\" to match the text exactly instead."
+        ));
+        repaired["searchText"] = json!(text);
+        "Close the unclosed group so its alternatives stay inside it."
+    } else if let Some(text) = repair_alternation(&query.search_text, pcre2) {
         repaired["searchText"] = json!(text);
         "Search each alternative with its metacharacters escaped."
     } else {
@@ -1381,15 +1393,53 @@ fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError 
     LocalSearchError {
         code: "invalidRegex",
         message,
-        hints: vec![
-            "Use regex:\"literal\" for exact text, or escape metacharacters ( [ . per alternative to keep regex matching.".into(),
-        ],
+        hints,
         next: Some(Box::new(json!({"repair":{
             "tool":ToolId::LocalSearch.as_str(),
             "query":repaired,
             "why":why
         }}))),
     }
+}
+
+/// `x_(a|b` → `x_(a|b)`: exactly one group is left open and everything after
+/// it is two or more bare word alternatives. `None` otherwise, so call syntax
+/// such as `f("a"|g(` keeps the per-alternative escape.
+fn close_unclosed_group(text: &str, pcre2: bool) -> Option<String> {
+    let mut open = Vec::new();
+    let mut in_class = false;
+    let mut chars = text.char_indices();
+    while let Some((index, c)) = chars.next() {
+        match c {
+            '\\' => {
+                chars.next();
+            }
+            '[' if !in_class => in_class = true,
+            ']' if in_class => in_class = false,
+            '(' if !in_class => open.push(index),
+            ')' if !in_class => {
+                open.pop()?;
+            }
+            _ => {}
+        }
+    }
+    let [start] = open.as_slice() else {
+        return None;
+    };
+    let alternatives = text[start + 1..].split('|').collect::<Vec<_>>();
+    let bare = |part: &&str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-'))
+    };
+    if alternatives.len() < 2 || !alternatives.iter().all(bare) {
+        return None;
+    }
+    let closed = format!("{text})");
+    octocode_engine::portable::validate_ripgrep_pattern(&closed, false, pcre2)
+        .valid
+        .then_some(closed)
 }
 
 /// `a(|b|c[` → `a\(|b|c\[`: split on unescaped `|`, keep alternatives that
@@ -1880,6 +1930,44 @@ mod repair_tests {
             error.next.expect("repair")["repair"]["query"]["regex"],
             "literal"
         );
+    }
+
+    #[test]
+    fn an_unclosed_group_of_bare_alternatives_is_closed_not_widened() {
+        let query: LocalSearchQuery = serde_json::from_value(json!({
+            "path":"/tmp","goal":"g","reasoning":"r","searchText":"poll_(proceed|budget","regex":"rust"
+        }))
+        .expect("query");
+        let error = invalid_regex(&query, "unclosed group".into());
+        let repair = &error.next.expect("repair")["repair"]["query"];
+        assert_eq!(
+            repair["searchText"], "poll_(proceed|budget)",
+            "the group closes; `budget` never becomes a bare alternative: {repair}"
+        );
+        assert!(
+            error
+                .hints
+                .iter()
+                .any(|hint| hint.contains("regex:\"literal\"")),
+            "the literal reading stays one hop away: {:?}",
+            error.hints
+        );
+        crate::contracts::validate_query("localSearch", repair.clone())
+            .expect("repair query is contract-valid");
+        // Alternatives that carry call syntax keep the per-alternative escape.
+        for (text, expected) in [
+            (
+                "capture_limited|hydrate_candidate|capture_resource(",
+                "capture_limited|hydrate_candidate|capture_resource\\(",
+            ),
+            (
+                "insert_header(\"retry-after\"|append_header(\"retry-after\"|set_body_json",
+                "insert_header\\(\"retry\\-after\"|append_header\\(\"retry\\-after\"|set_body_json",
+            ),
+        ] {
+            assert_eq!(close_unclosed_group(text, false), None, "{text}");
+            assert_eq!(repair_alternation(text, false).as_deref(), Some(expected));
+        }
     }
 
     #[test]

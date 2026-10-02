@@ -114,6 +114,13 @@ pub const MAX_CONTEXT_LINES: usize = 100;
 /// bounds each page, so short-line files are not split into many tiny calls.
 pub const DEFAULT_LINE_CHUNK: usize = 2000;
 
+/// Lines from which a file counts as large: a read of it with no anchor
+/// returns [`HEAD_LINES`] and a locate handoff instead of a full first page.
+pub const LARGE_READ_LINES: usize = 2_000;
+
+/// Lines an unanchored read of a large file returns before paging on.
+pub const HEAD_LINES: usize = 50;
+
 /// Encodes an engine `usize` as a positive wire integer.
 pub(crate) fn wire_positive(value: usize) -> Option<std::num::NonZeroU64> {
     std::num::NonZeroU64::new(u64::try_from(value).unwrap_or(u64::MAX))

@@ -1727,13 +1727,23 @@ fn in_degree(g: &BTreeMap<String, Node>) -> BTreeMap<String, u32> {
     }
     d
 }
+/// The first import (or, failing one, re-export) statement in `importer`
+/// that links `target`.
 fn first_import_line(b: &BuiltGraph, importer: &str, target: &str) -> Option<u32> {
-    b.facts
-        .get(importer)?
+    let facts = b.facts.get(importer)?;
+    facts
         .imports
         .iter()
         .find(|i| i.target.as_deref() == Some(target))
         .map(|i| i.line)
+        .or_else(|| {
+            facts
+                .reexport_lines
+                .iter()
+                .filter(|(linked, _)| linked == target)
+                .map(|(_, line)| *line)
+                .min()
+        })
 }
 fn dominators(g: &BTreeMap<String, Node>, source: &str) -> BTreeMap<String, Option<String>> {
     struct Frame {

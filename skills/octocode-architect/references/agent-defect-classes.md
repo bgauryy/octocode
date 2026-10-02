@@ -13,6 +13,7 @@ Every class here survives functional tests by construction. Detect them structur
 | Boundary violation | imports crossing a package or layer edge | reach into another module's internals instead of its public interface |
 | Coupling growth | fan-in/fan-out on touched modules | a change in one area now propagates unpredictably |
 | God module | one file or folder owning several concerns | new responsibility added to the largest existing file |
+| Parallel implementation | one rule, allowlist, or schema view implemented in two places or languages | no parity fixture between the copies, or the copies already disagree on one input |
 | Speculative abstraction | interfaces, factories, and config layers against their implementation count | an interface with one implementation, or a flag with one value, added for a variation point that does not exist |
 
 Drift is invisible per commit and only measurable against intent, so state the intended boundary before the slice, then re-derive the graph after.
@@ -31,13 +32,13 @@ Three concrete thread-safety shapes worth naming, because they read as correct: 
 
 ## Deliverability
 
-| Defect | What to inspect |
-|---|---|
-| Dependency closure | run the artifact in a clean environment using only what it declares |
-| Environment coupling | values read at module scope, hardcoded infrastructure, host-specific paths |
-| Incomplete generation | reachable paths that were never implemented, and stubs that return success |
+| Defect | What to inspect | Signal that it happened |
+|---|---|---|
+| Dependency closure | run the artifact in a clean environment using only what it declares | it runs only where undeclared packages are already installed |
+| Environment coupling | values read at module scope, hardcoded infrastructure, host-specific paths | behavior changes with the working directory, host, or import order |
+| Incomplete generation | reachable paths that were never implemented | a stub that returns success |
 | Dependency creep | each added package against what the project already depends on | a second library for a concern an existing dependency already covers |
-| Gate integrity | run the guard against a case it must reject | a check that exits zero because it parsed nothing, so the gate is green while inspecting nothing |
+| Gate integrity | run the guard against a case it must reject | a check that exits zero because it parsed nothing, or a negative test that passes on an unrelated rejection, so the gate is green while inspecting nothing |
 
 ## Specification fit
 

@@ -1677,6 +1677,23 @@ mod tests {
             ]
         );
         assert!(review_selection(&[f("tests/a_test.py", 3)], 15_000).is_empty());
+        // Tests named by their language's convention stay out of the review
+        // pick wherever they live.
+        let polyglot = vec![
+            f("pkg/cmd/discussion/client/client_test.go", 3_842),
+            f("pkg/cmd/discussion/create/create.go", 120),
+            f("src/test/java/com/acme/WidgetTest.java", 300),
+            f("src/main/java/com/acme/Latest.java", 10),
+            f("spec/models/user_spec.rb", 80),
+            f("app/test_api.py", 60),
+        ];
+        assert_eq!(
+            review_selection(&polyglot, 15_000),
+            [
+                "pkg/cmd/discussion/create/create.go",
+                "src/main/java/com/acme/Latest.java"
+            ]
+        );
         // A literal search fills the page share without the metadata reserve.
         assert_eq!(literal_patch_window(None, 1), 16_000);
         assert_eq!(literal_patch_window(Some(20_000), 2), 8_000);

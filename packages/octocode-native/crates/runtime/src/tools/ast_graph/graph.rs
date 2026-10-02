@@ -706,6 +706,9 @@ fn link_file(
                 target.is_none() && internal_bare(&spec),
                 security,
             );
+            if let Some(t) = &target {
+                facts.reexport_lines.push((t.clone(), x.line));
+            }
             if x.name == "*" {
                 if let Some(t) = target {
                     let kind = if ext == "rs" {

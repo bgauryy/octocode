@@ -1,4 +1,5 @@
 mod block;
+pub(crate) use block::declaration_spans;
 mod executor;
 mod extraction;
 mod large_source;
