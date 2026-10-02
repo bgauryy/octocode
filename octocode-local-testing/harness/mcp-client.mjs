@@ -184,7 +184,7 @@ export function lspLocations(entry, index = 0) {
  * "<line>[-<endLine>] <kind> <name>[ +][ as a,b][ doc|doc@N][ from@N][ col N][ (in Parent@L)]",
  * indented two spaces per nesting level under the preceding row, parse to
  * {name, kind, line, endLine?, exported?, exportedAs?, docStartLine?,
- * startLine?, character?, parent?, parentLine?}; object rows (the earlier
+ * startLine?, character?, parent?, parentLine?, parentKind?}; object rows (the earlier
  * shape) pass through. `extra` (e.g. a directory outline's file path) is
  * merged into each row.
  */
@@ -206,7 +206,7 @@ export function outlineRows(rows = [], extra = {}) {
     if (parent) { out.parent = parent; if (parentLine) out.parentLine = +parentLine; }
     const depth = indent.length / 2;
     const holder = depth > 0 ? stack[depth - 1] : undefined;
-    if (holder) { out.parent = holder.name; out.parentLine = holder.line; }
+    if (holder) { out.parent = holder.name; out.parentLine = holder.line; out.parentKind = holder.kind; }
     stack.length = depth;
     stack[depth] = out;
     return out;

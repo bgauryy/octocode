@@ -65,8 +65,9 @@ for (const r of REPOS_BY_LANG) {
   const dupes = decls.length - new Set(decls.map(identity)).size;
   row.symbols = `${decls.length} in ${symPages.length}p`;
   check(`${r.lang}: symbols paged to the end, unique identities`, decls.length > 0 && dupes === 0 && !symPages.some(p => p.isError), `${decls.length} dupes=${dupes} ${sym1.isError ? sym1.text.slice(0, 120) : ''}`);
-  // A declaration is never its own parent (same name at the same line).
-  const selfParented = decls.filter(d => d.parent === d.name && d.parentLine === d.line);
+  // A declaration is never its own parent (same name and kind at the same
+  // line); a typedef holding a same-named struct on its line is two rows.
+  const selfParented = decls.filter(d => d.parent === d.name && d.parentLine === d.line && (d.parentKind ?? d.kind) === d.kind);
   check(`${r.lang}: no self-parented symbol rows`, selfParented.length === 0, selfParented.slice(0, 3).map(d => `${d.name}@${d.line}`).join(','));
 
   // Pick a callable used elsewhere.

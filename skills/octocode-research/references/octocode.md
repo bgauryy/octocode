@@ -10,7 +10,9 @@ node packages/octocode/out/octocode.js scheme localSearch --view query --compact
 
 Every query needs `goal` and `reasoning`; `debug:true` adds diagnostics and receipts. MCP takes `{ "queries": [query] }` (≤5 rows); the CLI also accepts one bare query. On validation failure fix the named field.
 
-## Public tools
+## 16 public tools
+
+The default catalog contains 12 tools; a classification key adds `clasify`, and `OCTOCODE_BETA=true` adds `astTopology` on MCP.
 
 | Evidence question | Tool |
 |---|---|

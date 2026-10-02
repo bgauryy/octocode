@@ -19,7 +19,7 @@ Use files/count views when bodies are unnecessary. `localSearch` shows every hit
 - AST: `langType` is inferred per extension for directories. Inspect hints and diagnostics before relaxing a zero-match pattern; incomplete or partial execution cannot prove absence. `terminalLimit` means narrow the query.
 - A `symbols` row's `name` + `line` are `lspSearch` `symbolName` + `lineHint` as-is.
 - Anchored LSP needs `uri` plus `symbolName` and a real `lineHint` (or a 0-based `position`); `workspaceSymbol` needs `symbolName` + `uri`/`workspaceRoot`. An unresolved anchor returns `next.readFile`.
-- `definition` identity · `references` uses (`groupByFile:true` → `byFile` rows) · `callers`/`callees`/`callHierarchy` flow · `hover`/`implementation` types.
+- `definition` identity · `references` uses (per-file `byFile` rows `line:col text`; `groupByFile:true` → counts) · `callers` (direct: `byFile` rows `line:col in kind name start-end`)/`callees`/`callHierarchy` flow · `hover`/`implementation` types.
 - Servers cover ts/js, py, rust, c/c++. Check `lsp.serverAvailable`, capabilities (`debug:true` receipt), `coverage`, and truncation; native fallback is syntactic. First calls pay a cold start; `OCTOCODE_LSP_PREWARM=1` starts the server from earlier local reads in a long-lived MCP session. Usage checks set `includeDeclaration:false`; zero references still needs entrypoint, export, and runtime checks.
 
 ## Graph

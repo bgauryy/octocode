@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import {
   DIRECT_TOOL_DEFINITIONS,
   TOOL_NAMES,
+  isBetaTool,
+  isCliOnlyTool,
   prepareDirectToolInput,
 } from '@octocodeai/config/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
@@ -18,14 +20,12 @@ const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
   definition => definition.name
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
-// Mirrors native `ToolId::is_beta` (crates/runtime/src/tools/id.rs): hidden
-// unless OCTOCODE_BETA / local.beta is enabled.
-const BETA_TOOL_NAMES = new Set([TOOL_NAMES.AST_TOPOLOGY, TOOL_NAMES.AST_REWRITE]);
+// Default MCP catalog: core tool policy decides beta and CLI-only tools;
+// clasify additionally needs a classification key, absent by default.
 const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   if (name === TOOL_NAMES.CLASIFY) return false;
-  if (BETA_TOOL_NAMES.has(name)) return DEFAULT_CONFIG.local.beta;
-  // Mirrors native `is_available`: ghCloneRepo is CLI-only, never in the MCP catalog.
-  return name !== TOOL_NAMES.GITHUB_CLONE_REPO;
+  if (isBetaTool(name) && !DEFAULT_CONFIG.local.beta) return false;
+  return !isCliOnlyTool(name);
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
 const DOC_ROOTS = [
