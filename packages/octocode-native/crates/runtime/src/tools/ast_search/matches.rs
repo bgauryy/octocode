@@ -435,8 +435,8 @@ fn execute_match_inner(
             .into_iter()
             .map(|value| match_value(value, q.capture_text().unwrap_or(false), content_length))
             .collect::<Vec<_>>();
-        // Rows whose captures were withheld or whose text was cut to a
-        // header: `captureText:true` (next.expandCaptures) returns them whole.
+        // Rows whose text was cut to a header or that hide capture text:
+        // `captureText:true` (next.expandCaptures) returns them whole.
         let header_rows = matches.iter().map(|row| row.1).collect::<Vec<_>>();
         let matches = matches.into_iter().map(|row| row.0).collect::<Vec<_>>();
         if !matches.is_empty() {
@@ -627,13 +627,14 @@ fn execute_match_inner(
     }
     Ok(out)
 }
-/// One match row: `line`, `column` (0-based) and `value`; `endLine` and
-/// `endColumn` only for a multi-line span. Captures are opt-in: with
-/// `captureText`, each capture is emitted once in `metavarRanges` (text plus
+/// One match row. By default a lean string `"<line>[-<endLine>]\t<value>"`
+/// (1-based lines, whitespace-normalized text). With `captureText` an object:
+/// `line`, `column` (0-based) and `value`, `endLine` and `endColumn` for a
+/// multi-line span, and each capture once in `metavarRanges` (text plus
 /// 1-based position; the engine `metavars` map is a fallback for a capture
-/// without a range). The flag is true when the row withheld something
-/// `captureText:true` returns: a capture, or a multi-line match cut to its
-/// header (signature) followed by `…`.
+/// without a range). The flag is true when the lean row withheld something
+/// `captureText:true` returns: a multi-line match cut to its header
+/// (signature) followed by `…`, or capture text the value does not show.
 fn match_value(
     m: StructuralDetailedMatch,
     capture_text: bool,
@@ -647,15 +648,28 @@ fn match_value(
         ),
         None => compact_match(&m.text, content_length),
     };
+    if !capture_text {
+        let lines = if m.end_line == m.start_line {
+            m.start_line.to_string()
+        } else {
+            format!("{}-{}", m.start_line, m.end_line)
+        };
+        let hidden = |capture: &str| {
+            let capture = capture.split_whitespace().collect::<Vec<_>>().join(" ");
+            !capture.is_empty() && !text.contains(&capture)
+        };
+        let withheld = header.is_some()
+            || m.metavar_ranges
+                .values()
+                .flatten()
+                .any(|range| hidden(&range.text))
+            || m.metavars.values().flatten().any(|value| hidden(value));
+        return (json!(format!("{lines}\t{text}")), withheld);
+    }
     let mut value = json!({"line":m.start_line,"value":text,"column":m.start_col});
     if m.end_line != m.start_line {
         value["endLine"] = json!(m.end_line);
         value["endColumn"] = json!(m.end_col);
-    }
-    let has_captures = m.metavar_ranges.values().any(|values| !values.is_empty())
-        || m.metavars.values().any(|values| !values.is_empty());
-    if !capture_text {
-        return (value, header.is_some() || has_captures);
     }
     let mut ranges = serde_json::Map::new();
     for (name, values) in m.metavar_ranges {

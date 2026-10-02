@@ -112,6 +112,13 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         "ghRepoArchived" => Some("The repository is archived, so its code-search index may lag; verify its structure and search locally.".to_owned()),
         _ => None,
     };
+    // Structure checks inspect the ref the caller asked about, not the
+    // default branch the code-search index covers.
+    if tool == ToolId::GhStructure
+        && let Some(reference) = requested_ref(query)
+    {
+        next_query["branch"] = json!(reference);
+    }
     // A missing, renamed, or archived repository is the answer: say so
     // instead of the generic default-branch note.
     if let Some(hint) = hint {

@@ -4,7 +4,7 @@
 
 use super::LspSearchQuery;
 use octocode_engine::lsp::resolver::{LineIndex, resolve_position_in_file_content};
-use octocode_engine::lsp::types::JsFuzzyPosition;
+use octocode_engine::lsp::types::{JsFuzzyPosition, JsResolvedSymbol};
 use serde_json::{Value, json};
 
 /// A resolved anchor: zero-based LSP `line`/`character` for the server, and
@@ -47,16 +47,7 @@ pub(super) fn resolve_anchor(
     if let Some(name) = query.symbol_name() {
         let source = source
             .ok_or_else(|| "symbolName anchors require a readable source file in uri".to_owned())?;
-        let resolved = resolve_position_in_file_content(
-            path,
-            source,
-            &JsFuzzyPosition {
-                symbol_name: name.to_owned(),
-                line_hint: query.line_hint(),
-                order_hint: query.order_hint(),
-            },
-        )
-        .map_err(|error| error.to_string())?;
+        let resolved = resolve_symbol(path, source, name, query.line_hint(), query.order_hint())?;
         let mut symbol = json!({
             "name": name,
             "uri": canonical_uri,
@@ -91,6 +82,71 @@ pub(super) fn resolve_anchor(
             "foundAtCharacter": character + 1
         })),
     })
+}
+
+/// Resolve `name` near `line_hint`. A member-qualified name (`this.ns`,
+/// `a.b.c`, `Type::method`, `node->next`) anchors on its last member: the
+/// server answers for the identifier under the cursor, and the qualifier's
+/// first token names a different symbol. The qualified spelling is located
+/// first so a repeated member on the line resolves inside that expression;
+/// when it is not spelled contiguously the bare member is resolved instead.
+fn resolve_symbol(
+    path: &str,
+    source: &str,
+    name: &str,
+    line_hint: Option<u32>,
+    order_hint: Option<u32>,
+) -> Result<JsResolvedSymbol, String> {
+    let resolve = |symbol_name: &str| {
+        resolve_position_in_file_content(
+            path,
+            source,
+            &JsFuzzyPosition {
+                symbol_name: symbol_name.to_owned(),
+                line_hint,
+                order_hint,
+            },
+        )
+        .map_err(|error| error.to_string())
+    };
+    let Some(member_start) = last_member_start(name) else {
+        return resolve(name);
+    };
+    if let Ok(mut resolved) = resolve(name)
+        && let Some(shift) = qualifier_width(&resolved, name, member_start)
+    {
+        resolved.position.character += shift;
+        return Ok(resolved);
+    }
+    resolve(&name[member_start..])
+}
+
+/// Byte offset of the last member of a qualified name, when `name` has a
+/// non-empty qualifier and ends in an identifier after `.`, `::`, or `->`.
+fn last_member_start(name: &str) -> Option<usize> {
+    let start = ["::", "->", "."]
+        .iter()
+        .filter_map(|separator| name.rfind(separator).map(|at| at + separator.len()))
+        .max()?;
+    let member = &name[start..];
+    let identifier = member.strip_prefix('#').unwrap_or(member);
+    let is_identifier = !identifier.is_empty()
+        && identifier
+            .chars()
+            .all(|ch| ch == '_' || ch == '$' || ch.is_alphanumeric());
+    let qualifier = name[..start].trim_end_matches(['.', ':', '-', '>']);
+    (is_identifier && !qualifier.is_empty()).then_some(start)
+}
+
+/// UTF-16 width of the qualifier when the resolved line spells `name` at the
+/// resolved column; `None` when the hit is not the qualified expression.
+fn qualifier_width(resolved: &JsResolvedSymbol, name: &str, member_start: usize) -> Option<u32> {
+    let column = resolved.position.character as usize;
+    let line: Vec<u16> = resolved.line_content.encode_utf16().collect();
+    let spelled: Vec<u16> = name.encode_utf16().collect();
+    line.get(column..)?
+        .starts_with(&spelled)
+        .then(|| name[..member_start].encode_utf16().count() as u32)
 }
 
 /// An explicit zero-based `position` must name a line of the document and a

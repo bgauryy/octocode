@@ -41,11 +41,16 @@ const DEFAULT_MATCH_CONTENT_LENGTH: u32 = 200;
 const MAX_DEFAULT_MATCH_CONTENT_LENGTH: u32 = 4000;
 /// Rows per file when a result is too large to show whole.
 const DEFAULT_MAX_MATCHES_PER_FILE: u32 = 10;
-/// A result with at most this many hits shows all of them on one page.
-const SHOW_ALL_MAX_HITS: usize = 50;
-/// ...unless their values exceed this many bytes (wide context windows).
-const SHOW_ALL_MAX_CHARS: usize = 32_000;
-/// Files per page for snippet views; path-only list views stay at 100.
+/// Estimated JSON bytes of the file and row entries one default-layout page
+/// may carry. A result within it is one page; a larger one is cut into pages
+/// of about this size, so walking it costs about total/budget calls.
+pub(super) const PAGE_BUDGET_BYTES: usize = 24_000;
+/// Estimated JSON bytes around one row's value (`{"line":N,"value":""},`).
+const ROW_OVERHEAD_BYTES: usize = 24;
+/// Estimated JSON bytes around one file's rows (`{"path":"","matches":[]},`).
+const FILE_OVERHEAD_BYTES: usize = 26;
+/// Files per page for snippet views (the first page of a default-layout
+/// result larger than the budget); path-only list views stay at 100.
 const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
 const DEFAULT_LIST_PAGE_SIZE: u32 = 100;
 
@@ -217,10 +222,12 @@ pub fn execute_local_search(
     // produced it; the snapshot comparison below then proves it answers
     // this query.
     let policy_key = policy_identity(paths);
-    let (mut parsed, from_manifest) = if let Some(snapshot) = query.snapshot()
+    // Digests of a stored scan's matched files: every re-read below that
+    // decides what the stored values may show must read these same bytes.
+    let (mut parsed, stored_digests) = if let Some(snapshot) = query.snapshot()
         && let Some(stored) = super::manifest::get(snapshot, &policy_key)
     {
-        (stored, true)
+        (stored.value, Some(stored.digests))
     } else {
         (
             search_ripgrep_cancellable(options, Arc::new(PolicyFilter(paths.clone())), &|| {
@@ -242,8 +249,16 @@ pub fn execute_local_search(
                     next: None,
                 }
             })?,
-            false,
+            None,
         )
+    };
+    let from_manifest = stored_digests.is_some();
+    // The bytes a stored scan's secret check must read, or `None` when the
+    // scan is fresh; a stored file whose digest is missing reads as changed.
+    let expected_digest = |source: &std::path::Path| -> Option<Option<super::manifest::Digest>> {
+        stored_digests
+            .as_ref()
+            .map(|digests| digests.get(source).copied())
     };
     cancel.check().map_err(cancelled)?;
     if parsed.files.is_empty()
@@ -273,26 +288,7 @@ pub fn execute_local_search(
         .snapshot()
         .is_some_and(|expected| expected != result_identity)
     {
-        let mut restart = normalized_query(query);
-        if let Some(object) = restart.as_object_mut() {
-            object.remove("snapshot");
-        }
-        restart["page"] = json!(1);
-        restart["matchPage"] = json!(1);
-        return Err(LocalSearchError {
-            code: "staleSnapshot",
-            message: "Search snapshot cannot be continued (resultsChanged); restart the search."
-                .into(),
-            hints: vec![],
-            next: Some(Box::new(json!({
-                "restart": {
-                    "tool": ToolId::LocalSearch.as_str(),
-                    "query": restart,
-                    "why": "Start a new search against the current source.",
-                    "confidence": "exact"
-                }
-            }))),
-        });
+        return Err(stale_snapshot(query));
     }
     let root = &validated.canonical;
     let output_root = if root.is_file() {
@@ -320,10 +316,16 @@ pub fn execute_local_search(
             .iter()
             .any(|m| crate::security::snippet_may_hold_key_material(&m.value))
         {
-            std::fs::metadata(&source_path)
+            let bytes = std::fs::metadata(&source_path)
                 .ok()
                 .filter(|meta| meta.len() <= MAX_KEY_SCAN_BYTES)
-                .and_then(|_| std::fs::read(&source_path).ok())
+                .and_then(|_| std::fs::read(&source_path).ok());
+            if let (Some(bytes), Some(expected)) = (&bytes, expected_digest(&source_path))
+                && expected != Some(<[u8; 32]>::from(Sha256::digest(bytes)))
+            {
+                return Err(changed_since_scan(query));
+            }
+            bytes
                 .map(|bytes| {
                     crate::security::private_key_block_line_ranges(&String::from_utf8_lossy(&bytes))
                 })
@@ -375,35 +377,43 @@ pub fn execute_local_search(
     {
         parsed.files.reverse();
     }
-    // A small result shows every hit on one page: paging metadata and
-    // continuations would cost more than the rows they hide. A caller cap
-    // always wins; larger results keep the 10-rows-per-file default.
-    let list_view = matches!(
+    // A result within the page budget shows every hit on one page: paging
+    // metadata and continuations would cost more than the rows they hide. A
+    // caller cap always wins; larger results keep the 10-rows-per-file
+    // default on their first page.
+    let list = matches!(
         view,
         LocalSearchQueryResultView::Files
             | LocalSearchQueryResultView::FilesWithout
             | LocalSearchQueryResultView::CountLines
             | LocalSearchQueryResultView::CountMatches
     );
-    let hits_total: usize = if list_view {
+    // Rows render with workspace-relative paths, so a file entry costs its
+    // root prefix too.
+    let prefix_bytes = match paths.workspace_relative(output_root).as_deref() {
+        Some(".") => 0,
+        Some(relative) => relative.len() + 1,
+        None => output_root.as_os_str().len() + 1,
+    };
+    let file_bytes = |file: &octocode_engine::types::RipgrepFile| {
+        file.path.len() + prefix_bytes + FILE_OVERHEAD_BYTES
+    };
+    let hits_total: usize = if list {
         0
     } else {
         parsed.files.iter().map(|file| file.matches.len()).sum()
     };
-    let hit_chars: usize = if list_view {
+    let result_bytes: usize = if list {
         0
     } else {
         parsed
             .files
             .iter()
-            .flat_map(|file| &file.matches)
-            .map(|matched| matched.value.len())
+            .map(|file| file_bytes(file) + file.matches.iter().map(row_bytes).sum::<usize>())
             .sum()
     };
-    let show_all = !list_view
-        && query.max_matches_per_file().is_none()
-        && hits_total <= SHOW_ALL_MAX_HITS
-        && hit_chars <= SHOW_ALL_MAX_CHARS;
+    let show_all =
+        !list && query.max_matches_per_file().is_none() && result_bytes <= PAGE_BUDGET_BYTES;
     let matches_per = query
         .max_matches_per_file()
         .unwrap_or(if show_all {
@@ -424,53 +434,87 @@ pub fn execute_local_search(
             }
         }
     }
-    let page_size = query
-        .page_size()
-        .unwrap_or_else(|| {
-            if show_all {
-                default_page_size(view).max(u32::try_from(parsed.files.len()).unwrap_or(u32::MAX))
-            } else {
-                default_page_size(view)
-            }
-        })
-        .max(1);
     let page = query.page().max(1);
     let total_files = parsed.files.len() as u32;
-    let total_pages = total_files.div_ceil(page_size).max(1);
-    let start = (page - 1).saturating_mul(page_size) as usize;
-    let list = matches!(
-        view,
-        LocalSearchQueryResultView::Files
-            | LocalSearchQueryResultView::FilesWithout
-            | LocalSearchQueryResultView::CountLines
-            | LocalSearchQueryResultView::CountMatches
-    );
     let match_page = query.match_page().max(1);
-    let page_end = start
-        .saturating_add(page_size as usize)
-        .min(parsed.files.len());
-    let page_range = start.min(page_end)..page_end;
+    // Default layout (no pageSize, maxMatchesPerFile, or later match page):
+    // pages are cut from one row stream by the response budget, so a walk
+    // never pages a hot file ten rows at a time. A caller layout keeps the
+    // file-page x match-page grid.
+    let streamed = streamed_layout(query);
+    let (shown, total_pages, files_per_page) = if streamed {
+        let mut pages = stream_pages(&parsed.files, matches_per as usize, show_all, file_bytes);
+        let total_pages = u32::try_from(pages.len()).unwrap_or(u32::MAX).max(1);
+        let shown = if (page as usize) <= pages.len() {
+            pages.swap_remove(page as usize - 1)
+        } else {
+            Vec::new()
+        };
+        (shown, total_pages, None)
+    } else {
+        let page_size = query
+            .page_size()
+            .unwrap_or_else(|| {
+                if show_all {
+                    default_page_size(view)
+                        .max(u32::try_from(parsed.files.len()).unwrap_or(u32::MAX))
+                } else {
+                    default_page_size(view)
+                }
+            })
+            .max(1);
+        let start = (page - 1).saturating_mul(page_size) as usize;
+        let end = start
+            .saturating_add(page_size as usize)
+            .min(parsed.files.len());
+        let skip = (match_page - 1).saturating_mul(matches_per) as usize;
+        let shown = (start.min(end)..end)
+            .map(|index| (index, skip..skip.saturating_add(matches_per as usize)))
+            .collect::<PageRows>();
+        (
+            shown,
+            total_files.div_ceil(page_size).max(1),
+            Some(page_size),
+        )
+    };
+    let out_of_range = total_files > 0 && page > total_pages;
     let mut unverified_redactions = false;
+    // A page from a stored scan shows each of its files only while that file
+    // still hashes to the stored bytes; text views prove it in the secret
+    // check below, which reads the same bytes.
+    if list && from_manifest {
+        for (index, _) in &shown {
+            let source = output_root.join(&parsed.files[*index].path);
+            let expected = expected_digest(&source).flatten();
+            if expected.is_none() || expected != super::manifest::digest_file(&source).ok() {
+                return Err(changed_since_scan(query));
+            }
+        }
+    }
     if !list {
-        let match_skip = (match_page - 1).saturating_mul(matches_per) as usize;
-        for file in &mut parsed.files[page_range.clone()] {
+        for (index, rows) in &shown {
+            let file = &mut parsed.files[*index];
             cancel.check().map_err(cancelled)?;
             let before = file
                 .matches
                 .iter()
                 .map(|matched| matched.value.clone())
                 .collect::<Vec<_>>();
-            if !guard_clipped_secrets(
+            let source = output_root.join(&file.path);
+            match guard_clipped_secrets(
                 file,
-                &output_root.join(&file.path),
-                match_skip..match_skip.saturating_add(matches_per as usize),
+                &source,
+                expected_digest(&source),
+                rows.clone(),
                 security,
                 view == LocalSearchQueryResultView::MatchOnly,
                 cancel,
             )
             .map_err(cancelled)?
             {
-                unverified_redactions = true;
+                Verification::Verified => {}
+                Verification::Unverified => unverified_redactions = true,
+                Verification::Changed => return Err(changed_since_scan(query)),
             }
             for (matched, before) in file.matches.iter().zip(before) {
                 if matched.value != before {
@@ -485,13 +529,16 @@ pub fn execute_local_search(
         parsed.files.iter().map(|f| f.matches.len() as u32).sum()
     };
     let empty = total_files == 0;
+    // A streamed page names its continuation; a grid page also needs the
+    // snapshot while a shown file has rows beyond one match page.
     let snapshot = if !empty
         && (query.snapshot.is_some()
             || page < total_pages
-            || parsed
-                .files
-                .iter()
-                .any(|f| f.matches.len() as u32 > matches_per))
+            || (!streamed
+                && parsed
+                    .files
+                    .iter()
+                    .any(|f| f.matches.len() as u32 > matches_per)))
     {
         Some(result_identity.clone())
     } else {
@@ -504,11 +551,13 @@ pub fn execute_local_search(
     }
     // Leftover rows only count on the files this page shows: another page's
     // files are reached by `nextPage` (which restarts at matchPage 1). List
-    // views emit no match rows, so they have none left to page.
+    // views emit no match rows, so they have none left to page, and a
+    // streamed page's later rows are on its later pages.
     let leftover_matches = !list
-        && parsed.files[page_range.clone()]
-            .iter()
-            .any(|file| file.matches.len() as u32 > match_page.saturating_mul(matches_per));
+        && !streamed
+        && shown.iter().any(|(index, _)| {
+            parsed.files[*index].matches.len() as u32 > match_page.saturating_mul(matches_per)
+        });
     let mut next = build_next(
         query,
         page,
@@ -516,6 +565,7 @@ pub fn execute_local_search(
         leftover_matches,
         match_page,
         snapshot.as_deref(),
+        streamed,
     );
     // Keep full values for identity, unique grouping and counts. The engine's
     // match-only path emits exact spans, so apply the public display bound here.
@@ -526,14 +576,11 @@ pub fn execute_local_search(
     // and the budget-derived per-match cap; a giant match is clipped (flagged
     // `truncated`) rather than dropped, so the existing page/match cursors and
     // the returned line anchor + localFetch cover full retrieval unchanged.
-    let shown_total: usize = parsed
-        .files
+    let shown_total: usize = shown
         .iter()
-        .skip(start)
-        .take(page_size as usize)
-        .map(|f| {
-            let ms = (match_page - 1).saturating_mul(matches_per) as usize;
-            f.matches.len().saturating_sub(ms).min(matches_per as usize)
+        .map(|(index, rows)| {
+            let len = parsed.files[*index].matches.len();
+            rows.end.min(len).saturating_sub(rows.start.min(len))
         })
         .sum();
     let budget_cap = (shown_total > 0)
@@ -558,20 +605,15 @@ pub fn execute_local_search(
         && context_lines > 0)
         .then_some(context_lines);
     let mut shown_redacted = 0usize;
-    let files = parsed
-        .files
-        .into_iter()
-        .skip(start)
-        .take(page_size as usize)
-        .map(|f| {
+    let mut slots = parsed.files.into_iter().map(Some).collect::<Vec<_>>();
+    let files = shown
+        .iter()
+        .filter_map(|(index, rows)| Some((slots.get_mut(*index)?.take()?, rows.clone())))
+        .map(|(f, rows)| {
             let total = f.matches.len() as u32;
-            let ms = (match_page - 1).saturating_mul(matches_per) as usize;
-            let mut page_rows = f
-                .matches
-                .iter()
-                .skip(ms)
-                .take(matches_per as usize)
-                .collect::<Vec<_>>();
+            let end = rows.end.min(f.matches.len());
+            let start = rows.start.min(end);
+            let mut page_rows = f.matches[start..end].iter().collect::<Vec<_>>();
             page_rows.sort_by_key(|m| (m.line, m.column));
             let shown = page_rows
                 .into_iter()
@@ -588,14 +630,9 @@ pub fn execute_local_search(
                     row
                 })
                 .collect::<Vec<_>>();
-            // Rows on later match pages, named by line so a reader can fetch
-            // them directly instead of paging.
-            let mut later = f
-                .matches
-                .iter()
-                .skip(ms.saturating_add(matches_per as usize))
-                .map(|m| m.line)
-                .collect::<Vec<_>>();
+            // Rows on later pages, named by line so a reader can fetch them
+            // directly instead of paging.
+            let mut later = f.matches[end..].iter().map(|m| m.line).collect::<Vec<_>>();
             later.sort_unstable();
             later.dedup();
             let shown = match merge_context {
@@ -606,9 +643,35 @@ pub fn execute_local_search(
                 ),
                 None => shown,
             };
-            let total_pages = total.div_ceil(matches_per).max(1);
-            let has_more = match_page < total_pages;
-            let out_of_range = ms >= total as usize && total > 0;
+            // Per-file paging is only reported while it routes somewhere:
+            // more rows remain, or the requested match page is past the end.
+            let pagination = if list {
+                None
+            } else if streamed {
+                (end < f.matches.len()).then(|| ItemPagination {
+                    current_page: None,
+                    total_pages: None,
+                    total_matches: total,
+                    has_more: true,
+                    next_match_page: None,
+                    more_lines: Some(line_ranges(&later, MAX_MORE_LINE_RANGES)),
+                    out_of_range: false,
+                })
+            } else {
+                let total_pages = total.div_ceil(matches_per).max(1);
+                let has_more = match_page < total_pages;
+                let out_of_range = start >= total as usize && total > 0;
+                (has_more || out_of_range).then(|| ItemPagination {
+                    current_page: Some(match_page),
+                    total_pages: Some(total_pages),
+                    total_matches: total,
+                    has_more,
+                    next_match_page: has_more.then_some(match_page + 1),
+                    more_lines: (has_more && !later.is_empty())
+                        .then(|| line_ranges(&later, MAX_MORE_LINE_RANGES)),
+                    out_of_range,
+                })
+            };
             SearchFile {
                 path: f.path,
                 matches: (!list).then_some(shown),
@@ -616,18 +679,7 @@ pub fn execute_local_search(
                     .then_some(f.match_count),
                 total_matched_lines: (view == LocalSearchQueryResultView::CountLines)
                     .then_some(f.match_count),
-                // Per-file paging is only reported while it routes somewhere:
-                // more match pages remain, or the requested page is past the end.
-                pagination: (!list && (has_more || out_of_range)).then_some(ItemPagination {
-                    current_page: match_page,
-                    total_pages,
-                    total_matches: total,
-                    has_more,
-                    next_match_page: has_more.then_some(match_page + 1),
-                    more_lines: (has_more && !later.is_empty())
-                        .then(|| line_ranges(&later, MAX_MORE_LINE_RANGES)),
-                    out_of_range,
-                }),
+                pagination,
             }
         })
         .collect::<Vec<_>>();
@@ -752,26 +804,24 @@ pub fn execute_local_search(
         // File paging is only reported when it routes somewhere: more file pages,
         // or a requested page past the end. Single-page totals live in `stats`,
         // and match-row continuations carry the snapshot in `next.*.query`.
-        pagination: (!empty && (total_pages > 1 || start >= total_files as usize)).then_some(
-            FilePagination {
-                snapshot: snapshot.clone(),
-                current_page: page,
-                total_pages,
-                files_per_page: page_size,
-                total_files,
-                total_matches: (!matches!(
-                    view,
-                    LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
-                ))
-                .then_some(total_matches),
-                has_more,
-                // Hard ceiling: never advertise a next page past page 1000. Beyond
-                // this, deep file pagination is refused by contract (matched in
-                // `build_next`) — narrow the search rather than paging indefinitely.
-                next_page: (page < total_pages && page < 1000).then_some(page + 1),
-                out_of_range: start >= total_files as usize && total_files > 0,
-            },
-        ),
+        pagination: (!empty && (total_pages > 1 || out_of_range)).then_some(FilePagination {
+            snapshot: snapshot.clone(),
+            current_page: page,
+            total_pages,
+            files_per_page,
+            total_files,
+            total_matches: (!matches!(
+                view,
+                LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
+            ))
+            .then_some(total_matches),
+            has_more,
+            // Hard ceiling: never advertise a next page past page 1000. Beyond
+            // this, deep file pagination is refused by contract (matched in
+            // `build_next`) — narrow the search rather than paging indefinitely.
+            next_page: (page < total_pages && page < 1000).then_some(page + 1),
+            out_of_range,
+        }),
         hints: if empty {
             if error_count > 0 {
                 vec![unreadable_hint(error_count)]
@@ -795,6 +845,108 @@ pub fn execute_local_search(
         source_snapshot: Some(result_identity),
         source_root: output_root.to_path_buf(),
     })
+}
+
+/// Estimated JSON bytes of one match row.
+fn row_bytes(matched: &octocode_engine::types::RipgrepMatch) -> usize {
+    matched.value.len() + ROW_OVERHEAD_BYTES
+}
+
+/// Rows one page shows: (file index, rank-order row range), in page order.
+type PageRows = Vec<(usize, std::ops::Range<usize>)>;
+
+/// The default layout: neither page axis is caller-sized and no later match
+/// page is asked for. Path-only list views keep file pages.
+fn streamed_layout(q: &LocalSearchQuery) -> bool {
+    !matches!(
+        q.result_view,
+        LocalSearchQueryResultView::Files
+            | LocalSearchQueryResultView::FilesWithout
+            | LocalSearchQueryResultView::CountLines
+            | LocalSearchQueryResultView::CountMatches
+    ) && q.page_size().is_none()
+        && q.max_matches_per_file().is_none()
+        && q.match_page() <= 1
+}
+
+/// Default-layout pages, cut from one row stream: each file's first
+/// `per_file` ranked rows in file order, then every file's remaining rows.
+/// Each page holds as much of the stream as fits [`PAGE_BUDGET_BYTES`] (at
+/// least one row); the first holds only first-pass rows of at most
+/// [`DEFAULT_SNIPPET_PAGE_SIZE`] files, so a large result opens with a lean
+/// overview. `whole` puts the
+/// entire result on one page. A file's rows on one page are always one
+/// contiguous rank range, and its later rows follow on later pages.
+fn stream_pages(
+    files: &[octocode_engine::types::RipgrepFile],
+    per_file: usize,
+    whole: bool,
+    file_bytes: impl Fn(&octocode_engine::types::RipgrepFile) -> usize,
+) -> Vec<PageRows> {
+    if whole {
+        return vec![
+            files
+                .iter()
+                .enumerate()
+                .map(|(index, file)| (index, 0..file.matches.len()))
+                .collect(),
+        ];
+    }
+    let first = files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| (index, 0..file.matches.len().min(per_file), true));
+    let rest = files
+        .iter()
+        .enumerate()
+        .filter(|(_, file)| file.matches.len() > per_file)
+        .map(|(index, file)| (index, per_file..file.matches.len(), false));
+    let first_page_files = DEFAULT_SNIPPET_PAGE_SIZE as usize;
+    let mut pages: Vec<PageRows> = Vec::new();
+    let mut page: PageRows = Vec::new();
+    let mut slot = std::collections::HashMap::<usize, usize>::new();
+    let mut used = 0usize;
+    for (index, rows, overview) in first.chain(rest) {
+        let file = &files[index];
+        // A row-less file still takes its place as one entry.
+        let entries: Vec<Option<usize>> = if rows.is_empty() {
+            vec![None]
+        } else {
+            rows.map(Some).collect()
+        };
+        for row in entries {
+            let cost = |page_has_file: bool| {
+                row.map_or(0, |row| row_bytes(&file.matches[row]))
+                    + if page_has_file { 0 } else { file_bytes(file) }
+            };
+            let has_file = slot.contains_key(&index);
+            let over_budget = used + cost(has_file) > PAGE_BUDGET_BYTES;
+            let first_page_full =
+                pages.is_empty() && (!overview || (!has_file && page.len() >= first_page_files));
+            if !page.is_empty() && (over_budget || first_page_full) {
+                pages.push(std::mem::take(&mut page));
+                slot.clear();
+                used = 0;
+            }
+            let has_file = slot.contains_key(&index);
+            used += cost(has_file);
+            let span = row.map_or(0..0, |row| row..row + 1);
+            match slot.get(&index) {
+                Some(&position) => {
+                    let range = &mut page[position].1;
+                    *range = range.start.min(span.start)..range.end.max(span.end);
+                }
+                None => {
+                    slot.insert(index, page.len());
+                    page.push((index, span));
+                }
+            }
+        }
+    }
+    if !page.is_empty() {
+        pages.push(page);
+    }
+    pages
 }
 
 /// A complete result over at most this many files hands off a read of its
@@ -867,6 +1019,39 @@ fn skipped_target_hint(
     })
 }
 
+/// A continuation whose snapshot no longer describes the source; `next.restart`
+/// reruns page 1 without it.
+fn stale_snapshot(query: &LocalSearchQuery) -> LocalSearchError {
+    let mut restart = normalized_query(query, streamed_layout(query));
+    if let Some(object) = restart.as_object_mut() {
+        object.remove("snapshot");
+    }
+    restart["page"] = json!(1);
+    restart["matchPage"] = json!(1);
+    LocalSearchError {
+        code: "staleSnapshot",
+        message: "Search snapshot cannot be continued (resultsChanged); restart the search.".into(),
+        hints: vec![],
+        next: Some(Box::new(json!({
+            "restart": {
+                "tool": ToolId::LocalSearch.as_str(),
+                "query": restart,
+                "why": "Start a new search against the current source.",
+                "confidence": "exact"
+            }
+        }))),
+    }
+}
+
+/// A stored scan's file no longer hashes to the bytes its values came from:
+/// drop the scan and restart rather than show or check them against new text.
+fn changed_since_scan(query: &LocalSearchQuery) -> LocalSearchError {
+    if let Some(snapshot) = query.snapshot() {
+        super::manifest::evict(snapshot);
+    }
+    stale_snapshot(query)
+}
+
 /// Every candidate failed before it could be searched: there is no evidence,
 /// so this is an execution failure, not an empty result.
 fn unreadable_scope(stats: &octocode_engine::types::RipgrepStats) -> LocalSearchError {
@@ -903,7 +1088,7 @@ fn empty_hint(query: &LocalSearchQuery) -> String {
 }
 
 /// Remove `…` window markers and `...` truncation suffixes from a value line.
-fn strip_clip_markers(line: &str) -> &str {
+pub(super) fn strip_clip_markers(line: &str) -> &str {
     let line = line.strip_prefix('…').unwrap_or(line);
     let line = line.strip_suffix("...").unwrap_or(line);
     line.strip_suffix('…').unwrap_or(line)
@@ -920,16 +1105,23 @@ fn strip_clip_markers(line: &str) -> &str {
 ///
 /// Fails closed: when the source cannot be re-read, no longer holds a shown
 /// line, or its neighborhood exceeds the retained-byte budget, the value is
-/// replaced by a placeholder and the function returns `Ok(false)`.
-/// Cancellation stops the read and returns the reason.
+/// replaced by a placeholder and the result is `Unverified`. With `expected`
+/// (values from a stored scan), the whole source is hashed while it is read;
+/// bytes that differ from the stored digest, or a missing digest, return
+/// `Changed` and the values must not be shown. Cancellation stops the read
+/// and returns the reason.
 pub(super) fn guard_clipped_secrets(
     file: &mut octocode_engine::types::RipgrepFile,
     source: &std::path::Path,
+    expected: Option<Option<super::manifest::Digest>>,
     shown: std::ops::Range<usize>,
     security: &ContentSecurity,
     match_only: bool,
     cancel: &impl CancellationCheck,
-) -> Result<bool, String> {
+) -> Result<Verification, String> {
+    if expected == Some(None) {
+        return Ok(Verification::Changed);
+    }
     let end = shown.end.min(file.matches.len());
     let start = shown.start.min(end);
     let shown = &mut file.matches[start..end];
@@ -943,19 +1135,33 @@ pub(super) fn guard_clipped_secrets(
         })
         .collect::<Vec<_>>();
     let Some(last_line) = windows.iter().map(|&(_, hi)| hi).max() else {
-        return Ok(true);
+        return Ok(Verification::Verified);
     };
-    let read = match read_verification_lines(source, &windows, last_line, cancel) {
-        Ok(read) if !read.unclassified => read,
+    let read = std::fs::File::open(source)
+        .map_err(VerifyReadError::from)
+        .and_then(|opened| {
+            let mut reader = std::io::BufReader::new(HashingReader {
+                inner: opened,
+                hasher: expected.map(|_| Sha256::new()),
+            });
+            let read = read_verification_lines(&mut reader, &windows, last_line, cancel)?;
+            let digest = drain_digest(reader, cancel)?;
+            Ok((read, digest))
+        });
+    let read = match read {
+        Ok((_, Some(digest))) if expected != Some(Some(digest)) => {
+            return Ok(Verification::Changed);
+        }
+        Ok((read, _)) if !read.unclassified => read,
         Ok(_) | Err(VerifyReadError::Io) => {
             for matched in shown.iter_mut() {
                 matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
             }
-            return Ok(false);
+            return Ok(Verification::Unverified);
         }
         Err(VerifyReadError::Cancelled(reason)) => return Err(reason),
     };
-    let mut verified = true;
+    let mut verified = Verification::Verified;
     for (matched, &(lo, hi)) in shown.iter_mut().zip(&windows) {
         if !read.key_ranges.is_empty()
             && crate::security::match_window_intersects_key_block(
@@ -974,7 +1180,7 @@ pub(super) fn guard_clipped_secrets(
         if line > read.lines_read {
             // The source shrank or was replaced since the search.
             matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
-            verified = false;
+            verified = Verification::Unverified;
             continue;
         }
         let hi = hi.min(read.lines_read);
@@ -983,7 +1189,7 @@ pub(super) fn guard_clipped_secrets(
             .collect::<Option<Vec<_>>>()
         else {
             matched.value = OVERSIZED_PLACEHOLDER.to_owned();
-            verified = false;
+            verified = Verification::Unverified;
             continue;
         };
         let sanitized = security.sanitize_text(&window.join("\n"), Some(source));
@@ -1005,6 +1211,62 @@ pub(super) fn guard_clipped_secrets(
         }
     }
     Ok(verified)
+}
+
+/// Outcome of [`guard_clipped_secrets`] for one file's shown matches.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Verification {
+    /// Every shown value was checked against the source.
+    Verified,
+    /// Some value was replaced by a placeholder because it could not be checked.
+    Unverified,
+    /// The source is not the stored scan's bytes; nothing may be shown.
+    Changed,
+}
+
+/// Passes reads through, hashing them when a digest is wanted.
+struct HashingReader<R> {
+    inner: R,
+    hasher: Option<Sha256>,
+}
+
+impl<R: std::io::Read> std::io::Read for HashingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        if let Some(hasher) = &mut self.hasher {
+            hasher.update(&buf[..read]);
+        }
+        Ok(read)
+    }
+}
+
+/// Read the rest of a hashed source and return its digest; `None` when the
+/// reader was not hashing.
+fn drain_digest<R: std::io::Read>(
+    mut reader: std::io::BufReader<HashingReader<R>>,
+    cancel: &impl CancellationCheck,
+) -> Result<Option<super::manifest::Digest>, VerifyReadError> {
+    use std::io::BufRead;
+    if reader.get_ref().hasher.is_none() {
+        return Ok(None);
+    }
+    let mut since_check = 0usize;
+    loop {
+        let len = reader.fill_buf()?.len();
+        if len == 0 {
+            break;
+        }
+        reader.consume(len);
+        since_check += len;
+        if since_check >= VERIFY_CHUNK_BYTES {
+            since_check = 0;
+            cancel.check().map_err(VerifyReadError::Cancelled)?;
+        }
+    }
+    Ok(reader
+        .into_inner()
+        .hasher
+        .map(|hasher| hasher.finalize().into()))
 }
 
 /// Value shown in place of a match whose source could not be re-read for the
@@ -1048,17 +1310,16 @@ struct VerificationLines {
     unclassified: bool,
 }
 
-/// Stream up to `limit` lines of `source`, tracking private-key blocks over
+/// Stream up to `limit` lines of `reader`, tracking private-key blocks over
 /// all of them and keeping only lines inside `windows` (1-based inclusive),
-/// within [`MAX_VERIFY_RETAINED_BYTES`]. Any open or read failure is an error
-/// (a short file just yields fewer lines).
+/// within [`MAX_VERIFY_RETAINED_BYTES`]. Any read failure is an error (a
+/// short source just yields fewer lines).
 fn read_verification_lines(
-    source: &std::path::Path,
+    reader: &mut impl std::io::BufRead,
     windows: &[(usize, usize)],
     limit: usize,
     cancel: &impl CancellationCheck,
 ) -> Result<VerificationLines, VerifyReadError> {
-    let mut reader = std::io::BufReader::new(std::fs::File::open(source)?);
     let mut tracker = crate::security::KeyBlockTracker::default();
     let mut read = VerificationLines {
         key_ranges: Vec::new(),
@@ -1080,7 +1341,7 @@ fn read_verification_lines(
             MAX_PROBE_LINE_BYTES
         };
         buf.clear();
-        let Some(line) = read_bounded_line(&mut reader, &mut buf, cap, cancel)? else {
+        let Some(line) = read_bounded_line(reader, &mut buf, cap, cancel)? else {
             break;
         };
         read.lines_read = number;
@@ -1539,7 +1800,9 @@ fn uses_context(view: LocalSearchQueryResultView) -> bool {
     )
 }
 
-fn normalized_query(q: &LocalSearchQuery) -> Value {
+/// The query with its effective defaults, as continuations carry it. A
+/// streamed layout carries no `pageSize`: its pages are cut by the budget.
+fn normalized_query(q: &LocalSearchQuery, streamed: bool) -> Value {
     let mut value = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
     // `LocalSearchQuery` serializes to a JSON object.
     #[allow(clippy::expect_used)]
@@ -1560,8 +1823,10 @@ fn normalized_query(q: &LocalSearchQuery) -> Value {
     o.entry("matchPage").or_insert(json!(1));
     o.entry("page").or_insert(json!(1));
     o.entry("resultView").or_insert(json!("paginated"));
-    o.entry("pageSize")
-        .or_insert(json!(default_page_size(view)));
+    if !streamed {
+        o.entry("pageSize")
+            .or_insert(json!(default_page_size(view)));
+    }
     value
 }
 /// Status and `terminalLimit` for a search result. `coverage_gap` means some
@@ -1595,9 +1860,10 @@ fn build_next(
     leftover_matches: bool,
     match_page: u32,
     snapshot: Option<&str>,
+    streamed: bool,
 ) -> Option<Value> {
     let mut map = serde_json::Map::new();
-    let base = normalized_query(q);
+    let base = normalized_query(q, streamed);
     // Hard 1000-page ceiling (mirrors the pagination `next_page` guard above): a
     // `nextPage` continuation is never emitted past page 1000, so file paging is
     // bounded by contract. Callers must narrow the query to reach later results.
@@ -2079,6 +2345,10 @@ mod verification_tests {
         }
     }
 
+    fn open(source: &std::path::Path) -> std::io::BufReader<std::fs::File> {
+        std::io::BufReader::new(std::fs::File::open(source).expect("fixture"))
+    }
+
     fn file_with(
         matches: Vec<octocode_engine::types::RipgrepMatch>,
     ) -> octocode_engine::types::RipgrepFile {
@@ -2098,7 +2368,7 @@ mod verification_tests {
             .expect("fixture");
         let hit_line = 60_002;
         let read = read_verification_lines(
-            &source,
+            &mut open(&source),
             &[(hit_line - 1, hit_line + 1)],
             hit_line + 1,
             &NeverCancel,
@@ -2127,7 +2397,7 @@ mod verification_tests {
             let dir = tempfile::tempdir().expect("fixture");
             let source = dir.path().join("key.txt");
             std::fs::write(&source, &content).expect("fixture");
-            let read = read_verification_lines(&source, &[], usize::MAX, &NeverCancel)
+            let read = read_verification_lines(&mut open(&source), &[], usize::MAX, &NeverCancel)
                 .unwrap_or_else(|_| panic!("readable"));
             assert!(read.retained.is_empty());
             assert!(!read.unclassified);
@@ -2152,13 +2422,14 @@ mod verification_tests {
         let verified = guard_clipped_secrets(
             &mut file,
             &source,
+            None,
             0..10,
             &ContentSecurity::new(),
             true,
             &NeverCancel,
         )
         .expect("not cancelled");
-        assert!(!verified);
+        assert_eq!(verified, Verification::Unverified);
         assert_eq!(file.matches[0].value, UNVERIFIED_PLACEHOLDER);
         // The same long line without a key mention is an ordinary line.
         std::fs::write(
@@ -2170,18 +2441,53 @@ mod verification_tests {
         )
         .expect("fixture");
         let mut file = file_with(vec![hit(5, "plain text")]);
-        assert!(
+        assert_eq!(
             guard_clipped_secrets(
                 &mut file,
                 &source,
+                None,
                 0..10,
                 &ContentSecurity::new(),
                 true,
                 &NeverCancel
             )
-            .expect("not cancelled")
+            .expect("not cancelled"),
+            Verification::Verified
         );
         assert_eq!(file.matches[0].value, "plain text");
+    }
+
+    /// Values from a stored scan are checked only against the bytes the scan
+    /// was stored with; other bytes, or no stored digest, mean `Changed`.
+    #[test]
+    fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let source = dir.path().join("source.txt");
+        let stored = "one\nthe hit\nthree\n";
+        std::fs::write(&source, stored).expect("fixture");
+        let digest: super::super::manifest::Digest = Sha256::digest(stored.as_bytes()).into();
+        let check = |expected| {
+            let mut file = file_with(vec![hit(2, "the hit")]);
+            let outcome = guard_clipped_secrets(
+                &mut file,
+                &source,
+                expected,
+                0..10,
+                &ContentSecurity::new(),
+                false,
+                &NeverCancel,
+            )
+            .expect("not cancelled");
+            (outcome, file.matches[0].value.clone())
+        };
+        assert_eq!(
+            check(Some(Some(digest))),
+            (Verification::Verified, "the hit".to_owned())
+        );
+        assert_eq!(check(Some(None)).0, Verification::Changed);
+        std::fs::write(&source, "one\nthe hit\nthre3\n").expect("fixture");
+        assert_eq!(check(Some(Some(digest))).0, Verification::Changed);
+        assert_eq!(check(None).0, Verification::Verified);
     }
 
     #[test]
@@ -2194,13 +2500,14 @@ mod verification_tests {
         let verified = guard_clipped_secrets(
             &mut file,
             &source,
+            None,
             0..10,
             &ContentSecurity::new(),
             false,
             &NeverCancel,
         )
         .expect("not cancelled");
-        assert!(!verified);
+        assert_eq!(verified, Verification::Unverified);
         assert_eq!(file.matches[0].value, OVERSIZED_PLACEHOLDER);
     }
 
@@ -2219,6 +2526,7 @@ mod verification_tests {
         let reason = guard_clipped_secrets(
             &mut file,
             &source,
+            None,
             0..10,
             &ContentSecurity::new(),
             false,

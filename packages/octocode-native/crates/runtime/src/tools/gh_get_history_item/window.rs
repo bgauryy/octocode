@@ -8,7 +8,7 @@ use crate::providers::github::{
 use serde_json::{Value, json};
 
 /// GitHub REST collection batch size (the `per_page` maximum).
-const PROVIDER_BATCH: usize = 100;
+pub(super) const PROVIDER_BATCH: usize = 100;
 /// PR and commit file lists stop at 3000 files (30 batches of 100).
 pub(super) const MAX_FILE_BATCHES: usize = 30;
 /// Comments/reviews scanned for one page (3000 items).

@@ -1632,8 +1632,7 @@
           "operation": "tree",
           "path": "/ABS/repo",
           "maxDepth": 1,
-          "page": 1,
-          "pageSize": 100
+          "page": 1
         }
       ]
     }
@@ -1664,8 +1663,7 @@
           ],
           "detail": "basic",
           "sort": "path",
-          "page": 1,
-          "pageSize": 100
+          "page": 1
         }
       ]
     }
@@ -1694,8 +1692,7 @@
           "maxDepth": 1,
           "hidden": true,
           "noIgnore": true,
-          "page": 1,
-          "pageSize": 100
+          "page": 1
         }
       ]
     }
@@ -1720,8 +1717,7 @@
           "operation": "tree",
           "path": ".",
           "maxDepth": 1,
-          "page": 1,
-          "pageSize": 100
+          "page": 1
         }
       ]
     }
@@ -1752,8 +1748,7 @@
           ],
           "detail": "basic",
           "sort": "path",
-          "page": 1,
-          "pageSize": 100
+          "page": 1
         }
       ]
     }

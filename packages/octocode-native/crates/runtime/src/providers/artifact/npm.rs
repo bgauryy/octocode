@@ -847,6 +847,15 @@ mod tests {
             .await
             .expect_err("no match");
         assert_eq!(unmatched.code, "versionNotFound");
+        let beyond = lookup(&http, json!({"packageName": "zod", "version": "99.0.0"}))
+            .await
+            .expect_err("beyond every release");
+        assert_eq!(beyond.code, "versionNotFound");
+        assert_eq!(
+            beyond.hints,
+            ["Nearest published: 4.6.5, 3.25.76, 3.22.0."],
+            "{beyond:?}"
+        );
         let seen = http.seen.lock().expect("seen").clone();
         assert_eq!(
             seen[..2],

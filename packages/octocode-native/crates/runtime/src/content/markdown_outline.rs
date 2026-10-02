@@ -44,7 +44,7 @@ pub(crate) fn markdown_heading_outline(content: &str, path: &str) -> Option<Stri
             text = "(untitled heading)".into();
         }
         output.push(format!(
-            "{:>4}| {}{} {}",
+            "{}\t{}{} {}",
             index + 1,
             "  ".repeat(level - 1),
             "#".repeat(level),
@@ -62,7 +62,7 @@ mod tests {
         let text = "# Root\n```\n## hidden\n```\n  ## Child ###\n";
         assert_eq!(
             markdown_heading_outline(text, "README.md").as_deref(),
-            Some("   1| # Root\n   5|   ## Child")
+            Some("1\t# Root\n5\t  ## Child")
         );
         assert_eq!(markdown_heading_outline(text, "README.txt"), None);
     }

@@ -1,4 +1,5 @@
-/// Render `KeptLine`s into the canonical `N| text` gutter format.
+/// Render `KeptLine`s as numbered source lines (`<line>\t<text>`, the
+/// shared numbered-read format).
 /// Blank lines and pure-comment lines are excluded before rendering.
 pub fn render_skeleton(kept: &[(usize, String)], comment_prefix: &str) -> Option<String> {
     let visible: Vec<&(usize, String)> = kept
@@ -15,7 +16,7 @@ pub fn render_skeleton(kept: &[(usize, String)], comment_prefix: &str) -> Option
     // some lines, which would leave a padded gutter uneven.
     let s = visible
         .iter()
-        .map(|(n, text)| format!("{n}| {text}"))
+        .map(|(n, text)| format!("{n}\t{text}"))
         .collect::<Vec<_>>()
         .join("\n");
 

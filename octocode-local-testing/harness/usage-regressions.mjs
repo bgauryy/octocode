@@ -131,6 +131,40 @@ for (const [label, query] of [['default', {}], ['fullContent', { fullContent: tr
   check('U17 MCP: a warm lspSearch repeat answers within 15 s', !warm.isError && warm.ms < 15_000, `${warm.ms}ms`);
 }
 
+// Continuation pages reuse the page-1 scan; an edit that keeps size and
+// nanosecond mtime must not resurface old values or an old key-shaped body.
+{
+  fs.mkdirSync(path.join(ROOT, '.octocode/tmp'), { recursive: true });
+  const dir = fs.mkdtempSync(path.join(ROOT, '.octocode/tmp/cache-binding-'));
+  // Rewrite with equal-size bytes, then restore the nanosecond mtime.
+  const rewrite = (file, content) => spawnSync('python3', ['-c', 'import os,sys\np=sys.argv[1];s=os.stat(p)\nopen(p,"w").write(sys.argv[2])\nos.utime(p,ns=(s.st_atime_ns,s.st_mtime_ns))\nt=os.stat(p)\nprint(s.st_size==t.st_size and s.st_mtime_ns==t.st_mtime_ns)', file, content], { encoding: 'utf8' }).stdout.trim() === 'True';
+  const search = (where, searchText) => ({ path: where, searchText, regex: 'literal', sort: 'path', include: ['*.ts'], noIgnore: true, pageSize: 1 });
+  try {
+    fs.writeFileSync(path.join(dir, 'a.ts'), 'const needle = "OLD_A";\n');
+    const b = path.join(dir, 'b.ts');
+    fs.writeFileSync(b, 'const needle = "OLD_B";\n');
+    const next = rowData(await call('localSearch', search(dir, 'needle')))?.next?.nextPage;
+    const stamped = rewrite(b, 'const needle = "NEW_B";\n');
+    const replay = next ? await raw(next.tool, { queries: [next.query] }) : { text: 'no nextPage' };
+    check('U18 MCP: a same-size, same-mtime edit restarts the continuation instead of serving old text', stamped && !replay.text.includes('OLD_B') && /staleSnapshot/.test(replay.text) && /restart/.test(replay.text), replay.text.slice(0, 200));
+
+    const keydir = path.join(dir, 'key');
+    fs.mkdirSync(keydir);
+    const body = 'QUJD'.repeat(24);
+    fs.writeFileSync(path.join(keydir, 'a.ts'), '// QUJD visible harmless marker\n');
+    const keyfile = path.join(keydir, 'b.ts');
+    fs.writeFileSync(keyfile, `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`);
+    const keyNext = rowData(await call('localSearch', search(keydir, 'QUJD')))?.next?.nextPage;
+    const before = keyNext ? await raw(keyNext.tool, { queries: [keyNext.query] }) : { text: 'no nextPage' };
+    check('U18 MCP: the stored key-shaped value is redacted on its page', !before.text.includes(body) && /REDACTED/.test(before.text), before.text.slice(0, 200));
+    const swapped = rewrite(keyfile, `// clean source replacement\n${'Z'.repeat(body.length)}\n${'// clean trailer'.padEnd('-----END PRIVATE KEY-----'.length)}\n`);
+    const after = keyNext ? await raw(keyNext.tool, { queries: [keyNext.query] }) : { text: 'no nextPage' };
+    check('U18 MCP: after a stamp-preserving swap the old key-shaped body never surfaces', swapped && !after.text.includes(body), after.text.slice(0, 200));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 const result = summary();
 writeResults('usage-regressions', { ...result });
 client.close();

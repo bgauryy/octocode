@@ -848,17 +848,25 @@ fn bounded_search_source(
             )
         })?;
     let page = query.get("page").and_then(Value::as_u64).unwrap_or(1);
+    let local = source.get("tool").and_then(Value::as_str) == Some(ToolId::LocalSearch.as_str());
     let original_size = match query.get("pageSize").and_then(Value::as_u64) {
         Some(size) => size,
         // A list tool's first page starts at offset 0 under any page size.
         None if list && page <= 1 => u64::MAX,
         // A later page with an unknown default cannot be re-paged safely;
-        // the expanded-cell check still bounds provider work.
-        None if list => return Ok(bounded),
+        // the expanded-cell check still bounds provider work. A localSearch
+        // page after the first without `pageSize` is cut by the response
+        // budget, so it has no file offset either.
+        None if list || (local && page > 1) => return Ok(bounded),
         None => default_search_page_size(source),
     };
     let mut limit = u64::try_from(candidate_limit).unwrap_or(u64::MAX);
     if original_size <= limit {
+        // Name the file-page size, so this page's continuations and resumes
+        // keep file offsets instead of budget-cut pages.
+        if local {
+            query.entry("pageSize").or_insert(json!(original_size));
+        }
         return Ok(bounded);
     }
     let offset = page.saturating_sub(1).saturating_mul(original_size);
@@ -3183,7 +3191,7 @@ mod tests {
     #[test]
     fn transformed_symbols_are_not_treated_as_original_source_lines() {
         let content = (1..=100)
-            .map(|line| format!("{line}| ## Heading\n"))
+            .map(|line| format!("{line}\t## Heading\n"))
             .collect::<String>();
         let state = json!({"results":[{"data":{
             "path":"Hooks.md", "content":content,

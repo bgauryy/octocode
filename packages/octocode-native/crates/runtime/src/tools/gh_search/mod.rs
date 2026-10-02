@@ -1169,6 +1169,56 @@ mod tests {
             assert_eq!(content["keywords"], json!(["fn spawn_blocking"]));
         }
 
+        /// A zero-hit recovery for a requested branch inspects that branch,
+        /// not the default branch the index covers.
+        #[tokio::test]
+        async fn empty_scoped_recovery_keeps_the_requested_branch() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/search/code"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(
+                        json!({"total_count":0,"incomplete_results":false,"items":[]}),
+                    ),
+                )
+                .mount(&server)
+                .await;
+            for (repo, archived) in [("b", false), ("old", true)] {
+                Mock::given(method("GET"))
+                    .and(path(format!("/api/v3/repos/a/{repo}")))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(
+                        json!({"default_branch":"main","full_name":format!("a/{repo}"),"archived":archived}),
+                    ))
+                    .mount(&server)
+                    .await;
+            }
+            for repo in ["b", "old"] {
+                let out = run(
+                    &server,
+                    json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":repo,
+                           "keywords":["needle"],"path":"src","branch":"nondefault"}),
+                )
+                .await
+                .expect("search");
+                let view = &out.data["next"]["viewStructure"]["query"];
+                assert_eq!(view["branch"], "nondefault", "{}", out.data);
+            }
+            let default = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":"b",
+                       "keywords":["needle"],"path":"src"}),
+            )
+            .await
+            .expect("search");
+            assert!(
+                default.data["next"]["viewStructure"]["query"]
+                    .get("branch")
+                    .is_none(),
+                "{}",
+                default.data
+            );
+        }
+
         /// D9: path matches carry no empty snippet list.
         #[tokio::test]
         async fn path_match_rows_omit_empty_matches() {

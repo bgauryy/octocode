@@ -362,13 +362,25 @@ mod tests {
                 "impl S{i} {{\n    pub fn run(&self) -> usize {{\n        let x = {i};\n        x + 1\n    }}\n}}\n\n"
             ));
         }
-        let skeleton = extract(&source, "lib.rs").expect("skeleton");
-        let minified =
-            crate::minify::apply::apply_content_view_minification_inner(&skeleton, "lib.rs");
-        for view in [&skeleton, &minified] {
+        let mut python = String::new();
+        for i in 0..40 {
+            python.push_str(&format!(
+                "class C{i}:\n    def run(self):\n        x = {i}\n        y = x + 1\n        return y\n\n"
+            ));
+        }
+        let mut views = Vec::new();
+        for (path, text) in [("lib.rs", &source), ("mod.py", &python)] {
+            let skeleton = extract(text, path).expect("skeleton");
+            let minified =
+                crate::minify::apply::apply_content_view_minification_inner(&skeleton, path);
+            views.push(skeleton);
+            views.push(minified);
+        }
+        for view in &views {
             for line in view.lines() {
                 assert!(
-                    line.starts_with(|c: char| c.is_ascii_digit()) && line.contains("| "),
+                    line.split_once('\t')
+                        .is_some_and(|(n, _)| n.parse::<usize>().is_ok()),
                     "{line:?} in\n{view}"
                 );
             }

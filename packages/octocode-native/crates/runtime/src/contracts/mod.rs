@@ -19,12 +19,47 @@ pub use validate::{
 
 /// Embedded contracts are immutable across runtime handles and requests.
 pub fn parsed_contract() -> Result<&'static serde_json::Value, &'static str> {
-    static CONTRACT: std::sync::OnceLock<Result<serde_json::Value, String>> =
-        std::sync::OnceLock::new();
     CONTRACT
         .get_or_init(|| serde_json::from_str(contract_json()).map_err(|error| error.to_string()))
         .as_ref()
         .map_err(String::as_str)
+}
+
+static CONTRACT: std::sync::OnceLock<Result<serde_json::Value, String>> =
+    std::sync::OnceLock::new();
+
+/// One tool's contract entry (`tools[i]`), parsed on first use from its
+/// build-verified span of the embedded contract. A tool call touches one tool,
+/// so a fresh process parses that entry (~100 KB) instead of the whole
+/// multi-megabyte contract — the dominant cost of a short-lived CLI call.
+/// Reuses the full parse when something (catalog, scheme) already forced it.
+pub fn tool_contract(tool: ToolId) -> Result<&'static serde_json::Value, &'static str> {
+    static TOOLS: [std::sync::OnceLock<Result<serde_json::Value, String>>; ToolId::ALL.len()] =
+        [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
+    let index = ToolId::ALL
+        .iter()
+        .position(|id| *id == tool)
+        .ok_or("tool is not in the embedded contract")?;
+    if let Some(Ok(contract)) = CONTRACT.get() {
+        return contract["tools"]
+            .get(index)
+            .ok_or("tool is not in the embedded contract");
+    }
+    TOOLS[index]
+        .get_or_init(|| {
+            let (start, end) = generated::CONTRACT_TOOL_SPANS[index];
+            contract_json()
+                .get(start..end)
+                .ok_or_else(|| "tool span is outside the embedded contract".to_owned())
+                .and_then(|text| serde_json::from_str(text).map_err(|error| error.to_string()))
+        })
+        .as_ref()
+        .map_err(String::as_str)
+}
+
+/// [`tool_contract`] by wire name; `None` for a name the contract lacks.
+pub fn tool_contract_named(name: &str) -> Option<Result<&'static serde_json::Value, &'static str>> {
+    ToolId::from_name(name).map(tool_contract)
 }
 
 /// Replace contract-violating result rows with row-level
@@ -85,7 +120,7 @@ pub fn prepare_and_validate(
     // and strips the "queries.0." prefix from any validation error paths.
     let query = validate_query(tool_name, serde_json::Value::Object(prepared.query))?;
     if tool_name == ToolId::Clasify.as_str() {
-        validate_semantic_relations(&nested_clasify(&query))?;
+        validate_semantic_relations(&query, &nested_clasify(&query))?;
     }
     Ok(query)
 }
@@ -232,9 +267,16 @@ pub fn prepare_many_and_validate(
             }
         }
         let mut total_cells = 0usize;
-        for query in &queries {
+        for (index, query) in queries.iter().enumerate() {
             let nested = nested_clasify(query);
-            validate_semantic_relations(&nested)?;
+            validate_semantic_relations(query, &nested).map_err(|mut error| {
+                for issue in &mut error.issues {
+                    issue
+                        .path
+                        .splice(0..0, ["queries".to_owned(), index.to_string()]);
+                }
+                error
+            })?;
             total_cells = total_cells.saturating_add(semantic_cell_count(&nested));
         }
         if total_cells > clasify_policy::MAX_TOTAL_CELLS {
@@ -293,11 +335,25 @@ fn semantic_cell_count(query: &serde_json::Value) -> usize {
     expanded_resources.saturating_mul(query["questions"].as_array().map_or(0, std::vec::Vec::len))
 }
 
-fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), ContractValidationError> {
+/// Relation checks over the nested form (`query`); issue paths follow the
+/// caller's form (`sent`), so a flat resource's field is
+/// `resources.N.candidateEvidence`, not its nested `context` path.
+fn validate_semantic_relations(
+    sent: &serde_json::Value,
+    query: &serde_json::Value,
+) -> Result<(), ContractValidationError> {
     let resources = query["resources"].as_array().cloned().unwrap_or_default();
     let questions = query["questions"].as_array().cloned().unwrap_or_default();
     for (index, resource) in resources.iter().enumerate() {
         let context = &resource["context"];
+        let at = |fields: &[&str]| {
+            let mut path = vec!["resources".to_owned(), index.to_string()];
+            if sent["resources"][index].get("context").is_some() {
+                path.push("context".into());
+            }
+            path.extend(fields.iter().map(|field| (*field).to_owned()));
+            path
+        };
         if context.get("candidateEvidence").is_some() {
             let supported = context["tool"]
                 .as_str()
@@ -306,12 +362,7 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
                 return Err(ContractValidationError {
                     issues: vec![ValidationIssue {
                         rule_id: "clasify.candidate-evidence".into(),
-                        path: vec![
-                            "resources".into(),
-                            index.to_string(),
-                            "context".into(),
-                            "candidateEvidence".into(),
-                        ],
+                        path: at(&["candidateEvidence"]),
                         message: format!(
                             "candidateEvidence requires {}.",
                             policy_names(clasify_policy::CANDIDATE_SEARCH_TOOLS)
@@ -355,13 +406,7 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
             return Err(ContractValidationError {
                 issues: vec![ValidationIssue {
                     rule_id: "clasify.line-range".into(),
-                    path: vec![
-                        "resources".into(),
-                        index.to_string(),
-                        "context".into(),
-                        "query".into(),
-                        field.into(),
-                    ],
+                    path: at(&["query", field]),
                     message: "Set startLine and endLine together.".into(),
                     schema: None,
                     received: None,
@@ -374,13 +419,7 @@ fn validate_semantic_relations(query: &serde_json::Value) -> Result<(), Contract
             return Err(ContractValidationError {
                 issues: vec![ValidationIssue {
                     rule_id: "clasify.line-range".into(),
-                    path: vec![
-                        "resources".into(),
-                        index.to_string(),
-                        "context".into(),
-                        "query".into(),
-                        "endLine".into(),
-                    ],
+                    path: at(&["query", "endLine"]),
                     message: "endLine must not precede startLine.".into(),
                     schema: None,
                     received: nested.get("endLine").cloned(),
@@ -711,7 +750,26 @@ mod contract_owner_tests {
             )
             .expect_err("invalid context relation must fail at admission");
             assert_eq!(error.issues[0].rule_id, rule_id);
+            assert!(error.issues[0].path.contains(&"context".to_owned()));
         }
+
+        // A flat resource's field is named where the caller wrote it; a row
+        // of a queries batch keeps its row prefix.
+        let flat = json!({"id":"r","tool":"localFetch","query":{"path":"/tmp/a.rs"},"candidateEvidence":"fileChunks"});
+        let error = prepare_many_and_validate(
+            "clasify",
+            json!({"queries":[{
+                "reasoning":"Reject a flat resource's search mode.","goal":"Decide the next read.",
+                "resources":[flat],
+                "questions":[with_id("q", &question)]
+            }]}),
+            PrepareOptions::default(),
+        )
+        .expect_err("candidateEvidence on a file read must fail");
+        assert_eq!(
+            error.issues[0].path,
+            ["queries", "0", "resources", "0", "candidateEvidence"]
+        );
 
         let matrix = |id: &str| {
             json!({
@@ -795,6 +853,31 @@ mod contract_owner_tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn each_tool_span_parses_to_its_contract_entry() {
+        // `tool_contract` parses one tool from its span when the full contract
+        // is not yet parsed; every span must yield exactly `tools[i]`.
+        let contract = super::parsed_contract().expect("generated contract");
+        let tools = contract["tools"].as_array().expect("tool array");
+        assert_eq!(super::generated::CONTRACT_TOOL_SPANS.len(), tools.len());
+        for ((start, end), (tool, id)) in super::generated::CONTRACT_TOOL_SPANS
+            .iter()
+            .zip(tools.iter().zip(super::ToolId::ALL))
+        {
+            let parsed: serde_json::Value =
+                serde_json::from_str(&contract_json()[*start..*end]).expect("span JSON");
+            assert_eq!(&parsed, tool, "{id}");
+            assert_eq!(super::tool_contract(id).expect("tool contract"), tool);
+            assert_eq!(
+                super::tool_contract_named(id.as_str())
+                    .expect("known tool")
+                    .expect("tool contract"),
+                tool
+            );
+        }
+        assert!(super::tool_contract_named("nope").is_none());
     }
 
     #[test]

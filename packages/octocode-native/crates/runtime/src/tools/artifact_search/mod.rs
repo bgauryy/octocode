@@ -148,6 +148,11 @@ async fn run(
         .map_err(|_| ArtifactError::new("provider_error", "Failed to encode artifacts."))?;
     if !query.debug() {
         compact_rows(&mut rows);
+        lean_rows(
+            &mut rows,
+            query.artifact_type(),
+            query.package_name().is_some(),
+        );
     }
     let mut data = json!({
         "artifacts": rows,
@@ -174,8 +179,7 @@ async fn run(
             data["next"] = json!({
                 "nextPage": {
                     "tool": ToolId::ArtifactSearch.as_str(),
-                    "query": next_query,
-                    "confidence": "exact"
+                    "query": next_query
                 }
             });
         }
@@ -183,13 +187,13 @@ async fn run(
     // An exact lookup whose source lives on GitHub continues straight to its
     // tree (package subdirectory when the registry names one). Registry
     // metadata can point at a fork or stale repo, so this is a lead, not proof.
+    // `source` states each lead's scope and verification (its confidence).
     if query.package_name().is_some()
         && let Some(artifact) = page.artifacts.first()
         && let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_repo)
     {
         data["next"]["viewRepo"] = json!({
             "tool": ToolId::GhStructure.as_str(),
-            "confidence": "high",
             "source": { "scope": "defaultBranch", "verification": "unverified" },
             "query": {
                 "owner": owner,
@@ -210,7 +214,6 @@ async fn run(
         if let Some(reference) = artifact.source_ref.as_deref() {
             let attested = artifact.source_attested;
             let mut release = data["next"]["viewRepo"].clone();
-            release["confidence"] = json!(if attested { "high" } else { "medium" });
             release["source"] = json!({
                 "scope": "release",
                 "verification": if attested { "provenance" } else { "unverified" },
@@ -280,6 +283,30 @@ fn compact_rows(rows: &mut Value) {
     }
 }
 
+/// Drop what the request already states: each row's `type` (the queried
+/// registry). An exact lookup answers with release facts (version, dates,
+/// license, repository, deprecation, dependency counts); its description and
+/// a homepage beside the repository are discovery aids, kept for keyword
+/// search and under `debug`.
+fn lean_rows(rows: &mut Value, artifact_type: ArtifactType, exact: bool) {
+    let requested = serde_json::to_value(artifact_type).ok();
+    for row in rows.as_array_mut().into_iter().flatten() {
+        let Some(row) = row.as_object_mut() else {
+            continue;
+        };
+        if requested.is_some() && row.get("type") == requested.as_ref() {
+            row.remove("type");
+        }
+        if exact {
+            row.remove("description");
+            // Without a repository the homepage is the only source lead.
+            if row.contains_key("repository") {
+                row.remove("homepage");
+            }
+        }
+    }
+}
+
 /// `owner/repo` from a GitHub repository URL in any common registry form
 /// (`git+https://github.com/o/r.git`, `git@github.com:o/r`, `github.com/o/r/tree/…`).
 fn github_repo(url: &str) -> Option<(String, String)> {
@@ -314,7 +341,7 @@ fn github_repo_dir(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod github_repo_tests {
-    use super::{compact_rows, github_repo, github_repo_dir};
+    use super::{compact_rows, github_repo, github_repo_dir, lean_rows};
 
     #[test]
     fn rows_drop_the_registry_url_and_a_homepage_that_is_the_repository() {
@@ -332,6 +359,27 @@ mod github_repo_tests {
                 {"name":"x","homepage":"https://zod.dev","repository":"https://github.com/o/x"}
             ])
         );
+    }
+
+    #[test]
+    fn exact_rows_keep_release_facts_and_drop_discovery_aids() {
+        let row = serde_json::json!({"type":"npm","name":"express","version":"4.21.2",
+            "description":"Fast web framework","homepage":"http://expressjs.com/",
+            "license":"MIT","repository":"https://github.com/expressjs/express",
+            "publishedAt":"2024-12-05","engines":">= 0.10.0","dependencies":31});
+        let mut exact = serde_json::json!([row.clone()]);
+        lean_rows(&mut exact, super::ArtifactType::Npm, true);
+        assert_eq!(
+            exact,
+            serde_json::json!([{"name":"express","version":"4.21.2","license":"MIT",
+                "repository":"https://github.com/expressjs/express","publishedAt":"2024-12-05",
+                "engines":">= 0.10.0","dependencies":31}])
+        );
+        // Keyword discovery chooses between packages by their description.
+        let mut discovery = serde_json::json!([row]);
+        lean_rows(&mut discovery, super::ArtifactType::Npm, false);
+        assert_eq!(discovery[0]["description"], "Fast web framework");
+        assert!(discovery[0].get("type").is_none());
     }
 
     #[test]
@@ -598,7 +646,8 @@ mod npm_auth_tests {
         let view = &data["next"]["viewRepo"];
         assert!(view["query"].get("branch").is_none(), "{data}");
         assert_eq!(view["query"]["path"], "packages/x", "{data}");
-        assert_eq!(view["confidence"], "high", "{data}");
+        // `source` states the lead's provenance; no separate confidence.
+        assert!(view.get("confidence").is_none(), "{data}");
         assert_eq!(view["source"]["scope"], "defaultBranch", "{data}");
         assert_eq!(view["source"]["verification"], "unverified", "{data}");
         let reasoning = view["query"]["reasoning"].as_str().expect("reasoning");
@@ -608,7 +657,7 @@ mod npm_auth_tests {
         assert_eq!(release["tool"], "ghStructure", "{data}");
         assert_eq!(release["query"]["branch"], sha, "{data}");
         assert_eq!(release["query"]["path"], "packages/x", "{data}");
-        assert_eq!(release["confidence"], "medium", "{data}");
+        assert!(release.get("confidence").is_none(), "{data}");
         assert_eq!(release["source"]["scope"], "release", "{data}");
         assert_eq!(release["source"]["verification"], "unverified", "{data}");
         let row = data["artifacts"][0].as_object().expect("row");

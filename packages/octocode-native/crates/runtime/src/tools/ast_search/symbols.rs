@@ -1,5 +1,6 @@
 pub use crate::contracts::tool_types::AstSearchQuerySymbols;
 use crate::policy::prune::DefaultsFlag;
+use crate::runtime::symbol_outline::outline_rows;
 use crate::tools::id::ToolId;
 use crate::{
     policy::{path::PathPolicy, prune::PruneMode},
@@ -321,11 +322,12 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         .unwrap_or(&[]);
     let mut out = json!({"operation":"symbols","path":path,"totalDeclarations":declarations.len(),"filesScanned":files_scanned,"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete||*recovered});
     // A directory outline groups rows under their file, like `match` results,
-    // so each path is written once instead of on every declaration.
+    // so each path is written once instead of on every declaration. Rows are
+    // compact outline strings (see `runtime::symbol_outline`).
     if rows.iter().any(|row| row.get("path").is_some()) {
         out["files"] = Value::Array(group_by_file(rows));
     } else {
-        out["declarations"] = json!(rows);
+        out["declarations"] = Value::Array(outline_rows(rows));
     }
     // The snapshot only pins later pages to the same source; a single page
     // has nothing to pin.
@@ -352,10 +354,10 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
     }
     out
 }
-/// Consecutive rows of one file become `{path, declarations}`; rows arrive in
-/// path order, so each file appears once per page.
+/// Consecutive rows of one file become `{path, declarations}` with outline
+/// rows; rows arrive in path order, so each file appears once per page.
 fn group_by_file(rows: &[Value]) -> Vec<Value> {
-    let mut files: Vec<Value> = Vec::new();
+    let mut files: Vec<(Value, Vec<Value>)> = Vec::new();
     for row in rows {
         let mut row = row.clone();
         let path = row
@@ -363,15 +365,14 @@ fn group_by_file(rows: &[Value]) -> Vec<Value> {
             .and_then(|fields| fields.remove("path"))
             .unwrap_or(Value::Null);
         match files.last_mut() {
-            Some(file) if file["path"] == path => {
-                if let Some(list) = file["declarations"].as_array_mut() {
-                    list.push(row);
-                }
-            }
-            _ => files.push(json!({"path":path,"declarations":[row]})),
+            Some((seen, list)) if *seen == path => list.push(row),
+            _ => files.push((path, vec![row])),
         }
     }
     files
+        .into_iter()
+        .map(|(path, rows)| json!({"path":path,"declarations":outline_rows(&rows)}))
+        .collect()
 }
 
 fn limit(path: &str) -> Value {

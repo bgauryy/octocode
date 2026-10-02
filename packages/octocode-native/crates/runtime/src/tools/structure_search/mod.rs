@@ -24,6 +24,53 @@ fn max_walk() -> u32 {
 }
 
 use serde_json::{Value, json};
+
+/// Estimated JSON bytes one default page may carry (rows with their
+/// rendered paths). A listing within it is one page.
+const PAGE_BUDGET_BYTES: usize = 24_000;
+
+/// Row ranges of each page: `page_size` rows each when the caller sets it,
+/// else as many rows as fit [`PAGE_BUDGET_BYTES`] (at least one per page).
+/// Costs come from snapshot-bound data, so every page of one snapshot cuts
+/// at the same rows. An empty listing is one empty page.
+fn page_ranges(costs: &[usize], page_size: Option<usize>) -> Vec<std::ops::Range<usize>> {
+    let total = costs.len();
+    if total == 0 {
+        return vec![0..0];
+    }
+    if let Some(size) = page_size {
+        let size = size.max(1);
+        return (0..total)
+            .step_by(size)
+            .map(|start| start..start.saturating_add(size).min(total))
+            .collect();
+    }
+    let mut pages = Vec::new();
+    let mut start = 0;
+    let mut used = 0usize;
+    for (index, cost) in costs.iter().enumerate() {
+        if index > start && used.saturating_add(*cost) > PAGE_BUDGET_BYTES {
+            pages.push(start..index);
+            start = index;
+            used = 0;
+        }
+        used = used.saturating_add(*cost);
+    }
+    pages.push(start..total);
+    pages
+}
+
+/// Rendered bytes of the walked root in each row path: rows name the root
+/// first, and the response renders that root workspace-relative (nothing
+/// for the workspace itself, absolute outside it).
+fn rendered_root_bytes(paths: &crate::policy::path::PathPolicy, root: &std::path::Path) -> usize {
+    match paths.workspace_relative(root).as_deref() {
+        Some(".") => 0,
+        Some(relative) => relative.len(),
+        None => root.as_os_str().len(),
+    }
+}
+
 use sha2::{Digest, Sha256};
 
 pub use crate::contracts::tool_types::StructureSearchQuery;

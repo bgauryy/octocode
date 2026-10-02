@@ -10,6 +10,8 @@ use serde_json::Value;
 use std::fmt::{Display, Formatter};
 use url::Url;
 
+use crate::tools::id::ToolId;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationIssue {
     pub rule_id: String,
@@ -139,15 +141,36 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
                     None => base,
                 };
             }
+            let message = match required_guidance(tool_name, issue) {
+                Some(guidance) => format!("{} ({guidance})", issue.message),
+                None => issue.message.clone(),
+            };
             if path.is_empty() {
-                issue.message.clone()
+                message
             } else {
-                format!("{path}: {}", issue.message)
+                format!("{path}: {message}")
             }
         })
         .chain(routing_details(tool_name, &error.issues))
         .collect::<Vec<_>>();
     serde_json::json!({"kind":"octocode.toolError","version":1,"tool":tool_name,"error":"Check the query fields.","details":details})
+}
+
+/// Core-authored guidance for a missing required field (the core schema's
+/// required-field error), rendered after `Missing required field: <name>` as
+/// MCP renders the core message.
+fn required_guidance(tool_name: &str, issue: &ValidationIssue) -> Option<&'static str> {
+    if issue.rule_id != "schema.required" {
+        return None;
+    }
+    Some(match (tool_name, issue.path.last()?.as_str()) {
+        ("ghSearchCode", "owner") => {
+            "Set owner: code search cannot span all of GitHub (add repo to narrow further)."
+        }
+        ("localFetch", "path") => "Set path to a local file.",
+        ("ghGetFileContent", "path") => "Set path to a repository-relative file.",
+        _ => return None,
+    })
 }
 
 /// `goal`/`reasoning` sent beside `queries` instead of inside each row.
@@ -178,7 +201,11 @@ fn routing_details(tool_name: &str, issues: &[ValidationIssue]) -> Vec<String> {
                     .flatten()
                     .filter_map(Value::as_str)
                     .collect::<Vec<_>>();
-                let entry = (field.as_str(), suggest_field(field, &known).is_some());
+                // A field another form of this tool declares is fixed in
+                // place (`it applies only with …`), never rerouted.
+                let in_tool =
+                    suggest_field(field, &known).is_some() || sibling_requirement(issue).is_some();
+                let entry = (field.as_str(), in_tool);
                 match rows.iter_mut().find(|(row, _)| *row == label) {
                     Some((_, fields)) => fields.push(entry),
                     None => rows.push((label, vec![entry])),
@@ -253,13 +280,13 @@ fn split_batch_message(message: &str) -> Option<String> {
 /// The one other non-beta tool of the same family (or `a or b` for two)
 /// whose query schema satisfies `owns`; `None` when no tool or too many do.
 fn owning_tools(tool_name: &str, owns: impl Fn(&Value) -> bool) -> Option<String> {
-    let contract = super::parsed_contract().ok()?;
-    let tools = contract["tools"].as_array()?;
-    let family = &tools.iter().find(|tool| tool["name"] == tool_name)?["family"];
-    let owners = tools
-        .iter()
-        .filter(|tool| tool["name"] != tool_name && tool["beta"] != Value::Bool(true))
-        .filter(|tool| &tool["family"] == family)
+    // Family and beta are generated from the same contract fields, so only
+    // same-family candidates are parsed.
+    let family = ToolId::from_name(tool_name)?.family();
+    let owners = ToolId::ALL
+        .into_iter()
+        .filter(|id| id.as_str() != tool_name && !id.is_beta() && id.family() == family)
+        .filter_map(|id| super::tool_contract(id).ok())
         .filter(|tool| owns(tool))
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
@@ -343,20 +370,23 @@ impl Display for ContractValidationError {
 
 impl std::error::Error for ContractValidationError {}
 
-/// Validates and applies JSON-Schema defaults from the generated canonical
-/// contract. Runtime-only relation rules are applied after structural parsing.
-pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractValidationError> {
-    let contract = super::parsed_contract().map_err(|error| internal(error.to_string()))?;
-    let tool = contract["tools"]
-        .as_array()
-        .and_then(|tools| tools.iter().find(|tool| tool["name"] == tool_name))
+/// The named tool's embedded contract entry, or the unknown-tool issue.
+fn contract_tool(tool_name: &str) -> Result<&'static Value, ContractValidationError> {
+    super::tool_contract_named(tool_name)
         .ok_or_else(|| {
             issue(
                 "contract.unknown-tool",
                 vec![],
                 format!("Unknown tool: {tool_name}"),
             )
-        })?;
+        })?
+        .map_err(|error| internal(error.to_string()))
+}
+
+/// Validates and applies JSON-Schema defaults from the generated canonical
+/// contract. Runtime-only relation rules are applied after structural parsing.
+pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractValidationError> {
+    let tool = contract_tool(tool_name)?;
     apply_normalization_rules(&tool["rules"], &mut input)?;
     let mut issues = Vec::new();
     let item_schema = tool["inputSchema"]
@@ -414,12 +444,7 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
 /// an unknown tool is returned unchanged.
 #[must_use]
 pub fn normalize_input(tool_name: &str, mut input: Value) -> Value {
-    let Some(tool) = super::parsed_contract().ok().and_then(|contract| {
-        contract["tools"]
-            .as_array()?
-            .iter()
-            .find(|tool| tool["name"] == tool_name)
-    }) else {
+    let Some(Ok(tool)) = super::tool_contract_named(tool_name) else {
         return input;
     };
     let item_schema = tool["inputSchema"]
@@ -484,17 +509,7 @@ fn strip_queries_prefix(mut error: ContractValidationError) -> ContractValidatio
 /// output contract. Validation uses a clone because schema defaults, if ever
 /// introduced by the contract owner, must not mutate an already produced result.
 pub fn validate_output(tool_name: &str, output: &Value) -> Result<(), ContractValidationError> {
-    let contract = super::parsed_contract().map_err(|error| internal(error.to_string()))?;
-    let tool = contract["tools"]
-        .as_array()
-        .and_then(|tools| tools.iter().find(|tool| tool["name"] == tool_name))
-        .ok_or_else(|| {
-            issue(
-                "contract.unknown-tool",
-                vec![],
-                format!("Unknown tool: {tool_name}"),
-            )
-        })?;
+    let tool = contract_tool(tool_name)?;
     let schema = &tool["outputSchema"];
     let mut candidate = output.clone();
     crate::runtime::response::restore_shared_fields(&mut candidate);
@@ -1216,8 +1231,10 @@ fn internal(message: String) -> ContractValidationError {
 /// evals and recorded sessions), mapped to the canonical field when the query
 /// accepts it. A name may map to several fields; the first one the query
 /// accepts wins.
-const FIELD_ALIASES: [(&str, &str); 21] = [
+const FIELD_ALIASES: [(&str, &str); 23] = [
     ("type", "operation"),
+    ("path", "uri"),
+    ("filePath", "uri"),
     ("keywordsToSearch", "keywords"),
     ("matchStringContextLines", "contextLines"),
     ("pattern", "searchText"),
@@ -1756,6 +1773,50 @@ mod tests {
             ),
             "{formatted}"
         );
+    }
+
+    /// The MCP surface renders the same guidance from core Zod issues; the
+    /// MCP parity suite runs these inputs through both surfaces.
+    #[test]
+    fn guidance_names_every_form_alias_and_core_required_message() {
+        let details = |tool: &str, mut row: Value| {
+            row["goal"] = json!("g");
+            row["reasoning"] = json!("r");
+            let error = validate(tool, json!({"queries":[row]})).expect_err(tool);
+            format_input_error(tool, &error, true)["details"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let symbols = details(
+            "astSearch",
+            json!({"operation":"symbols","path":"/r","include":["*.ts"]}),
+        );
+        assert!(
+            symbols.contains("it applies only with pattern or rule."),
+            "{symbols}"
+        );
+        assert!(!symbols.contains("localSearch"), "in-tool field: {symbols}");
+        let lsp = details(
+            "lspSearch",
+            json!({"path":"a.ts","symbolName":"x","lineHint":1}),
+        );
+        assert!(lsp.contains("did you mean 'uri'?"), "{lsp}");
+        let owner = details("ghSearchCode", json!({"keywords":["x"]}));
+        assert!(
+            owner.contains(
+                "Missing required field: owner (Set owner: code search cannot span all of GitHub"
+            ),
+            "{owner}"
+        );
+        let history = details(
+            "ghSearchHistory",
+            json!({"operation":"pullRequest","owner":"a","repo":"b","mergedAt":"2026-01-01"}),
+        );
+        assert!(history.contains("did you mean 'merged-at'?"), "{history}");
     }
 
     #[test]

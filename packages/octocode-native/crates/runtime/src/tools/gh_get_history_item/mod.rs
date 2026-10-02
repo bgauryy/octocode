@@ -73,6 +73,8 @@ pub struct HistoryItemRequest {
     content: Option<Value>,
     /// Effective automatic response page (`output.pagination.defaultCharLength`).
     pub auto_page_chars: Option<usize>,
+    /// The call's explicit response page (`responseCharLength`), if any.
+    pub response_page: Option<usize>,
     /// Rows of this call that read patches: they share one patch budget.
     pub patch_rows: usize,
     /// Commit/compare `files` scope (paths or globs); pull requests carry
@@ -84,6 +86,10 @@ pub struct HistoryItemRequest {
 /// added after validation and removed before parsing, so it never reaches
 /// the wire contract or a continuation.
 pub const PATCH_ROWS_KEY: &str = "\u{0}patchRows";
+/// Runtime-only row key carrying the call's explicit response page
+/// (`responseCharLength`), which then sizes default patch windows in place
+/// of the configured automatic page. Same lifecycle as [`PATCH_ROWS_KEY`].
+pub const RESPONSE_PAGE_KEY: &str = "\u{0}responsePage";
 
 /// Whether a validated row reads patch text without an explicit window.
 fn reads_default_patch_window(row: &Value) -> bool {
@@ -110,20 +116,28 @@ fn reads_default_patch_window(row: &Value) -> bool {
 /// One patch budget per call: when two or more rows read patches with the
 /// default window, each row is stamped with that count so the windows split
 /// one response page instead of each taking a whole one, which would push
-/// a multi-row read into response pagination. `None` leaves rows as-is.
-pub fn share_patch_budget(rows: &[Value]) -> Option<Vec<Value>> {
+/// a multi-row read into response pagination. An explicit response page
+/// (`responseCharLength`) is stamped on every default-window row, so a walk
+/// that asks for larger pages gets larger patch windows (fewer hops). `None`
+/// leaves rows as-is.
+pub fn share_patch_budget(rows: &[Value], response_page: Option<usize>) -> Option<Vec<Value>> {
     let count = rows
         .iter()
         .filter(|row| reads_default_patch_window(row))
         .count();
-    (count > 1).then(|| {
+    (count > 1 || (count == 1 && response_page.is_some())).then(|| {
         rows.iter()
             .map(|row| {
                 let mut row = row.clone();
                 if reads_default_patch_window(&row)
                     && let Some(fields) = row.as_object_mut()
                 {
-                    fields.insert(PATCH_ROWS_KEY.into(), Value::from(count));
+                    if count > 1 {
+                        fields.insert(PATCH_ROWS_KEY.into(), Value::from(count));
+                    }
+                    if let Some(page) = response_page {
+                        fields.insert(RESPONSE_PAGE_KEY.into(), Value::from(page));
+                    }
                 }
                 row
             })
@@ -139,6 +153,12 @@ impl HistoryItemRequest {
             .and_then(|fields| fields.remove(PATCH_ROWS_KEY))
             .and_then(|count| count.as_u64())
             .map_or(1, |count| usize::try_from(count).unwrap_or(1).max(1));
+        let response_page = row
+            .as_object_mut()
+            .and_then(|fields| fields.remove(RESPONSE_PAGE_KEY))
+            .and_then(|page| page.as_u64())
+            .and_then(|page| usize::try_from(page).ok())
+            .filter(|page| *page > 0);
         let file_scope = normalize_aliases(&mut row);
         imply_patch_search(&mut row);
         let content = row.get("content").cloned();
@@ -146,6 +166,7 @@ impl HistoryItemRequest {
             query: serde_json::from_value(row)?,
             content,
             auto_page_chars: None,
+            response_page,
             patch_rows,
             file_scope,
         })

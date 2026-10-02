@@ -1,0 +1,1750 @@
+{
+  "version": 1,
+  "frozen": "2026-10-02",
+  "notes": [
+    "Frozen competitor tasks for harness/competitors.mjs (beat-rg-gh PLAN S5).",
+    "{{T}} = octocode-local-testing/repos, {{ROOT}} = repo root; shell commands get $T, $ROOT and $CT (scratch dir) and run from the repo root.",
+    "Local truth was read from the pinned corpora (see repos/README.md); GitHub truth from gh api / npm / registry JSON at pinned SHAs, numbers and versions on 2026-10-02.",
+    "Truth checks (same for both sides): hits = (file suffix, line) pairs that must appear; range = every line start..end present; ranges = list of range; exactHits / exactFiles = set equality; count = distinct (file, line) pairs; files = file suffixes that must appear; text = regexes over model-visible text.",
+    "Octocode steps: tool+args (one MCP query), tool+queries (batched rows in one call), raw (root-level args, clasify), cli (CLI-only tools), follow (copy next.<name> verbatim), walk (follow every listed next.* verbatim until exhausted); a step's envelope adds call-level options (e.g. responseCharLength) to its calls. {{prev:a.b}} reads the previous response; {{hint:name.query.x}} reads a continuation field.",
+    "Shell parse modes: rg (path:line:text or bare paths), numbered (line[:\\t- ]text, with file), sed (unnumbered from start, with file), files (one path per line), filecolon (path: text), diff (diff --git headers), ghsearch (owner/repo:path: text), text (no line evidence)."
+  ],
+  "tasks": [
+    {
+      "id": "L01",
+      "tool": "localSearch",
+      "kind": "local",
+      "source": "W1 (workflow-rating-2026-10-02)",
+      "question": "Where is toValidURL defined in excalidraw?",
+      "truth": {
+        "hits": [
+          { "file": "packages/common/src/url.ts", "line": 21 }
+        ]
+      },
+      "truthSource": "rg -n -w toValidURL on tsx@f3d99c4: packages/common/src/url.ts:21 `export const toValidURL = (link: string) => {`",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "toValidURL",
+            "path": "{{T}}/tsx/packages"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -w toValidURL $T/tsx/packages",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L02",
+      "tool": "localFetch",
+      "kind": "local",
+      "source": "W1 read step",
+      "question": "Read the whole toValidURL function body.",
+      "truth": {
+        "range": {
+          "file": "packages/common/src/url.ts",
+          "start": 21,
+          "end": 37
+        },
+        "text": [
+          "about:blank"
+        ]
+      },
+      "truthSource": "url.ts lines 21-37 (arrow function closes with `};` at 37)",
+      "octocode": [
+        {
+          "tool": "localFetch",
+          "args": {
+            "path": "{{T}}/tsx/packages/common/src/url.ts",
+            "matchString": "export const toValidURL",
+            "block": true
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "sed -n 21,45p $T/tsx/packages/common/src/url.ts",
+          "parse": "sed",
+          "file": "packages/common/src/url.ts",
+          "start": 21
+        }
+      ]
+    },
+    {
+      "id": "L03",
+      "tool": "lspSearch",
+      "kind": "local",
+      "source": "W1 callers",
+      "question": "Which call sites call toValidURL?",
+      "truth": {
+        "exactHits": [
+          { "file": "packages/excalidraw/renderer/staticSvgScene.ts", "line": 359 },
+          { "file": "packages/excalidraw/data/library.ts", "line": 729 },
+          { "file": "packages/excalidraw/components/App.tsx", "line": 1981 }
+        ]
+      },
+      "truthSource": "rg -n 'toValidURL\\(' (imports excluded by construction): staticSvgScene.ts:359, library.ts:729, App.tsx:1981",
+      "octocode": [
+        {
+          "tool": "lspSearch",
+          "args": {
+            "uri": "{{T}}/tsx/packages/common/src/url.ts",
+            "symbolName": "toValidURL",
+            "lineHint": 21,
+            "operation": "callers"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n 'toValidURL\\(' $T/tsx/packages $T/tsx/excalidraw-app",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L04",
+      "tool": "astTopology",
+      "kind": "local",
+      "beta": true,
+      "source": "W2",
+      "question": "Which files directly import packages/excalidraw/data/library.ts (aliases included)?",
+      "truth": {
+        "exactFiles": [
+          "excalidraw-app/App.tsx",
+          "excalidraw-app/data/LocalData.ts",
+          "packages/excalidraw/components/App.tsx",
+          "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
+          "packages/excalidraw/components/LibraryMenu.tsx",
+          "packages/excalidraw/components/LibraryMenuHeaderContent.tsx",
+          "packages/excalidraw/data/library.test.ts",
+          "packages/excalidraw/index.tsx",
+          "packages/excalidraw/tests/library.test.tsx",
+          "packages/excalidraw/types.ts"
+        ]
+      },
+      "truthSource": "rg on both import forms (relative and @excalidraw/excalidraw/data/library alias), each import line read",
+      "octocode": [
+        {
+          "tool": "astTopology",
+          "args": {
+            "path": "{{ROOT}}/{{T}}/tsx",
+            "analysis": "dependents",
+            "file": "packages/excalidraw/data/library.ts"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -l '(data/library|\\./library).;?$' $T/tsx --type ts",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L05",
+      "tool": "localFetch",
+      "kind": "local",
+      "source": "W3 (literal-known path)",
+      "question": "Where does tokio force Poll::Pending once the coop budget is exhausted?",
+      "truth": {
+        "range": {
+          "file": "tokio/src/task/coop/mod.rs",
+          "start": 359,
+          "end": 361
+        },
+        "text": [
+          "register_waker\\(cx\\);"
+        ]
+      },
+      "truthSource": "coop/mod.rs poll_proceed 343-364; `} else { register_waker(cx); Poll::Pending` at 359-361",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "register_waker",
+            "path": "{{T}}/rust/tokio/src/task/coop"
+          }
+        },
+        {
+          "tool": "localFetch",
+          "args": {
+            "path": "{{T}}/rust/tokio/src/task/coop/mod.rs",
+            "matchString": "register_waker(cx);",
+            "block": true
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n register_waker $T/rust/tokio/src/task/coop",
+          "parse": "rg"
+        },
+        {
+          "sh": "sed -n 340,366p $T/rust/tokio/src/task/coop/mod.rs",
+          "parse": "sed",
+          "file": "tokio/src/task/coop/mod.rs",
+          "start": 340
+        }
+      ]
+    },
+    {
+      "id": "L06",
+      "tool": "localFetch",
+      "kind": "local",
+      "source": "W10 (matchString path)",
+      "question": "Where does the runtime Builder reject zero worker threads (2,270-line builder.rs)?",
+      "truth": {
+        "hits": [
+          { "file": "tokio/src/runtime/builder.rs", "line": 583 }
+        ],
+        "text": [
+          "Worker threads cannot be set to 0"
+        ]
+      },
+      "truthSource": "builder.rs:583 `assert!(val > 0, \"Worker threads cannot be set to 0\");` inside worker_threads 582-587",
+      "octocode": [
+        {
+          "tool": "localFetch",
+          "args": {
+            "path": "{{T}}/rust/tokio/src/runtime/builder.rs",
+            "matchString": "cannot be set to 0",
+            "contextLines": 3
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -C3 'cannot be set to 0' $T/rust/tokio/src/runtime/builder.rs",
+          "parse": "numbered",
+          "file": "tokio/src/runtime/builder.rs"
+        }
+      ]
+    },
+    {
+      "id": "L07",
+      "tool": "localSearch",
+      "kind": "local",
+      "source": "W11b (pagination integrity)",
+      "question": "Every line mentioning budget (case-insensitive) in tokio/src.",
+      "truth": {
+        "count": 182
+      },
+      "truthSource": "rg -n -i budget tokio/src = 182 lines in 29 files",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "budget",
+            "path": "{{T}}/rust/tokio/src",
+            "caseMode": "insensitive"
+          }
+        },
+        {
+          "walk": [
+            "nextPage",
+            "nextMatchPage"
+          ],
+          "max": 60
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -i budget $T/rust/tokio/src",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L08",
+      "tool": "localSearch",
+      "kind": "local",
+      "source": "localSearch PLAN T1 (L03 #1)",
+      "question": "All run_on_commit lines in django/db.",
+      "truth": {
+        "exactHits": [
+          { "file": "django/db/backends/base/base.py", "line": 102 },
+          { "file": "django/db/backends/base/base.py", "line": 261 },
+          { "file": "django/db/backends/base/base.py", "line": 341 },
+          { "file": "django/db/backends/base/base.py", "line": 347 },
+          { "file": "django/db/backends/base/base.py", "line": 416 },
+          { "file": "django/db/backends/base/base.py", "line": 418 },
+          { "file": "django/db/backends/base/base.py", "line": 732 },
+          { "file": "django/db/backends/base/base.py", "line": 751 },
+          { "file": "django/db/backends/base/base.py", "line": 752 },
+          { "file": "django/db/backends/base/base.py", "line": 753 },
+          { "file": "django/db/backends/base/base.py", "line": 754 }
+        ]
+      },
+      "truthSource": "rg -n run_on_commit python/django/db@4fab678 (11 lines, all base.py)",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "run_on_commit",
+            "path": "{{T}}/python/django/db"
+          }
+        },
+        {
+          "walk": [
+            "nextPage",
+            "nextMatchPage"
+          ],
+          "max": 10
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n run_on_commit $T/python/django/db",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L09",
+      "tool": "localSearch",
+      "kind": "local",
+      "source": "localSearch PLAN T4",
+      "question": "Every ctx.Done() line across prometheus.",
+      "truth": {
+        "count": 121
+      },
+      "truthSource": "rg -n -F 'ctx.Done()' go@ea95480 = 121 lines / 41 files",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "ctx.Done()",
+            "path": "{{T}}/go",
+            "regex": "literal"
+          }
+        },
+        {
+          "walk": [
+            "nextPage",
+            "nextMatchPage"
+          ],
+          "max": 60
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -F 'ctx.Done()' $T/go",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L10",
+      "tool": "localSearch",
+      "kind": "local",
+      "source": "localSearch PLAN T6",
+      "question": "Every whole-word try_read_output line in tokio.",
+      "truth": {
+        "exactHits": [
+          { "file": "tokio/src/runtime/task/harness.rs", "line": 281 },
+          { "file": "tokio/src/runtime/task/raw.rs", "line": 35 },
+          { "file": "tokio/src/runtime/task/raw.rs", "line": 66 },
+          { "file": "tokio/src/runtime/task/raw.rs", "line": 290 },
+          { "file": "tokio/src/runtime/task/raw.rs", "line": 292 },
+          { "file": "tokio/src/runtime/task/raw.rs", "line": 360 },
+          { "file": "tokio/src/runtime/task/raw.rs", "line": 368 },
+          { "file": "tokio/src/runtime/task/join.rs", "line": 346 }
+        ]
+      },
+      "truthSource": "rg -n -w try_read_output rust@facc6fc (8 lines)",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "try_read_output",
+            "path": "{{T}}/rust/tokio",
+            "wholeWord": true
+          }
+        },
+        {
+          "walk": [
+            "nextPage",
+            "nextMatchPage"
+          ],
+          "max": 10
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -w try_read_output $T/rust/tokio",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L11",
+      "tool": "localFetch",
+      "kind": "local",
+      "source": "localFetch PLAN R2 (L03, 4 ranges of one file)",
+      "question": "Read lines 95-105, 255-265, 340-350 and 410-420 of django base.py.",
+      "truth": {
+        "ranges": [
+          {
+            "file": "django/db/backends/base/base.py",
+            "start": 95,
+            "end": 105
+          },
+          {
+            "file": "django/db/backends/base/base.py",
+            "start": 255,
+            "end": 265
+          },
+          {
+            "file": "django/db/backends/base/base.py",
+            "start": 340,
+            "end": 350
+          },
+          {
+            "file": "django/db/backends/base/base.py",
+            "start": 410,
+            "end": 420
+          }
+        ]
+      },
+      "truthSource": "line ranges of python/django/db/backends/base/base.py",
+      "octocode": [
+        {
+          "tool": "localFetch",
+          "args": {
+            "path": "{{T}}/python/django/db/backends/base/base.py",
+            "ranges": [
+              "95-105",
+              "255-265",
+              "340-350",
+              "410-420"
+            ]
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "awk '(NR>=95&&NR<=105)||(NR>=255&&NR<=265)||(NR>=340&&NR<=350)||(NR>=410&&NR<=420){print NR\": \"$0}' $T/python/django/db/backends/base/base.py",
+          "parse": "numbered",
+          "file": "django/db/backends/base/base.py"
+        }
+      ]
+    },
+    {
+      "id": "L12",
+      "tool": "structureSearch",
+      "kind": "local",
+      "source": "structureSearch PLAN D2",
+      "question": "List the *_test.go files under prometheus scrape/.",
+      "truth": {
+        "exactFiles": [
+          "scrape/helpers_test.go",
+          "scrape/manager_test.go",
+          "scrape/scrape_test.go",
+          "scrape/st_synthesis_test.go",
+          "scrape/target_test.go"
+        ]
+      },
+      "truthSource": "git ls-files 'scrape/*_test.go' in go@ea95480",
+      "octocode": [
+        {
+          "tool": "structureSearch",
+          "args": {
+            "operation": "files",
+            "path": "{{T}}/go/scrape",
+            "names": [
+              "*_test.go"
+            ]
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "git -C $T/go ls-files 'scrape/*_test.go'",
+          "parse": "files"
+        }
+      ]
+    },
+    {
+      "id": "L13",
+      "tool": "structureSearch",
+      "kind": "local",
+      "source": "structureSearch PLAN D4",
+      "question": "List every .py file under django/db.",
+      "truth": {
+        "exactFiles": [
+          "django/db/__init__.py",
+          "django/db/backends/__init__.py",
+          "django/db/backends/base/__init__.py",
+          "django/db/backends/base/base.py",
+          "django/db/backends/base/client.py",
+          "django/db/backends/base/creation.py",
+          "django/db/backends/base/features.py",
+          "django/db/backends/base/introspection.py",
+          "django/db/backends/base/operations.py",
+          "django/db/backends/base/schema.py",
+          "django/db/backends/base/validation.py",
+          "django/db/backends/ddl_references.py",
+          "django/db/backends/dummy/__init__.py",
+          "django/db/backends/dummy/base.py",
+          "django/db/backends/dummy/features.py",
+          "django/db/backends/mysql/__init__.py",
+          "django/db/backends/mysql/base.py",
+          "django/db/backends/mysql/client.py",
+          "django/db/backends/mysql/compiler.py",
+          "django/db/backends/mysql/creation.py",
+          "django/db/backends/mysql/features.py",
+          "django/db/backends/mysql/introspection.py",
+          "django/db/backends/mysql/operations.py",
+          "django/db/backends/mysql/schema.py",
+          "django/db/backends/mysql/validation.py",
+          "django/db/backends/oracle/__init__.py",
+          "django/db/backends/oracle/base.py",
+          "django/db/backends/oracle/client.py",
+          "django/db/backends/oracle/creation.py",
+          "django/db/backends/oracle/features.py",
+          "django/db/backends/oracle/functions.py",
+          "django/db/backends/oracle/introspection.py",
+          "django/db/backends/oracle/operations.py",
+          "django/db/backends/oracle/schema.py",
+          "django/db/backends/oracle/utils.py",
+          "django/db/backends/oracle/validation.py",
+          "django/db/backends/postgresql/__init__.py",
+          "django/db/backends/postgresql/base.py",
+          "django/db/backends/postgresql/client.py",
+          "django/db/backends/postgresql/compiler.py",
+          "django/db/backends/postgresql/creation.py",
+          "django/db/backends/postgresql/features.py",
+          "django/db/backends/postgresql/introspection.py",
+          "django/db/backends/postgresql/operations.py",
+          "django/db/backends/postgresql/psycopg_any.py",
+          "django/db/backends/postgresql/schema.py",
+          "django/db/backends/signals.py",
+          "django/db/backends/sqlite3/__init__.py",
+          "django/db/backends/sqlite3/_functions.py",
+          "django/db/backends/sqlite3/base.py",
+          "django/db/backends/sqlite3/client.py",
+          "django/db/backends/sqlite3/creation.py",
+          "django/db/backends/sqlite3/features.py",
+          "django/db/backends/sqlite3/introspection.py",
+          "django/db/backends/sqlite3/operations.py",
+          "django/db/backends/sqlite3/schema.py",
+          "django/db/backends/utils.py",
+          "django/db/migrations/__init__.py",
+          "django/db/migrations/autodetector.py",
+          "django/db/migrations/exceptions.py",
+          "django/db/migrations/executor.py",
+          "django/db/migrations/graph.py",
+          "django/db/migrations/loader.py",
+          "django/db/migrations/migration.py",
+          "django/db/migrations/operations/__init__.py",
+          "django/db/migrations/operations/base.py",
+          "django/db/migrations/operations/fields.py",
+          "django/db/migrations/operations/models.py",
+          "django/db/migrations/operations/special.py",
+          "django/db/migrations/optimizer.py",
+          "django/db/migrations/questioner.py",
+          "django/db/migrations/recorder.py",
+          "django/db/migrations/serializer.py",
+          "django/db/migrations/state.py",
+          "django/db/migrations/utils.py",
+          "django/db/migrations/writer.py",
+          "django/db/models/__init__.py",
+          "django/db/models/aggregates.py",
+          "django/db/models/base.py",
+          "django/db/models/constants.py",
+          "django/db/models/constraints.py",
+          "django/db/models/deletion.py",
+          "django/db/models/enums.py",
+          "django/db/models/expressions.py",
+          "django/db/models/fetch_modes.py",
+          "django/db/models/fields/__init__.py",
+          "django/db/models/fields/composite.py",
+          "django/db/models/fields/files.py",
+          "django/db/models/fields/generated.py",
+          "django/db/models/fields/json.py",
+          "django/db/models/fields/mixins.py",
+          "django/db/models/fields/proxy.py",
+          "django/db/models/fields/related.py",
+          "django/db/models/fields/related_descriptors.py",
+          "django/db/models/fields/related_lookups.py",
+          "django/db/models/fields/reverse_related.py",
+          "django/db/models/fields/tuple_lookups.py",
+          "django/db/models/functions/__init__.py",
+          "django/db/models/functions/comparison.py",
+          "django/db/models/functions/datetime.py",
+          "django/db/models/functions/json.py",
+          "django/db/models/functions/math.py",
+          "django/db/models/functions/mixins.py",
+          "django/db/models/functions/text.py",
+          "django/db/models/functions/uuid.py",
+          "django/db/models/functions/window.py",
+          "django/db/models/indexes.py",
+          "django/db/models/lookups.py",
+          "django/db/models/manager.py",
+          "django/db/models/options.py",
+          "django/db/models/query.py",
+          "django/db/models/query_utils.py",
+          "django/db/models/signals.py",
+          "django/db/models/sql/__init__.py",
+          "django/db/models/sql/compiler.py",
+          "django/db/models/sql/constants.py",
+          "django/db/models/sql/datastructures.py",
+          "django/db/models/sql/query.py",
+          "django/db/models/sql/subqueries.py",
+          "django/db/models/sql/where.py",
+          "django/db/models/utils.py",
+          "django/db/transaction.py",
+          "django/db/utils.py"
+        ]
+      },
+      "truthSource": "git ls-files 'django/db/*.py' in python@4fab678 (123 files)",
+      "octocode": [
+        {
+          "tool": "structureSearch",
+          "args": {
+            "operation": "files",
+            "path": "{{T}}/python/django/db",
+            "extensions": [
+              "py"
+            ]
+          }
+        },
+        {
+          "walk": [
+            "nextPage"
+          ],
+          "max": 10
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "git -C $T/python ls-files 'django/db/*.py'",
+          "parse": "files"
+        }
+      ]
+    },
+    {
+      "id": "L14",
+      "tool": "localSearch",
+      "kind": "local",
+      "source": "this repo (live truth)",
+      "question": "Where is merge_near_windows defined in octocode-native?",
+      "truth": {
+        "live": {
+          "file": "packages/octocode-native/crates/runtime/src/runtime/clasify_batch.rs",
+          "regex": "fn merge_near_windows\\("
+        }
+      },
+      "truthSource": "computed at run time from the file bytes (this repo moves); 2026-10-02: clasify_batch.rs:554",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "fn merge_near_windows",
+            "path": "packages/octocode-native/crates"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n 'fn merge_near_windows' packages/octocode-native/crates",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L15",
+      "tool": "astSearch",
+      "kind": "local",
+      "source": "all-tools rating astSearch match",
+      "question": "Every $X.unwrap() call in tokio/src/fs.",
+      "truth": {
+        "exactHits": [
+          { "file": "tokio/src/fs/read_dir.rs", "line": 105 },
+          { "file": "tokio/src/fs/read_dir.rs", "line": 113 },
+          { "file": "tokio/src/fs/file.rs", "line": 395 },
+          { "file": "tokio/src/fs/file.rs", "line": 623 },
+          { "file": "tokio/src/fs/file.rs", "line": 691 },
+          { "file": "tokio/src/fs/file.rs", "line": 766 },
+          { "file": "tokio/src/fs/file.rs", "line": 846 }
+        ]
+      },
+      "truthSource": "ast-grep run -p '$X.unwrap()' -l rust tokio/src/fs (7 matches)",
+      "octocode": [
+        {
+          "tool": "astSearch",
+          "args": {
+            "operation": "match",
+            "path": "{{T}}/rust/tokio/src/fs",
+            "pattern": "$X.unwrap()",
+            "langType": "rust"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "ast-grep run -p '$X.unwrap()' -l rust $T/rust/tokio/src/fs",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L16",
+      "tool": "astSearch",
+      "kind": "local",
+      "source": "astSearch PLAN T2",
+      "question": "Every Pin::new_unchecked($A) call in tokio/src.",
+      "truth": {
+        "exactHits": [
+          { "file": "tokio/src/future/maybe_done.rs", "line": 110 },
+          { "file": "tokio/src/io/split.rs", "line": 63 },
+          { "file": "tokio/src/signal/reusable_box.rs", "line": 113 },
+          { "file": "tokio/src/runtime/tests/task_combinations.rs", "line": 278 },
+          { "file": "tokio/src/util/linked_list.rs", "line": 488 },
+          { "file": "tokio/src/runtime/task/core.rs", "line": 377 },
+          { "file": "tokio/src/sync/notify.rs", "line": 1041 },
+          { "file": "tokio/src/sync/notify.rs", "line": 1096 },
+          { "file": "tokio/src/sync/batch_semaphore.rs", "line": 677 }
+        ]
+      },
+      "truthSource": "ast-grep run -p 'Pin::new_unchecked($A)' -l rust tokio/src (9 matches)",
+      "octocode": [
+        {
+          "tool": "astSearch",
+          "args": {
+            "operation": "match",
+            "path": "{{T}}/rust/tokio/src",
+            "pattern": "Pin::new_unchecked($A)",
+            "langType": "rust"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "ast-grep run -p 'Pin::new_unchecked($A)' -l rust $T/rust/tokio/src",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L17",
+      "tool": "astSearch",
+      "kind": "local",
+      "source": "astSearch PLAN T1b (outline named_pipe.rs)",
+      "question": "Outline tokio named_pipe.rs: its top-level types with start lines and the NamedPipeServer methods.",
+      "truth": {
+        "hits": [
+          { "file": "named_pipe.rs", "line": 105 },
+          { "file": "named_pipe.rs", "line": 980 },
+          { "file": "named_pipe.rs", "line": 1738 },
+          { "file": "named_pipe.rs", "line": 2384 },
+          { "file": "named_pipe.rs", "line": 2613 },
+          { "file": "named_pipe.rs", "line": 2636 },
+          { "file": "named_pipe.rs", "line": 2656 }
+        ],
+        "text": [
+          "\\bdisconnect\\b",
+          "\\bpoll_read_ready\\b",
+          "\\bfrom_raw_handle\\b"
+        ]
+      },
+      "truthSource": "ast-grep outline: structs NamedPipeServer 105, NamedPipeClient 980, ServerOptions 1738, ClientOptions 2384, PipeInfo 2656; enums PipeMode 2613, PipeEnd 2636",
+      "octocode": [
+        {
+          "tool": "astSearch",
+          "args": {
+            "operation": "symbols",
+            "path": "{{T}}/rust/tokio/src/net/windows/named_pipe.rs"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "ast-grep outline $T/rust/tokio/src/net/windows/named_pipe.rs",
+          "parse": "numbered",
+          "file": "tokio/src/net/windows/named_pipe.rs"
+        }
+      ]
+    },
+    {
+      "id": "L18",
+      "tool": "lspSearch",
+      "kind": "local",
+      "source": "lspSearch PLAN P1",
+      "question": "References of Harness::try_read_output (harness.rs:281) only, not the same-named RawTask/vtable symbols.",
+      "truth": {
+        "exactHits": [
+          { "file": "tokio/src/runtime/task/harness.rs", "line": 281 },
+          { "file": "tokio/src/runtime/task/raw.rs", "line": 368 }
+        ]
+      },
+      "truthSource": "harness.rs:281 declaration + raw.rs:368 `harness.try_read_output(out, waker)`; the other 6 rg -w lines are RawTask/vtable symbols",
+      "octocode": [
+        {
+          "tool": "lspSearch",
+          "args": {
+            "uri": "{{T}}/rust/tokio/src/runtime/task/harness.rs",
+            "symbolName": "try_read_output",
+            "lineHint": 281,
+            "operation": "references"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -w try_read_output $T/rust/tokio/src",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L19",
+      "tool": "astRewrite",
+      "kind": "local",
+      "beta": true,
+      "surface": "cli",
+      "source": "W4 (preview only)",
+      "question": "Preview rewriting $A.indexOf($B) !== -1 to $A.includes($B) in excalidraw common/src.",
+      "truth": {
+        "text": [
+          "\\.includes\\(\"Chrome\"\\)",
+          "\\.includes\\(\"Safari\"\\)",
+          "editorInterface\\.ts"
+        ]
+      },
+      "truthSource": "2 matches, packages/common/src/editorInterface.ts:45,47",
+      "octocode": [
+        {
+          "cli": "astRewrite",
+          "args": {
+            "path": "{{T}}/tsx/packages/common/src",
+            "langType": "typescript",
+            "ruleKind": "pattern",
+            "pattern": "$A.indexOf($B) !== -1",
+            "rewrite": "$A.includes($B)"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "ast-grep run -p '$A.indexOf($B) !== -1' -r '$A.includes($B)' -l ts $T/tsx/packages/common/src",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "L20",
+      "tool": "ghCloneRepo",
+      "kind": "github",
+      "surface": "cli",
+      "source": "W9 / ghCloneRepo PLAN T2 (fresh sparse clone)",
+      "question": "Clone express v5.1.0 (lib/ only) and find where createApplication is defined.",
+      "truth": {
+        "hits": [
+          { "file": "lib/express.js", "line": 36 }
+        ]
+      },
+      "truthSource": "gh api contents lib/express.js?ref=v5.1.0 (tag e9964989): line 36 `function createApplication() {`",
+      "octocode": [
+        {
+          "cli": "ghCloneRepo",
+          "args": {
+            "owner": "expressjs",
+            "repo": "express",
+            "branch": "v5.1.0",
+            "sparsePath": "lib",
+            "forceRefresh": true
+          }
+        },
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": "function createApplication",
+            "path": "{{prev:results.0.data.location.localPath}}/lib"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rm -rf $CT/express && git clone -q --depth 1 --branch v5.1.0 --filter=blob:none --sparse https://github.com/expressjs/express $CT/express && git -C $CT/express sparse-checkout set lib",
+          "parse": "text"
+        },
+        {
+          "sh": "rg -n 'function createApplication' $CT/express/lib",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "G01",
+      "tool": "ghSearchCode",
+      "kind": "github",
+      "codeSearch": true,
+      "source": "W5",
+      "question": "What is tokio's default max_blocking_threads and in which file is it set?",
+      "truth": {
+        "files": [
+          "tokio/src/runtime/builder.rs"
+        ],
+        "text": [
+          "max_blocking_threads: 512"
+        ]
+      },
+      "truthSource": "builder.rs:324 `max_blocking_threads: 512,` (facc6fc and default-branch e6e84a4)",
+      "octocode": [
+        {
+          "tool": "ghSearchCode",
+          "args": {
+            "owner": "tokio-rs",
+            "repo": "tokio",
+            "keywords": [
+              "max_blocking_threads"
+            ],
+            "pageSize": 5
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh search code max_blocking_threads --repo tokio-rs/tokio --limit 5",
+          "parse": "ghsearch"
+        },
+        {
+          "sh": "gh api repos/tokio-rs/tokio/contents/tokio/src/runtime/builder.rs -H 'Accept: application/vnd.github.raw' | grep -n 'max_blocking_threads: '",
+          "parse": "numbered",
+          "file": "tokio/src/runtime/builder.rs"
+        }
+      ]
+    },
+    {
+      "id": "G02",
+      "tool": "ghGetFileContent",
+      "kind": "github",
+      "source": "W5 pinned read",
+      "question": "At tokio facc6fc, on which line of builder.rs is the max_blocking_threads default set?",
+      "truth": {
+        "hits": [
+          { "file": "tokio/src/runtime/builder.rs", "line": 324 }
+        ]
+      },
+      "truthSource": "local rust corpus is facc6fc; builder.rs:324 (byte-identical to gh api raw at that ref)",
+      "octocode": [
+        {
+          "tool": "ghGetFileContent",
+          "args": {
+            "owner": "tokio-rs",
+            "repo": "tokio",
+            "branch": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
+            "path": "tokio/src/runtime/builder.rs",
+            "matchString": "max_blocking_threads: 512",
+            "contextLines": 0
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh api 'repos/tokio-rs/tokio/contents/tokio/src/runtime/builder.rs?ref=facc6fc47eb2ba13a465a3179f8e34db620561ec' -H 'Accept: application/vnd.github.raw' | grep -n 'max_blocking_threads: 512'",
+          "parse": "numbered",
+          "file": "tokio/src/runtime/builder.rs"
+        }
+      ]
+    },
+    {
+      "id": "G03",
+      "tool": "ghGetFileContent",
+      "kind": "github",
+      "source": "ghGetFileContent PLAN T1 (regex grep map)",
+      "question": "At tokio facc6fc, list every `pub fn` line of builder.rs with its line number.",
+      "truth": {
+        "exactHits": [
+          { "file": "tokio/src/runtime/builder.rs", "line": 278 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 293 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 398 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 450 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 485 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 526 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 582 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 633 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 657 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 684 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 713 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 743 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 769 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 797 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 878 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 916 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 966 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1016 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1066 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1115 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1146 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1182 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1225 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1267 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1308 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1374 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1425 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1458 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1506 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1516 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1547 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1646 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1682 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1719 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1847 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1875 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1921 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1947 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1971 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 1997 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 2041 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 2090 },
+          { "file": "tokio/src/runtime/builder.rs", "line": 2171 }
+        ]
+      },
+      "truthSource": "grep -nE '^\\s*pub fn \\w+' on the local facc6fc builder.rs (43 lines)",
+      "octocode": [
+        {
+          "tool": "ghGetFileContent",
+          "args": {
+            "owner": "tokio-rs",
+            "repo": "tokio",
+            "branch": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
+            "path": "tokio/src/runtime/builder.rs",
+            "matchString": "^\\s*pub fn \\w+",
+            "matchStringIsRegex": true,
+            "contextLines": 0
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh api 'repos/tokio-rs/tokio/contents/tokio/src/runtime/builder.rs?ref=facc6fc47eb2ba13a465a3179f8e34db620561ec' -H 'Accept: application/vnd.github.raw' | grep -nE '^\\s*pub fn \\w+'",
+          "parse": "numbered",
+          "file": "tokio/src/runtime/builder.rs"
+        }
+      ]
+    },
+    {
+      "id": "G04",
+      "tool": "artifactSearch",
+      "kind": "github",
+      "source": "W8",
+      "question": "In express@4.21.2, what status does res.redirect default to (release-pinned source)?",
+      "truth": {
+        "hits": [
+          { "file": "lib/response.js", "line": 949 }
+        ],
+        "text": [
+          "1faf2289",
+          "var status = 302"
+        ]
+      },
+      "truthSource": "npm view express@4.21.2 gitHead = 1faf2289…; gh api raw lib/response.js at that SHA: 946 `res.redirect = function redirect(url) {`, 949 `var status = 302;`",
+      "octocode": [
+        {
+          "tool": "artifactSearch",
+          "args": {
+            "type": "npm",
+            "packageName": "express",
+            "version": "4.21.2"
+          }
+        },
+        {
+          "tool": "ghGetFileContent",
+          "args": {
+            "owner": "expressjs",
+            "repo": "express",
+            "branch": "{{hint:viewReleaseSource.query.branch}}",
+            "path": "lib/response.js",
+            "matchString": "res.redirect = function",
+            "block": true
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "npm view express@4.21.2 gitHead",
+          "parse": "text"
+        },
+        {
+          "sh": "gh api 'repos/expressjs/express/contents/lib/response.js?ref=1faf228935aa0a13111f92c28ee795be64ce3f0f' -H 'Accept: application/vnd.github.raw' | grep -n -A5 'res.redirect = function'",
+          "parse": "numbered",
+          "file": "lib/response.js"
+        }
+      ]
+    },
+    {
+      "id": "G05",
+      "tool": "artifactSearch",
+      "kind": "github",
+      "source": "artifactSearch PLAN A6",
+      "question": "requests==2.31.0 on PyPI: confirm the version and its requires_python.",
+      "truth": {
+        "text": [
+          "2\\.31\\.0",
+          ">=3\\.7"
+        ]
+      },
+      "truthSource": "pypi.org/pypi/requests/2.31.0/json info: version 2.31.0, requires_python >=3.7",
+      "octocode": [
+        {
+          "tool": "artifactSearch",
+          "args": {
+            "type": "pypi",
+            "packageName": "requests",
+            "version": "2.31.0"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "curl -s https://pypi.org/pypi/requests/2.31.0/json | jq -c '.info|{version,requires_python,license}'",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G06",
+      "tool": "artifactSearch",
+      "kind": "github",
+      "source": "artifactSearch PLAN A7",
+      "question": "serde 1.0.100 on crates.io: license and publish date.",
+      "truth": {
+        "text": [
+          "1\\.0\\.100",
+          "MIT OR Apache-2\\.0",
+          "2019-09-08"
+        ]
+      },
+      "truthSource": "crates.io /api/v1/crates/serde/1.0.100: license MIT OR Apache-2.0, created 2019-09-08",
+      "octocode": [
+        {
+          "tool": "artifactSearch",
+          "args": {
+            "type": "crates",
+            "packageName": "serde",
+            "version": "1.0.100"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "curl -s -A octocode-competitors https://crates.io/api/v1/crates/serde/1.0.100 | jq -c '.version|{num,license,created_at}'",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G07",
+      "tool": "ghStructure",
+      "kind": "github",
+      "source": "ghStructure PLAN T5",
+      "question": "Find _exception_handler.py in starlette at 63c5760d.",
+      "truth": {
+        "exactFiles": [
+          "starlette/_exception_handler.py"
+        ]
+      },
+      "truthSource": "gh api git/trees/63c5760d…?recursive=1 filtered by name",
+      "octocode": [
+        {
+          "tool": "ghStructure",
+          "args": {
+            "owner": "Kludex",
+            "repo": "starlette",
+            "branch": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c",
+            "pattern": "**/_exception_handler.py"
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh api 'repos/Kludex/starlette/git/trees/63c5760d8a672cee96e1e523d84bfa1c77d9ee4c?recursive=1' --jq '.tree[].path|select(endswith(\"_exception_handler.py\"))'",
+          "parse": "files"
+        }
+      ]
+    },
+    {
+      "id": "G08",
+      "tool": "ghStructure",
+      "kind": "github",
+      "source": "ghStructure PLAN T2",
+      "question": "List the files directly inside starlette/ at 63c5760d.",
+      "truth": {
+        "exactFiles": [
+          "starlette/__init__.py",
+          "starlette/_exception_handler.py",
+          "starlette/_utils.py",
+          "starlette/applications.py",
+          "starlette/authentication.py",
+          "starlette/background.py",
+          "starlette/concurrency.py",
+          "starlette/config.py",
+          "starlette/convertors.py",
+          "starlette/datastructures.py",
+          "starlette/endpoints.py",
+          "starlette/exceptions.py",
+          "starlette/formparsers.py",
+          "starlette/py.typed",
+          "starlette/requests.py",
+          "starlette/responses.py",
+          "starlette/routing.py",
+          "starlette/schemas.py",
+          "starlette/staticfiles.py",
+          "starlette/status.py",
+          "starlette/templating.py",
+          "starlette/testclient.py",
+          "starlette/types.py",
+          "starlette/websockets.py"
+        ]
+      },
+      "truthSource": "gh api contents/starlette?ref=63c5760d… type==file (24)",
+      "octocode": [
+        {
+          "tool": "ghStructure",
+          "args": {
+            "owner": "Kludex",
+            "repo": "starlette",
+            "branch": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c",
+            "path": "starlette"
+          }
+        },
+        {
+          "walk": [
+            "nextPage"
+          ],
+          "max": 5
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh api 'repos/Kludex/starlette/contents/starlette?ref=63c5760d8a672cee96e1e523d84bfa1c77d9ee4c' --jq '.[]|select(.type==\"file\")|.path'",
+          "parse": "files"
+        }
+      ]
+    },
+    {
+      "id": "G09",
+      "tool": "ghSearchRepo",
+      "kind": "github",
+      "source": "ghSearchRepo PLAN R1 shape",
+      "question": "Which repository is the most-starred Rust repo matching 'tokio'?",
+      "truth": {
+        "text": [
+          "tokio-rs/tokio"
+        ]
+      },
+      "truthSource": "gh search repos tokio --language rust --sort stars: tokio-rs/tokio first (33k stars)",
+      "octocode": [
+        {
+          "tool": "ghSearchRepo",
+          "args": {
+            "keywords": [
+              "tokio"
+            ],
+            "language": "rust",
+            "sort": "stars",
+            "pageSize": 5
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh search repos tokio --language rust --sort stars --limit 5",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G10",
+      "tool": "ghSearchHistory",
+      "kind": "github",
+      "source": "ghSearchHistory PLAN T1",
+      "question": "Which merged PR fixed pydantic issue #13786?",
+      "truth": {
+        "text": [
+          "13825",
+          "2026-09-25T00:29:36Z"
+        ]
+      },
+      "truthSource": "GraphQL closedByPullRequestsReferences: #13825 MERGED 2026-09-25T00:29:36Z (#13794 closed)",
+      "octocode": [
+        {
+          "tool": "ghSearchHistory",
+          "args": {
+            "operation": "pullRequest",
+            "owner": "pydantic",
+            "repo": "pydantic",
+            "keywords": [
+              "13786"
+            ]
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh pr list -R pydantic/pydantic --search 13786 --state all --json number,title,state,mergedAt",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G11",
+      "tool": "ghSearchHistory",
+      "kind": "github",
+      "source": "ghSearchHistory PLAN T3 (date-frozen)",
+      "question": "The last 5 commits touching fastapi/routing.py before 2026-09-01.",
+      "truth": {
+        "text": [
+          "d62354434b",
+          "5429fed84e",
+          "e92a0dc3ce",
+          "d6537f774b",
+          "ad03e117c0"
+        ]
+      },
+      "truthSource": "gh api commits?path=fastapi/routing.py&until=2026-09-01&per_page=5",
+      "octocode": [
+        {
+          "tool": "ghSearchHistory",
+          "args": {
+            "operation": "commit",
+            "owner": "fastapi",
+            "repo": "fastapi",
+            "path": "fastapi/routing.py",
+            "until": "2026-09-01",
+            "pageSize": 5
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh api 'repos/fastapi/fastapi/commits?path=fastapi/routing.py&until=2026-09-01T00:00:00Z&per_page=5' --jq '.[]|.sha[0:10]+\" \"+.commit.committer.date+\" \"+(.commit.message|split(\"\\n\")[0])'",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G12",
+      "tool": "ghGetHistoryItem",
+      "kind": "github",
+      "source": "W6",
+      "question": "cli/cli PR #13541: where is MatchCategory defined and used, when was it merged and what is the merge commit?",
+      "truth": {
+        "exactFiles": [
+          "pkg/cmd/discussion/shared/categories.go",
+          "pkg/cmd/discussion/create/create.go",
+          "pkg/cmd/discussion/edit/edit.go",
+          "pkg/cmd/discussion/list/list.go"
+        ],
+        "text": [
+          "2026-06-10T20:18:52Z",
+          "52e8e742"
+        ]
+      },
+      "truthSource": "gh pr diff 13541 | awk (5 hit lines in 4 files; client_test.go too large for the API patch, no match there); gh pr view mergedAt 2026-06-10T20:18:52Z, mergeCommit 52e8e742…",
+      "octocode": [
+        {
+          "tool": "ghGetHistoryItem",
+          "queries": [
+            {
+              "operation": "pullRequest",
+              "owner": "cli",
+              "repo": "cli",
+              "number": 13541,
+              "matchString": "MatchCategory",
+              "matchContext": 0
+            },
+            {
+              "operation": "pullRequest",
+              "owner": "cli",
+              "repo": "cli",
+              "number": 13541
+            }
+          ]
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh pr diff 13541 -R cli/cli | awk '/^diff --git/{f=$4} /MatchCategory/{print f\": \"$0}'",
+          "parse": "filecolon"
+        },
+        {
+          "sh": "gh pr view 13541 -R cli/cli --json mergedAt,mergeCommit",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G13",
+      "tool": "ghGetHistoryItem",
+      "kind": "github",
+      "source": "ghGetHistoryItem PLAN T1",
+      "question": "fastapi PR #16403 summary: state, mergedAt, merge commit, size.",
+      "truth": {
+        "text": [
+          "2026-09-29T17:25:55Z",
+          "4b3949cd9e59",
+          "5251"
+        ]
+      },
+      "truthSource": "gh pr view 16403: MERGED 2026-09-29T17:25:55Z, mergeCommit 4b3949cd…, +5251 -46, 36 files",
+      "octocode": [
+        {
+          "tool": "ghGetHistoryItem",
+          "args": {
+            "operation": "pullRequest",
+            "owner": "fastapi",
+            "repo": "fastapi",
+            "number": 16403
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh pr view 16403 -R fastapi/fastapi --json number,title,state,mergedAt,mergeCommit,changedFiles,additions,deletions",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G14",
+      "tool": "ghGetHistoryItem",
+      "kind": "github",
+      "source": "W7 (bug RCA)",
+      "question": "Which PR fixed cli/cli#14404 and what did it change in merge.go?",
+      "truth": {
+        "text": [
+          "14429",
+          "crossRepoPR:\\s+pr\\.IsCrossRepository",
+          "pkg/cmd/pr/merge/merge\\.go"
+        ]
+      },
+      "truthSource": "GraphQL closedBy: #14429 MERGED 2026-09-11; gh pr diff 14429 adds `crossRepoPR: pr.IsCrossRepository` in pkg/cmd/pr/merge/merge.go",
+      "octocode": [
+        {
+          "tool": "ghGetHistoryItem",
+          "args": {
+            "operation": "issue",
+            "owner": "cli",
+            "repo": "cli",
+            "number": 14404
+          }
+        },
+        {
+          "follow": "readFixPr"
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh api graphql -f query='{repository(owner:\"cli\",name:\"cli\"){issue(number:14404){closedByPullRequestsReferences(first:5,includeClosedPrs:true){nodes{number state mergedAt}}}}}'",
+          "parse": "text"
+        },
+        {
+          "sh": "gh pr diff 14429 -R cli/cli | awk '/^diff --git/{p=($3==\"a/pkg/cmd/pr/merge/merge.go\")} p'",
+          "parse": "text"
+        }
+      ]
+    },
+    {
+      "id": "G15",
+      "tool": "ghGetHistoryItem",
+      "kind": "github",
+      "source": "W11a (all patches of a 29-file PR)",
+      "question": "Read every patch of cli/cli PR #13541.",
+      "truth": {
+        "exactFiles": [
+          "acceptance/README.md",
+          "acceptance/acceptance_test.go",
+          "acceptance/testdata/discussion/discussion-comment.txtar",
+          "acceptance/testdata/discussion/discussion-create.txtar",
+          "acceptance/testdata/discussion/discussion-edit.txtar",
+          "acceptance/testdata/discussion/discussion-list.txtar",
+          "acceptance/testdata/discussion/discussion-view.txtar",
+          "pkg/cmd/discussion/client/client.go",
+          "pkg/cmd/discussion/client/client_mock.go",
+          "pkg/cmd/discussion/client/client_test.go",
+          "pkg/cmd/discussion/client/types.go",
+          "pkg/cmd/discussion/comment/comment.go",
+          "pkg/cmd/discussion/comment/comment_test.go",
+          "pkg/cmd/discussion/create/create.go",
+          "pkg/cmd/discussion/create/create_test.go",
+          "pkg/cmd/discussion/discussion.go",
+          "pkg/cmd/discussion/edit/edit.go",
+          "pkg/cmd/discussion/edit/edit_test.go",
+          "pkg/cmd/discussion/list/list.go",
+          "pkg/cmd/discussion/list/list_test.go",
+          "pkg/cmd/discussion/shared/categories.go",
+          "pkg/cmd/discussion/shared/client.go",
+          "pkg/cmd/discussion/shared/labels.go",
+          "pkg/cmd/discussion/shared/labels_test.go",
+          "pkg/cmd/discussion/shared/lookup.go",
+          "pkg/cmd/discussion/shared/lookup_test.go",
+          "pkg/cmd/discussion/view/view.go",
+          "pkg/cmd/discussion/view/view_test.go",
+          "pkg/cmd/root/root.go"
+        ]
+      },
+      "truthSource": "gh pr view 13541 --json files (29 files; client_test.go has no API patch: tooLarge)",
+      "octocode": [
+        {
+          "tool": "ghGetHistoryItem",
+          "args": {
+            "operation": "pullRequest",
+            "owner": "cli",
+            "repo": "cli",
+            "number": 13541,
+            "include": [
+              "patches"
+            ]
+          },
+          "unsearched": true
+        },
+        {
+          "walk": [
+            "continuePatch",
+            "responsePagination",
+            "nextPage"
+          ],
+          "max": 40,
+          "unsearched": true
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh pr diff 13541 -R cli/cli",
+          "parse": "diff"
+        }
+      ]
+    },
+    {
+      "id": "G16",
+      "tool": "ghSearchCode",
+      "kind": "github",
+      "codeSearch": true,
+      "source": "ghSearchCode PLAN S1",
+      "question": "Which starlette files use wrap_app_handling_exceptions?",
+      "truth": {
+        "files": [
+          "starlette/routing.py",
+          "starlette/middleware/exceptions.py",
+          "starlette/_exception_handler.py"
+        ]
+      },
+      "truthSource": "gh code search on Kludex/starlette default branch (2026-10-02): _exception_handler.py, middleware/exceptions.py, routing.py",
+      "octocode": [
+        {
+          "tool": "ghSearchCode",
+          "args": {
+            "owner": "Kludex",
+            "repo": "starlette",
+            "keywords": [
+              "wrap_app_handling_exceptions"
+            ]
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh search code wrap_app_handling_exceptions --repo Kludex/starlette",
+          "parse": "ghsearch"
+        }
+      ]
+    },
+    {
+      "id": "G17",
+      "tool": "ghGetHistoryItem",
+      "kind": "github",
+      "source": "W11a explicit walk (all patches of a 29-file PR, responseCharLength 50000 on every call)",
+      "question": "Read every patch of cli/cli PR #13541, asking for the largest response page.",
+      "truth": {
+        "exactFiles": [
+          "acceptance/README.md",
+          "acceptance/acceptance_test.go",
+          "acceptance/testdata/discussion/discussion-comment.txtar",
+          "acceptance/testdata/discussion/discussion-create.txtar",
+          "acceptance/testdata/discussion/discussion-edit.txtar",
+          "acceptance/testdata/discussion/discussion-list.txtar",
+          "acceptance/testdata/discussion/discussion-view.txtar",
+          "pkg/cmd/discussion/client/client.go",
+          "pkg/cmd/discussion/client/client_mock.go",
+          "pkg/cmd/discussion/client/client_test.go",
+          "pkg/cmd/discussion/client/types.go",
+          "pkg/cmd/discussion/comment/comment.go",
+          "pkg/cmd/discussion/comment/comment_test.go",
+          "pkg/cmd/discussion/create/create.go",
+          "pkg/cmd/discussion/create/create_test.go",
+          "pkg/cmd/discussion/discussion.go",
+          "pkg/cmd/discussion/edit/edit.go",
+          "pkg/cmd/discussion/edit/edit_test.go",
+          "pkg/cmd/discussion/list/list.go",
+          "pkg/cmd/discussion/list/list_test.go",
+          "pkg/cmd/discussion/shared/categories.go",
+          "pkg/cmd/discussion/shared/client.go",
+          "pkg/cmd/discussion/shared/labels.go",
+          "pkg/cmd/discussion/shared/labels_test.go",
+          "pkg/cmd/discussion/shared/lookup.go",
+          "pkg/cmd/discussion/shared/lookup_test.go",
+          "pkg/cmd/discussion/view/view.go",
+          "pkg/cmd/discussion/view/view_test.go",
+          "pkg/cmd/root/root.go"
+        ]
+      },
+      "truthSource": "gh pr view 13541 --json files (29 files; client_test.go has no API patch: tooLarge)",
+      "octocode": [
+        {
+          "tool": "ghGetHistoryItem",
+          "args": {
+            "operation": "pullRequest",
+            "owner": "cli",
+            "repo": "cli",
+            "number": 13541,
+            "include": [
+              "patches"
+            ]
+          },
+          "unsearched": true,
+          "envelope": {
+            "responseCharLength": 50000
+          }
+        },
+        {
+          "walk": [
+            "continuePatch",
+            "responsePagination",
+            "nextPage"
+          ],
+          "max": 40,
+          "unsearched": true,
+          "envelope": {
+            "responseCharLength": 50000
+          }
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "gh pr diff 13541 -R cli/cli",
+          "parse": "diff"
+        }
+      ]
+    },
+    {
+      "id": "C01",
+      "tool": "clasify",
+      "kind": "clasify",
+      "source": "W10 (prefilter locate) / clasify PLAN C1 shape",
+      "question": "Where does the runtime Builder reject a worker thread count of zero? (builder.rs, 2,270 lines)",
+      "truth": {
+        "hits": [
+          { "file": "tokio/src/runtime/builder.rs", "line": 583 }
+        ]
+      },
+      "truthSource": "builder.rs:583",
+      "octocode": [
+        {
+          "raw": "clasify",
+          "args": {
+            "resources": [
+              {
+                "id": "f",
+                "tool": "localFetch",
+                "query": {
+                  "path": "{{T}}/rust/tokio/src/runtime/builder.rs"
+                },
+                "prefilter": [
+                  "worker_threads"
+                ]
+              }
+            ],
+            "questions": [
+              {
+                "id": "t",
+                "type": "locate",
+                "ask": "Where the runtime Builder rejects a worker thread count of zero"
+              }
+            ]
+          }
+        },
+        {
+          "follow": "read"
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n worker_threads $T/rust/tokio/src/runtime/builder.rs",
+          "parse": "numbered",
+          "file": "tokio/src/runtime/builder.rs"
+        },
+        {
+          "sh": "sed -n 575,590p $T/rust/tokio/src/runtime/builder.rs",
+          "parse": "sed",
+          "file": "tokio/src/runtime/builder.rs",
+          "start": 575
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "tool": "clasify",
+      "kind": "clasify",
+      "source": "W3 (semantic locate)",
+      "question": "Where is a task forced to return Pending because its coop budget is exhausted? (coop/mod.rs)",
+      "truth": {
+        "range": {
+          "file": "tokio/src/task/coop/mod.rs",
+          "start": 359,
+          "end": 361
+        }
+      },
+      "truthSource": "coop/mod.rs 359-361",
+      "octocode": [
+        {
+          "raw": "clasify",
+          "args": {
+            "resources": [
+              {
+                "id": "f",
+                "tool": "localFetch",
+                "query": {
+                  "path": "{{T}}/rust/tokio/src/task/coop/mod.rs"
+                },
+                "prefilter": [
+                  "Poll::Pending"
+                ]
+              }
+            ],
+            "questions": [
+              {
+                "id": "t",
+                "type": "locate",
+                "ask": "Where a task is forced to return Pending because its cooperative budget is exhausted"
+              }
+            ]
+          }
+        },
+        {
+          "follow": "read"
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n 'Poll::Pending' $T/rust/tokio/src/task/coop/mod.rs",
+          "parse": "numbered",
+          "file": "tokio/src/task/coop/mod.rs"
+        },
+        {
+          "sh": "sed -n 340,366p $T/rust/tokio/src/task/coop/mod.rs",
+          "parse": "sed",
+          "file": "tokio/src/task/coop/mod.rs",
+          "start": 340
+        }
+      ]
+    }
+  ]
+}

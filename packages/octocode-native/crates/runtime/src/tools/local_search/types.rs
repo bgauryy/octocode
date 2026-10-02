@@ -89,13 +89,16 @@ pub struct SearchMatch {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemPagination {
-    pub current_page: u32,
-    pub total_pages: u32,
+    /// Match-page position; a streamed page has no per-file match pages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_page: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_pages: Option<u32>,
     pub total_matches: u32,
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_match_page: Option<u32>,
-    /// Lines of this file's hits on later match pages, ascending and
+    /// Lines of this file's hits on later pages, ascending and
     /// comma-joined (`"548,591,1098"`): read them directly or page on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub more_lines: Option<String>,
@@ -145,7 +148,9 @@ pub struct FilePagination {
     pub snapshot: Option<String>,
     pub current_page: u32,
     pub total_pages: u32,
-    pub files_per_page: u32,
+    /// Grid pages only; streamed pages are cut by the response budget.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_per_page: Option<u32>,
     pub total_files: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_matches: Option<u32>,

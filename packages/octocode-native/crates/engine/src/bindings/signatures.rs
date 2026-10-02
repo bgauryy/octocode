@@ -10,7 +10,7 @@ use napi_derive::napi;
 #[napi]
 pub const SIGNATURES_ONLY_HINT: &str = crate::signatures::SIGNATURES_ONLY_HINT;
 
-/// Structural skeleton with an `NNN| ` line-number gutter, produced purely by
+/// Structural skeleton with an `<line>\t` line-number gutter, produced purely by
 /// tree-sitter parsing (no regex heuristics). Returns `null` for data/config
 /// formats, any language without a wired grammar, content above the 1MB guard,
 /// and any skeleton that would not be smaller than the source.

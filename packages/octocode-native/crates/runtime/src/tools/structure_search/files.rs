@@ -54,13 +54,23 @@ impl StructureSearchQueryFiles {
     pub fn page(&self) -> u32 {
         u32::try_from(self.page.get()).unwrap_or(u32::MAX)
     }
-    pub fn page_size(&self) -> u32 {
-        u32::try_from(self.page_size.get()).unwrap_or(u32::MAX)
+    /// The caller's page size; `None` pages by the response budget.
+    pub fn page_size(&self) -> Option<usize> {
+        self.page_size
+            .map(|size| usize::try_from(size.get()).unwrap_or(usize::MAX))
     }
     pub fn snapshot(&self) -> Option<&str> {
         self.snapshot.as_deref().map(String::as_str)
     }
 }
+
+/// Estimated JSON bytes of a basic row besides its path
+/// (`{"path":"","size":123456},`).
+const ROW_BYTES: usize = 30;
+/// Extra bytes `detail:"full"` rows carry (`modifiedMs`, `lineCount`).
+const FULL_DETAIL_BYTES: usize = 46;
+/// Extra bytes `detail:"modified"` rows carry (`modifiedMs`).
+const MODIFIED_DETAIL_BYTES: usize = 30;
 
 struct Row {
     output: Value,
@@ -194,17 +204,32 @@ pub fn execute_files(
     if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
         return Ok(super::snapshot_changed(q, &snapshot));
     }
-    let page_size = q.page_size().clamp(1, super::structure_max("pageSize")) as usize;
+    let page_size = q
+        .page_size()
+        .map(|size| size.clamp(1, super::structure_max("pageSize") as usize));
+    // A row's cost comes from its path and the requested detail, both bound
+    // by the snapshot, so every page of it cuts at the same rows.
+    let root = super::rendered_root_bytes(paths, &validated.canonical);
+    let root_name = super::display_name(&validated.canonical).len();
+    let row_bytes = ROW_BYTES
+        + match detail.as_str() {
+            "full" => FULL_DETAIL_BYTES,
+            "modified" => MODIFIED_DETAIL_BYTES,
+            _ => 0,
+        };
+    let costs = rows
+        .iter()
+        .map(|row| row.path.len().saturating_sub(root_name) + root + row_bytes)
+        .collect::<Vec<_>>();
+    let pages = super::page_ranges(&costs, page_size);
     let page = q.page().max(1) as usize;
-    let total_pages = total.div_ceil(page_size).max(1);
-    let start = (page - 1).saturating_mul(page_size);
-    let files = rows
-        .get(start..start.saturating_add(page_size).min(total))
-        .unwrap_or(&[])
+    let total_pages = pages.len().max(1);
+    let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
+    let files = rows[shown]
         .iter()
         .map(|r| r.output.clone())
         .collect::<Vec<_>>();
-    let out_of_range = total > 0 && start >= total;
+    let out_of_range = total > 0 && page > total_pages;
     let has_more = page < total_pages;
     // An early-exit walk that found one more match than the limit has more;
     // only a full walk knows the total.
@@ -215,7 +240,10 @@ pub fn execute_files(
     };
     let can_expand = limit_cut && requested < super::max_walk() as usize;
     let terminal = (has_more && page >= 1000) || ((limit_cut || scan_cut) && !can_expand);
-    let mut out = json!({"path":super::display_name(&validated.canonical),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":total_pages,"filesPerPage":page_size,"totalFiles":total,"hasMore":has_more}});
+    let mut out = json!({"path":super::display_name(&validated.canonical),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":total_pages,"totalFiles":total,"hasMore":has_more}});
+    if let Some(size) = page_size {
+        out["pagination"]["filesPerPage"] = json!(size);
+    }
     if total == 0 {
         out["status"] = json!("empty")
     }
@@ -303,14 +331,12 @@ fn make_row(
     if kind != "file" {
         output["type"] = json!(kind);
     }
+    // Bytes as a number; the human-readable form is a debug field.
     if kind != "directory"
         && let Some(size) = e.size
     {
-        if full {
-            output["size"] = json!(size)
-        } else {
-            output["sizeFormatted"] = json!(format_size(size))
-        }
+        output["size"] = json!(size);
+        output["sizeFormatted"] = json!(format_size(size));
     }
     let modified = e.modified_ms.unwrap_or(0.0);
     if (full || detail == "modified")

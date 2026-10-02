@@ -28,10 +28,13 @@ impl StructureSearchQueryTree {
     fn page(&self) -> usize {
         usize::try_from(self.page.get()).unwrap_or(usize::MAX)
     }
-    fn page_size(&self) -> usize {
-        usize::try_from(self.page_size.get())
-            .unwrap_or(usize::MAX)
-            .clamp(1, super::structure_max("pageSize") as usize)
+    /// The caller's page size; `None` pages by the response budget.
+    fn page_size(&self) -> Option<usize> {
+        self.page_size.map(|size| {
+            usize::try_from(size.get())
+                .unwrap_or(usize::MAX)
+                .clamp(1, super::structure_max("pageSize") as usize)
+        })
     }
 }
 
@@ -146,12 +149,14 @@ pub fn execute_tree(
     }
     let page_size = q.page_size();
     let page = q.page().max(1);
-    let total_pages = total.div_ceil(page_size).max(1);
-    let start = (page - 1).saturating_mul(page_size);
-    let entries = rows
-        .get(start..start.saturating_add(page_size).min(total))
-        .unwrap_or(&[])
-        .to_vec();
+    // Entries are relative to `path` (no prefix); each costs its quoted text.
+    let costs = rows.iter().map(|row| row.len() + 3).collect::<Vec<_>>();
+    let pages = super::page_ranges(&costs, page_size);
+    let total_pages = pages.len().max(1);
+    let entries = pages
+        .get(page - 1)
+        .map(|shown| rows[shown.clone()].to_vec())
+        .unwrap_or_default();
     let has_more = page < total_pages;
     let limit_cut = available > total;
     let scan_cut = native.was_capped;
@@ -172,7 +177,10 @@ pub fn execute_tree(
         out["status"] = json!("empty");
     }
     if total_pages > 1 || page > total_pages {
-        out["pagination"] = json!({"currentPage":page,"totalPages":total_pages,"entriesPerPage":page_size,"totalEntries":total,"hasMore":has_more});
+        out["pagination"] = json!({"currentPage":page,"totalPages":total_pages,"totalEntries":total,"hasMore":has_more});
+        if let Some(size) = page_size {
+            out["pagination"]["entriesPerPage"] = json!(size);
+        }
     }
     if has_more && !terminal {
         out["next"]["nextPage"] =
@@ -198,7 +206,7 @@ pub fn execute_tree(
     }
     let mut warnings = walk_warnings(native.skipped, native.permission_denied);
     warnings.extend(native.warnings);
-    if total > 0 && start >= total {
+    if total > 0 && page > total_pages {
         warnings.push(format!(
             "page:{page} is out of range (only {total_pages} page(s), {total} entries). Use page:1..{total_pages}."
         ));

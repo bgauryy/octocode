@@ -4,6 +4,7 @@
 //! canonical name with a raw JSON query, and `scheme` is the single discovery
 //! command. No per-tool flag wrappers, no aliases.
 use clap::{ArgMatches, Args, FromArgMatches, Subcommand};
+use octocode_native::tools::id::ToolId;
 
 /// Shared arguments for every tool sub-command: a raw JSON query (inline or
 /// from a file) executed against the tool's contract.
@@ -40,19 +41,13 @@ pub(super) struct ToolCommand {
     pub args: ToolArgs,
 }
 
-/// `(name, shortDescription)` for every tool in the embedded contract.
+/// `(name, shortDescription)` for every tool in the embedded contract. Both
+/// are generated constants, so building the argument parser never parses the
+/// multi-megabyte contract.
 fn contract_tools() -> impl Iterator<Item = (&'static str, &'static str)> {
-    octocode_native::contracts::parsed_contract()
-        .ok()
-        .and_then(|contract| contract["tools"].as_array())
+    ToolId::ALL
         .into_iter()
-        .flatten()
-        .filter_map(|tool| {
-            Some((
-                tool["name"].as_str()?,
-                tool["shortDescription"].as_str().unwrap_or_default(),
-            ))
-        })
+        .map(|tool| (tool.as_str(), tool.short_description()))
 }
 
 fn contract_tool_name(name: &str) -> Option<&'static str> {

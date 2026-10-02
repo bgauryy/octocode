@@ -126,8 +126,6 @@ pub(super) fn flatten_selectors(query: &mut Value) {
     }
 }
 
-/// Body length (chars) the metadata row's `bodyPreview` shows verbatim.
-pub(super) const BODY_PREVIEW_CHARS: usize = 500;
 /// A diff at most this many changed lines reads in one all-patches call, so a
 /// separate file-list-only fetch would only repeat its file list.
 const SMALL_DIFF_LINES: u64 = 100;
@@ -180,8 +178,8 @@ pub(super) fn is_small_pr(
 /// `raw` is the provider PR object; `review` is the inventory's
 /// [`super::files::review_selection`] (empty before files were read). An
 /// entry is emitted only when it can return something the row does not
-/// already hold: the body rides `getChangedFiles` when `bodyPreview` does not
-/// show it whole; a small diff reads every patch (`reviewPatches` mode all)
+/// already hold: a non-empty body (the summary row carries none) rides
+/// `getChangedFiles`, else the patch read or `getBody`; a small diff reads every patch (`reviewPatches` mode all)
 /// instead of a separate file list; `getDiscussion` reads comments and
 /// reviews together, without comments when the provider counts none.
 pub(super) fn pr_next_menu(
@@ -192,13 +190,11 @@ pub(super) fn pr_next_menu(
     raw: &Value,
 ) -> Value {
     let count = |key: &str| raw.get(key).and_then(Value::as_u64);
-    let body_chars = raw
+    let has_body = raw
         .get("body")
         .and_then(Value::as_str)
-        .map(|body| body.chars().count());
-    let body_in_preview = body_chars.is_some_and(|chars| chars <= BODY_PREVIEW_CHARS)
-        || raw.get("body").is_some_and(Value::is_null);
-    let want_body = !content_flag(content, "body") && !body_in_preview;
+        .is_some_and(|body| !body.trim().is_empty());
+    let want_body = !content_flag(content, "body") && has_body;
     let changed_files = count("changed_files");
     let has_files = changed_files != Some(0);
     let small_pr = is_small_pr(count("additions"), count("deletions"), changed_files);
@@ -1080,8 +1076,8 @@ mod tests {
             menu["reviewPatches"]["query"]["include"],
             json!(["patches"])
         );
-        // A body longer than the preview rides the file list of a large diff.
-        let large = json!({"body":"x".repeat(BODY_PREVIEW_CHARS + 1),"changed_files":40,
+        // A body rides the file list of a large diff.
+        let large = json!({"body":"x","changed_files":40,
             "additions":900,"deletions":50,"comments":0,"review_comments":0});
         let menu = pr_next_menu(&query, None, "none", &[], &large);
         assert_eq!(names(&menu), ["getChangedFiles", "getDiscussion"]);
@@ -1094,8 +1090,8 @@ mod tests {
             menu["getDiscussion"]["query"]["include"],
             json!(["reviews"])
         );
-        // No changed files and a long body: the body read stands alone.
-        let empty = json!({"body":"y".repeat(BODY_PREVIEW_CHARS + 1),"changed_files":0,
+        // No changed files and a body: the body read stands alone.
+        let empty = json!({"body":"y","changed_files":0,
             "comments":0,"review_comments":0});
         assert_eq!(
             names(&pr_next_menu(&query, None, "none", &[], &empty)),

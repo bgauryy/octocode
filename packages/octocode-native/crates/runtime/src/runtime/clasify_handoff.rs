@@ -2,8 +2,9 @@
 //! search (a `goal` plus a plain multi-word phrase, never an exact literal,
 //! identifier, path, quoted string, alternation, or regex) suggests one
 //! relevance + sufficiency matrix over the search resource. Every candidate
-//! remains reachable through clasify paging; the host reads relevant snippets
-//! only when they are insufficient. File count alone never triggers it: a literal
+//! remains reachable through clasify paging; the host reads relevant
+//! candidates through their `next.read`, and a sufficient one ends screening
+//! (its read still verifies the deciding lines). File count alone never triggers it: a literal
 //! search's hits are already the answer. A local content search is screened on
 //! hydrated hit-cluster windows (`fileChunks`): a one-line hit of the searched
 //! phrase carries only that phrase, so snippet judgments cannot rank the

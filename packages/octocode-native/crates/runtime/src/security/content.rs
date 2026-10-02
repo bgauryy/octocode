@@ -158,25 +158,37 @@ pub(crate) fn private_key_block_line_ranges(content: &str) -> Vec<(u32, u32)> {
     tracker.finish()
 }
 
+/// Key blocks one source may report separately. A source with more is
+/// treated as key material from the block that exceeds the cap to its end,
+/// so tracker state stays bounded however large the streamed source is.
+pub(crate) const MAX_KEY_BLOCK_RANGES: usize = 4096;
+
 /// [`private_key_block_line_ranges`] fed one line at a time, so a caller can
 /// stream a source without retaining it. Lines are pushed in order without
 /// terminators; [`KeyBlockTracker::finish`] closes an unterminated block at
-/// the last pushed line.
+/// the last pushed line. Past [`MAX_KEY_BLOCK_RANGES`] blocks the last range
+/// is open-ended (`u32::MAX`), redacting every later line.
 #[derive(Default)]
 pub(crate) struct KeyBlockTracker {
     ranges: Vec<(u32, u32)>,
     start: Option<u32>,
     last: u32,
+    saturated: bool,
 }
 
 impl KeyBlockTracker {
     pub(crate) fn push(&mut self, line: &str) {
         self.last = self.last.saturating_add(1);
         let n = self.last;
-        if !line.contains("PRIVATE KEY") {
+        if self.saturated || !line.contains("PRIVATE KEY") {
             return;
         }
         if self.start.is_none() && is_private_key_begin(line) {
+            if self.ranges.len() >= MAX_KEY_BLOCK_RANGES {
+                self.ranges.push((n, u32::MAX));
+                self.saturated = true;
+                return;
+            }
             self.start = Some(n);
         }
         if is_private_key_end(line)
@@ -549,6 +561,29 @@ impl ContentSecurity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_block_ranges_stay_bounded_and_fail_closed_past_the_cap() {
+        let block = "-----BEGIN PRIVATE KEY-----\nQUJDQUJD\n-----END PRIVATE KEY-----\n";
+        let blocks = MAX_KEY_BLOCK_RANGES + 50;
+        let content = format!("{}tail line\n", block.repeat(blocks));
+        let ranges = private_key_block_line_ranges(&content);
+        assert_eq!(ranges.len(), MAX_KEY_BLOCK_RANGES + 1);
+        assert_eq!(ranges[0], (1, 3));
+        let saturated_at = u32::try_from(MAX_KEY_BLOCK_RANGES * 3 + 1).expect("small");
+        assert_eq!(ranges.last(), Some(&(saturated_at, u32::MAX)));
+        // Every later line, key or not, reads as key material.
+        let last_line = u32::try_from(blocks * 3 + 1).expect("small");
+        assert!(match_window_intersects_key_block(
+            last_line,
+            "tail line",
+            &ranges
+        ));
+        // Under the cap, ranges stay exact.
+        let exact = private_key_block_line_ranges(&format!("{}tail line\n", block.repeat(3)));
+        assert_eq!(exact, vec![(1, 3), (4, 6), (7, 9)]);
+        assert!(!match_window_intersects_key_block(11, "tail line", &exact));
+    }
     #[test]
     fn split_private_key_guard_targets_only_key_markers() {
         // Body-only base64 with no key marker → guard is a no-op (must not

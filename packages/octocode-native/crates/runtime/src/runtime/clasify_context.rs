@@ -941,7 +941,7 @@ mod tests {
     #[test]
     fn transformed_view_offsets_are_not_source_scope() {
         let state = json!({"base":"/repo/docs","results":[{"data":{
-            "path":"Hooks.md", "content":"3| ## Hooks\n467| ### onClose\n",
+            "path":"Hooks.md", "content":"3\t## Hooks\n467\t### onClose\n",
             "contentView":"symbols", "totalLines":954, "returnedLines":2,
             "modified":"2026-09-25T01:00:00Z"
         }}]});

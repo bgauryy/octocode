@@ -768,8 +768,8 @@ async fn artifact_search_lookup_goes_through_execute() {
 #[tokio::test]
 async fn gh_get_history_item_pull_request_without_content_passes_output_contract() {
     // Regression: the per-row `next` menu omitted required pageSize, so every
-    // plain PR fetch tripped outputContractViolation. A >500-char multibyte
-    // body also exercises the char-boundary-safe bodyPreview.
+    // plain PR fetch tripped outputContractViolation. The summary row carries
+    // no body: a multibyte body rides the file-list read instead.
     let server = MockServer::start().await;
     let body = "修复并发缓冲区的内存泄漏问题。".repeat(60);
     Mock::given(method("GET"))
@@ -806,10 +806,11 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
         outcome.structured_content
     );
     let pr = &row_data(&outcome)["pullRequests"][0];
-    let preview = pr["bodyPreview"].as_str().expect("bodyPreview");
-    assert!(preview.ends_with("..."), "{preview}");
-    assert!(preview.chars().count() <= 500, "{preview}");
-    // The long body rides the file-list read.
+    assert!(
+        pr.get("body").is_none() && pr.get("bodyPreview").is_none(),
+        "{pr}"
+    );
+    // The body rides the file-list read.
     let get_body = &pr["next"]["getChangedFiles"]["query"];
     // Continuations omit defaulted fields; validation restores them on replay.
     assert!(get_body.get("pageSize").is_none(), "{get_body}");
@@ -1745,5 +1746,100 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     let find = &data["next"]["findFixPr"];
     assert_eq!(find["tool"], "ghSearchHistory", "{data}");
     assert_eq!(find["query"]["keywords"], json!(["42"]), "{data}");
+    runtime.close().await;
+}
+
+/// A bounded closing-reference set stays disclosed on every body window,
+/// not only the first one that lists it; later windows ask only for the
+/// count instead of the linked pull requests again.
+#[tokio::test]
+async fn issue_body_windows_keep_closing_reference_coverage() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 42, "title": "synthetic", "state": "closed", "state_reason": "completed",
+            "body": "abcdefghijklmno", "user": {"login": "audit"}, "labels": [], "comments": 0,
+            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-10-02T00:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    let nodes = (0..25)
+        .map(|n| json!({"number": 101 + n, "state": "CLOSED", "mergedAt": null}))
+        .collect::<Vec<_>>();
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+            "repository": {"issue": {"closedByPullRequestsReferences": {
+                "totalCount": 31, "pageInfo": {"hasNextPage": true}, "nodes": nodes
+            }}}
+        }})))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let mut query = json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42,
+        "charLength": 5, "debug": false});
+    let mut bodies = Vec::new();
+    for window in 0..3 {
+        let outcome = call(&runtime, "ghGetHistoryItem", query.clone())
+            .await
+            .expect("issue window");
+        let data = row_data(&outcome);
+        bodies.push(
+            data["issues"][0]["body"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        );
+        assert_eq!(data["isPartial"], true, "window {window}: {data}");
+        assert_eq!(data["terminalLimit"], true, "window {window}: {data}");
+        let reasons = data["partialReasons"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            reasons.contains(&json!("closingReferenceLimit")),
+            "window {window}: {data}"
+        );
+        assert_eq!(
+            reasons.contains(&json!("contentPagination")),
+            window < 2,
+            "window {window}: {data}"
+        );
+        let warning = data["warnings"][0].as_str().unwrap_or_default();
+        assert!(warning.contains("25 of 31"), "window {window}: {data}");
+        if window == 0 {
+            assert_eq!(
+                data["issues"][0]["closedBy"].as_array().map(Vec::len),
+                Some(25),
+                "{data}"
+            );
+        } else {
+            assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
+            assert!(data["next"].get("readFixPr").is_none(), "{data}");
+        }
+        match data["next"]["continueBody"]["query"].as_object() {
+            Some(next) => query = serde_json::Value::Object(next.clone()),
+            None => assert_eq!(window, 2, "{data}"),
+        }
+    }
+    assert_eq!(bodies, ["abcde", "fghij", "klmno"]);
+    let documents = server
+        .received_requests()
+        .await
+        .expect("recorded")
+        .into_iter()
+        .filter(|request| request.url.path() == "/api/graphql")
+        .map(|request| String::from_utf8_lossy(&request.body).into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(documents.len(), 3, "{documents:?}");
+    assert!(documents[0].contains("nodes"), "{documents:?}");
+    assert!(
+        documents[1..]
+            .iter()
+            .all(|document| !document.contains("nodes")),
+        "{documents:?}"
+    );
     runtime.close().await;
 }

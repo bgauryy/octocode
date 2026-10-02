@@ -3,14 +3,8 @@ use super::{request_error, transport::ClassificationError};
 use serde_json::{Value, json};
 
 fn templates() -> Result<&'static Value, ClassificationError> {
-    crate::contracts::parsed_contract()
+    crate::contracts::tool_contract(crate::tools::id::ToolId::Clasify)
         .ok()
-        .and_then(|contract| contract["tools"].as_array())
-        .and_then(|tools| {
-            tools
-                .iter()
-                .find(|tool| tool["name"] == crate::tools::id::ToolId::Clasify.as_str())
-        })
         .and_then(|tool| tool.get("questionTemplates"))
         .ok_or_else(|| request_error("The embedded research question templates are unavailable."))
 }

@@ -1,7 +1,7 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
 use super::continuations::{
-    BODY_PREVIEW_CHARS, INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation, pr_next_menu,
+    INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation, pr_next_menu,
     promote_pr_continuations,
 };
 use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
@@ -12,12 +12,12 @@ use super::graphql::{
 };
 use super::pr_sections::{shape_pr_comments, shape_pr_commits, shape_pr_reviews};
 use super::util::{
-    body_matches, compact, content_flag, history_body_view, is_bot, map_comments, needle, nonzero,
+    body_matches, content_flag, history_body_view, is_bot, map_comments, needle, nonzero,
     paginate_text, str_at, string,
 };
 use super::window::{
-    Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, WindowSpec,
-    WindowState, load_window, reconcile_file_totals,
+    Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, PROVIDER_BATCH,
+    WindowSpec, WindowState, load_window, reconcile_file_totals,
 };
 use super::{HistoryItemRequest, fetch, validation};
 use crate::providers::github::{
@@ -160,12 +160,25 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     };
     // A selected or match-filtered file scan cannot jump to a batch by index;
     // with the PR's changed-file count in hand it reads every batch at once.
+    // The first batch loads beside the PR itself: when it is the whole list
+    // (most PRs), a filtered read (every patch-walk hop) costs one round trip.
     let filtered_files = wants.files
         && !file_filter.is_trivial()
         && complete(|g| g.files, map_graphql_files).is_none();
-    let raw_first = match graphql.as_ref() {
-        None if filtered_files => Some(fetch(transport, &pulls, &[], context).await?.0),
-        _ => None,
+    let (raw_first, first_file_batch) = match graphql.as_ref() {
+        None if filtered_files => {
+            let batch = [
+                ("per_page", PROVIDER_BATCH.to_string()),
+                ("page", "1".to_owned()),
+            ];
+            let (raw, (files, more)) = tokio::try_join!(
+                fetch(transport, &pulls, &[], context),
+                fetch(transport, &files_path, &batch, context),
+            )?;
+            let whole = (!more).then(|| files.as_array().cloned()).flatten();
+            (Some(raw.0), whole)
+        }
+        _ => (None, None),
     };
     let file_total = raw_first
         .as_ref()
@@ -189,7 +202,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         load_collection(
             transport,
             wants.files,
-            complete(|g| g.files, map_graphql_files),
+            complete(|g| g.files, map_graphql_files).or(first_file_batch),
             &files_path,
             WindowSpec {
                 provider_total: file_total,
@@ -278,7 +291,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     // output contract requires of every pull-request row.
     let file_read = wants.files;
     let slim = (query.later_page() || file_read) && !query.debug();
-    let mut row = pr_metadata(&raw, query, wants.body);
+    let mut row = pr_metadata(&raw, query);
     if slim && let Some(fields) = row.as_object_mut() {
         // A patch read re-proves only the head it read; a list page also
         // keeps the merge commit and file count, and a first inventory page
@@ -450,8 +463,14 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         attach_unsearched_read(&mut out, query, &path);
     }
     // A cross-tool read: the top-level `next`, not the row's PR-read menu.
-    if let Some(read) =
-        super::continuations::read_at_merge(query, &raw, &out["pullRequests"][0]["changedFiles"])
+    // One check at the merge commit is enough: a later patch window does not
+    // repeat it.
+    if !query.later_page()
+        && let Some(read) = super::continuations::read_at_merge(
+            query,
+            &raw,
+            &out["pullRequests"][0]["changedFiles"],
+        )
     {
         if !out.get("next").is_some_and(Value::is_object) {
             out["next"] = json!({});
@@ -496,8 +515,9 @@ fn attach_unsearched_read(out: &mut Value, query: &HistoryItemRequest, path: &st
 }
 
 /// Default responses drop pagination that adds nothing once `next.*` is
-/// built: a finished single-page list and the patch cursor, which the cut
-/// file's own `patchPagination` already carries. Provider limits stay.
+/// built: a finished single-page list or whole text window, and the patch
+/// cursor, which the cut file's own `patchPagination` already carries.
+/// Provider limits stay.
 fn trim_content_pagination(out: &mut Value) {
     let Some(row) = out
         .pointer_mut("/pullRequests/0")
@@ -512,10 +532,12 @@ fn trim_content_pagination(out: &mut Value) {
         return;
     };
     pages.retain(|_, page| {
-        let finished_single = page.get("hasMore") == Some(&Value::Bool(false))
-            && page.get("currentPage").and_then(Value::as_u64) == Some(1)
-            && page.get("terminalLimit").is_none();
-        !finished_single
+        let done =
+            page.get("hasMore") == Some(&Value::Bool(false)) && page.get("terminalLimit").is_none();
+        // A finished first page, or a whole text window (offset zero).
+        let first = page.get("currentPage").and_then(Value::as_u64) == Some(1)
+            || page.get("charOffset").and_then(Value::as_u64) == Some(0);
+        !(done && first)
     });
     if pages
         .get("patches")
@@ -531,8 +553,9 @@ fn trim_content_pagination(out: &mut Value) {
     }
 }
 
-fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) -> Value {
+fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
     let merged = raw.get("merged_at").is_some_and(|v| !v.is_null());
+    let open = !merged && str_at(raw, "/state").unwrap_or("open") == "open";
     let labels = raw
         .get("labels")
         .and_then(Value::as_array)
@@ -544,7 +567,9 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) ->
                 .or_else(|| str_at(v, "/name").map(str::to_owned))
         })
         .collect::<Vec<_>>();
-    let body = raw.get("body").and_then(Value::as_str).unwrap_or("");
+    // The body is opt-in (`include:["body"]`, offered by the menu): the
+    // summary names the change; a merged PR's close time is its merge time,
+    // and only an open PR's last update says whether it is still moving.
     let mut row = json!({
         "number": raw["number"],
         "title": string(raw.get("title")),
@@ -558,8 +583,8 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) ->
         "sourceBranch": str_at(raw,"/head/ref").filter(|v|!v.is_empty()),
         "sourceSha": str_at(raw,"/head/sha").filter(|v|!v.is_empty()),
         "createdAt": string(raw.get("created_at")),
-        "updatedAt": string(raw.get("updated_at")),
-        "closedAt": raw.get("closed_at").filter(|v|!v.is_null()),
+        "updatedAt": open.then(|| string(raw.get("updated_at"))).filter(|v| !v.is_empty()),
+        "closedAt": (!merged).then(|| raw.get("closed_at").filter(|v|!v.is_null())).flatten(),
         "mergedAt": raw.get("merged_at").filter(|v|!v.is_null()),
         // Only a merged PR has a real merge commit (open PRs expose GitHub's
         // test-merge SHA, which is not on the base branch).
@@ -568,7 +593,6 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) ->
         "changedFilesCount": nonzero(raw.get("changed_files")),
         "additions": nonzero(raw.get("additions")),
         "deletions": nonzero(raw.get("deletions")),
-        "bodyPreview": (!body_requested && !body.is_empty()).then(|| compact(body,BODY_PREVIEW_CHARS)),
     });
     if query.content_value().is_none()
         && raw.get("draft") == Some(&Value::Bool(false))
@@ -576,6 +600,71 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest, body_requested: bool) ->
     {
         row.remove("draft");
     }
+    if query.debug() {
+        // Diagnostics keep the provider's timestamps whole.
+        if let Some(updated) = raw.get("updated_at").filter(|v| v.is_string()) {
+            row["updatedAt"] = updated.clone();
+        }
+        if let Some(closed) = raw.get("closed_at").filter(|v| !v.is_null()) {
+            row["closedAt"] = closed.clone();
+        }
+    }
     remove_nulls(&mut row);
     row
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::util::merge;
+    use super::*;
+
+    fn summary(raw: Value, debug: bool) -> Value {
+        let query = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r",
+            "number":1,"debug":debug
+        }))
+        .expect("query");
+        pr_metadata(&raw, &query)
+    }
+
+    #[test]
+    fn summary_rows_state_each_time_once_and_no_body() {
+        let base = json!({"number":1,"title":"t","user":{"login":"a"},"body":"Long description",
+            "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-05T00:00:00Z"});
+        let merged = summary(
+            merge(
+                base.clone(),
+                json!({"state":"closed","merged_at":"2026-01-04T00:00:00Z",
+                "closed_at":"2026-01-04T00:00:01Z","merge_commit_sha":"abc"}),
+            ),
+            false,
+        );
+        assert_eq!(merged["mergedAt"], "2026-01-04T00:00:00Z", "{merged}");
+        for absent in ["closedAt", "updatedAt", "body", "bodyPreview"] {
+            assert!(merged.get(absent).is_none(), "{absent}: {merged}");
+        }
+        let closed = summary(
+            merge(
+                base.clone(),
+                json!({"state":"closed","merged_at":null,
+                "closed_at":"2026-01-04T00:00:00Z"}),
+            ),
+            false,
+        );
+        assert_eq!(closed["closedAt"], "2026-01-04T00:00:00Z", "{closed}");
+        assert!(closed.get("updatedAt").is_none(), "{closed}");
+        let open = summary(merge(base.clone(), json!({"state":"open"})), false);
+        assert_eq!(open["updatedAt"], "2026-01-05T00:00:00Z", "{open}");
+        // debug keeps the provider's timestamps whole.
+        let debug = summary(
+            merge(
+                base,
+                json!({"state":"closed","merged_at":"2026-01-04T00:00:00Z",
+                "closed_at":"2026-01-04T00:00:01Z"}),
+            ),
+            true,
+        );
+        assert_eq!(debug["closedAt"], "2026-01-04T00:00:01Z", "{debug}");
+        assert_eq!(debug["updatedAt"], "2026-01-05T00:00:00Z", "{debug}");
+    }
 }

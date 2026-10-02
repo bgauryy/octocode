@@ -24,53 +24,50 @@ fn resolve(value: &'static Value, defs: &'static Value) -> &'static Value {
         .unwrap_or(value)
 }
 
-fn index() -> &'static HashMap<&'static str, Vec<Variant>> {
-    static INDEX: OnceLock<HashMap<&'static str, Vec<Variant>>> = OnceLock::new();
-    INDEX.get_or_init(|| {
-        let mut index = HashMap::new();
-        let Ok(contract) = super::parsed_contract() else {
-            return index;
+/// Query-schema variants of one tool, built on first use from that tool's
+/// contract entry only (see [`super::tool_contract`]).
+fn variants(tool: ToolId) -> Option<&'static [Variant]> {
+    static VARIANTS: [OnceLock<Vec<Variant>>; ToolId::ALL.len()] =
+        [const { OnceLock::new() }; ToolId::ALL.len()];
+    let index = ToolId::ALL.iter().position(|id| *id == tool)?;
+    let variants = VARIANTS[index].get_or_init(|| {
+        let Ok(tool) = super::tool_contract(tool) else {
+            return Vec::new();
         };
-        for tool in contract["tools"].as_array().into_iter().flatten() {
-            let Some(name) = tool["name"].as_str() else {
-                continue;
-            };
-            let schema = &tool["querySchema"];
-            let defs = &schema["$defs"];
-            let branches = ["oneOf", "anyOf"]
-                .iter()
-                .find_map(|key| schema.get(*key).and_then(Value::as_array))
-                .map_or_else(|| vec![schema], |branches| branches.iter().collect());
-            let variants = branches
-                .into_iter()
-                .map(|branch| {
-                    let branch = resolve(branch, defs);
-                    let fields = branch["properties"]
-                        .as_object()
-                        .into_iter()
-                        .flatten()
-                        .map(|(field, schema)| (field.as_str(), resolve(schema, defs)))
-                        .collect::<HashMap<_, _>>();
-                    let operations = fields.get("operation").map(|operation| {
-                        operation["const"].as_str().map_or_else(
-                            || {
-                                operation["enum"]
-                                    .as_array()
-                                    .into_iter()
-                                    .flatten()
-                                    .filter_map(Value::as_str)
-                                    .collect()
-                            },
-                            |single| vec![single],
-                        )
-                    });
-                    Variant { operations, fields }
-                })
-                .collect();
-            index.insert(name, variants);
-        }
-        index
-    })
+        let schema = &tool["querySchema"];
+        let defs = &schema["$defs"];
+        let branches = ["oneOf", "anyOf"]
+            .iter()
+            .find_map(|key| schema.get(*key).and_then(Value::as_array))
+            .map_or_else(|| vec![schema], |branches| branches.iter().collect());
+        branches
+            .into_iter()
+            .map(|branch| {
+                let branch = resolve(branch, defs);
+                let fields = branch["properties"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(field, schema)| (field.as_str(), resolve(schema, defs)))
+                    .collect::<HashMap<_, _>>();
+                let operations = fields.get("operation").map(|operation| {
+                    operation["const"].as_str().map_or_else(
+                        || {
+                            operation["enum"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(Value::as_str)
+                                .collect()
+                        },
+                        |single| vec![single],
+                    )
+                });
+                Variant { operations, fields }
+            })
+            .collect()
+    });
+    (!variants.is_empty()).then_some(variants.as_slice())
 }
 
 /// `keyword` (`"default"`, `"maximum"`, …) that `tool`'s query schema declares
@@ -85,7 +82,7 @@ pub fn query_schema_value(
     keyword: &str,
 ) -> Option<&'static Value> {
     let mut found = None;
-    for variant in index().get(tool.as_str())? {
+    for variant in variants(tool)? {
         if let (Some(operation), Some(admitted)) = (operation, &variant.operations)
             && !admitted.contains(&operation)
         {

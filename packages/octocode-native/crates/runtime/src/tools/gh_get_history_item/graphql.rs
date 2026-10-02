@@ -438,6 +438,10 @@ mod tests {
             undefined_selections(super::super::issue::CLOSING_REFERENCES_DOCUMENT),
             Vec::<String>::new()
         );
+        assert_eq!(
+            undefined_selections(super::super::issue::CLOSING_REFERENCE_COUNT_DOCUMENT),
+            Vec::<String>::new()
+        );
         // The validator rejects what GitHub rejects.
         assert_eq!(
             undefined_selections(

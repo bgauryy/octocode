@@ -863,8 +863,13 @@ fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("tool contract has no tools[]"))?;
     let mut variants = Vec::new();
-    let (mut names, mut families, mut cli_only, mut beta) =
-        (String::new(), String::new(), Vec::new(), Vec::new());
+    let (mut names, mut families, mut short, mut cli_only, mut beta) = (
+        String::new(),
+        String::new(),
+        String::new(),
+        Vec::new(),
+        Vec::new(),
+    );
     for (index, tool) in tools.iter().enumerate() {
         let path = format!("tools[{index}]");
         let name = string(
@@ -890,6 +895,13 @@ fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
         names.push_str(&format!("            ToolId::{variant} => {name:?},\n"));
         families.push_str(&format!(
             "            ToolId::{variant} => ToolFamily::{family},\n"
+        ));
+        let description = tool
+            .get("shortDescription")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        short.push_str(&format!(
+            "            ToolId::{variant} => {description:?},\n"
         ));
         if bool_value(tool.get("cliOnly"), false, &format!("{path}.cliOnly"))? {
             cli_only.push(format!("ToolId::{variant}"));
@@ -977,6 +989,10 @@ fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
          \x20   /// The wire name exactly as it appears in the contract and in tool-call envelopes.\n\
          \x20   #[must_use]\n\
          \x20   pub const fn as_str(self) -> &'static str {{\n        match self {{\n{names}        }}\n    }}\n\n\
+         \x20   /// One-line summary (contract `shortDescription`), available without\n\
+         \x20   /// parsing the embedded contract.\n\
+         \x20   #[must_use]\n\
+         \x20   pub const fn short_description(self) -> &'static str {{\n        match self {{\n{short}        }}\n    }}\n\n\
          \x20   /// Cursor-scope / policy family (contract `family`).\n\
          \x20   #[must_use]\n\
          \x20   pub const fn family(self) -> ToolFamily {{\n        match self {{\n{families}        }}\n    }}\n\n\
@@ -1003,6 +1019,69 @@ fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
     ))
 }
 
+/// Byte span of every `tools[]` element inside the embedded contract text, in
+/// contract (= `ToolId::ALL`) order. The runtime parses only the tool a call
+/// touches from its span instead of the whole multi-megabyte contract, the
+/// dominant cost of a fresh CLI process. Every span is verified to parse back
+/// to exactly its element, so a scanner mistake fails the build.
+fn tool_spans(text: &str, tools: &[Value]) -> Result<Vec<(usize, usize)>, Box<dyn Error>> {
+    let bytes = text.as_bytes();
+    let (mut depth, mut index) = (0usize, 0usize);
+    let (mut key, mut in_tools, mut start) = ("", false, 0usize);
+    let mut spans = Vec::new();
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                let open = index + 1;
+                index = open;
+                while bytes[index] != b'"' {
+                    index += if bytes[index] == b'\\' { 2 } else { 1 };
+                }
+                if depth == 1 {
+                    key = &text[open..index];
+                }
+            }
+            b'{' | b'[' => {
+                if in_tools && depth == 2 && bytes[index] == b'{' {
+                    start = index;
+                }
+                if depth == 1 && bytes[index] == b'[' && key == "tools" {
+                    in_tools = true;
+                }
+                depth += 1;
+            }
+            b'}' | b']' => {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or_else(|| invalid("tool contract JSON is unbalanced"))?;
+                if in_tools && depth == 2 && bytes[index] == b'}' {
+                    spans.push((start, index + 1));
+                }
+                if in_tools && depth == 1 {
+                    in_tools = false;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    if spans.len() != tools.len() {
+        return Err(invalid(format!(
+            "tool contract span scan found {} tools, contract has {}",
+            spans.len(),
+            tools.len()
+        )));
+    }
+    for (index, ((start, end), tool)) in spans.iter().zip(tools).enumerate() {
+        if serde_json::from_str::<Value>(&text[*start..*end])? != *tool {
+            return Err(invalid(format!(
+                "tool contract span {index} does not parse to tools[{index}]"
+            )));
+        }
+    }
+    Ok(spans)
+}
+
 fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let dir = fs::canonicalize(config_path(&manifest_dir, "contract"))?;
@@ -1015,7 +1094,15 @@ fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
     ] {
         println!("cargo:rerun-if-changed={}", file(name).display());
     }
-    let contract: Value = serde_json::from_str(&fs::read_to_string(file("tool-contract.json"))?)?;
+    let text = fs::read_to_string(file("tool-contract.json"))?;
+    let contract: Value = serde_json::from_str(&text)?;
+    let spans = tool_spans(
+        &text,
+        contract
+            .get("tools")
+            .and_then(Value::as_array)
+            .ok_or_else(|| invalid("tool contract has no tools[]"))?,
+    )?;
     let fingerprint = string(
         contract
             .get("fingerprint")
@@ -1057,9 +1144,17 @@ fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
          pub const CONTRACT_FORMAT_VERSION: u32 = {format_version};\n\
          pub const CONTRACT_FINGERPRINT: &str = {fingerprint:?};\n\
          pub const CONTRACT_JSON: &str = {};\n\
+         /// Byte span of each `tools[]` element in `CONTRACT_JSON`, in `ToolId::ALL` order.\n\
+         pub const CONTRACT_TOOL_SPANS: [(usize, usize); {}] = [{}];\n\
          pub const CONTRACT_FIXTURES_JSON: &str = {};\n\
          pub const CONTRACT_PROVENANCE_JSON: &str = {};\n",
         include("tool-contract.json"),
+        spans.len(),
+        spans
+            .iter()
+            .map(|(start, end)| format!("({start}, {end})"))
+            .collect::<Vec<_>>()
+            .join(", "),
         include("contract-fixtures.json"),
         include("provenance.json"),
     );

@@ -140,6 +140,12 @@ mod tests {
             assert_eq!(tool["family"], family, "{id}");
             assert_eq!(tool["cliOnly"], id.is_cli_only(), "{id}");
             assert_eq!(tool["beta"], id.is_beta(), "{id}");
+            assert_eq!(tool["shortDescription"], id.short_description(), "{id}");
+            assert_eq!(
+                crate::contracts::tool_contract(id).expect("tool contract"),
+                tool,
+                "{id}"
+            );
         }
     }
 

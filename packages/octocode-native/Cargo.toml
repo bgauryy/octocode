@@ -119,6 +119,17 @@ debug = false
 [profile.dev.package."regex-automata"]
 opt-level = 3
 
+# Every CLI process builds the secret sanitizer's literal prescan (regex-syntax
+# parse + aho-corasick) and compiles its no-literal fallback patterns on first
+# output. Unoptimized, that one-time init cost ~50 ms per debug tool call
+# (measured 2026-10-02; ~17 ms at opt-level 3).
+[profile.dev.package."regex-syntax"]
+opt-level = 3
+[profile.dev.package."aho-corasick"]
+opt-level = 3
+[profile.dev.package."regex"]
+opt-level = 3
+
 [profile.test.package."regex-automata"]
 opt-level = 3
 

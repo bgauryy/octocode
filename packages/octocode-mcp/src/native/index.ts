@@ -281,7 +281,6 @@ export function actionableIssuesSchema(
           const issues = formatIssues(result.issues as readonly RawIssue[], {
             value: options.normalize(value),
             jsonSchema: options.jsonSchema,
-            ...(advertised && { advertisedSchema: () => advertised }),
           });
           return issues.length ? { issues } : result;
         } catch {

@@ -406,6 +406,9 @@ fn recovery_hint(code: &str) -> Option<&'static str> {
         "ast.rewrite.snapshot_changed" => {
             "Discard earlier preview pages; follow next.restart and page the new preview to its next.apply."
         }
+        "ast.rewrite.overlap" => {
+            "Innermost first: rule {pattern:P, not:{has:{pattern:P with new $VARS, stopBy:\"end\"}}}; apply, repeat. Or narrow path."
+        }
         "ast.rewrite.postcondition_failed" => {
             "remainingMatches counts only the files this apply rewrites; adjust equals or the selection, then preview again."
         }
@@ -1119,9 +1122,14 @@ fn prepare_matches(
         if pair[1].start < pair[0].end
             || (pair[1].start == pair[0].start && pair[1].end == pair[0].end)
         {
+            let nested = pair[1].end <= pair[0].end || pair[1].start == pair[0].start;
             return Err(RewriteError::new(
                 "ast.rewrite.overlap",
-                "The rewrite pattern matched overlapping syntax ranges. Narrow the pattern so each match selects one non-overlapping syntax node, then preview again; no changes were prepared.",
+                if nested {
+                    "The rewrite pattern matched a node nested inside another match. Exclude the nesting so each match selects one non-overlapping syntax node, then preview again; no changes were prepared."
+                } else {
+                    "The rewrite pattern matched overlapping syntax ranges. Narrow the pattern so each match selects one non-overlapping syntax node, then preview again; no changes were prepared."
+                },
             )
             .detail(json!({
                 "path": path,
@@ -1767,6 +1775,23 @@ mod tests {
                 message.contains("Narrow the pattern") && message.contains("preview again")
             }),
             "{value}"
+        );
+        // The message and the hint agree: both narrow, neither broadens.
+        let hint = value["hints"][0].as_str().expect("overlap hint");
+        assert!(
+            hint.contains("not:{has:") && !hint.contains("Broaden"),
+            "{value}"
+        );
+        // Whole within the response guidance cap, so it is never clipped.
+        assert!(hint.chars().count() <= 120, "{hint}");
+        let nested = prepare_matches("a.ts", "before", vec![matched(0, 12), matched(0, 5)])
+            .expect_err("nested matches reject preview")
+            .value();
+        assert!(
+            nested["error"]
+                .as_str()
+                .is_some_and(|message| message.contains("nested inside another match")),
+            "{nested}"
         );
         assert_eq!(
             value["details"]["firstRange"],

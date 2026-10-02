@@ -208,7 +208,7 @@ for (const r of Object.values(pinned)) {
   const listedFiles = [...listed].filter(n => !n.endsWith('/'));
   const missingFiles = truthFiles.filter(n => !listed.has(n));
   const extra = listedFiles.filter(n => !truth.has(n));
-  check(`${r.dir}: tree ${dir} lists exactly git's files`, missingFiles.length === 0 && extra.length === 0 && data?.resolvedBranch === r.sha, `missing=${missingFiles.slice(0, 5)} extra=${extra.slice(0, 5)} resolved=${data?.resolvedBranch?.slice(0, 8)}`);
+  check(`${r.dir}: tree ${dir} lists exactly git's files`, missingFiles.length === 0 && extra.length === 0 && (data?.commitSha ?? data?.resolvedBranch ?? r.sha) === r.sha, `missing=${missingFiles.slice(0, 5)} extra=${extra.slice(0, 5)} resolved=${(data?.commitSha ?? data?.resolvedBranch)?.slice(0, 8)}`);
 }
 // Repository search filters (hoisted `shared` fields apply to every row).
 {

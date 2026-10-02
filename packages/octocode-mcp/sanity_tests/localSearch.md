@@ -14,6 +14,7 @@ Manual runtime checks for lexical local text and regex discovery.
 - [ ] Run a representative lexical query and verify paths, matches, totals, and anchors.
 - [ ] Run `{pageSize:2,page:1}`, follow `next`, and verify the continuation preserves `searchText`, filters, and page state.
 - [ ] Verify per-file match pagination when a file has more matches than `maxMatchesPerFile`.
+- [ ] Without `pageSize`/`maxMatchesPerFile`, a result within ~24 KB is one page, and a larger one is walked by `next.nextPage` alone in ~24 KB pages that show every row once.
 - [ ] Repeat the same request and verify a cached response is marked `cache:1` without extra payload.
 
 ## Example

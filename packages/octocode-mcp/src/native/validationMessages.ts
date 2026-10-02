@@ -89,6 +89,92 @@ const didYouMean = (input: unknown, candidates: readonly string[]) => {
   return guess && guess !== input ? ` (did you mean '${guess}'?)` : '';
 };
 
+/**
+ * Commonly guessed field names mapped to the canonical field when the query
+ * accepts it; the first accepted target wins. Same table and order as the
+ * native validator's `FIELD_ALIASES` (the parity suite pins both).
+ */
+const FIELD_ALIASES: readonly (readonly [string, string])[] = [
+  ['type', 'operation'],
+  ['path', 'uri'],
+  ['filePath', 'uri'],
+  ['keywordsToSearch', 'keywords'],
+  ['matchStringContextLines', 'contextLines'],
+  ['pattern', 'searchText'],
+  ['pattern', 'names'],
+  ['filesOnly', 'resultView'],
+  ['filePath', 'path'],
+  ['maxResults', 'pageSize'],
+  ['limit', 'pageSize'],
+  ['depth', 'maxDepth'],
+  ['lineStart', 'startLine'],
+  ['lineEnd', 'endLine'],
+  ['searchText', 'matchString'],
+  ['filePattern', 'include'],
+  ['fileFilter', 'include'],
+  ['includePattern', 'include'],
+  ['glob', 'include'],
+  ['useRegex', 'regex'],
+  ['isRegex', 'regex'],
+  ['includeHidden', 'hidden'],
+  ['showHidden', 'hidden'],
+];
+
+/**
+ * The field `known` most likely meant by `unknown`: an alias, a known field
+ * that prefixes it (`keywordsToSearch` → `keywords`), or the nearest spelling
+ * within an edit budget of 2–3 (native `suggest_field`).
+ */
+export function suggestField(
+  unknown: string,
+  known: readonly string[]
+): string | undefined {
+  for (const [alias, target] of FIELD_ALIASES)
+    if (alias === unknown && known.includes(target)) return target;
+  const prefix = known
+    .filter(k => k.length >= 4 && unknown.startsWith(k) && unknown !== k)
+    .sort((a, b) => b.length - a.length)[0];
+  if (prefix) return prefix;
+  const budget = Math.min(3, Math.max(2, Math.floor([...unknown].length / 3)));
+  const lowered = unknown.toLowerCase();
+  let best: string | undefined;
+  let bestScore = Infinity;
+  for (const candidate of known) {
+    const score = editDistance(lowered, candidate.toLowerCase());
+    if (score <= budget && score < bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * A boolean sent for an on/off enum (`regex:true`, `minify:false`): name the
+ * value that means what was intended (native `boolean_enum_hint`).
+ */
+function booleanEnumHint(input: unknown, allowed: readonly string[]): string {
+  if (typeof input !== 'boolean') return '';
+  const off = ['none', 'literal', 'off'].find(name => allowed.includes(name));
+  const pick = input ? allowed.find(value => value !== off) : off;
+  return pick ? ` — booleans are not accepted; use "${pick}"` : '';
+}
+
+/** Native range wording: `(0-20)`, `(>= 1)`, or `(<= 20)`. */
+function rangeMessage(minimum: unknown, maximum: unknown): string {
+  const low = typeof minimum === 'number' ? minimum : undefined;
+  const high = typeof maximum === 'number' ? maximum : undefined;
+  const range =
+    low !== undefined && high !== undefined
+      ? `${low}-${high}`
+      : low !== undefined
+        ? `>= ${low}`
+        : high !== undefined
+          ? `<= ${high}`
+          : '';
+  return `Number is outside the allowed range (${range})`;
+}
+
 /** `queries[0].context`, or "the request" at the root (native wording). */
 const location = (path: readonly PropertyKey[]) =>
   path.length
@@ -108,7 +194,7 @@ function enumMessage(input: unknown, allowed: readonly unknown[]): string {
   const values = [...new Set(allowed.map(String))];
   return (
     `Value ${display(input)} is outside the allowed enum; allowed: ` +
-    `${values.join(', ')}${didYouMean(input, values)}`
+    `${values.join(', ')}${didYouMean(input, values)}${booleanEnumHint(input, values)}`
   );
 }
 
@@ -211,7 +297,16 @@ class FieldIndex {
           field !== key &&
           valueAt(value, [field]) === undefined
       );
-    const requires = owners.map(missing).find(fields => fields.length) ?? [];
+    // One alternative per declaring form (`pattern or rule`), as native
+    // `sibling_missing_fields` names them.
+    const requires = [
+      ...new Set(
+        owners
+          .map(missing)
+          .filter(fields => fields.length)
+          .map(fields => fields.join(' and '))
+      ),
+    ];
     const selectors = requires.length
       ? []
       : [
@@ -233,30 +328,37 @@ class FieldIndex {
               .filter(Boolean)
           ),
         ];
+    // The fields of the form actually sent, not of every other form.
+    const sent = others.filter(node => this.selects(node, value));
     return {
       requires,
       selectors,
       others: [
         ...new Set(
-          others.flatMap(node => Object.keys(node.properties as JsonNode))
+          (sent.length ? sent : others).flatMap(node =>
+            Object.keys(node.properties as JsonNode)
+          )
         ),
       ],
     };
   }
 
+  /** Whether `value`'s literal selectors (`operation`, …) pick `node`. */
+  private selects(node: JsonNode, value: unknown): boolean {
+    return Object.entries(node.properties as JsonNode).every(([key, raw]) => {
+      const supplied = valueAt(value, [key]);
+      const schema = this.deref(raw);
+      if (supplied === undefined || !schema) return true;
+      if ('const' in schema) return schema.const === supplied;
+      if (Array.isArray(schema.enum)) return schema.enum.includes(supplied);
+      return true;
+    });
+  }
+
   /** Field names valid at `path`, narrowed to the branches `value` selects. */
   fields(path: readonly PropertyKey[], value: unknown): string[] {
     const nodes = this.nodesAt(path).filter(node => node.properties);
-    const selects = (node: JsonNode) =>
-      Object.entries(node.properties as JsonNode).every(([key, raw]) => {
-        const supplied = valueAt(value, [key]);
-        const schema = this.deref(raw);
-        if (supplied === undefined || !schema) return true;
-        if ('const' in schema) return schema.const === supplied;
-        if (Array.isArray(schema.enum)) return schema.enum.includes(supplied);
-        return true;
-      });
-    const selected = nodes.filter(selects);
+    const selected = nodes.filter(node => this.selects(node, value));
     const chosen = selected.length ? selected : nodes;
     return [
       ...new Set(
@@ -271,20 +373,23 @@ export interface IssueContext {
   value: unknown;
   /** JSON Schema (input io) of the tool input, for valid-field lists. */
   jsonSchema: () => JsonNode | undefined;
-  /**
-   * The schema agents are shown. Field lists and suggestions keep only the
-   * fields it shows (continuation-only fields are copied from next.*, never
-   * composed), falling back to the canonical list where it shows none.
-   */
-  advertisedSchema?: () => JsonNode | undefined;
 }
+
+/**
+ * Fields set by copying a `next.*` continuation (or opt-in diagnostics), never
+ * composed by hand: core `CONTINUATION_FIELDS`, which the published view also
+ * leaves out. Every other canonical field stays listable even when the
+ * published view hides it, so a rare field remains discoverable after a
+ * mistake.
+ */
+const CONTINUATION_ONLY =
+  /^(debug|(match|file|comment|commit|review|metadata|diagnostic)?[pP]age|(diagnostic)?[sS]napshot|cursor|(char|commentBody|node|materialize)Offset|response[A-Z]\w*)$/;
 
 export function formatIssues(
   issues: readonly RawIssue[],
   context: IssueContext
 ): FormattedIssue[] {
   let index: FieldIndex | undefined | null = null;
-  let shown: FieldIndex | undefined | null = null;
   const canonical = () => {
     if (index === null) {
       const root = context.jsonSchema();
@@ -292,19 +397,10 @@ export function formatIssues(
     }
     return index;
   };
-  const visibleOnly = (path: readonly PropertyKey[], all: string[]) => {
-    if (shown === null) {
-      const root = context.advertisedSchema?.();
-      shown = root ? new FieldIndex(root) : undefined;
-    }
-    const visible = new Set(
-      shown?.fields(path, valueAt(context.value, path)) ?? []
-    );
-    const kept = all.filter(field => visible.has(field));
-    return kept.length ? kept : all;
-  };
+  const composable = (fields: readonly string[]) =>
+    fields.filter(field => !CONTINUATION_ONLY.test(field));
   const validFields = (path: readonly PropertyKey[], value: unknown) =>
-    visibleOnly(path, canonical()?.fields(path, value) ?? []);
+    composable(canonical()?.fields(path, value) ?? []);
   const itemsAcceptString = (path: readonly PropertyKey[]) => {
     if (index === null) {
       const root = context.jsonSchema();
@@ -362,9 +458,9 @@ export function formatIssues(
             continue;
           }
           if (sibling) {
-            valid = visibleOnly(path, sibling.others);
+            valid = composable(sibling.others);
             const needs = sibling.requires.length
-              ? `: it applies only with ${sibling.requires.join(' and ')}`
+              ? `: it applies only with ${sibling.requires.join(' or ')}`
               : '';
             out.push({
               path,
@@ -386,9 +482,15 @@ export function formatIssues(
             });
             continue;
           }
+          // Suggest from every field the sent form accepts (native
+          // `knownFields`), including ones the advertised view leaves out.
+          const guess = suggestField(
+            key,
+            canonical()?.fields(path, supplied) ?? valid
+          );
           out.push({
             path,
-            message: `Remove unknown field '${key}'${didYouMean(key, valid)}`,
+            message: `Remove unknown field '${key}'${guess ? ` (did you mean '${guess}'?)` : ''}`,
           });
         }
         if (valid.length && !pointers.has(path.join('.'))) {
@@ -399,7 +501,19 @@ export function formatIssues(
         }
         return;
       }
+      case 'too_small':
       case 'too_big': {
+        if (typeof supplied === 'number') {
+          const bounds = canonical()
+            ?.nodesAt(path)
+            .find(node => 'minimum' in node || 'maximum' in node);
+          out.push({
+            path,
+            message: rangeMessage(bounds?.minimum, bounds?.maximum),
+          });
+          return;
+        }
+        if (issue.code === 'too_small') break;
         const rows = Array.isArray(supplied) ? supplied.length : undefined;
         const maximum = Number(issue.maximum);
         if (

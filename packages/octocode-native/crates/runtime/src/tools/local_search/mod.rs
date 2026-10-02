@@ -626,6 +626,197 @@ mod tests {
         );
     }
 
+    /// Replace `path`'s bytes with `content` of the same length and restore
+    /// its nanosecond modification time, so size and time cannot reveal the
+    /// edit.
+    fn rewrite_keeping_stamp(path: &std::path::Path, content: &str) {
+        let before = fs::metadata(path).expect("fixture metadata");
+        assert_eq!(before.len(), content.len() as u64, "same-size rewrite");
+        let modified = before.modified().expect("mtime");
+        fs::write(path, content).expect("rewrite");
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| file.set_modified(modified))
+            .expect("restore mtime");
+        let after = fs::metadata(path).expect("fixture metadata");
+        assert_eq!(
+            (after.len(), after.modified().expect("mtime")),
+            (before.len(), modified)
+        );
+    }
+
+    fn values(result: &LocalSearchResult) -> String {
+        serde_json::to_string(&result.files).expect("files serialize")
+    }
+
+    /// A continuation never serves stored values from a file edited since
+    /// the scan, even when the edit keeps its size and modification time.
+    #[test]
+    fn a_same_size_same_mtime_edit_restarts_instead_of_serving_old_values() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::write(root.path().join("a.ts"), "const needle = \"OLD_A\";\n").expect("fixture");
+        let b = root.path().join("b.ts");
+        fs::write(&b, "const needle = \"OLD_B\";\n").expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle", "regex": "literal", "sort": "path", "include": ["*.ts"], "noIgnore": true, "pageSize": 1}),
+            None,
+        );
+        let first =
+            execute_local_search(&request, &policy, &security, &NeverCancel, None).expect("page 1");
+        let snapshot = first
+            .source_snapshot
+            .clone()
+            .expect("continuation identity");
+        let page_two = ls_query(
+            serde_json::json!({"snapshot": snapshot, "page": 2}),
+            Some(&request),
+        );
+        rewrite_keeping_stamp(&b, "const needle = \"NEW_B\";\n");
+        match execute_local_search(&page_two, &policy, &security, &NeverCancel, None) {
+            Ok(result) => panic!("stale page served: {}", values(&result)),
+            Err(error) => {
+                assert_eq!(error.code, "staleSnapshot");
+                let restart = error.next.expect("restart");
+                assert!(restart["restart"]["query"].get("snapshot").is_none());
+            }
+        }
+        for view in ["files", "countMatches"] {
+            fs::write(&b, "const needle = \"OLD_B\";\n").expect("fixture");
+            let listed = ls_query(serde_json::json!({"resultView": view}), Some(&request));
+            let first = execute_local_search(&listed, &policy, &security, &NeverCancel, None)
+                .expect("list page 1");
+            let next = ls_query(
+                serde_json::json!({"snapshot": first.source_snapshot.clone().expect("identity"), "page": 2}),
+                Some(&listed),
+            );
+            rewrite_keeping_stamp(&b, "const nEEdle = \"NEW_B\";\n");
+            match execute_local_search(&next, &policy, &security, &NeverCancel, None) {
+                Ok(result) => panic!("{view}: stale page served: {}", values(&result)),
+                Err(error) => assert_eq!(error.code, "staleSnapshot", "{view}"),
+            }
+        }
+        fs::write(&b, "const needle = \"NEW_B\";\n").expect("fixture");
+        let fresh = execute_local_search(
+            &ls_query(serde_json::json!({"pageSize": 10}), Some(&request)),
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+        )
+        .expect("fresh search");
+        assert!(values(&fresh).contains("NEW_B"), "{}", values(&fresh));
+    }
+
+    /// Every view's values are present in the bytes they were scanned from,
+    /// so unchanged files keep reusing the stored scan: a matching file added
+    /// after page 1 stays unseen on page 2 instead of restarting the search.
+    #[test]
+    fn every_view_keeps_reusing_its_scan_while_files_are_unchanged() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let long = format!("{} needle tail {}", "x".repeat(300), "y".repeat(300));
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            fs::write(
+                root.path().join(name),
+                format!(
+                    "head\r\nlet needle = 1;\r\n{long}\nneedle\nmid ✓ line\nneedle again ✓\nend\n"
+                ),
+            )
+            .expect("fixture");
+        }
+        let (policy, security) = policy_for(root.path());
+        let views = [
+            serde_json::json!({}),
+            serde_json::json!({"contextLines": 2}),
+            serde_json::json!({"matchContentLength": 20}),
+            serde_json::json!({"resultView": "detailed"}),
+            serde_json::json!({"resultView": "matchOnly", "matchWindow": 5}),
+            serde_json::json!({"resultView": "matchOnly", "unique": "count", "searchText": "needle[ a-z]*"}),
+            serde_json::json!({"resultView": "files"}),
+            serde_json::json!({"resultView": "countMatches"}),
+            serde_json::json!({"multiline": "on", "searchText": "needle\\nmid"}),
+        ];
+        for (index, view) in views.iter().enumerate() {
+            let request = ls_query(
+                serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle", "pageSize": 1, "sort": "path"}),
+                None,
+            );
+            let request = ls_query(view.clone(), Some(&request));
+            let first = execute_local_search(&request, &policy, &security, &NeverCancel, None)
+                .unwrap_or_else(|e| panic!("{view}: {}", e.message));
+            let snapshot = first
+                .source_snapshot
+                .clone()
+                .unwrap_or_else(|| panic!("{view}: no continuation"));
+            let added = root.path().join(format!("a{index}.txt"));
+            fs::write(&added, "needle\n").expect("new file");
+            let second = execute_local_search(
+                &ls_query(
+                    serde_json::json!({"snapshot": snapshot, "page": 2}),
+                    Some(&request),
+                ),
+                &policy,
+                &security,
+                &NeverCancel,
+                None,
+            )
+            .unwrap_or_else(|e| panic!("{view}: stored scan not reused: {}", e.message));
+            assert_eq!(second.files[0].path, "b.txt", "{view}");
+            fs::remove_file(added).expect("cleanup");
+        }
+    }
+
+    /// A stored key-shaped value is redacted on its first page; after the
+    /// source is swapped for innocuous text of the same size and time, the
+    /// stored value must not be checked against the new text and shown.
+    #[test]
+    fn a_stored_key_fragment_never_surfaces_after_a_stamp_preserving_swap() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let body = "QUJD".repeat(24);
+        fs::write(
+            root.path().join("a.ts"),
+            "// QUJD visible harmless marker\n",
+        )
+        .expect("fixture");
+        let key = root.path().join("b.ts");
+        let old = format!("-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----\n");
+        fs::write(&key, &old).expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "QUJD", "regex": "literal", "sort": "path", "include": ["*.ts"], "noIgnore": true, "pageSize": 1}),
+            None,
+        );
+        let first =
+            execute_local_search(&request, &policy, &security, &NeverCancel, None).expect("page 1");
+        let snapshot = first
+            .source_snapshot
+            .clone()
+            .expect("continuation identity");
+        let page_two = ls_query(
+            serde_json::json!({"snapshot": snapshot, "page": 2}),
+            Some(&request),
+        );
+        let before = execute_local_search(&page_two, &policy, &security, &NeverCancel, None)
+            .expect("page 2 from the stored scan");
+        assert!(!values(&before).contains(&body), "{}", values(&before));
+        assert!(values(&before).contains("REDACTED"), "{}", values(&before));
+        let clean = format!(
+            "// clean source replacement\n{}\n{}\n",
+            "Z".repeat(body.len()),
+            "// clean trailer".to_owned() + &" ".repeat("-----END PRIVATE KEY-----".len() - 16)
+        );
+        rewrite_keeping_stamp(&key, &clean);
+        match execute_local_search(&page_two, &policy, &security, &NeverCancel, None) {
+            Ok(result) => assert!(
+                !values(&result).contains(&body),
+                "old key body surfaced: {}",
+                values(&result)
+            ),
+            Err(error) => assert_eq!(error.code, "staleSnapshot"),
+        }
+    }
+
     #[test]
     fn capped_or_bound_results_are_partial_and_terminal_when_next_is_impossible() {
         use super::executor::classify_search;
@@ -765,8 +956,9 @@ mod tests {
         serde_json::to_value(&result).expect("serialize")
     }
 
-    /// At most 50 hits are all shown on one page with no paging metadata; a
-    /// larger result keeps 10 rows per file, and a caller cap always wins.
+    /// A result within the page budget is shown whole with no paging
+    /// metadata, however many hits it has; a larger one opens with 10 rows
+    /// per file, and a caller cap always wins.
     #[test]
     fn a_small_result_shows_every_hit_without_paging() {
         let small = "needle\n".repeat(13);
@@ -796,7 +988,19 @@ mod tests {
             "all files on one page"
         );
         assert!(spread.get("pagination").is_none(), "{spread}");
-        let large = "needle\n".repeat(60);
+        // Far more than one old match page, still well within the budget.
+        let moderate = "needle\n".repeat(150);
+        let body = search_fixture(
+            &[("a.txt", &moderate)],
+            ls_query(serde_json::json!({"searchText": "needle"}), None),
+        );
+        assert_eq!(
+            body["files"][0]["matches"].as_array().map(Vec::len),
+            Some(150),
+            "{body}"
+        );
+        assert!(body.get("next").is_none(), "{body}");
+        let large = "needle\n".repeat(1200);
         let body = search_fixture(
             &[("a.txt", &large)],
             ls_query(serde_json::json!({"searchText": "needle"}), None),
@@ -805,7 +1009,9 @@ mod tests {
             body["files"][0]["matches"].as_array().map(Vec::len),
             Some(10)
         );
-        assert!(body["next"]["nextMatchPage"].is_object(), "{body}");
+        assert!(body["next"]["nextPage"].is_object(), "{body}");
+        assert!(body["next"].get("nextMatchPage").is_none(), "{body}");
+        assert_eq!(body["files"][0]["pagination"]["hasMore"], true, "{body}");
         let capped = search_fixture(
             &[("a.txt", &small)],
             ls_query(
@@ -1273,7 +1479,6 @@ mod tests {
     #[test]
     fn default_paginated_view_is_lean_and_detailed_keeps_context() {
         let file = numbered(30, &(1..=12).collect::<Vec<_>>());
-        // 62 hits: above the show-everything threshold (50).
         let many: Vec<(String, String)> = (0..25)
             .map(|i| {
                 (
@@ -1282,7 +1487,9 @@ mod tests {
                 )
             })
             .collect();
-        let mut fixtures: Vec<(&str, &str)> = vec![("a.txt", file.as_str())];
+        // A hot last file puts the result over one page budget.
+        let hot = "needle\n".repeat(1200);
+        let mut fixtures: Vec<(&str, &str)> = vec![("a.txt", file.as_str()), ("z.txt", &hot)];
         fixtures.extend(many.iter().map(|(p, c)| (p.as_str(), c.as_str())));
         let body = search_fixture(
             &fixtures,
@@ -1308,6 +1515,62 @@ mod tests {
             detailed["files"][0]["matches"][0]["value"],
             "17\tline 17\n18\tline 18\n19\tline 19\n20\tline 20 needle\n21\tline 21\n22\tline 22\n23\tline 23"
         );
+    }
+
+    /// Following `nextPage` from a default search walks every row exactly
+    /// once in pages cut by the response budget: a hot file is not paged ten
+    /// rows at a time, and each continuation runs unchanged.
+    #[test]
+    fn a_default_walk_reaches_every_row_once_in_budget_sized_pages() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let rows_per_file = 60;
+        for n in 0..30 {
+            let body = (1..=rows_per_file)
+                .map(|line| format!("needle {n} {line} {}\n", "x".repeat(60)))
+                .collect::<String>();
+            fs::write(root.path().join(format!("f{n:02}.txt")), body).expect("fixture");
+        }
+        let (policy, security) = policy_for(root.path());
+        let mut request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle"}),
+            None,
+        );
+        let mut seen = std::collections::BTreeSet::new();
+        let mut pages = 0;
+        loop {
+            let result = execute_local_search(&request, &policy, &security, &NeverCancel, None)
+                .expect("page");
+            let body = serde_json::to_value(&result).expect("serialize");
+            pages += 1;
+            let bytes = serde_json::to_string(&body["files"]).expect("files").len();
+            assert!(
+                bytes <= super::executor::PAGE_BUDGET_BYTES * 3 / 2,
+                "page {pages}: {bytes} bytes"
+            );
+            for file in body["files"].as_array().expect("files") {
+                for row in file["matches"].as_array().expect("rows") {
+                    let key = (
+                        file["path"].as_str().expect("path").to_owned(),
+                        row["line"].as_u64().expect("line"),
+                    );
+                    assert!(seen.insert(key), "row shown twice on page {pages}");
+                }
+            }
+            assert!(
+                body["next"].get("nextMatchPage").is_none(),
+                "{}",
+                body["next"]
+            );
+            let Some(next) = body["next"].get("nextPage") else {
+                break;
+            };
+            assert!(next["query"].get("pageSize").is_none(), "{next}");
+            request = serde_json::from_value(next["query"].clone()).expect("continuation query");
+        }
+        assert_eq!(seen.len(), 30 * rows_per_file);
+        // About 30 × 60 rows of ~100 bytes: the overview page plus
+        // total/budget pages, not one page per ten rows of each file.
+        assert!((7..=11).contains(&pages), "{pages} pages");
     }
 
     fn numbered(lines: u32, needles: &[u32]) -> String {
@@ -1769,13 +2032,14 @@ mod tests {
         let verified = executor::guard_clipped_secrets(
             &mut file,
             &missing,
+            None,
             0..10,
             &security,
             false,
             &NeverCancel,
         )
         .expect("not cancelled");
-        assert!(!verified);
+        assert_eq!(verified, executor::Verification::Unverified);
         assert!(!file.matches[0].value.contains("ghp_"));
         assert!(file.matches[0].value.contains("REDACTED"));
     }
@@ -1805,13 +2069,14 @@ mod tests {
         let verified = executor::guard_clipped_secrets(
             &mut file,
             &source,
+            None,
             0..10,
             &security,
             false,
             &NeverCancel,
         )
         .expect("not cancelled");
-        assert!(!verified);
+        assert_eq!(verified, executor::Verification::Unverified);
         assert!(
             !file.matches[0].value.contains("ghp_"),
             "{}",

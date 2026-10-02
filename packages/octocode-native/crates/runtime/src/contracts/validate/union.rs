@@ -313,20 +313,7 @@ fn annotate_sibling_branch_fields(
                     .is_some()
             })
             .collect::<Vec<_>>();
-        let requires = declaring
-            .iter()
-            .find_map(|branch| {
-                let missing = branch
-                    .get("required")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .filter(|required| value.get(*required).is_none())
-                    .map(|required| Value::String(required.to_owned()))
-                    .collect::<Vec<_>>();
-                (!missing.is_empty()).then_some(missing)
-            })
+        let requires = sibling_missing_fields(&declaring, value, field)
             .or_else(|| sibling_selector_values(&declaring, value));
         if let (Some(requires), Some(schema)) = (
             requires,
@@ -335,6 +322,31 @@ fn annotate_sibling_branch_fields(
             schema.insert("siblingRequires".into(), Value::Array(requires));
         }
     }
+}
+
+/// The required fields each declaring branch still lacks, one alternative per
+/// branch (`pattern or rule` for an astSearch match field), so the projector
+/// names every form that accepts the field, not only the first.
+fn sibling_missing_fields(declaring: &[&Value], value: &Value, field: &str) -> Option<Vec<Value>> {
+    let mut options: Vec<String> = Vec::new();
+    for branch in declaring {
+        let missing = branch
+            .get("required")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|required| *required != field && value.get(*required).is_none())
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            continue;
+        }
+        let option = missing.join(" and ");
+        if !options.contains(&option) {
+            options.push(option);
+        }
+    }
+    (!options.is_empty()).then(|| vec![Value::String(options.join(" or "))])
 }
 
 /// Branches chosen by a literal selector (e.g. `operation`) need no missing

@@ -170,7 +170,19 @@ fn local_read(path: &str, lines: Vec<u64>) -> Value {
     read(ToolId::LocalFetch, query)
 }
 
+/// The 1-based line a result row names. Compact string rows (symbols
+/// outline `"<line>[-<end>] kind name"`, structural match
+/// `"<line>[-<end>]\t<value>"`, reference `"<line>:<col> <text>"`) lead with
+/// it; object rows carry it under `key`. Every row reader here goes through
+/// this accessor, so either row shape yields the same candidate lines.
 fn line(value: &Value, key: &str) -> Option<u64> {
+    if let Some(text) = value.as_str() {
+        let text = text.trim_start();
+        let end = text
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(text.len());
+        return text[..end].parse().ok();
+    }
     value.get(key).and_then(Value::as_u64)
 }
 

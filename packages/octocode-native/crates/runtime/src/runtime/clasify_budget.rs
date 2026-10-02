@@ -169,6 +169,11 @@ pub(super) fn resume_search(
     let mut resumed = source.clone();
     let query = resumed.get_mut("query")?.as_object_mut()?;
     let page = query.get("page").and_then(Value::as_u64).unwrap_or(1);
+    // A later localSearch page without `pageSize` is cut by the response
+    // budget, not at a file offset a resume could name.
+    if tool == ToolId::LocalSearch && page > 1 && !query.contains_key("pageSize") {
+        return None;
+    }
     let size = query
         .get("pageSize")
         .and_then(Value::as_u64)
@@ -190,10 +195,53 @@ pub(super) fn resume_search(
 /// Re-reads one oversized file page may take to fit the resource cap.
 pub(super) const MAX_SHRINK_ATTEMPTS: usize = 4;
 
+/// Query fields that select less than the whole file in the source view; a
+/// flat page read with any of them is not re-read from line one.
+const PARTIAL_READ_FIELDS: [&str; 9] = [
+    "matchString",
+    "startLine",
+    "endLine",
+    "ranges",
+    "block",
+    "chunkType",
+    "offset",
+    "chunkSize",
+    "contextBytes",
+];
+
+/// `(unit, offset, size)` of a page's chunk window. A flat whole-file page
+/// (no pagination, no range or match selector, source view) is the window of
+/// all its lines from the first.
+fn chunk_window<'a>(source: &Value, data: &'a Value) -> Option<(&'a str, u64, u64)> {
+    if let Some(pagination) = data
+        .get("pagination")
+        .or_else(|| data.pointer("/files/0/pagination"))
+    {
+        return Some((
+            pagination.get("chunkType")?.as_str()?,
+            pagination.get("offset")?.as_u64()?,
+            pagination.get("chunkSize")?.as_u64()?,
+        ));
+    }
+    let query = source.get("query")?.as_object()?;
+    let source_view = query
+        .get("minify")
+        .is_none_or(|minify| minify.as_str() == Some("none"));
+    if !source_view
+        || PARTIAL_READ_FIELDS
+            .iter()
+            .any(|field| query.contains_key(*field))
+    {
+        return None;
+    }
+    Some(("lines", 0, data.get("totalLines")?.as_u64()?))
+}
+
 /// The same file page re-read with fewer chunk units, in proportion to the
 /// cap. It keeps the page's start (`pagination.offset`), unit, line range, and
-/// version (`snapshot`). `None` unless the page is chunk-addressed and larger
-/// than one unit.
+/// version (`snapshot`); a flat whole-file page is re-read as line chunks from
+/// its first line. `None` unless the page is chunk-addressed (or whole) and
+/// larger than one unit.
 pub(super) fn shrunk_page(
     source: &Value,
     state: &Value,
@@ -204,12 +252,7 @@ pub(super) fn shrunk_page(
         return None;
     }
     let data = state.pointer("/results/0/data")?;
-    let pagination = data
-        .get("pagination")
-        .or_else(|| data.pointer("/files/0/pagination"))?;
-    let size = pagination.get("chunkSize")?.as_u64()?;
-    let offset = pagination.get("offset")?.as_u64()?;
-    let unit = pagination.get("chunkType")?.as_str()?;
+    let (unit, offset, size) = chunk_window(source, data)?;
     if size <= 1 || chars == 0 {
         return None;
     }
@@ -368,6 +411,18 @@ mod tests {
         assert!(shrunk_page(&source, &single, 500, 100).is_none());
         let search = json!({"tool":"localSearch","query":{"path":"/r"}});
         assert!(shrunk_page(&search, &state, 2_233, 2_000).is_none());
+        // A flat whole-file page re-reads its first lines as chunks.
+        let whole = json!({"results":[{"data":{"content":"1\tx","totalLines":1_144}}]});
+        let first = shrunk_page(&source, &whole, 43_477, 6_000).expect("whole file shrinks");
+        assert_eq!(
+            first["query"],
+            json!({"path":"/r/a.txt","chunkType":"lines","offset":0,"chunkSize":157})
+        );
+        // A flat page selected by match or range is not the whole file.
+        let matched = json!({"tool":"localFetch","query":{"path":"/r/a.txt","matchString":"x"}});
+        assert!(shrunk_page(&matched, &whole, 43_477, 6_000).is_none());
+        let outline = json!({"tool":"localFetch","query":{"path":"/r/a.txt","minify":"symbols"}});
+        assert!(shrunk_page(&outline, &whole, 43_477, 6_000).is_none());
         let restored = restore_chunk(smaller, Some(&json!(8)));
         assert_eq!(restored["query"]["chunkSize"], 8);
     }

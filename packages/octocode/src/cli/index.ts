@@ -1,4 +1,3 @@
-import { setRuntimeSurface } from '@octocodeai/config';
 import {
   delegateToNative,
   NODE_OWNED_COMMANDS,
@@ -28,10 +27,19 @@ export function isTrueFlag(value: unknown): boolean {
   );
 }
 
+/**
+ * Mark the in-process config surface as the CLI before Node itself handles a
+ * command. Plain native delegation reads no config in-process, so a tool call
+ * never loads the config module (~5 ms of the per-call floor).
+ */
+async function enterNodeOwnedSurface(): Promise<void> {
+  const { setRuntimeSurface } = await import('@octocodeai/config');
+  setRuntimeSurface('cli');
+}
+
 export async function runCLI(argv?: string[]): Promise<boolean> {
   const { maybeWarnAboutStaleBuild } = await import('./stale-build.js');
   maybeWarnAboutStaleBuild();
-  setRuntimeSurface('cli');
 
   const rawArgv = argv ?? process.argv.slice(2);
   const args = parseArgs(rawArgv);
@@ -51,6 +59,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   // Root help appends the same instructions to the native command reference;
   // a bare `--version` prints launcher and native versions (see version.ts).
   if (args.command === null && !hasHelpFlag(args) && !hasVersionFlag(args)) {
+    await enterNodeOwnedSurface();
     const { schemeCommand } = await import('./commands/scheme.js');
     await schemeCommand.handler({ ...args, command: 'scheme', args: [] });
     return true;
@@ -66,6 +75,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   }
 
   if (!shouldDelegateToNative(args.command)) {
+    await enterNodeOwnedSurface();
     if (args.command === 'scheme') {
       const { schemeCommand } = await import('./commands/scheme.js');
       await schemeCommand.handler(args);
@@ -102,6 +112,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     process.stdout.isTTY === true;
 
   if (interactiveInstall) {
+    await enterNodeOwnedSurface();
     const { runInteractiveInstall } = await import('./interactive-install.js');
     process.exitCode = await runInteractiveInstall(bin, rawArgv);
   } else {
@@ -110,6 +121,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       (args.command === null && hasHelpFlag(args)) ||
       (args.command === 'help' && args.args.length === 0);
     if (process.exitCode === EXIT.OK && rootHelp) {
+      await enterNodeOwnedSurface();
       const { printAgentInstructions } = await import('./commands/scheme.js');
       // Help must never fail: drift/unavailable-catalog diagnostics are
       // already written to stderr by the presenter, so the exit code stays OK.

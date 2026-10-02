@@ -214,28 +214,32 @@ pub(crate) fn pypi_resolve<'a>(
 }
 
 /// Up to five published versions closest to a missing `requested` one:
-/// those sharing the longest leading numeric prefix, newest first.
+/// those sharing the longest leading numeric prefix, newest first; with no
+/// shared prefix, the final releases just below and above it.
 pub(crate) fn nearest<'a>(
     requested: &str,
     versions: impl IntoIterator<Item = &'a str>,
 ) -> Vec<String> {
+    let versions = versions.into_iter().collect::<Vec<_>>();
     let wanted: Vec<&str> = requested
         .trim_start_matches(|c: char| !c.is_ascii_digit())
         .split(['.', '-', '+'])
         .collect();
     let mut scored = versions
-        .into_iter()
+        .iter()
         .map(|version| {
             let shared = version
                 .split(['.', '-', '+'])
                 .zip(&wanted)
                 .take_while(|(have, want)| have == *want)
                 .count();
-            (shared, version)
+            (shared, *version)
         })
         .filter(|(shared, _)| *shared > 0)
         .collect::<Vec<_>>();
-    let best = scored.iter().map(|(shared, _)| *shared).max().unwrap_or(0);
+    let Some(best) = scored.iter().map(|(shared, _)| *shared).max() else {
+        return bracketing(requested, &versions);
+    };
     scored.retain(|(shared, _)| *shared == best);
     let mut picked = scored
         .into_iter()
@@ -246,6 +250,38 @@ pub(crate) fn nearest<'a>(
         _ => right.cmp(left),
     });
     picked.truncate(5);
+    picked
+}
+
+/// The final releases nearest a requested release number: up to three
+/// below it and two above it, newest first. Empty when the request names
+/// no release number.
+fn bracketing(requested: &str, versions: &[&str]) -> Vec<String> {
+    let release = requested
+        .trim_start_matches(|c: char| !c.is_ascii_digit())
+        .split(['-', '+'])
+        .next()
+        .and_then(pep440);
+    let Some(release) = release else {
+        return Vec::new();
+    };
+    let mut finals = versions
+        .iter()
+        .filter_map(|version| pep440(version).map(|parsed| (parsed, *version)))
+        .collect::<Vec<_>>();
+    finals.sort_by(|(left, _), (right, _)| pep440_cmp(left, right));
+    let split = finals.partition_point(|(parsed, _)| pep440_cmp(parsed, &release).is_lt());
+    let below = &finals[split.saturating_sub(3)..split];
+    let above = finals[split..]
+        .iter()
+        .filter(|(parsed, _)| pep440_cmp(parsed, &release).is_gt())
+        .take(2);
+    let mut picked = below
+        .iter()
+        .chain(above)
+        .map(|(_, version)| (*version).to_owned())
+        .collect::<Vec<_>>();
+    picked.reverse();
     picked
 }
 
@@ -325,6 +361,15 @@ mod tests {
             nearest("1.0.105", versions),
             ["1.0.101", "1.0.100", "1.0.99"]
         );
-        assert_eq!(nearest("3.0.0", versions), Vec::<String>::new());
+        // No shared prefix: the final releases on either side of it.
+        assert_eq!(nearest("3.0.0", versions), ["2.0.0", "1.1.0", "1.0.101"]);
+        assert_eq!(
+            nearest(
+                "5.0.0",
+                ["0.4.0", "4.9.1", "6.0.0", "6.1.0", "6.2.0", "7.0.0-rc.1"]
+            ),
+            ["6.1.0", "6.0.0", "4.9.1", "0.4.0"]
+        );
+        assert_eq!(nearest("next", versions), Vec::<String>::new());
     }
 }

@@ -267,7 +267,10 @@ Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `pattern`,
 over repo-relative paths (`**/_exception_handler.py`, `src/**/*.ts`); without
 a `/` it matches entry names, and a bare word matches names containing it.
 With `pattern` and no `maxDepth`, every level is searched. Rows keep the
-`dir`/`files`/`folders` shape and `summary.pattern` echoes the filter.
+`dir`/`files`/`folders` shape. A listing names `resolvedBranch` only when it
+resolved the default branch, and `commitSha` only when it differs from the
+requested ref; page totals ride `pagination`, and `debug: true` adds the
+per-page `summary`.
 For cross-file grep at a ref over MCP (where `ghCloneRepo` is unavailable),
 combine `pattern` with `materialize:true` (≤50 files, ≤300 KiB each), then run
 `localSearch` at the returned `location.localPath`.
@@ -383,11 +386,13 @@ Sections are selected with `include` (PR: `body`, `files`, `patches`,
 `patches`) and narrowed with `files` (paths, `dir/`, or globs) and `status`.
 The nested spellings (`content.*`, `fileFilter`, `includeDiff`, `path`,
 `operation:"compare"`) stay valid aliases and return identical rows. Every PR
-row carries its merge state (`mergedAt`, `closedAt`, `targetBranch`; labels on
-the first page). An issue read lists up to 25 pull requests that closed it
-(`closedBy`, merged first) and offers `next.readFixPr`; past 25 the row is
-`isPartial` with `partialReasons:["closingReferenceLimit"]` and the fix is a
-medium-confidence candidate.
+row carries its merge state (`mergedAt`, or `closedAt` for a PR closed without
+merging, and `targetBranch`; labels on the first page; `updatedAt` only while
+open). The body is opt-in (`include:["body"]`, offered by the menu). An issue read lists up to 25 pull requests that closed it
+(`closedBy`, merged first) and offers `next.readFixPr` (every patch of a small
+fix; a larger one's body and file inventory); past 25 every body and
+comment window is `isPartial` with `partialReasons:["closingReferenceLimit"]`
+and the fix is a medium-confidence candidate.
 
 Fields from another operation are rejected rather than ignored. In particular,
 PR and issue identity is always `number`; commit identity is `ref`; comparison
@@ -411,18 +416,23 @@ each commit or file page carries only its own data.
 
 Request selected PR patches instead of every patch for large PRs, and leave
 commit diffs off until the relevant commit is known. A PR summary offers at
-most four reads: `getChangedFiles` (the body rides along when the preview cuts
-it), `reviewPatches` (every patch on a small PR), `getDiscussion` (comments and
-reviews), and `getMergeCommit` (with the diff when the PR is small). A merged
-PR whose patches were read also offers `readAtMerge`: the first changed source
-file at the merge commit, as a `block` read anchored on its first added line.
+most four reads: `getChangedFiles` (the body rides along), `reviewPatches`
+(every patch on a small PR, with the body when no file list is offered),
+`getDiscussion` (comments and reviews), and `getMergeCommit` (with the diff
+when the PR is small). A merged PR whose first patch window was read also
+offers `readAtMerge`: the first changed source file at the merge commit, as a
+`block` read anchored on its first added line.
 An inventory read offers `reviewPatches`: up to 30 source files (no tests,
 docs, lockfiles, generated or binary files; tests by each language's layout
 and naming, such as `_test.go`, `test_*.py`, `FooTest.java`, `_spec.rb`, or a
 `test/` directory), the ones that fit one patch budget first, the rest through
 `continuePatch`.
 Rows of one call share one patch budget, so a multi-row patch read fits one
-response page.
+response page. An explicit `responseCharLength` (up to 50,000) replaces the
+configured automatic page for that call: default patch windows fill the larger
+page, so a whole-PR patch walk that passes it on every `continuePatch` takes
+proportionally fewer calls, with the same per-file offsets (nothing skipped or
+repeated).
 
 `content.changedFiles` returns compact patch-free rows,
 `"M +3 -1 [!flag ]path[ <- old/path]"`: a git status letter (`T` changed,
@@ -458,8 +468,8 @@ PR reads narrow with three optional fields:
 A file inventory, a patch read, or a later page (a file, comment, commit, or
 review page after the first, or a nonzero body offset) returns a slim identity header (`number`, `state`, `sourceSha`,
 and the merge state `mergedAt`/`closedAt`/`targetBranch`; first pages also keep
-labels, inventories title, author, and counts), not the body preview or the
-full follow-up menu, unless `debug: true`.
+labels, inventories title, author, and counts), not the full follow-up menu,
+unless `debug: true`.
 
 PR details accept `minify:"none"` or `"standard"`. `none` preserves selected
 body, discussion/inline comments, reviews, and all/selected patch text after
@@ -558,7 +568,7 @@ Rules:
 
 ### `artifactSearch`
 
-Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. `version` pins an exact lookup to an exact version, a range (`^3`, `>=2.31,<3`), or a tag (`latest`, `next`) on npm, PyPI, and crates.io (the `name@version` and PyPI `name==version` coordinates stay valid); a range resolves like the registry's installer, and a missing version is `versionNotFound` with the nearest published versions. Exact rows add release facts when the registry has them: `publishedAt`, `deprecated`, `yanked`, `dependencies`/`peerDependencies` counts, and `engines` (npm), `requiresPython` (PyPI), or `rustVersion` (crates). npm discovery rows carry `downloadsMonthly`. Exact GitHub-backed lookups offer `next.viewRepo` for default-branch code and, when the registry names a commit or tag, `next.viewReleaseSource` for that release. Each labels `source.scope` (`defaultBranch` or `release`); `viewRepo` is always `source.verification:"unverified"`, and `viewReleaseSource.source.verification` is `provenance` when an npm SLSA provenance attestation binds this exact tarball (subject digest equals `dist.integrity`) to the manifest's repository and names the commit (the registry verifies the attestation at publish; octocode does not re-verify signatures), else `unverified` (npm `gitHead`, Go/Composer refs). Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
+Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. `version` pins an exact lookup to an exact version, a range (`^3`, `>=2.31,<3`), or a tag (`latest`, `next`) on npm, PyPI, and crates.io (the `name@version` and PyPI `name==version` coordinates stay valid); a range resolves like the registry's installer, and a missing version is `versionNotFound` with the nearest published versions. Exact rows add release facts when the registry has them: `publishedAt`, `deprecated`, `yanked`, `dependencies`/`peerDependencies` counts, and `engines` (npm), `requiresPython` (PyPI), or `rustVersion` (crates); their `description` (and a `homepage` beside the repository) are discovery aids that keyword rows keep and `debug: true` restores. Rows never restate the requested `type`. npm discovery rows carry `downloadsMonthly`. Exact GitHub-backed lookups offer `next.viewRepo` for default-branch code and, when the registry names a commit or tag, `next.viewReleaseSource` for that release. Each labels `source.scope` (`defaultBranch` or `release`); `viewRepo` is always `source.verification:"unverified"`, and `viewReleaseSource.source.verification` is `provenance` when an npm SLSA provenance attestation binds this exact tarball (subject digest equals `dist.integrity`) to the manifest's repository and names the commit (the registry verifies the attestation at publish; octocode does not re-verify signatures), else `unverified` (npm `gitHead`, Go/Composer refs). Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
 
 | Field | Meaning |
 |-------|---------|
@@ -735,10 +745,10 @@ matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
 | `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
 | `contextLines` | Lines around each match. Default 0 (`detailed`: 3), max 100. |
 | `matchContentLength` | Max characters per match snippet, clipped around the hit. Default 200 × (2·contextLines + 1), capped at 4000; explicit max 100000. |
-| `pageSize` | Files per lexical result page, 1–1000. Default 20 (100 for path/count views). |
-| `maxMatchesPerFile` | Per-file match page size. Default 10. Pair with `matchPage` to continue. |
-| `page` | Result page across matched files. |
-| `matchPage` | Per-file match page when a file has more matches. |
+| `pageSize` | Files per lexical result page, 1–1000. Omitted: pages of about 24 KB (path/count views: 100 files). |
+| `maxMatchesPerFile` | Per-file match page size. Omitted: every row when the result fits one page, else 10 per file on page 1. Pair with `matchPage` to continue. |
+| `page` | Result page. |
+| `matchPage` | Per-file match page when a file has more matches (with `pageSize` or `maxMatchesPerFile`). |
 
 #### Match options
 
@@ -781,7 +791,7 @@ Row `path` values are relative to the envelope `base`, which is the queried dire
 
 | Next key | Tool | Purpose |
 |----------|------|---------|
-| `nextPage` / `nextMatchPage` | `localSearch` | Continue file-level or per-file match pagination. A later match page lists only files that still have rows. |
+| `nextPage` / `nextMatchPage` | `localSearch` | Continue pagination. Without `pageSize`/`maxMatchesPerFile`, `nextPage` alone walks the rest in pages of about 24 KB. With either set, `nextPage` moves to the next files and `nextMatchPage` to each shown file's next rows; a later match page lists only files that still have rows. |
 | `restart` | `localSearch` | Rerun from page 1 when the result snapshot is stale. |
 | `clasify` | `clasify` | Wide pages only (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); present only while `clasify` is available. |
 
@@ -901,7 +911,7 @@ Bounded directory outline (no parser) for understanding shape, ownership, and fi
 | `path` | Directory to browse. Relative paths resolve from the workspace root. |
 | `maxDepth` | Levels below `path`, 0–20, default 1; `0` lists immediate children. Use low depth first. |
 | `page` | Result page. |
-| `pageSize` | Directory entries per page, max 100. |
+| `pageSize` | Directory entries per page, max 1000. Omitted: pages of about 24 KB. |
 | `limit` | Hard pre-pagination cap. Max 10000. |
 | `entryType` | `f` for files only, `d` for directories only; omit for both. |
 | `extensions` | Only include files with selected extensions. |
@@ -951,11 +961,13 @@ Metadata search for files and directories.
 | `permissions` | Octal permission filter, such as `"644"`. |
 | `access` | Permission predicate: `executable`, `readable`, or `writable`. |
 | `excludeDir` | Directory names to prune, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). `defaultExcludes: false` turns that prune off; sensitive directories such as `secrets/` stay hidden. |
-| `detail` | `basic` (default), `modified` (adds `modifiedMs`, Unix milliseconds), or `full` (also adds exact size and line count). |
-| `sort` | Sort by `modified` (default), `name`, `path`, `size`, or `lines`. |
+| `detail` | `basic` (default: path and size), `modified` (adds `modifiedMs`, Unix milliseconds), or `full` (also adds line count). |
+| `sort` | Sort by `path` (default, walk order), `modified`, `name`, `size`, or `lines`. |
 | `page` | Result page. |
-| `pageSize` | Files per page. Max 100. |
+| `pageSize` | Files per page, max 1000. Omitted: pages of about 24 KB. |
 | `limit` | Hard pre-pagination cap. Max 10000. |
+
+Rows carry `path` and, for files, `size` in bytes (`debug:true` adds `sizeFormatted`).
 
 #### Examples
 
@@ -986,7 +998,7 @@ Read a known local path. Path-only reads are valid and return exact source subje
 
 Selection precedes minification, redaction, and pagination. Line pages preserve complete lines within a 16384-byte budget. An offset at or past the end of the view returns empty content with an offset-zero `next.restart` (`pagination.outOfRange:true` with `debug: true`). An oversized line switches to byte paging from the unreturned position. Byte ends extend by at most three bytes to finish a UTF-8 code point. Copy the complete `next.continue` query; do not calculate offsets. Continuations stop at the selected range or matched view.
 
-Every successful text read reports original-file `totalLines`, including empty files and no matches. `sourceBytes`, `returnedBytes`, and `returnedLines` are debug-only; a partial page also reports `returnedChars` (UTF-16 code units). `pagination.totalLines`/`totalBytes` describe the selected returned view. Content whose lines map onto original source lines is numbered in the structured result itself, `cat -n` style (`279<TAB>fn a() {`), with omission markers unnumbered and `sourceLineRanges` then omitted; strip the prefix up to the first TAB before copying text (see [numbered source content](TOOL_DATA_CONTRACT.md#numbered-source-content)). Whitespace and line endings after the prefix are preserved. YAML text prints the same lines under `content (source lines):`, or `content (copy-safe):` unnumbered when lines cannot be mapped. The `symbols` outline prefixes each line with `N| `.
+Every successful text read reports original-file `totalLines`, including empty files and no matches. `sourceBytes`, `returnedBytes`, and `returnedLines` are debug-only; a partial page also reports `returnedChars` (UTF-16 code units). `pagination.totalLines`/`totalBytes` describe the selected returned view. Content whose lines map onto original source lines is numbered in the structured result itself, `cat -n` style (`279<TAB>fn a() {`), with omission markers unnumbered and `sourceLineRanges` then omitted; strip the prefix up to the first TAB before copying text (see [numbered source content](TOOL_DATA_CONTRACT.md#numbered-source-content)). Whitespace and line endings after the prefix are preserved. YAML text prints the same lines under `content (source lines):`, or `content (copy-safe):` unnumbered when lines cannot be mapped. The `symbols` outline uses the same `<line><TAB>` prefix with original line numbers.
 
 `matchRanges` describe all selected source context windows; `matchedLines` contains matching source anchors intersecting the current page, and `selectedMatchCount` counts matching source lines in the selected view. Overlapping context windows are merged. `matchString` forces exact content so minification cannot remove the evidence. `minifyFallback` reports the requested/applied modes and reason when a match forces exact content or an outline is unavailable.
 

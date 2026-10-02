@@ -588,6 +588,12 @@ pub fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
         .filter_map(|key| data.get(key).map(|value| (key.clone(), value.clone())))
         .collect::<std::collections::BTreeMap<_, _>>();
     minimize_data(data, tool, query);
+    if tool.is_github() {
+        super::github_output::compact(tool, &mut row["data"], query);
+    }
+    let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
+        return;
+    };
     let still = |variant: &&std::collections::BTreeSet<String>| {
         variant.iter().all(|key| data.contains_key(key))
     };
@@ -695,29 +701,23 @@ fn minimize_data(data: &mut Map<String, Value>, tool: ToolId, query: &Value) {
 /// contract (one set per union branch, common requirements merged in).
 fn contract_data_variants(tool: ToolId) -> &'static [std::collections::BTreeSet<String>] {
     type Variants = Vec<std::collections::BTreeSet<String>>;
-    static VARIANTS: std::sync::OnceLock<std::collections::HashMap<ToolId, Variants>> =
-        std::sync::OnceLock::new();
-    VARIANTS
-        .get_or_init(|| {
-            let Ok(contract) = crate::contracts::parsed_contract() else {
-                return Default::default();
-            };
-            contract["tools"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|tool| {
-                    let id = ToolId::from_name(tool["name"].as_str()?)?;
-                    let schema = &tool["outputSchema"];
-                    let defs = &schema["$defs"];
-                    let rows = resolve_ref(&schema["properties"]["results"]["items"], defs);
-                    let data = resolve_ref(&rows["properties"]["data"], defs);
-                    Some((id, variants_of(data, defs, &Default::default(), 0)))
-                })
-                .collect()
-        })
-        .get(&tool)
-        .map_or(&[], Vec::as_slice)
+    // Per tool: a call builds only its own tool's variants (see
+    // `contracts::tool_contract`), never the whole contract's.
+    static VARIANTS: [std::sync::OnceLock<Variants>; ToolId::ALL.len()] =
+        [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
+    let Some(index) = ToolId::ALL.iter().position(|id| *id == tool) else {
+        return &[];
+    };
+    VARIANTS[index].get_or_init(|| {
+        let Ok(tool) = crate::contracts::tool_contract(tool) else {
+            return Vec::new();
+        };
+        let schema = &tool["outputSchema"];
+        let defs = &schema["$defs"];
+        let rows = resolve_ref(&schema["properties"]["results"]["items"], defs);
+        let data = resolve_ref(&rows["properties"]["data"], defs);
+        variants_of(data, defs, &Default::default(), 0)
+    })
 }
 
 fn resolve_ref<'a>(schema: &'a Value, defs: &'a Value) -> &'a Value {
@@ -790,7 +790,7 @@ const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
             "files.returnedBytes",
             "files.selectedMatchCount",
         ],
-        ToolId::StructureSearch => &["filesScanned"],
+        ToolId::StructureSearch => &["filesScanned", "files.sizeFormatted"],
         ToolId::AstTopology => &["filesScanned"],
         ToolId::GhSearchHistory => &["effectiveQuery", "scope"],
         ToolId::GhGetHistoryItem => &["parents"],

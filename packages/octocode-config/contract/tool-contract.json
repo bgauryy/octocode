@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "b5cb4b53402473bd8ff3fc454acd8840c3facb3d8919d5fdfe7bee364feec07e",
+  "fingerprint": "9804153488ea74d7c1936c3ae790612b41e5aabf9bc598edd66a34e3e34d9990",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -21031,7 +21031,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -21148,7 +21148,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -28362,7 +28362,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -28479,7 +28479,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -35798,7 +35798,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -35915,7 +35915,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -43069,7 +43069,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -43186,7 +43186,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -50961,7 +50961,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -51078,7 +51078,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -59963,7 +59963,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -60080,7 +60080,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -70330,7 +70330,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -70447,7 +70447,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -77778,7 +77778,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -77895,7 +77895,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -81229,7 +81229,7 @@
                   "type": "integer"
                 },
                 "maxMatchesPerFile": {
-                  "description": "Matches per file page; all when ≤50 hits in total, else 10.",
+                  "description": "Rows per file page; default all if one page fits, else 10.",
                   "maximum": 100000,
                   "minimum": 1,
                   "type": "integer"
@@ -81256,7 +81256,7 @@
                   "type": "integer"
                 },
                 "pageSize": {
-                  "description": "Files per page (default 20; list views 100).",
+                  "description": "Files per page; default ~24 KB pages (lists 100).",
                   "maximum": 1000,
                   "minimum": 1,
                   "type": "integer"
@@ -85027,7 +85027,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -85144,7 +85144,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -88027,38 +88027,48 @@
                               "declarations": {
                                 "description": "Directory symbols outline: this file's declarations.",
                                 "items": {
-                                  "additionalProperties": {},
-                                  "properties": {
-                                    "endLine": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "exported": {
-                                      "type": "boolean"
-                                    },
-                                    "kind": {
+                                  "anyOf": [
+                                    {
+                                      "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                      "title": "OutlineRow",
                                       "type": "string"
                                     },
-                                    "line": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "name": {
-                                      "type": "string"
-                                    },
-                                    "path": {
-                                      "type": "string"
+                                    {
+                                      "additionalProperties": {},
+                                      "properties": {
+                                        "endLine": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "exported": {
+                                          "type": "boolean"
+                                        },
+                                        "kind": {
+                                          "type": "string"
+                                        },
+                                        "line": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "path": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "kind"
+                                      ],
+                                      "title": "Declaration",
+                                      "type": "object"
                                     }
-                                  },
-                                  "required": [
-                                    "name",
-                                    "kind"
-                                  ],
-                                  "title": "Declaration",
-                                  "type": "object"
+                                  ]
                                 },
+                                "title": "DeclarationRows",
                                 "type": "array"
                               },
                               "matchCount": {
@@ -88068,43 +88078,52 @@
                               },
                               "matches": {
                                 "items": {
-                                  "additionalProperties": {},
-                                  "properties": {
-                                    "column": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "count": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "line": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "matchLines": {
-                                      "items": {
-                                        "maximum": 9007199254740991,
-                                        "minimum": 0,
-                                        "type": "integer"
-                                      },
-                                      "type": "array"
-                                    },
-                                    "truncated": {
-                                      "type": "boolean"
-                                    },
-                                    "value": {
+                                  "anyOf": [
+                                    {
+                                      "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                      "title": "MatchRow",
                                       "type": "string"
+                                    },
+                                    {
+                                      "additionalProperties": {},
+                                      "properties": {
+                                        "column": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "count": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "line": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "matchLines": {
+                                          "items": {
+                                            "maximum": 9007199254740991,
+                                            "minimum": 0,
+                                            "type": "integer"
+                                          },
+                                          "type": "array"
+                                        },
+                                        "truncated": {
+                                          "type": "boolean"
+                                        },
+                                        "value": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "value"
+                                      ],
+                                      "title": "TextMatch",
+                                      "type": "object"
                                     }
-                                  },
-                                  "required": [
-                                    "value"
-                                  ],
-                                  "title": "TextMatch",
-                                  "type": "object"
+                                  ]
                                 },
                                 "type": "array"
                               },
@@ -88302,38 +88321,48 @@
                               "declarations": {
                                 "description": "Directory symbols outline: this file's declarations.",
                                 "items": {
-                                  "additionalProperties": {},
-                                  "properties": {
-                                    "endLine": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "exported": {
-                                      "type": "boolean"
-                                    },
-                                    "kind": {
+                                  "anyOf": [
+                                    {
+                                      "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                      "title": "OutlineRow",
                                       "type": "string"
                                     },
-                                    "line": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "name": {
-                                      "type": "string"
-                                    },
-                                    "path": {
-                                      "type": "string"
+                                    {
+                                      "additionalProperties": {},
+                                      "properties": {
+                                        "endLine": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "exported": {
+                                          "type": "boolean"
+                                        },
+                                        "kind": {
+                                          "type": "string"
+                                        },
+                                        "line": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "path": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "kind"
+                                      ],
+                                      "title": "Declaration",
+                                      "type": "object"
                                     }
-                                  },
-                                  "required": [
-                                    "name",
-                                    "kind"
-                                  ],
-                                  "title": "Declaration",
-                                  "type": "object"
+                                  ]
                                 },
+                                "title": "DeclarationRows",
                                 "type": "array"
                               },
                               "matchCount": {
@@ -88343,43 +88372,52 @@
                               },
                               "matches": {
                                 "items": {
-                                  "additionalProperties": {},
-                                  "properties": {
-                                    "column": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "count": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "line": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "matchLines": {
-                                      "items": {
-                                        "maximum": 9007199254740991,
-                                        "minimum": 0,
-                                        "type": "integer"
-                                      },
-                                      "type": "array"
-                                    },
-                                    "truncated": {
-                                      "type": "boolean"
-                                    },
-                                    "value": {
+                                  "anyOf": [
+                                    {
+                                      "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                      "title": "MatchRow",
                                       "type": "string"
+                                    },
+                                    {
+                                      "additionalProperties": {},
+                                      "properties": {
+                                        "column": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "count": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "line": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "matchLines": {
+                                          "items": {
+                                            "maximum": 9007199254740991,
+                                            "minimum": 0,
+                                            "type": "integer"
+                                          },
+                                          "type": "array"
+                                        },
+                                        "truncated": {
+                                          "type": "boolean"
+                                        },
+                                        "value": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "value"
+                                      ],
+                                      "title": "TextMatch",
+                                      "type": "object"
                                     }
-                                  },
-                                  "required": [
-                                    "value"
-                                  ],
-                                  "title": "TextMatch",
-                                  "type": "object"
+                                  ]
                                 },
                                 "type": "array"
                               },
@@ -88577,38 +88615,48 @@
                               "declarations": {
                                 "description": "Directory symbols outline: this file's declarations.",
                                 "items": {
-                                  "additionalProperties": {},
-                                  "properties": {
-                                    "endLine": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "exported": {
-                                      "type": "boolean"
-                                    },
-                                    "kind": {
+                                  "anyOf": [
+                                    {
+                                      "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                      "title": "OutlineRow",
                                       "type": "string"
                                     },
-                                    "line": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "name": {
-                                      "type": "string"
-                                    },
-                                    "path": {
-                                      "type": "string"
+                                    {
+                                      "additionalProperties": {},
+                                      "properties": {
+                                        "endLine": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "exported": {
+                                          "type": "boolean"
+                                        },
+                                        "kind": {
+                                          "type": "string"
+                                        },
+                                        "line": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "path": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "kind"
+                                      ],
+                                      "title": "Declaration",
+                                      "type": "object"
                                     }
-                                  },
-                                  "required": [
-                                    "name",
-                                    "kind"
-                                  ],
-                                  "title": "Declaration",
-                                  "type": "object"
+                                  ]
                                 },
+                                "title": "DeclarationRows",
                                 "type": "array"
                               },
                               "matchCount": {
@@ -88618,43 +88666,52 @@
                               },
                               "matches": {
                                 "items": {
-                                  "additionalProperties": {},
-                                  "properties": {
-                                    "column": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "count": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "line": {
-                                      "maximum": 9007199254740991,
-                                      "minimum": 0,
-                                      "type": "integer"
-                                    },
-                                    "matchLines": {
-                                      "items": {
-                                        "maximum": 9007199254740991,
-                                        "minimum": 0,
-                                        "type": "integer"
-                                      },
-                                      "type": "array"
-                                    },
-                                    "truncated": {
-                                      "type": "boolean"
-                                    },
-                                    "value": {
+                                  "anyOf": [
+                                    {
+                                      "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                      "title": "MatchRow",
                                       "type": "string"
+                                    },
+                                    {
+                                      "additionalProperties": {},
+                                      "properties": {
+                                        "column": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "count": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "line": {
+                                          "maximum": 9007199254740991,
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "matchLines": {
+                                          "items": {
+                                            "maximum": 9007199254740991,
+                                            "minimum": 0,
+                                            "type": "integer"
+                                          },
+                                          "type": "array"
+                                        },
+                                        "truncated": {
+                                          "type": "boolean"
+                                        },
+                                        "value": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "value"
+                                      ],
+                                      "title": "TextMatch",
+                                      "type": "object"
                                     }
-                                  },
-                                  "required": [
-                                    "value"
-                                  ],
-                                  "title": "TextMatch",
-                                  "type": "object"
+                                  ]
                                 },
                                 "type": "array"
                               },
@@ -89032,7 +89089,7 @@
             "type": "integer"
           },
           "maxMatchesPerFile": {
-            "description": "Matches per file page; all when ≤50 hits in total, else 10.",
+            "description": "Rows per file page; default all if one page fits, else 10.",
             "maximum": 100000,
             "minimum": 1,
             "type": "integer"
@@ -89059,7 +89116,7 @@
             "type": "integer"
           },
           "pageSize": {
-            "description": "Files per page (default 20; list views 100).",
+            "description": "Files per page; default ~24 KB pages (lists 100).",
             "maximum": 1000,
             "minimum": 1,
             "type": "integer"
@@ -89255,7 +89312,6 @@
             "debug": false,
             "detail": "basic",
             "page": 1,
-            "pageSize": 100,
             "sort": "path"
           },
           "when": {
@@ -89267,8 +89323,7 @@
           "present": [],
           "values": {
             "debug": false,
-            "page": 1,
-            "pageSize": 100
+            "page": 1
           },
           "when": {
             "operation": "tree"
@@ -89373,9 +89428,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "default": 100,
-                      "description": "Rows per page.",
-                      "maximum": 100,
+                      "description": "Rows per page; default ~24 KB.",
+                      "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
                     },
@@ -89510,9 +89564,8 @@
                       "type": "integer"
                     },
                     "pageSize": {
-                      "default": 100,
-                      "description": "Rows per page.",
-                      "maximum": 100,
+                      "description": "Rows per page; default ~24 KB.",
+                      "maximum": 1000,
                       "minimum": 1,
                       "type": "integer"
                     },
@@ -93282,7 +93335,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -93399,7 +93452,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -96078,7 +96131,7 @@
                                   "type": "integer"
                                 },
                                 "pageSize": {
-                                  "maximum": 100,
+                                  "maximum": 1000,
                                   "minimum": 1,
                                   "type": "integer"
                                 },
@@ -96195,7 +96248,7 @@
                                   "type": "integer"
                                 },
                                 "pageSize": {
-                                  "maximum": 100,
+                                  "maximum": 1000,
                                   "minimum": 1,
                                   "type": "integer"
                                 },
@@ -97064,9 +97117,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "default": 100,
-                "description": "Rows per page.",
-                "maximum": 100,
+                "description": "Rows per page; default ~24 KB.",
+                "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
               },
@@ -97201,9 +97253,8 @@
                 "type": "integer"
               },
               "pageSize": {
-                "default": 100,
-                "description": "Rows per page.",
-                "maximum": 100,
+                "description": "Rows per page; default ~24 KB.",
+                "maximum": 1000,
                 "minimum": 1,
                 "type": "integer"
               },
@@ -101791,7 +101842,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -101908,7 +101959,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -105046,38 +105097,48 @@
                         },
                         "declarations": {
                           "items": {
-                            "additionalProperties": {},
-                            "properties": {
-                              "endLine": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "exported": {
-                                "type": "boolean"
-                              },
-                              "kind": {
+                            "anyOf": [
+                              {
+                                "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                "title": "OutlineRow",
                                 "type": "string"
                               },
-                              "line": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "path": {
-                                "type": "string"
+                              {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "endLine": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "exported": {
+                                    "type": "boolean"
+                                  },
+                                  "kind": {
+                                    "type": "string"
+                                  },
+                                  "line": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "path": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "kind"
+                                ],
+                                "title": "Declaration",
+                                "type": "object"
                               }
-                            },
-                            "required": [
-                              "name",
-                              "kind"
-                            ],
-                            "title": "Declaration",
-                            "type": "object"
+                            ]
                           },
+                          "title": "DeclarationRows",
                           "type": "array"
                         },
                         "error": {
@@ -105101,38 +105162,48 @@
                                   "declarations": {
                                     "description": "Directory symbols outline: this file's declarations.",
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "endLine": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "exported": {
-                                          "type": "boolean"
-                                        },
-                                        "kind": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                          "title": "OutlineRow",
                                           "type": "string"
                                         },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "name": {
-                                          "type": "string"
-                                        },
-                                        "path": {
-                                          "type": "string"
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "endLine": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "exported": {
+                                              "type": "boolean"
+                                            },
+                                            "kind": {
+                                              "type": "string"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "path": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "kind"
+                                          ],
+                                          "title": "Declaration",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "name",
-                                        "kind"
-                                      ],
-                                      "title": "Declaration",
-                                      "type": "object"
+                                      ]
                                     },
+                                    "title": "DeclarationRows",
                                     "type": "array"
                                   },
                                   "matchCount": {
@@ -105142,43 +105213,52 @@
                                   },
                                   "matches": {
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "column": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "count": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "matchLines": {
-                                          "items": {
-                                            "maximum": 9007199254740991,
-                                            "minimum": 0,
-                                            "type": "integer"
-                                          },
-                                          "type": "array"
-                                        },
-                                        "truncated": {
-                                          "type": "boolean"
-                                        },
-                                        "value": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                          "title": "MatchRow",
                                           "type": "string"
+                                        },
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "column": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "count": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "matchLines": {
+                                              "items": {
+                                                "maximum": 9007199254740991,
+                                                "minimum": 0,
+                                                "type": "integer"
+                                              },
+                                              "type": "array"
+                                            },
+                                            "truncated": {
+                                              "type": "boolean"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "value"
+                                          ],
+                                          "title": "TextMatch",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "title": "TextMatch",
-                                      "type": "object"
+                                      ]
                                     },
                                     "type": "array"
                                   },
@@ -105437,38 +105517,48 @@
                         },
                         "declarations": {
                           "items": {
-                            "additionalProperties": {},
-                            "properties": {
-                              "endLine": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "exported": {
-                                "type": "boolean"
-                              },
-                              "kind": {
+                            "anyOf": [
+                              {
+                                "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                "title": "OutlineRow",
                                 "type": "string"
                               },
-                              "line": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "path": {
-                                "type": "string"
+                              {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "endLine": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "exported": {
+                                    "type": "boolean"
+                                  },
+                                  "kind": {
+                                    "type": "string"
+                                  },
+                                  "line": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "path": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "kind"
+                                ],
+                                "title": "Declaration",
+                                "type": "object"
                               }
-                            },
-                            "required": [
-                              "name",
-                              "kind"
-                            ],
-                            "title": "Declaration",
-                            "type": "object"
+                            ]
                           },
+                          "title": "DeclarationRows",
                           "type": "array"
                         },
                         "error": {
@@ -105492,38 +105582,48 @@
                                   "declarations": {
                                     "description": "Directory symbols outline: this file's declarations.",
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "endLine": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "exported": {
-                                          "type": "boolean"
-                                        },
-                                        "kind": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                          "title": "OutlineRow",
                                           "type": "string"
                                         },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "name": {
-                                          "type": "string"
-                                        },
-                                        "path": {
-                                          "type": "string"
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "endLine": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "exported": {
+                                              "type": "boolean"
+                                            },
+                                            "kind": {
+                                              "type": "string"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "path": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "kind"
+                                          ],
+                                          "title": "Declaration",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "name",
-                                        "kind"
-                                      ],
-                                      "title": "Declaration",
-                                      "type": "object"
+                                      ]
                                     },
+                                    "title": "DeclarationRows",
                                     "type": "array"
                                   },
                                   "matchCount": {
@@ -105533,43 +105633,52 @@
                                   },
                                   "matches": {
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "column": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "count": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "matchLines": {
-                                          "items": {
-                                            "maximum": 9007199254740991,
-                                            "minimum": 0,
-                                            "type": "integer"
-                                          },
-                                          "type": "array"
-                                        },
-                                        "truncated": {
-                                          "type": "boolean"
-                                        },
-                                        "value": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                          "title": "MatchRow",
                                           "type": "string"
+                                        },
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "column": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "count": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "matchLines": {
+                                              "items": {
+                                                "maximum": 9007199254740991,
+                                                "minimum": 0,
+                                                "type": "integer"
+                                              },
+                                              "type": "array"
+                                            },
+                                            "truncated": {
+                                              "type": "boolean"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "value"
+                                          ],
+                                          "title": "TextMatch",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "title": "TextMatch",
-                                      "type": "object"
+                                      ]
                                     },
                                     "type": "array"
                                   },
@@ -105828,38 +105937,48 @@
                         },
                         "declarations": {
                           "items": {
-                            "additionalProperties": {},
-                            "properties": {
-                              "endLine": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "exported": {
-                                "type": "boolean"
-                              },
-                              "kind": {
+                            "anyOf": [
+                              {
+                                "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                "title": "OutlineRow",
                                 "type": "string"
                               },
-                              "line": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "path": {
-                                "type": "string"
+                              {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "endLine": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "exported": {
+                                    "type": "boolean"
+                                  },
+                                  "kind": {
+                                    "type": "string"
+                                  },
+                                  "line": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "path": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "kind"
+                                ],
+                                "title": "Declaration",
+                                "type": "object"
                               }
-                            },
-                            "required": [
-                              "name",
-                              "kind"
-                            ],
-                            "title": "Declaration",
-                            "type": "object"
+                            ]
                           },
+                          "title": "DeclarationRows",
                           "type": "array"
                         },
                         "error": {
@@ -105883,38 +106002,48 @@
                                   "declarations": {
                                     "description": "Directory symbols outline: this file's declarations.",
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "endLine": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "exported": {
-                                          "type": "boolean"
-                                        },
-                                        "kind": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                          "title": "OutlineRow",
                                           "type": "string"
                                         },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "name": {
-                                          "type": "string"
-                                        },
-                                        "path": {
-                                          "type": "string"
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "endLine": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "exported": {
+                                              "type": "boolean"
+                                            },
+                                            "kind": {
+                                              "type": "string"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "path": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "kind"
+                                          ],
+                                          "title": "Declaration",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "name",
-                                        "kind"
-                                      ],
-                                      "title": "Declaration",
-                                      "type": "object"
+                                      ]
                                     },
+                                    "title": "DeclarationRows",
                                     "type": "array"
                                   },
                                   "matchCount": {
@@ -105924,43 +106053,52 @@
                                   },
                                   "matches": {
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "column": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "count": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "matchLines": {
-                                          "items": {
-                                            "maximum": 9007199254740991,
-                                            "minimum": 0,
-                                            "type": "integer"
-                                          },
-                                          "type": "array"
-                                        },
-                                        "truncated": {
-                                          "type": "boolean"
-                                        },
-                                        "value": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                          "title": "MatchRow",
                                           "type": "string"
+                                        },
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "column": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "count": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "matchLines": {
+                                              "items": {
+                                                "maximum": 9007199254740991,
+                                                "minimum": 0,
+                                                "type": "integer"
+                                              },
+                                              "type": "array"
+                                            },
+                                            "truncated": {
+                                              "type": "boolean"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "value"
+                                          ],
+                                          "title": "TextMatch",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "title": "TextMatch",
-                                      "type": "object"
+                                      ]
                                     },
                                     "type": "array"
                                   },
@@ -106219,38 +106357,48 @@
                         },
                         "declarations": {
                           "items": {
-                            "additionalProperties": {},
-                            "properties": {
-                              "endLine": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "exported": {
-                                "type": "boolean"
-                              },
-                              "kind": {
+                            "anyOf": [
+                              {
+                                "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                "title": "OutlineRow",
                                 "type": "string"
                               },
-                              "line": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "path": {
-                                "type": "string"
+                              {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "endLine": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "exported": {
+                                    "type": "boolean"
+                                  },
+                                  "kind": {
+                                    "type": "string"
+                                  },
+                                  "line": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "path": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "kind"
+                                ],
+                                "title": "Declaration",
+                                "type": "object"
                               }
-                            },
-                            "required": [
-                              "name",
-                              "kind"
-                            ],
-                            "title": "Declaration",
-                            "type": "object"
+                            ]
                           },
+                          "title": "DeclarationRows",
                           "type": "array"
                         },
                         "error": {
@@ -106274,38 +106422,48 @@
                                   "declarations": {
                                     "description": "Directory symbols outline: this file's declarations.",
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "endLine": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "exported": {
-                                          "type": "boolean"
-                                        },
-                                        "kind": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                          "title": "OutlineRow",
                                           "type": "string"
                                         },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "name": {
-                                          "type": "string"
-                                        },
-                                        "path": {
-                                          "type": "string"
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "endLine": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "exported": {
+                                              "type": "boolean"
+                                            },
+                                            "kind": {
+                                              "type": "string"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "path": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "kind"
+                                          ],
+                                          "title": "Declaration",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "name",
-                                        "kind"
-                                      ],
-                                      "title": "Declaration",
-                                      "type": "object"
+                                      ]
                                     },
+                                    "title": "DeclarationRows",
                                     "type": "array"
                                   },
                                   "matchCount": {
@@ -106315,43 +106473,52 @@
                                   },
                                   "matches": {
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "column": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "count": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "matchLines": {
-                                          "items": {
-                                            "maximum": 9007199254740991,
-                                            "minimum": 0,
-                                            "type": "integer"
-                                          },
-                                          "type": "array"
-                                        },
-                                        "truncated": {
-                                          "type": "boolean"
-                                        },
-                                        "value": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                          "title": "MatchRow",
                                           "type": "string"
+                                        },
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "column": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "count": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "matchLines": {
+                                              "items": {
+                                                "maximum": 9007199254740991,
+                                                "minimum": 0,
+                                                "type": "integer"
+                                              },
+                                              "type": "array"
+                                            },
+                                            "truncated": {
+                                              "type": "boolean"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "value"
+                                          ],
+                                          "title": "TextMatch",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "title": "TextMatch",
-                                      "type": "object"
+                                      ]
                                     },
                                     "type": "array"
                                   },
@@ -106610,38 +106777,48 @@
                         },
                         "declarations": {
                           "items": {
-                            "additionalProperties": {},
-                            "properties": {
-                              "endLine": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "exported": {
-                                "type": "boolean"
-                              },
-                              "kind": {
+                            "anyOf": [
+                              {
+                                "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                "title": "OutlineRow",
                                 "type": "string"
                               },
-                              "line": {
-                                "maximum": 9007199254740991,
-                                "minimum": 0,
-                                "type": "integer"
-                              },
-                              "name": {
-                                "type": "string"
-                              },
-                              "path": {
-                                "type": "string"
+                              {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "endLine": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "exported": {
+                                    "type": "boolean"
+                                  },
+                                  "kind": {
+                                    "type": "string"
+                                  },
+                                  "line": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "path": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "kind"
+                                ],
+                                "title": "Declaration",
+                                "type": "object"
                               }
-                            },
-                            "required": [
-                              "name",
-                              "kind"
-                            ],
-                            "title": "Declaration",
-                            "type": "object"
+                            ]
                           },
+                          "title": "DeclarationRows",
                           "type": "array"
                         },
                         "error": {
@@ -106665,38 +106842,48 @@
                                   "declarations": {
                                     "description": "Directory symbols outline: this file's declarations.",
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "endLine": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "exported": {
-                                          "type": "boolean"
-                                        },
-                                        "kind": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Symbols outline row \"<line>[-<endLine>] <kind> <name>\" plus optional suffixes: \" +\" exported, \" as a,b\" public names, \" doc\" (comment block ends above) or \" doc@N\" (it starts at N), \" from@N\" (attributes start at N), \" col N\" (0-based column), \" (in Parent@L)\" (parent not on this page). Two leading spaces per nesting level under the preceding row.",
+                                          "title": "OutlineRow",
                                           "type": "string"
                                         },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "name": {
-                                          "type": "string"
-                                        },
-                                        "path": {
-                                          "type": "string"
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "endLine": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "exported": {
+                                              "type": "boolean"
+                                            },
+                                            "kind": {
+                                              "type": "string"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "name": {
+                                              "type": "string"
+                                            },
+                                            "path": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "name",
+                                            "kind"
+                                          ],
+                                          "title": "Declaration",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "name",
-                                        "kind"
-                                      ],
-                                      "title": "Declaration",
-                                      "type": "object"
+                                      ]
                                     },
+                                    "title": "DeclarationRows",
                                     "type": "array"
                                   },
                                   "matchCount": {
@@ -106706,43 +106893,52 @@
                                   },
                                   "matches": {
                                     "items": {
-                                      "additionalProperties": {},
-                                      "properties": {
-                                        "column": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "count": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "line": {
-                                          "maximum": 9007199254740991,
-                                          "minimum": 0,
-                                          "type": "integer"
-                                        },
-                                        "matchLines": {
-                                          "items": {
-                                            "maximum": 9007199254740991,
-                                            "minimum": 0,
-                                            "type": "integer"
-                                          },
-                                          "type": "array"
-                                        },
-                                        "truncated": {
-                                          "type": "boolean"
-                                        },
-                                        "value": {
+                                      "anyOf": [
+                                        {
+                                          "description": "Lean structural match row \"<line>[-<endLine>]\t<value>\": 1-based start (and end) line, TAB, the whitespace-normalized matched text. Rows with captures (captureText) stay objects.",
+                                          "title": "MatchRow",
                                           "type": "string"
+                                        },
+                                        {
+                                          "additionalProperties": {},
+                                          "properties": {
+                                            "column": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "count": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "line": {
+                                              "maximum": 9007199254740991,
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "matchLines": {
+                                              "items": {
+                                                "maximum": 9007199254740991,
+                                                "minimum": 0,
+                                                "type": "integer"
+                                              },
+                                              "type": "array"
+                                            },
+                                            "truncated": {
+                                              "type": "boolean"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "value"
+                                          ],
+                                          "title": "TextMatch",
+                                          "type": "object"
                                         }
-                                      },
-                                      "required": [
-                                        "value"
-                                      ],
-                                      "title": "TextMatch",
-                                      "type": "object"
+                                      ]
                                     },
                                     "type": "array"
                                   },
@@ -112538,7 +112734,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -112655,7 +112851,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -122115,7 +122311,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -122232,7 +122428,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -130798,7 +130994,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -130915,7 +131111,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -138842,7 +139038,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -138959,7 +139155,7 @@
                             "type": "integer"
                           },
                           "pageSize": {
-                            "maximum": 100,
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -141941,6 +142137,7 @@
                 "additionalProperties": {},
                 "properties": {
                   "byFile": {
+                    "description": "Per-file rows: references {path, refs: [\"<line>[-<end>]:<col> <text>\"]}, depth-1 callers {path, calls: [\"<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>\"]}, or groupByFile summaries {path, references, lines}.",
                     "items": {
                       "$ref": "#/$defs/OutputLspItem"
                     },
@@ -141990,6 +142187,7 @@
                 "additionalProperties": {},
                 "properties": {
                   "byFile": {
+                    "description": "Per-file rows: references {path, refs: [\"<line>[-<end>]:<col> <text>\"]}, depth-1 callers {path, calls: [\"<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>\"]}, or groupByFile summaries {path, references, lines}.",
                     "items": {
                       "$ref": "#/$defs/OutputLspItem"
                     },
@@ -142039,6 +142237,7 @@
                 "additionalProperties": {},
                 "properties": {
                   "byFile": {
+                    "description": "Per-file rows: references {path, refs: [\"<line>[-<end>]:<col> <text>\"]}, depth-1 callers {path, calls: [\"<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>\"]}, or groupByFile summaries {path, references, lines}.",
                     "items": {
                       "$ref": "#/$defs/OutputLspItem"
                     },
@@ -142088,6 +142287,7 @@
                 "additionalProperties": {},
                 "properties": {
                   "byFile": {
+                    "description": "Per-file rows: references {path, refs: [\"<line>[-<end>]:<col> <text>\"]}, depth-1 callers {path, calls: [\"<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>\"]}, or groupByFile summaries {path, references, lines}.",
                     "items": {
                       "$ref": "#/$defs/OutputLspItem"
                     },
@@ -142186,6 +142386,7 @@
                 "additionalProperties": {},
                 "properties": {
                   "byFile": {
+                    "description": "Per-file rows: references {path, refs: [\"<line>[-<end>]:<col> <text>\"]}, depth-1 callers {path, calls: [\"<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>\"]}, or groupByFile summaries {path, references, lines}.",
                     "items": {
                       "$ref": "#/$defs/OutputLspItem"
                     },

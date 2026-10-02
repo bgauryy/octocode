@@ -309,13 +309,16 @@ impl GitHubServices {
         let mut raw_query = query.clone();
         if let Some(fields) = raw_query.as_object_mut() {
             fields.remove(gh_get_history_item::PATCH_ROWS_KEY);
+            fields.remove(gh_get_history_item::RESPONSE_PAGE_KEY);
         }
         let raw_query = &raw_query;
         let mut query = match gh_get_history_item::HistoryItemRequest::from_row(query.clone()) {
             Ok(query) => query,
             Err(error) => return Ok(super::dispatch::invalid_query(&error)),
         };
-        query.auto_page_chars = Some(self.auto_page_chars);
+        // An explicit response page replaces the configured one: patch
+        // windows fill the page the caller asked for.
+        query.auto_page_chars = Some(query.response_page.unwrap_or(self.auto_page_chars));
         // History items are mutable; bypass ConditionalCache intentionally.
         // See gh_get_history_item module-level doc for the full rationale.
         let result = gh_get_history_item::execute(

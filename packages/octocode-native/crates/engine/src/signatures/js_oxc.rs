@@ -1440,8 +1440,10 @@ fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSym
 /// (`res.redirect = function () {}`, `exports.handler = () => {}`,
 /// `Widget.prototype.render = function () {}`): CommonJS and prototype-style
 /// modules declare their API this way. Each spans its whole statement and is
-/// named by its member path. Only the declaration outline collects them; the
-/// dependency graph keeps its binding-based declarations.
+/// named, like a method, by the assigned property, whose span is its
+/// selection (the anchor a language server resolves). Only the declaration
+/// outline collects them; the dependency graph keeps its binding-based
+/// declarations.
 fn collect_member_functions(
     statements: &[Statement],
     li: &LineIndex,
@@ -1465,33 +1467,29 @@ fn collect_member_functions(
         else {
             continue;
         };
-        let Some(object) = member_path(&target.object) else {
+        if member_path(&target.object).is_none() {
             continue;
-        };
+        }
         let Some((symbol_kind, value)) = assigned_definition(&assignment.right) else {
             continue;
         };
         out.push(container(
-            &format!("{object}.{}", target.property.name),
+            target.property.name.as_str(),
             symbol_kind,
             statement.span,
-            target.span,
+            target.property.span,
             function_value_children(value, li).unwrap_or_default(),
             li,
         ));
     }
 }
 
-/// `a`, `this`, or a static member chain `a.b.c`, as written.
-fn member_path(expression: &Expression) -> Option<String> {
+/// Whether `expression` is `a`, `this`, or a static member chain `a.b.c`
+/// (not a call or computed member).
+fn member_path(expression: &Expression) -> Option<()> {
     match expression.without_parentheses() {
-        Expression::Identifier(identifier) => Some(identifier.name.to_string()),
-        Expression::ThisExpression(_) => Some("this".into()),
-        Expression::StaticMemberExpression(member) => Some(format!(
-            "{}.{}",
-            member_path(&member.object)?,
-            member.property.name
-        )),
+        Expression::Identifier(_) | Expression::ThisExpression(_) => Some(()),
+        Expression::StaticMemberExpression(member) => member_path(&member.object),
         _ => None,
     }
 }

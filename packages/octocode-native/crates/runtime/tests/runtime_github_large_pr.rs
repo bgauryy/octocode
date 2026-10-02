@@ -188,11 +188,12 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     ] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
-    for dropped in ["bodyPreview", "updatedAt", "sourceBranch"] {
+    // A merged PR's close time is its merge time.
+    for dropped in ["bodyPreview", "updatedAt", "sourceBranch", "closedAt"] {
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
     }
     // Merge state and labels ride the first page of every read.
-    for kept in ["mergedAt", "closedAt", "targetBranch", "labels"] {
+    for kept in ["mergedAt", "targetBranch", "labels"] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     let menu = row["next"].as_object().expect("next");
@@ -416,10 +417,11 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     ] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
-    for kept in ["mergedAt", "closedAt", "targetBranch"] {
+    for kept in ["mergedAt", "targetBranch"] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     for dropped in [
+        "closedAt",
         "labels",
         "sourceBranch",
         "updatedAt",
@@ -701,7 +703,8 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
         let data = run(&server, query).await;
         let row = &data["pullRequests"][0];
         assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
-        assert_eq!(row["closedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
+        // The merge time is the close time; it is not stated twice.
+        assert!(row.get("closedAt").is_none(), "{label}: {row}");
         assert_eq!(row["targetBranch"], "main", "{label}: {row}");
         assert_eq!(row["state"], "merged", "{label}: {row}");
         if first_page {
@@ -767,6 +770,100 @@ async fn patch_rows_in_one_call_share_one_budget() {
             "row {index}: {data}"
         );
     }
+    runtime.close().await;
+}
+
+/// A whole-PR patch walk that asks for a larger response page gets patch
+/// windows sized to it: fewer calls than the default page, and the windows
+/// still tile every patch exactly (no gap, no repeat).
+#[tokio::test]
+async fn explicit_response_page_sizes_patch_walk_windows() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 2).await;
+    let patch = |tag: &str| {
+        format!(
+            "@@ -1,9000 +1,9000 @@\n{}",
+            (0..6_000)
+                .map(|i| format!("+{tag} line {i}\n"))
+                .collect::<String>()
+        )
+    };
+    let patches = [patch("a"), patch("b")];
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/a.rs", Some(&patches[0]), 6_000, 0),
+            rest_file("src/b.rs", Some(&patches[1]), 6_000, 0),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", "20000".into()),
+    ]);
+    let walk = |page: Option<u64>| {
+        let runtime = &runtime;
+        async move {
+            let mut query = json!({"operation": "pullRequest", "owner": "a", "repo": "b",
+                "number": 9, "goal": "g", "reasoning": "r", "minify": "none",
+                "include": ["patches"]});
+            let mut read = std::collections::BTreeMap::<String, String>::new();
+            let mut calls = 0;
+            loop {
+                calls += 1;
+                assert!(calls <= 60, "walk did not finish");
+                let mut envelope = json!({"queries": [query]});
+                if let Some(page) = page {
+                    envelope["responseCharLength"] = json!(page);
+                }
+                let outcome = runtime
+                    .execute(format!("walk-{calls}"), "ghGetHistoryItem".into(), envelope)
+                    .await
+                    .expect("patch window");
+                let content = &outcome.structured_content;
+                // An explicit page reports its (single) response page.
+                assert_ne!(
+                    content["responsePagination"]["hasMore"], true,
+                    "a patch window overflowed its page: {content}"
+                );
+                let data = &content["results"][0]["data"];
+                for file in data["pullRequests"][0]["changedFiles"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    let path = file["path"].as_str().expect("path").to_owned();
+                    let text = read.entry(path).or_default();
+                    let offset = file["patchPagination"]["charOffset"].as_u64().unwrap_or(0);
+                    assert_eq!(offset as usize, text.chars().count(), "{file}");
+                    text.push_str(file["patch"].as_str().unwrap_or(""));
+                }
+                // One check at the merge commit, on the first window only.
+                assert_eq!(
+                    data["next"].get("readAtMerge").is_some(),
+                    calls == 1,
+                    "call {calls}: {data}"
+                );
+                match data["next"]["continuePatch"]["query"].as_object() {
+                    Some(next) => query = Value::Object(next.clone()),
+                    None => break,
+                }
+            }
+            (calls, read)
+        }
+    };
+    let (default_calls, default_read) = walk(None).await;
+    let (explicit_calls, explicit_read) = walk(Some(50_000)).await;
+    for (path, patch) in ["src/a.rs", "src/b.rs"].iter().zip(&patches) {
+        assert_eq!(default_read.get(*path), Some(patch), "{path}");
+        assert_eq!(explicit_read.get(*path), Some(patch), "{path}");
+    }
+    assert!(
+        explicit_calls * 2 <= default_calls,
+        "explicit {explicit_calls} vs default {default_calls} calls"
+    );
     runtime.close().await;
 }
 

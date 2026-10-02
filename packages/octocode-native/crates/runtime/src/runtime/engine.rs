@@ -416,12 +416,14 @@ impl BatchBudget {
 fn execute_ordinary_queries(
     tool: ToolId,
     queries: &[Value],
+    response_page: Option<usize>,
     dispatcher: &super::domain_dispatch::DomainDispatcher,
     context: &ExecutionContext,
 ) -> Result<Vec<super::dispatch::DomainResult>, ExecutionError> {
-    // History-item rows reading patches share one call-level patch budget.
+    // History-item rows reading patches share one call-level patch budget,
+    // sized by the caller's explicit response page when one is given.
     let shared = (tool == ToolId::GhGetHistoryItem)
-        .then(|| crate::tools::gh_get_history_item::share_patch_budget(queries))
+        .then(|| crate::tools::gh_get_history_item::share_patch_budget(queries, response_page))
         .flatten();
     let queries = shared.as_deref().unwrap_or(queries);
     let budget = BatchBudget::for_host(tool, queries.len());
@@ -1080,7 +1082,13 @@ impl ToolRuntime {
                         &context,
                     );
                 }
-                let evaluated = execute_ordinary_queries(id, &queries, &dispatcher, &context)?;
+                let evaluated = execute_ordinary_queries(
+                    id,
+                    &queries,
+                    options.response_char_length,
+                    &dispatcher,
+                    &context,
+                )?;
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digest = None;
                 let mut failure = None;

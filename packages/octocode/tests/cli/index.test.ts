@@ -6,6 +6,12 @@ const mocks = vi.hoisted(() => ({
   skillHandler: vi.fn(),
   schemeHandler: vi.fn(),
   printInstructions: vi.fn(() => 0),
+  setRuntimeSurface: vi.fn(),
+}));
+
+vi.mock('@octocodeai/config', async importOriginal => ({
+  ...(await importOriginal<typeof import('@octocodeai/config')>()),
+  setRuntimeSurface: mocks.setRuntimeSurface,
 }));
 
 vi.mock('../../src/cli/native-delegate.js', async importOriginal => ({
@@ -46,6 +52,18 @@ describe('runCLI native boundary', () => {
     await expect(runCLI(argv)).resolves.toBe(true);
     expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', argv);
     expect(mocks.skillHandler).not.toHaveBeenCalled();
+  });
+
+  it('loads the config surface only for commands Node handles in-process', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+    await runCLI(['localSearch', '{"queries":[]}']);
+    await runCLI(['localSearch', '--help']);
+    expect(mocks.setRuntimeSurface).not.toHaveBeenCalled();
+    await runCLI(['scheme']);
+    expect(mocks.setRuntimeSurface).toHaveBeenLastCalledWith('cli');
+    mocks.setRuntimeSurface.mockClear();
+    await runCLI(['--help']);
+    expect(mocks.setRuntimeSurface).toHaveBeenCalledTimes(1);
   });
 
   it('keeps clasify execution and help native while scheme discovery stays Node-owned', async () => {

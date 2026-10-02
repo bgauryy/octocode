@@ -3034,6 +3034,60 @@ async fn an_oversized_next_page_shrinks_and_the_replay_advances() {
 }
 
 #[tokio::test]
+async fn an_oversized_whole_file_read_shrinks_into_line_chunks() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(noul_response(0.2))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("uneven.txt", uneven_lines());
+    let runtime = provider_runtime(&workspace, &server);
+    let mut input = json!({
+        "id":"whole","reasoning":"Judge the whole file in bounded pages.","goal":"Decide the next read.",
+        "debug":true,
+        "resources":[{"id":"doc","maxChars":400,"tool":"localFetch","query":{"path":file}}],
+        "questions":[{"id":"q","type":"yesno","ask":"Is the marker stated?"}]
+    });
+    let mut covered = 0u64;
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        assert!(calls <= 10, "the walk must terminate");
+        let outcome = runtime
+            .execute(format!("whole-{calls}"), "clasify".into(), input.clone())
+            .await
+            .unwrap();
+        let query = &outcome.structured_content["queries"][0];
+        for page in query["resources"][0]["pages"].as_array().unwrap() {
+            assert!(
+                page.get("error").is_none(),
+                "the whole file shrinks: {query}"
+            );
+            let scope = &page["scope"];
+            assert_eq!(
+                scope["startLine"].as_u64().unwrap(),
+                covered + 1,
+                "no interval is skipped or repeated: {query}"
+            );
+            covered = scope["endLine"].as_u64().unwrap();
+        }
+        match query["next"].get("clasify") {
+            Some(next) => input = next.clone(),
+            None => break,
+        }
+    }
+    assert_eq!(covered, 24);
+    for state in sent_states(&server).await {
+        assert!(
+            state.to_string().chars().count() < 2_000,
+            "every judged page stayed bounded: {state}"
+        );
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn a_line_larger_than_the_whole_budget_is_terminal_not_a_repeating_continuation() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

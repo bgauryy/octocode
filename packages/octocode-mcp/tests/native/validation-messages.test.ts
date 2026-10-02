@@ -418,6 +418,34 @@ describe('missing discriminators and hidden fields', () => {
     );
   });
 
+  it('lists canonical fields the published view hides, never continuation-only ones', async () => {
+    const message = await sdkMessage('localSearch', {
+      queries: [
+        { goal: 'g', reasoning: 'r', path: '.', searchText: 'x', madeUp: 1 },
+      ],
+    });
+    expect(message).toMatch(/Valid fields: .*\bmaxMatchesPerFile\b/);
+    expect(message).toMatch(/Valid fields: .*\bpageSize\b/);
+    for (const hidden of ['debug', 'page', 'matchPage', 'snapshot'])
+      expect(message).not.toMatch(
+        new RegExp(`Valid fields: .*\\b${hidden}\\b`)
+      );
+    const lsp = await sdkMessage('lspSearch', {
+      queries: [
+        {
+          goal: 'g',
+          reasoning: 'r',
+          operation: 'callers',
+          uri: 'a.ts',
+          symbolName: 'x',
+          lineHint: 1,
+          madeUp: 1,
+        },
+      ],
+    });
+    expect(lsp).toMatch(/Valid fields: .*\bdepth\b/);
+  });
+
   it('lists only agent-composed fields and suggests the nearest one', async () => {
     const message = await sdkMessage('ghGetHistoryItem', {
       queries: [

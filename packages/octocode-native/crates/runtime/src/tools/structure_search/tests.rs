@@ -800,3 +800,49 @@ fn files_default_to_path_order() {
         "{out}"
     );
 }
+
+#[test]
+fn a_default_listing_is_one_page_within_the_budget_and_budget_pages_beyond_it() {
+    let root = Fixture::new();
+    for n in 0..150 {
+        std::fs::write(root.0.join(format!("module_{n:03}.py")), "x = 1\n").expect("source");
+    }
+    let query = json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"names":["*.py"]});
+    let out = run(&root.0, query.clone()).expect("files");
+    assert_eq!(out["files"].as_array().map(Vec::len), Some(150), "{out}");
+    assert_eq!(out["pagination"]["hasMore"], false, "{out}");
+    assert!(out["pagination"].get("filesPerPage").is_none(), "{out}");
+    assert!(out.get("next").is_none(), "{out}");
+    // Rows carry the byte count; the formatted size is a debug field.
+    assert_eq!(out["files"][0]["size"], 6, "{out}");
+
+    // A caller page size still pages by count.
+    let mut sized = query.clone();
+    sized["pageSize"] = json!(100);
+    let out = run(&root.0, sized).expect("sized files");
+    assert_eq!(out["files"].as_array().map(Vec::len), Some(100), "{out}");
+    assert_eq!(out["pagination"]["filesPerPage"], 100, "{out}");
+    assert!(out["next"]["nextPage"].is_object(), "{out}");
+
+    // Past the budget, following nextPage reaches every row exactly once.
+    for n in 150..1500 {
+        std::fs::write(root.0.join(format!("module_{n:04}.py")), "x = 1\n").expect("source");
+    }
+    let mut next = query;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pages = 0;
+    loop {
+        let out = run(&root.0, next.clone()).expect("page");
+        pages += 1;
+        for row in out["files"].as_array().expect("files") {
+            assert!(seen.insert(row["path"].as_str().expect("path").to_owned()));
+        }
+        let Some(call) = out["next"].get("nextPage") else {
+            break;
+        };
+        assert!(call["query"].get("pageSize").is_none(), "{call}");
+        next = call["query"].clone();
+    }
+    assert_eq!(seen.len(), 1500);
+    assert!((3..=6).contains(&pages), "{pages} pages");
+}

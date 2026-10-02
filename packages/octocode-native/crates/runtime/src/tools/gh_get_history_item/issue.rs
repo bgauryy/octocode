@@ -53,14 +53,15 @@ pub(super) async fn issue<R: CredentialResolver>(
         .ok_or_else(|| validation("number is required"))?
         .to_string();
     let issue_path = ["repos", query.owner(), query.repo(), "issues", &number];
-    // The closing PRs load beside the issue on its first window only.
+    // The closing PRs load beside the issue on its first window; later
+    // windows ask only for their count so the bounded set stays disclosed.
     let first_window = query.comment_page().unwrap_or(1) <= 1
         && query.char_offset().is_none_or(|offset| offset == 0);
     let (fetched, closed_by) = tokio::join!(fetch(transport, &issue_path, &[], context), async {
         if first_window {
             closing_pull_requests(transport, query, context).await
         } else {
-            None
+            closing_reference_count(transport, query, context).await
         }
     });
     let (raw, _) = fetched?;
@@ -82,7 +83,9 @@ pub(super) async fn issue<R: CredentialResolver>(
         "number":raw["number"],"title":string(raw.get("title")),
         "state":str_at(&raw,"/state").unwrap_or("open"),"author":str_at(&raw,"/user/login").unwrap_or("unknown"),
         "labels":raw.get("labels").and_then(Value::as_array).into_iter().flatten().filter_map(|v|str_at(v,"/name").map(str::to_owned)).collect::<Vec<_>>(),
-        "createdAt":string(raw.get("created_at")),"updatedAt":string(raw.get("updated_at")),
+        "createdAt":string(raw.get("created_at")),
+        // Only an open issue's last update says whether it is still moving.
+        "updatedAt":(str_at(&raw,"/state").unwrap_or("open") == "open").then(|| string(raw.get("updated_at"))),
         "closedAt":raw.get("closed_at").filter(|v|!v.is_null())
     });
     let mut pagination = Map::new();
@@ -149,17 +152,28 @@ pub(super) async fn issue<R: CredentialResolver>(
     let bounded = closed_by.as_ref().and_then(|references| {
         references
             .bounded_total
-            .map(|total| (references.prs.len(), total))
+            .map(|total| (references.listed, total))
     });
     if let Some((listed, total)) = bounded {
         // No cursor continues the set: it ends here, and the fix it names
         // is a candidate among the listed references only.
         out["isPartial"] = json!(true);
         out["terminalLimit"] = json!(true);
-        out["partialReasons"] = json!(["closingReferenceLimit"]);
-        out["warnings"] = json!([format!(
-            "closedBy lists {listed} of {total} linked pull requests; readFixPr is a candidate, not the complete fix set."
-        )]);
+        let mut reasons = out["partialReasons"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        reasons.push(json!("closingReferenceLimit"));
+        out["partialReasons"] = Value::Array(reasons);
+        out["warnings"] = json!([if first_window {
+            format!(
+                "closedBy lists {listed} of {total} linked pull requests; readFixPr is a candidate, not the complete fix set."
+            )
+        } else {
+            format!(
+                "The first window's closedBy lists {listed} of {total} linked pull requests; the rest are not listed."
+            )
+        }]);
     }
     if first_window {
         let prs = closed_by
@@ -177,6 +191,9 @@ const MAX_CLOSING_REFERENCES: usize = 25;
 /// The closing-reference lookup; `first` is [`MAX_CLOSING_REFERENCES`].
 pub(super) const CLOSING_REFERENCES_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!,$first:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:$first,includeClosedPrs:true){ totalCount pageInfo{ hasNextPage } nodes{ number state mergedAt additions deletions changedFiles } } } } }";
 
+/// The closing-reference count alone, for windows past the first.
+pub(super) const CLOSING_REFERENCE_COUNT_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!){ repository(owner:$owner,name:$repo){ issue(number:$number){ closedByPullRequestsReferences(first:1,includeClosedPrs:true){ totalCount } } } }";
+
 /// One linked pull request: its public `closedBy` row and whether its whole
 /// diff fits one patch read.
 struct ClosingPr {
@@ -184,10 +201,11 @@ struct ClosingPr {
     small: bool,
 }
 
-/// The linked pull requests one read returned, merged first, and GitHub's
-/// total when more exist than were returned.
+/// The linked pull requests one read returned, merged first, how many the
+/// first window lists, and GitHub's total when more exist than that.
 struct ClosingReferences {
     prs: Vec<ClosingPr>,
+    listed: usize,
     bounded_total: Option<u64>,
 }
 
@@ -229,7 +247,40 @@ async fn closing_pull_requests<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 .map_or(listed, |total| total.max(listed))
         }),
+        listed: prs.len(),
         prs,
+    })
+}
+
+/// The closing-reference total for a window past the first: no rows, only
+/// whether the set the first window lists is bounded.
+async fn closing_reference_count<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+) -> Option<ClosingReferences> {
+    if !transport.graphql_enabled || !transport.graphql_available(context).await {
+        return None;
+    }
+    let variables = json!({
+        "owner": query.owner(),
+        "repo": query.repo(),
+        "number": query.number()?,
+    });
+    let page = transport
+        .execute_graphql(CLOSING_REFERENCE_COUNT_DOCUMENT, variables, context)
+        .await
+        .ok()?;
+    let total = page
+        .data
+        .as_ref()?
+        .pointer("/repository/issue/closedByPullRequestsReferences/totalCount")?
+        .as_u64()?;
+    let limit = u64::try_from(MAX_CLOSING_REFERENCES).unwrap_or(u64::MAX);
+    Some(ClosingReferences {
+        prs: Vec::new(),
+        listed: MAX_CLOSING_REFERENCES.min(usize::try_from(total).unwrap_or(usize::MAX)),
+        bounded_total: (total > limit).then_some(total),
     })
 }
 
@@ -269,14 +320,15 @@ fn attach_fix_pr(
 ) {
     let confidence = if bounded { "medium" } else { "high" };
     let next = match closed_by.and_then(<[ClosingPr]>::first) {
-        // A small fix reads whole in one call; a larger one names its
-        // files first so the review can pick patches.
+        // A small fix reads whole in one call: its patches are the evidence
+        // (`closedBy` already links it to this issue). A larger one names
+        // its files, beside its description, so the review can pick patches.
         Some(pr) => (
             "readFixPr",
             json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":confidence,"query":{
                 "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
                 "number":pr.row["number"],
-                "include":["body", if pr.small { "patches" } else { "files" }]}}),
+                "include": if pr.small { json!(["patches"]) } else { json!(["body", "files"]) }}}),
         ),
         None if closed && closed_by.is_none() => (
             "findFixPr",
@@ -321,7 +373,7 @@ mod tests {
         assert_eq!(out["next"]["readFixPr"]["query"]["number"], 8);
         assert_eq!(
             out["next"]["readFixPr"]["query"]["include"],
-            json!(["body", "patches"])
+            json!(["patches"])
         );
         for node in [
             json!({"number":9,"state":"MERGED","mergedAt":"x","additions":900,"deletions":4,"changedFiles":3}),

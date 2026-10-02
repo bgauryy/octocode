@@ -1023,7 +1023,8 @@ fn nested_function_declarations_carry_their_parent() {
 /// CommonJS and prototype-style modules define their API by assigning
 /// functions to members (`res.redirect = function () {}`,
 /// `exports.x = () => {}`): those assignments are declarations spanning the
-/// function, so a block read or a declaration outline covers the body.
+/// function, named by the property, so a block read or a declaration outline
+/// covers the body.
 #[test]
 fn member_assigned_functions_are_declarations() {
     let src = "'use strict';\nvar res = module.exports = {};\n\nres.redirect = function redirect(url) {\n  var status = 302;\n  return status;\n};\n\nexports.handler = (req) => {\n  return req;\n};\n\nWidget.prototype.render = Other.render = function () {\n  return 1;\n};\n\nres.count = 1;\nres.once = function () { return 0; };\n";
@@ -1041,13 +1042,17 @@ fn member_assigned_functions_are_declarations() {
             row["range"]["end"]["line"].as_u64().unwrap() + 1,
         )
     };
-    assert_eq!(span("res.redirect"), (4, 7));
-    assert_eq!(span("exports.handler"), (9, 11));
-    assert_eq!(span("Widget.prototype.render"), (13, 15));
-    assert_eq!(span("res.once"), (18, 18));
+    assert_eq!(span("redirect"), (4, 7));
+    assert_eq!(span("handler"), (9, 11));
+    assert_eq!(span("render"), (13, 15));
+    assert_eq!(span("once"), (18, 18));
+    // Named like a method: the property is the anchor a language server
+    // resolves.
+    let redirect = declarations
+        .iter()
+        .find(|d| d["name"] == "redirect")
+        .unwrap();
+    assert_eq!(redirect["selectionRange"]["start"]["character"], 4);
     // A member assigned a plain value is not a declaration.
-    assert!(
-        declarations.iter().all(|d| d["name"] != "res.count"),
-        "{facts}"
-    );
+    assert!(declarations.iter().all(|d| d["name"] != "count"), "{facts}");
 }

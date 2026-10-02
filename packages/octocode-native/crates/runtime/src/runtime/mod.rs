@@ -14,6 +14,7 @@ mod engine;
 pub mod error;
 mod github;
 mod github_cache;
+mod github_output;
 mod lifecycle;
 mod maintenance;
 pub mod numbered;
@@ -21,7 +22,7 @@ pub mod render;
 pub mod response;
 mod response_stage;
 mod session_stats;
-mod symbol_outline;
+pub(crate) mod symbol_outline;
 
 pub use cursor::CursorError;
 pub use engine::{FailureKind, HostOptions, RuntimeError, ToolOutcome, ToolRuntime};

@@ -408,6 +408,110 @@ pub(super) fn public_edge(expansion: Expansion, edge: &HierarchyEdge) -> Value {
     public
 }
 
+/// A page of direct callers (every edge at level 1) as per-file rows
+/// `{path, calls: ["<line>:<col>[,<line>:<col>…] in <kind> <name>[ (<detail>)] <line>-<endLine>"]}`:
+/// the one-based call sites in that file, then the calling declaration and
+/// its range (its start line is the name line, a `lineHint` for the next
+/// hop). Callers recovered from references are listed by label under
+/// `recovered` with their first call line. Deeper walks keep `items`, whose
+/// `via` links each edge to its parent.
+fn compact_callers(row: &mut Value) {
+    let Some(items) = row.pointer("/payload/items").and_then(Value::as_array) else {
+        return;
+    };
+    if items.is_empty()
+        || items.iter().any(|item| {
+            item.get("level").and_then(Value::as_u64) != Some(1)
+                || item.get("via").is_some()
+                || !item.get("from").is_some_and(Value::is_object)
+        })
+    {
+        return;
+    }
+    let mut files: Vec<(String, serde_json::Map<String, Value>)> = Vec::new();
+    for item in items {
+        let from = &item["from"];
+        let path = from
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(uri_to_path)
+            .unwrap_or_else(|| "unknown".to_owned());
+        let sites = item
+            .get("fromRanges")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|range| {
+                let line = range.get("startLine")?.as_u64()?;
+                let column = range.get("startCharacter").and_then(Value::as_u64);
+                Some((line, column))
+            })
+            .collect::<Vec<_>>();
+        let mut text = sites
+            .iter()
+            .map(|(line, column)| match column {
+                Some(column) => format!("{line}:{column}"),
+                None => line.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str("in ");
+        text.push_str(from.get("kind").and_then(Value::as_str).unwrap_or("symbol"));
+        text.push(' ');
+        text.push_str(from.get("name").and_then(Value::as_str).unwrap_or_default());
+        if let Some(detail) = from.get("detail").and_then(Value::as_str) {
+            text.push_str(&format!(" ({detail})"));
+        }
+        if let Some(range) = from.get("displayRange")
+            && let Some(start) = range.get("startLine").and_then(Value::as_u64)
+        {
+            match range.get("endLine").and_then(Value::as_u64) {
+                Some(end) if end != start => text.push_str(&format!(" {start}-{end}")),
+                _ => text.push_str(&format!(" {start}")),
+            }
+        }
+        let index = match files.iter().position(|(seen, _)| *seen == path) {
+            Some(index) => index,
+            None => {
+                let mut entry = serde_json::Map::new();
+                entry.insert("path".into(), json!(path));
+                entry.insert("calls".into(), json!([]));
+                files.push((path, entry));
+                files.len() - 1
+            }
+        };
+        let entry = &mut files[index].1;
+        if let Some(calls) = entry.get_mut("calls").and_then(Value::as_array_mut) {
+            calls.push(json!(text));
+        }
+        if let Some(label) = item.get("source").and_then(Value::as_str)
+            && let Some(lines) = entry
+                .entry("recovered")
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+                .and_then(|recovered| {
+                    recovered
+                        .entry(label)
+                        .or_insert_with(|| json!([]))
+                        .as_array_mut()
+                })
+        {
+            lines.push(json!(sites.first().map_or(0, |site| site.0)));
+        }
+    }
+    if let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut) {
+        payload.remove("items");
+        payload.insert(
+            "byFile".into(),
+            Value::Array(files.into_iter().map(|(_, entry)| Value::Object(entry)).collect()),
+        );
+    }
+}
+
 /// Combine what a hierarchy expansion found with the provider failures it hit.
 /// A failure with nothing found is an error (never a silent empty answer); a
 /// failure after some results is a partial answer the caller must mark.
@@ -719,6 +823,9 @@ pub(super) async fn hierarchy(
     }
     let (items, failures) = expansion_outcome(items, failures)?;
     let mut row = items_payload(query, query.operation().as_str(), json!(items));
+    if query.operation() == "callers" {
+        compact_callers(&mut row);
+    }
     mark_partial_expansion(&mut row, query, &failures);
     let walks = walks
         .iter()

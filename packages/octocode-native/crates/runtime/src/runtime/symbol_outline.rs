@@ -1,31 +1,36 @@
-//! Compact text outline for astSearch `symbols` rows.
+//! Compact outline rows for astSearch `symbols`.
 //!
-//! The YAML text channel repeats every key for each declaration.
-//! The outline prints one line per declaration after the row metadata:
+//! Repeating every key per declaration made an outline several times larger
+//! than the source it summarizes, so both response channels carry one string
+//! row per declaration, in page order:
 //!
 //! ```text
-//! === symbols program.ts (line[-endLine] kind name; + exported; indented = member) ===
 //! 500-506 interface CompilerHostLikeForCache +
 //!   501 method fileExists
 //! ```
 //!
-//! Indentation encodes `parent`/`parentLine` whenever the parent row precedes
-//! its member on the page; otherwise the member carries `(in Parent@line)`.
-//! Optional facts follow as suffixes: `as a,b` (exportedAs), `doc` (a doc
-//! block ends on the line above; `doc@N` names its first line otherwise),
-//! `from@N` (startLine), `col N` (character). Structured
-//! content keeps every row unchanged.
+//! A row is `line[-endLine] kind name`. Indentation encodes `parent` and
+//! `parentLine` whenever the parent row precedes its member on the page;
+//! otherwise the member carries `(in Parent@line)`. Optional facts follow as
+//! suffixes: `+` (exported), `as a,b` (exportedAs), `doc` (a doc block ends
+//! on the line above; `doc@N` names its first line otherwise), `from@N`
+//! (startLine), `col N` (character). The text channel prints the rows under
+//! one `=== symbols path (legend) ===` header per outline.
 
 use serde_json::Value;
 
 const LEGEND: &str = "line[-endLine] kind name; + exported; indented = member; doc = comment above";
 
-/// Declaration rows: objects carrying `name`, `kind` and `line`.
+/// Outline rows: strings, or declaration objects carrying `name`, `kind` and
+/// `line` (the earlier row shape).
 fn is_declarations(value: Option<&Value>) -> bool {
     value.and_then(Value::as_array).is_some_and(|rows| {
         !rows.is_empty()
             && rows.iter().all(|row| {
-                row.get("name").is_some() && row.get("kind").is_some() && row.get("line").is_some()
+                row.is_string()
+                    || (row.get("name").is_some()
+                        && row.get("kind").is_some()
+                        && row.get("line").is_some())
             })
     })
 }
@@ -34,7 +39,7 @@ fn is_declarations(value: Option<&Value>) -> bool {
 /// sections, in row order. `label` prefixes sections of a batch (`[i] `).
 /// Rows are recognized by their declaration arrays (the response stage drops
 /// echoed fields such as `operation`), and envelope `shared` scalars hoisted
-/// out of top-level declaration rows are restored before rendering.
+/// out of object declaration rows are restored before rendering.
 pub(super) fn take_outlines(response: &mut Value) -> Vec<String> {
     let shared = response
         .get("shared")
@@ -110,8 +115,27 @@ pub(super) fn take_outlines(response: &mut Value) -> Vec<String> {
 fn section(label: &str, path: &str, rows: &[Value]) -> String {
     let separator = if path.is_empty() { "" } else { " " };
     let mut text = format!("=== symbols {label}{path}{separator}({LEGEND}) ===\n");
-    // Ancestors on this page: (name, line).
+    let objects = rows.iter().any(Value::is_object);
+    let converted;
+    let rows = if objects {
+        converted = outline_rows(rows);
+        converted.as_slice()
+    } else {
+        rows
+    };
+    for row in rows {
+        text.push_str(row.as_str().unwrap_or_default());
+        text.push('\n');
+    }
+    text
+}
+
+/// One outline string per declaration object, in order. Nesting is computed
+/// over `rows` alone, so a member whose parent is not among them names it.
+pub(crate) fn outline_rows(rows: &[Value]) -> Vec<Value> {
+    // Ancestors among `rows`: (name, line).
     let mut stack: Vec<(String, u64)> = Vec::new();
+    let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let name = row["name"].as_str().unwrap_or_default();
         let line = row["line"].as_u64().unwrap_or(0);
@@ -136,9 +160,7 @@ fn section(label: &str, path: &str, rows: &[Value]) -> String {
                 }
             }
         }
-        for _ in 0..stack.len() {
-            text.push_str("  ");
-        }
+        let mut text = "  ".repeat(stack.len());
         text.push_str(&line.to_string());
         if let Some(end) = row.get("endLine").and_then(Value::as_u64) {
             text.push_str(&format!("-{end}"));
@@ -175,10 +197,10 @@ fn section(label: &str, path: &str, rows: &[Value]) -> String {
         if let Some(detached) = detached {
             text.push_str(&detached);
         }
-        text.push('\n');
+        out.push(Value::String(text));
         stack.push((name.to_owned(), line));
     }
-    text
+    out
 }
 
 #[cfg(test)]

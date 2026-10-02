@@ -1229,6 +1229,33 @@ fn symbol_anchors_resolve_on_the_synchronized_text_not_the_disk() {
 }
 
 #[test]
+fn member_qualified_symbol_names_anchor_on_the_last_member() {
+    let anchor_for = |path: &str, source: &str, name: &str, line: u32| {
+        let q = query(serde_json::json!({
+            "operation": "definition", "goal": "test", "reasoning": "test",
+            "uri": path, "symbolName": name, "lineHint": line
+        }));
+        let anchor = resolve_anchor(&q, path, "file:///repo/x", Some(source)).expect(name);
+        (anchor.line, anchor.character)
+    };
+    let js = "var ns = 1;\nthis.ns = function(fn) { var ns = {}; return ns; };\n";
+    // `this.ns` anchors on `ns` (column 5), not on `this`.
+    assert_eq!(anchor_for("/repo/a.js", js, "this.ns", 2), (1, 5));
+    assert_eq!(anchor_for("/repo/a.js", js, "ns", 2), (1, 5));
+    // A member repeated earlier on the line resolves inside the qualified
+    // expression.
+    let chain = "b.x = a.b.x = function () {};\n";
+    assert_eq!(anchor_for("/repo/b.js", chain, "a.b.x", 1), (0, 10));
+    let rust = "impl Foo {\n    fn bar() {}\n}\nfn main() { Foo::bar(); }\n";
+    assert_eq!(anchor_for("/repo/lib.rs", rust, "Foo::bar", 4), (3, 17));
+    // Not spelled contiguously: the bare member is resolved near the hint.
+    let split = "this\n  .ns = function () {};\n";
+    assert_eq!(anchor_for("/repo/c.js", split, "this.ns", 2), (1, 3));
+    // Unqualified and non-identifier names resolve unchanged.
+    assert_eq!(anchor_for("/repo/a.js", js, "this", 2), (1, 0));
+}
+
+#[test]
 fn rust_context_overlays_the_engine_headless_defaults() {
     let mut config = octocode_engine::lsp::types::JsLanguageServerConfig {
         command: "rust-analyzer".into(),

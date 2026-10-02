@@ -22,16 +22,6 @@ pub(super) fn usize_at(value: &Value, pointer: &str) -> usize {
 pub(super) fn nonzero(value: Option<&Value>) -> Option<u64> {
     value.and_then(Value::as_u64).filter(|v| *v > 0)
 }
-/// Truncates to at most `max` characters (not bytes), appending `...` when
-/// shortened. Char-based so multibyte (e.g. CJK) text never splits a code point.
-pub(super) fn compact(value: &str, max: usize) -> String {
-    if value.chars().count() <= max {
-        value.into()
-    } else {
-        let head: String = value.chars().take(max.saturating_sub(3)).collect();
-        format!("{head}...")
-    }
-}
 pub(super) fn map_comments(values: Vec<Value>, kind: &str, include_bots: bool) -> Vec<Value> {
     values.into_iter().filter(|v|include_bots||!is_bot(str_at(v,"/user/login").unwrap_or(""))).map(|v|{
     let mut out=json!({"id":v["id"].to_string().trim_matches('"'),"author":str_at(&v,"/user/login").unwrap_or("unknown"),"body":string(v.get("body")),"createdAt":string(v.get("created_at")),"updatedAt":string(v.get("updated_at")),"commentType":kind,
@@ -260,15 +250,5 @@ mod tests {
             compare_identity(&raw, base_sha, "fork:c265e3f").1,
             format!("fork:{head_sha}")
         );
-    }
-
-    #[test]
-    fn compact_truncates_multibyte_text_on_char_boundaries() {
-        let body = "修复内存泄漏".repeat(200);
-        let out = compact(&body, 500);
-        assert!(out.ends_with("..."));
-        assert_eq!(out.chars().count(), 500);
-        assert_eq!(compact("短", 500), "短");
-        assert_eq!(compact("🦀🦀🦀🦀🦀", 4), "🦀...");
     }
 }

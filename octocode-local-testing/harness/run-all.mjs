@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { RESULTS, TESTING } from './mcp-client.mjs';
 
-const SUITES = ['workflows', 'grammar', 'navigate', 'remote', 'github', 'artifacts', 'perf', 'deps-flows', 'repo-sweep', 'large-files', 'clasify', 'rewrite', 'usage-regressions'];
+const SUITES = ['workflows', 'grammar', 'navigate', 'remote', 'github', 'artifacts', 'perf', 'deps-flows', 'repo-sweep', 'large-files', 'clasify', 'rewrite', 'usage-regressions', 'competitors'];
 const selected = process.argv[2]?.split(',') ?? SUITES;
 if (selected.some(s => !SUITES.includes(s))) throw new Error('unknown suite');
 fs.mkdirSync(RESULTS, { recursive: true });
