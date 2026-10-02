@@ -293,13 +293,17 @@ const MERGE_ANCHOR_CHARS: usize = 120;
 /// offers its first changed source file (else its first changed file) at the
 /// merge commit, as a block read anchored on that file's first added line,
 /// so the fix is checked in the code that shipped. `None` for unmerged pull
-/// requests and for rows without an added line to anchor on.
+/// requests, for a `matchString` read (a targeted answer already), and for
+/// rows without an added line to anchor on.
 pub(super) fn read_at_merge(
     query: &HistoryItemRequest,
     raw: &Value,
     files: &Value,
 ) -> Option<Value> {
     use crate::content::{FileType, classify_file_type, is_test_path};
+    if query.match_string().is_some() {
+        return None;
+    }
     raw.get("merged_at").filter(|merged| !merged.is_null())?;
     let sha = raw
         .get("merge_commit_sha")
@@ -315,9 +319,7 @@ pub(super) fn read_at_merge(
         .collect::<Vec<_>>();
     let (path, anchor) = patched
         .iter()
-        .find(|(path, _)| {
-            classify_file_type(path) == Some(FileType::Code) && !is_test_path(path)
-        })
+        .find(|(path, _)| classify_file_type(path) == Some(FileType::Code) && !is_test_path(path))
         .or_else(|| patched.first())?;
     Some(json!({
         "tool": ToolId::GhGetFileContent.as_str(),
@@ -343,10 +345,15 @@ fn first_added_line(patch: &str) -> Option<String> {
         .filter_map(|line| line.strip_prefix('+'))
         .map(str::trim)
         .find(|text| {
-            text.chars().filter(|c| c.is_alphanumeric()).count() >= 3
-                && !text.contains("[REDACTED")
+            text.chars().filter(|c| c.is_alphanumeric()).count() >= 3 && !text.contains("[REDACTED")
         })
-        .map(|text| text.chars().take(MERGE_ANCHOR_CHARS).collect::<String>().trim_end().to_owned())
+        .map(|text| {
+            text.chars()
+                .take(MERGE_ANCHOR_CHARS)
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
 }
 
 /// A pull-request `contentPagination` axis: its `next.*` name, the page field

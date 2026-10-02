@@ -383,7 +383,8 @@ pub fn process_fetched_content(
     // An untargeted first read of a large file returns its head: paging
     // through every line is rarely what an unanchored read needs, and the
     // head plus a locate (or an anchored read) costs a fraction of a page.
-    let head = unanchored_first_read(q) && applied == MinifyMode::None && total_lines >= LARGE_READ_LINES;
+    let head =
+        unanchored_first_read(q) && applied == MinifyMode::None && total_lines >= LARGE_READ_LINES;
     let head_view;
     let page_q = if head {
         head_view = LocalFetchQuery {
@@ -511,17 +512,14 @@ pub fn process_fetched_content(
     } else {
         let mut next = continuation(q, &pg.pagination);
         // Paging on from the head uses the default page size.
-        if head
-            && let Some(read) = next.as_mut().and_then(|next| next.r#continue.as_mut())
-        {
+        if head && let Some(read) = next.as_mut().and_then(|next| next.r#continue.as_mut()) {
             read.query.chunk_size = None;
             read.query.chunk_type = None;
         }
         next
     };
-    let mut hints = Vec::new();
     if head && pg.pagination.has_more {
-        hints.push(format!(
+        warnings.push(format!(
             "Large file ({total_lines} lines) read without an anchor: returned its first {} lines. Target the answer with matchString or startLine/endLine (or next.clasify when offered); next.continue pages on, fullContent:true reads it whole.",
             pg.view_lines.1
         ));
@@ -565,7 +563,7 @@ pub fn process_fetched_content(
         error: None,
         resolved_path: None,
         warnings,
-        hints,
+        hints: vec![],
         total_lines: Some(total_lines),
         start_line: ext.start,
         end_line: ext.end,
@@ -1168,8 +1166,17 @@ mod line_page_scan_tests {
         };
         let head = fetch(&source, &plain);
         assert_eq!(head.returned_lines, Some(HEAD_LINES), "{head:?}");
-        assert!(head.hints.iter().any(|hint| hint.contains("first")), "{:?}", head.hints);
-        let next = head.next.and_then(|next| next.r#continue).expect("continue");
+        assert!(
+            head.warnings
+                .iter()
+                .any(|warning| warning.contains("first 50 lines")),
+            "{:?}",
+            head.warnings
+        );
+        let next = head
+            .next
+            .and_then(|next| next.r#continue)
+            .expect("continue");
         assert_eq!(next.query.offset(), Some(HEAD_LINES));
         assert_eq!(next.query.chunk_size(), None);
         let page = fetch(&source, &next.query);
@@ -1194,7 +1201,7 @@ mod line_page_scan_tests {
         assert_eq!(ranged.returned_lines, Some(191));
         let small = fetch(&filler(LARGE_READ_LINES - 1), &plain);
         assert!(small.returned_lines.expect("lines") > HEAD_LINES);
-        assert!(small.hints.is_empty(), "{:?}", small.hints);
+        assert!(small.warnings.is_empty(), "{:?}", small.warnings);
     }
 
     #[test]

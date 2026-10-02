@@ -308,8 +308,8 @@ mod tests {
         // A goal that names identifiers narrows the locate to their hit
         // windows (no hits falls back to the whole file).
         let named = json!({"path":"src/builder.rs","goal":"why does worker_threads reject 0 in Builder::new or maxThreads","reasoning":"r"});
-        let offer = large_read_handoff("localFetch", &named, paged.as_object().unwrap())
-            .expect("offer");
+        let offer =
+            large_read_handoff("localFetch", &named, paged.as_object().unwrap()).expect("offer");
         assert_eq!(
             offer["query"]["resources"][0]["prefilter"],
             json!(["worker_threads", "Builder::new", "maxThreads"])

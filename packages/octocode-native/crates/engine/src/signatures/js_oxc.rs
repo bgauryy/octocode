@@ -16,11 +16,10 @@ use oxc_ast::ast::{
     ArrowFunctionBody, BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration,
     ExportDeclaration, ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function,
     ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, MemberExpression,
-    MethodDefinitionKind,
-    Program, Statement, TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration,
-    TSGlobalDeclaration, TSInterfaceDeclaration, TSModuleReference, TSNamespaceDeclaration,
-    TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration, VariableDeclaration,
-    VariableDeclarationKind,
+    MethodDefinitionKind, Program, Statement, TSEnumDeclaration, TSEnumMemberName,
+    TSExternalModuleDeclaration, TSGlobalDeclaration, TSInterfaceDeclaration, TSModuleReference,
+    TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration,
+    VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_ast_visit::{VisitJs, walk_js};
 use oxc_parser::Parser;
@@ -1443,7 +1442,11 @@ fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSym
 /// modules declare their API this way. Each spans its whole statement and is
 /// named by its member path. Only the declaration outline collects them; the
 /// dependency graph keeps its binding-based declarations.
-fn collect_member_functions(statements: &[Statement], li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
+fn collect_member_functions(
+    statements: &[Statement],
+    li: &LineIndex,
+    out: &mut Vec<DocumentSymbol>,
+) {
     for stmt in statements {
         let Statement::ExpressionStatement(statement) = stmt else {
             continue;

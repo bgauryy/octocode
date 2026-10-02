@@ -67,7 +67,9 @@ pub fn is_test_path(path: &str) -> bool {
 fn is_test_file_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     if TEST_FILE_NAMES.contains(&lower.as_str())
-        || TEST_NAME_MARKERS.iter().any(|marker| lower.contains(marker))
+        || TEST_NAME_MARKERS
+            .iter()
+            .any(|marker| lower.contains(marker))
     {
         return true;
     }

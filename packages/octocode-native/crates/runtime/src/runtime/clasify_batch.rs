@@ -591,7 +591,10 @@ fn snap_to_declarations((start, end): (u64, u64), spans: &[(usize, usize)]) -> (
         .unwrap_or(start);
     let snapped_end = spans
         .filter(|&(first, last)| {
-            first <= end && end < last && first >= snapped_start && last - end <= DECLARATION_SNAP_LINES
+            first <= end
+                && end < last
+                && first >= snapped_start
+                && last - end <= DECLARATION_SNAP_LINES
         })
         .map(|(_, last)| last)
         .max()
@@ -1219,13 +1222,12 @@ fn hydrate_candidates(
     execution: &ExecutionContext,
     reads: &ReadLimiter,
 ) -> Result<Vec<CapturedPage>, ExecutionError> {
-    let declarations = if source.get("tool").and_then(Value::as_str)
-        == Some(ToolId::LocalSearch.as_str())
-    {
-        local_declaration_spans(&dispatcher.paths, &candidates)
-    } else {
-        HashMap::new()
-    };
+    let declarations =
+        if source.get("tool").and_then(Value::as_str) == Some(ToolId::LocalSearch.as_str()) {
+            local_declaration_spans(&dispatcher.paths, &candidates)
+        } else {
+            HashMap::new()
+        };
     let planned = candidate_jobs(source, &candidates, 1, page_budget, &declarations)
         .iter()
         .flatten()
@@ -3343,12 +3345,13 @@ mod tests {
     /// the hit its window was centered on.
     #[test]
     fn snapped_jobs_keep_the_unsnapped_windows_as_fallback() {
-        let source = json!({"tool":"localSearch","query":{"path":"src","searchText":"task budget"}});
+        let source =
+            json!({"tool":"localSearch","query":{"path":"src","searchText":"task budget"}});
         let candidate = json!({"results":[{"data":{"files":[{
             "path":"src/coop.rs","matches":[{"line":129},{"line":136},{"line":271},{"line":291},{"line":310}]
         }]}}]});
         let spans = HashMap::from([("src/coop.rs".to_owned(), vec![(343, 364)])]);
-        let jobs = candidate_jobs(&source, &[candidate.clone()], 4_000, 10, &spans);
+        let jobs = candidate_jobs(&source, std::slice::from_ref(&candidate), 4_000, 10, &spans);
         let [Some(jobs)] = &jobs[..] else {
             panic!("one candidate");
         };
@@ -3360,7 +3363,12 @@ mod tests {
         let parts: Vec<_> = job
             .parts
             .iter()
-            .map(|part| (part["query"]["startLine"].clone(), part["query"]["endLine"].clone()))
+            .map(|part| {
+                (
+                    part["query"]["startLine"].clone(),
+                    part["query"]["endLine"].clone(),
+                )
+            })
             .collect();
         assert_eq!(parts, [(json!(72), json!(192)), (json!(230), json!(350))]);
         // A single window that snaps falls back to itself.
@@ -3370,7 +3378,10 @@ mod tests {
         let jobs = candidate_jobs(&source, &[single], 4_000, 10, &spans);
         let job = &jobs[0].as_ref().expect("job")[0];
         assert_eq!(
-            (job.read["query"]["startLine"].clone(), job.read["query"]["endLine"].clone()),
+            (
+                job.read["query"]["startLine"].clone(),
+                job.read["query"]["endLine"].clone()
+            ),
             (json!(240), json!(364))
         );
         assert_eq!(job.parts.len(), 1);

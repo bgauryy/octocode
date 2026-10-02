@@ -407,14 +407,6 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             row["next"] = menu;
         }
     }
-    if let Some(read) = super::continuations::read_at_merge(query, &raw, &row["changedFiles"]) {
-        match row.get_mut("next").and_then(Value::as_object_mut) {
-            Some(next) => {
-                next.insert("readAtMerge".into(), read);
-            }
-            None => row["next"] = json!({"readAtMerge": read}),
-        }
-    }
     // Patch rows are the evidence of a patch read: it re-proves only number,
     // state, and the head it read. The metadata read names the PR (title,
     // author, createdAt); a read without patch rows keeps them.
@@ -456,6 +448,15 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     attach_full_patch_continuation(&mut out, query);
     if let Some(path) = first_unsearched {
         attach_unsearched_read(&mut out, query, &path);
+    }
+    // A cross-tool read: the top-level `next`, not the row's PR-read menu.
+    if let Some(read) =
+        super::continuations::read_at_merge(query, &raw, &out["pullRequests"][0]["changedFiles"])
+    {
+        if !out.get("next").is_some_and(Value::is_object) {
+            out["next"] = json!({});
+        }
+        out["next"]["readAtMerge"] = read;
     }
     if !query.debug() {
         trim_content_pagination(&mut out);
