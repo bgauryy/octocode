@@ -1,13 +1,12 @@
 ---
 name: octocode-dev
-description: "Use when doing any development work inside the octocode monorepo: build, test, lint, typecheck, verify, docs checks, dependency dedupe, local dev setup, or publish (root package.json has no wrapper scripts; tasks run through this skill's dev.mjs); changing a tool contract, native runtime, CLI/MCP surface, or config setting through the one generation pipeline; and auditing a tool end to end (schema, descriptions, Rust implementation, output, pagination, next.* routing, config, docs drift). Triggers: yarn build, build:dev, run tests, verify, docs:verify, prepublish, release, contracts:regen, add a config key, add a tool field, contract drift, fingerprint mismatch, stale MCP, tool audit, octocode dev. Not for researching other code → octocode-research; not for open Rust design choices → rust-best-practices."
+description: "Use when doing any development work inside the octocode monorepo: build, test, lint, typecheck, verify, docs checks, dependency dedupe, local dev setup, or publish (root package.json has no wrapper scripts; tasks run through this skill's dev.mjs); changing a tool contract, native runtime, CLI/MCP surface, or config setting through the one generation pipeline; and auditing a tool end to end (schema, descriptions, Rust implementation, output, pagination, next.*/hints.* routing, config, docs drift). Triggers: yarn build, build:dev, run tests, verify, docs:verify, prepublish, release, contracts:regen, add a config key, add a tool field, contract drift, fingerprint mismatch, stale MCP, tool audit, octocode dev. Not for researching other code → octocode-research; not for open Rust design choices → rust-best-practices."
 ---
 
 # Octocode Dev
 
 tools: `node skills-dev/octocode-dev/scripts/dev.mjs <task>` (`$DEV`) · `yarn workspace <pkg> <script>` · `node packages/octocode/out/octocode.js` (`$OCTO`) · Octocode MCP
 output: working-tree edits; audit reports in `<repo>/.octocode/octocode-dev/`; none for plain task runs
-routes: load a reference or doc only when its map trigger matches; run a script directly only for a flag `$DEV` lacks.
 
 ```mermaid
 flowchart LR
@@ -22,7 +21,7 @@ flowchart LR
     A -. "locate every layer" .-> M1["surface-map.md"]
     A -. "schema, description, instruction, or limit; then surface-map" .-> M2["contract-audit.md"]
     A -. "native behavior or data flow" .-> M3["implementation-audit.md"]
-    A -. "output, pagination, next.* hints" .-> M4["output-audit.md"]
+    A -. "output, pagination, next.* pages, hints.*" .-> M4["output-audit.md"]
     C -. "before editing and before reporting done" .-> M5["fix-and-verify.md"]
     C -. "a setting or credential" .-> D1["ADDING_CONFIG.md"]
     T -. "package layout, env vars, ownership" .-> D2["DEVELOPMENT.md"]
@@ -30,19 +29,15 @@ flowchart LR
     V -. "acceptance bar for anything a tool returns" .-> D4["TOOL_QUALITY.md"]
 ```
 
-A change is done only after a rebuild and a real CLI or MCP call. A plain task run reports its exit code. Dotted edges name the trigger that loads a `references/` or `docs/` page.
+A plain task run reports its exit code. Dotted edges name the trigger that loads a `references/` or `docs/` page. The tool-output acceptance bar also reads `<repo>/docs/TOOL_DATA_CONTRACT.md`.
 
 Paths: `<repo>` is the monorepo root. `CORE` is `../octocode-mcp-host/packages/octocode-core`. Bare `docs/` paths are this skill's docs. Route open native design to `rust-best-practices` and doc rewrites to `octocode-documentation`.
-
-## Pages
-
-Load on the map trigger: `references/surface-map.md` · `references/contract-audit.md` · `references/implementation-audit.md` · `references/output-audit.md` · `references/fix-and-verify.md` · `docs/ADDING_CONFIG.md` · `docs/DEVELOPMENT.md` · `docs/RELEASE.md` · `docs/TOOL_QUALITY.md`. For a contract change, load `references/contract-audit.md` before `references/surface-map.md`. The tool-output acceptance bar also reads `<repo>/docs/TOOL_DATA_CONTRACT.md`.
 
 ## Hard rules
 
 - Never `git commit` or `git stash`. Leave changes in the working tree.
 - Contracts have one pipeline: edit CORE → build core → `yarn contracts:regen` → `yarn workspace @octocodeai/octocode-native build:dev`.
-- Never hand-write a tool wire type. Never hand-edit `packages/octocode-config/contract/`. Never add tool logic or guidance to an interface package.
+- Never hand-write a tool wire type (TS interface, Zod copy, or serde query/result struct). Never hand-edit `packages/octocode-config/contract/`. Never add tool logic or guidance to an interface package.
 - Declare and implement each new contract field or discriminator in `crates/runtime/src/contracts/field-effect-coverage.json`.
 - Config flows through `@octocodeai/config`. Never reimplement home, env propagation, or `.env` parsing.
 - Never lower coverage floors or special-case tests.

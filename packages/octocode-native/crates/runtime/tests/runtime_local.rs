@@ -11,59 +11,38 @@ use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 
 #[tokio::test]
-async fn ordinary_tools_require_trace_context() {
+async fn ordinary_tools_take_an_optional_brief() {
     let workspace = Workspace::new();
     let path = workspace.write("reasoning.txt", "ok\n");
     let runtime = workspace.runtime(&[]);
     let path = path.to_string_lossy().into_owned();
 
-    // The contract requires `goal` and `reasoning` on every query.
-    let error = runtime
-        .execute(
-            "reasoning-omitted".into(),
-            "localFetch".into(),
-            json!({"path":path}),
-        )
-        .await
-        .expect_err("trace context is required");
-    assert_eq!(error.code, "invalidInput");
-    let details = serde_json::to_string(&error.payload).expect("payload");
-    assert!(
-        details.contains("goal: Missing required field: goal"),
-        "{details}"
-    );
-    assert!(
-        details.contains("reasoning: Missing required field: reasoning"),
-        "{details}"
-    );
-
-    let error = runtime
-        .execute(
-            "reasoning-blank".into(),
-            "localFetch".into(),
-            json!({"path":path,"goal": "test", "reasoning":"   "}),
-        )
-        .await
-        .expect_err("blank reasoning is rejected");
-    assert_eq!(error.code, "invalidInput");
-    let details = serde_json::to_string(&error.payload).expect("payload");
-    assert!(
-        details.contains("reasoning: is empty; give one line on why this query"),
-        "{details}"
-    );
-
-    let outcome = runtime
-        .execute(
-            "reasoning-valid".into(),
-            "localFetch".into(),
-            json!({"path":path,"goal": "test", "reasoning":"Read the fixture."}),
-        )
-        .await
-        .expect("valid reasoning must be accepted");
-    assert_eq!(
-        outcome.structured_content["results"][0]["data"]["content"],
-        "1\tok\n"
-    );
+    // The brief is optional: a call without one runs, and a blank one is
+    // dropped rather than rejected.
+    for (label, query) in [
+        ("brief-omitted", json!({"path":path})),
+        (
+            "brief-blank",
+            json!({"path":path,"mainGoal": "  ", "reasoning":"   "}),
+        ),
+        (
+            "brief-legacy-goal",
+            json!({"path":path,"goal": "Read the fixture."}),
+        ),
+        (
+            "brief-valid",
+            json!({"path":path,"mainGoal": "test", "reasoning":"Read the fixture."}),
+        ),
+    ] {
+        let outcome = runtime
+            .execute(label.into(), "localFetch".into(), query)
+            .await
+            .unwrap_or_else(|error| panic!("{label} must be accepted: {error:?}"));
+        assert_eq!(
+            outcome.structured_content["results"][0]["data"]["content"], "1\tok\n",
+            "{label}"
+        );
+    }
     runtime.close().await;
 }
 
@@ -80,8 +59,8 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
             "bulk-success".into(),
             "localFetch".into(),
             json!({"queries":[
-                {"path":first,"goal": "test", "reasoning":"Read the first fixture."},
-                {"path":second,"goal": "test", "reasoning":"Read the second fixture."}
+                {"path":first,"mainGoal": "test", "reasoning":"Read the first fixture."},
+                {"path":second,"mainGoal": "test", "reasoning":"Read the second fixture."}
             ]}),
         )
         .await
@@ -101,8 +80,8 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
             "bulk-mixed".into(),
             "localFetch".into(),
             json!({"queries":[
-                {"path":missing,"goal": "test", "reasoning":"Exercise one missing fixture."},
-                {"path":first,"goal": "test", "reasoning":"Retain the successful fixture."}
+                {"path":missing,"mainGoal": "test", "reasoning":"Exercise one missing fixture."},
+                {"path":first,"mainGoal": "test", "reasoning":"Retain the successful fixture."}
             ]}),
         )
         .await
@@ -157,13 +136,13 @@ async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
                     "path":first_path,
                     "chunkType":"lines",
                     "chunkSize":1,
-                    "goal": "test", "reasoning":"Page the first snapshot fixture."
+                    "mainGoal": "test", "reasoning":"Page the first snapshot fixture."
                 },
                 {
                     "path":second_path,
                     "chunkType":"lines",
                     "chunkSize":1,
-                    "goal": "test", "reasoning":"Page the second snapshot fixture."
+                    "mainGoal": "test", "reasoning":"Page the second snapshot fixture."
                 }
             ]}),
         )
@@ -525,7 +504,7 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
     .expect("symbol recovery output satisfies its contract");
     assert_eq!(row_status(&symbol_failure), "error");
     assert_eq!(
-        row_data(&symbol_failure)["next"]["readFile"]["tool"],
+        row_data(&symbol_failure)["hints"]["readFile"]["tool"],
         "localFetch"
     );
     runtime.close().await;
@@ -735,7 +714,7 @@ async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
         "deadCode row must not be withheld: {}",
         outcome.structured_content
     );
-    let verify = &row_data(&outcome)["next"]["verifyReferences"];
+    let verify = &row_data(&outcome)["hints"]["verifyReferences"];
     assert_eq!(
         verify["tool"], "lspSearch",
         "{}",
@@ -1052,7 +1031,7 @@ async fn continuations_carry_the_input_brief_and_replay() {
             "page-1".into(),
             "localSearch".into(),
             json!({"path":workspace.workspace,"searchText":"needle","pageSize":1,
-                "goal":"Find every needle file for the audit.","reasoning":"List files one page at a time."}),
+                "mainGoal":"Find every needle file for the audit.","reasoning":"List files one page at a time."}),
         )
         .await
         .expect("first page");
@@ -1060,7 +1039,7 @@ async fn continuations_carry_the_input_brief_and_replay() {
     let query = next["query"].clone();
     assert!(query.get("followUp").is_none(), "{next}");
     assert_eq!(
-        query["goal"], "Find every needle file for the audit.",
+        query["mainGoal"], "Find every needle file for the audit.",
         "{next}"
     );
     assert_eq!(

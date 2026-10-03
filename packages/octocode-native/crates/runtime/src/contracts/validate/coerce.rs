@@ -17,8 +17,13 @@
 //!
 //! Line ranges: where items carry the canonical `a-b` line-range pattern,
 //! `" 140-150"`, `"140 - 150"` and `"70,130"` become `"140-150"`/`"70-130"`,
-//! and a pair of bare line numbers (`["248","325"]`, `[248,325]`) becomes the
-//! one range holding both. Every requested line stays in the read.
+//! and a pair of bare line numbers (`["248","325"]`, `[248,325]`, or one pair
+//! per item: `[["248","325"]]`) becomes the one range holding both. Every
+//! requested line stays in the read.
+//!
+//! Closed string sets: where every alternative is a string `enum`/`const`, a
+//! value that names exactly one member up to case, `-`/`_`/space, or a plural
+//! `s`/`es` (`pullRequests`, `PullRequest`, `patch`) becomes that member.
 
 use serde_json::Value;
 
@@ -53,6 +58,10 @@ pub(super) fn coerce_lossless(candidates: &[Typed<'_>], value: &mut Value) {
             } else if let Some(coerced) = agreed_scalar(&schemas).and_then(|kind| parse(kind, text))
             {
                 *value = coerced;
+            } else if let Some(member) =
+                closed_strings(&schemas).and_then(|members| near_miss(&members, text))
+            {
+                *value = Value::String(member.to_owned());
             }
         }
         Value::Object(object) => {
@@ -71,19 +80,88 @@ pub(super) fn coerce_lossless(candidates: &[Typed<'_>], value: &mut Value) {
         }
         Value::Array(items) => {
             let children = item_schemas(&schemas);
-            if line_range_only(&flatten_all(&children))
-                && let [first, second] = items.as_slice()
-                && let (Some(start), Some(end)) = (line_number(first), line_number(second))
-                && start <= end
-            {
-                *items = vec![Value::String(format!("{start}-{end}"))];
+            let ranges = line_range_only(&flatten_all(&children));
+            if ranges && let Some(range) = line_pair(items) {
+                *items = vec![Value::String(range)];
                 return;
             }
             for item in items {
-                coerce_lossless(&children, item);
+                if ranges
+                    && let Value::Array(pair) = item
+                    && let Some(range) = line_pair(pair)
+                {
+                    *item = Value::String(range);
+                } else {
+                    coerce_lossless(&children, item);
+                }
             }
         }
         _ => {}
+    }
+}
+
+/// Drops a row's blank optional values: an empty or whitespace-only string,
+/// or an empty list, in a field no variant requires and every alternative
+/// rejects as blank. Such a value carries nothing, so it means the field was
+/// omitted; a required field keeps its value for the validator to name.
+pub(super) fn drop_blank_optionals(candidates: &[Typed<'_>], row: &mut Value) {
+    let variants = flatten_all(candidates);
+    let required: Vec<&str> = variants
+        .iter()
+        .filter_map(|(_, schema)| schema.get("required")?.as_array())
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let Value::Object(object) = row else {
+        return;
+    };
+    object.retain(|key, value| {
+        if required.contains(&key.as_str()) || !is_blank(value) {
+            return true;
+        }
+        let fields = variants
+            .iter()
+            .filter_map(|&(root, schema)| {
+                schema
+                    .get("properties")?
+                    .get(key)
+                    .map(|field| (root, field))
+            })
+            .collect::<Vec<_>>();
+        let alternatives = flatten_all(&fields);
+        alternatives.is_empty()
+            || !alternatives
+                .iter()
+                .all(|(_, schema)| rejects_blank(schema, value))
+    });
+}
+
+fn is_blank(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.trim().is_empty(),
+        Value::Array(items) => items.is_empty(),
+        _ => false,
+    }
+}
+
+/// Whether a flattened schema rejects this blank string or empty list.
+fn rejects_blank(schema: &Value, value: &Value) -> bool {
+    let at_least = |key: &str| {
+        schema
+            .get(key)
+            .and_then(Value::as_u64)
+            .is_some_and(|n| n >= 1)
+    };
+    match value {
+        Value::String(text) => {
+            types(schema).is_some_and(|names| names == ["string"])
+                && ((text.is_empty() && at_least("minLength"))
+                    || schema.get("pattern").and_then(Value::as_str) == Some(r"\S"))
+        }
+        Value::Array(_) => {
+            types(schema).is_some_and(|names| names == ["array"]) && at_least("minItems")
+        }
+        _ => false,
     }
 }
 
@@ -260,6 +338,82 @@ fn line_number(value: &Value) -> Option<u64> {
     (number > 0 && number <= MAX_SAFE_INTEGER).then_some(number)
 }
 
+/// Two bare line numbers `[a, b]` with `a <= b`, as the range `a-b`.
+fn line_pair(items: &[Value]) -> Option<String> {
+    let [first, second] = items else {
+        return None;
+    };
+    let (start, end) = (line_number(first)?, line_number(second)?);
+    (start <= end).then(|| format!("{start}-{end}"))
+}
+
+/// The members of a closed string set: every alternative is a string `enum`
+/// or `const` (a `null` alternative is neutral); `None` when any alternative
+/// is open.
+fn closed_strings<'a>(schemas: &[Typed<'a>]) -> Option<Vec<&'a str>> {
+    let mut members = Vec::new();
+    for (_, schema) in schemas {
+        if types(schema).is_some_and(|names| names == ["null"]) {
+            continue;
+        }
+        if let Some(constant) = schema.get("const") {
+            members.push(constant.as_str()?);
+            continue;
+        }
+        for member in schema.get("enum")?.as_array()? {
+            members.push(member.as_str()?);
+        }
+    }
+    (!members.is_empty()).then_some(members)
+}
+
+/// The one member `text` means up to case and `-`/`_`/space separators, else
+/// up to a plural `s`/`es` on either side; `None` for an exact member, no
+/// match, or more than one candidate.
+fn near_miss<'a>(members: &[&'a str], text: &str) -> Option<&'a str> {
+    if members.contains(&text) {
+        return None;
+    }
+    let key = |value: &str| -> String {
+        value
+            .chars()
+            .filter(|c| !matches!(c, '-' | '_' | ' '))
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let wanted = key(text);
+    let plural = |singular: &str, other: &str| {
+        other
+            .strip_prefix(singular)
+            .is_some_and(|suffix| matches!(suffix, "s" | "es"))
+    };
+    let unique = |candidates: Vec<&'a str>| {
+        let first = *candidates.first()?;
+        candidates
+            .iter()
+            .all(|member| *member == first)
+            .then_some(first)
+    };
+    let exact: Vec<&str> = members
+        .iter()
+        .copied()
+        .filter(|member| key(member) == wanted)
+        .collect();
+    if !exact.is_empty() {
+        return unique(exact);
+    }
+    unique(
+        members
+            .iter()
+            .copied()
+            .filter(|member| {
+                let member = key(member);
+                plural(&member, &wanted) || plural(&wanted, &member)
+            })
+            .collect(),
+    )
+}
+
 /// `a-b` or `a,b` with optional spaces around either number, as `a-b`;
 /// `None` for any other text (left for the validator to report).
 fn line_range(text: &str) -> Option<String> {
@@ -410,6 +564,10 @@ mod tests {
             (json!("[248,325]"), json!(["248-325"])),
             (json!(["70,130", " 1-2 "]), json!(["70-130", "1-2"])),
             (json!(["95-105"]), json!(["95-105"])),
+            (json!([["248", "325"]]), json!(["248-325"])),
+            (json!([[1, 2], ["5", 9]]), json!(["1-2", "5-9"])),
+            (json!([[3, 4], "10,20"]), json!(["3-4", "10-20"])),
+            (json!("[[248,325]]"), json!(["248-325"])),
         ] {
             assert_eq!(coerced(&ranges, input.clone()), expected, "{input}");
         }
@@ -420,12 +578,102 @@ mod tests {
             json!(["a-b"]),
             json!([1, 2, 3]),
             json!(["1-2-3"]),
+            json!([[325, 248]]),
+            json!([[1, 2, 3]]),
+            json!([[1]]),
+            json!([["a", "b"]]),
         ] {
             assert_eq!(coerced(&ranges, input.clone()), input, "{input}");
         }
         // Only the line-range pattern is repaired.
         let plain = json!({"type":"array","items":{"type":"string"}});
         assert_eq!(coerced(&plain, json!(["70,130"])), json!(["70,130"]));
+    }
+
+    /// A closed string set repairs a value that matches exactly one member
+    /// up to case, `-`/`_`/space separators, or a plural `s`/`es`; an exact
+    /// match is preferred over a plural one, and anything ambiguous or open
+    /// is left for the validator to report.
+    #[test]
+    fn near_miss_enum_values_repair_only_when_unambiguous() {
+        let operation = json!({"type":"string","enum":["pullRequest","issue","commit"]});
+        for (input, expected) in [
+            ("pullRequests", "pullRequest"),
+            ("PullRequest", "pullRequest"),
+            ("pull_request", "pullRequest"),
+            ("issues", "issue"),
+            ("commits", "commit"),
+            ("issue", "issue"),
+        ] {
+            assert_eq!(
+                coerced(&operation, json!(input)),
+                json!(expected),
+                "{input}"
+            );
+        }
+        for input in ["pr", "pulls", "", "issuess"] {
+            assert_eq!(coerced(&operation, json!(input)), json!(input), "{input}");
+        }
+        let patches = json!({"type":"array","items":{"type":"string","enum":["body","patches"]}});
+        assert_eq!(
+            coerced(&patches, json!(["patch", "Body"])),
+            json!(["patches", "body"])
+        );
+        // Discriminated variants contribute their `const` values.
+        let union = json!({"anyOf":[
+            {"type":"string","const":"definition"},
+            {"type":"string","enum":["references","documentSymbols"]}
+        ]});
+        assert_eq!(coerced(&union, json!("reference")), json!("references"));
+        assert_eq!(coerced(&union, json!("definitions")), json!("definition"));
+        // Exact (case-insensitive) beats plural; two plural candidates veto.
+        let both = json!({"type":"string","enum":["file","files"]});
+        assert_eq!(coerced(&both, json!("FILES")), json!("files"));
+        let ambiguous = json!({"type":"string","enum":["base","bas"]});
+        assert_eq!(coerced(&ambiguous, json!("bases")), json!("bases"));
+        // An open string alternative vetoes repair.
+        let open = json!({"anyOf":[{"type":"string","enum":["a"]},{"type":"string"}]});
+        assert_eq!(coerced(&open, json!("as")), json!("as"));
+    }
+
+    /// A blank value in an optional field every alternative rejects as blank
+    /// (`pattern:"\\S"`, `minLength`, `minItems`) carries nothing, so it is
+    /// dropped; required fields and values a schema accepts stay.
+    #[test]
+    fn blank_optional_values_drop_and_required_ones_stay() {
+        let row = json!({
+            "type":"object",
+            "required":["path"],
+            "properties":{
+                "path":{"type":"string","pattern":"\\S"},
+                "branch":{"type":"string","pattern":"\\S"},
+                "ref":{"type":"string","minLength":1},
+                "keywords":{"type":"array","minItems":1,"items":{"type":"string"}},
+                "include":{"type":"array","items":{"type":"string"}},
+                "note":{"type":"string"},
+                "label":{"anyOf":[{"type":"string","minLength":1},{"type":"string"}]}
+            }
+        });
+        let mut value = json!({
+            "path":"  ","branch":" ","ref":"","keywords":[],"include":[],
+            "note":"","label":"","other":""
+        });
+        super::drop_blank_optionals(&[(&row, &row)], &mut value);
+        assert_eq!(
+            value,
+            json!({"path":"  ","include":[],"note":"","label":"","other":""})
+        );
+        let mut spaced = json!({"ref":" "});
+        super::drop_blank_optionals(&[(&row, &row)], &mut spaced);
+        assert_eq!(spaced, json!({"ref":" "}), "minLength accepts whitespace");
+        // A field one variant requires stays in every row.
+        let union = json!({"anyOf":[
+            {"type":"object","required":["ref"],"properties":{"ref":{"type":"string","minLength":1}}},
+            {"type":"object","properties":{"ref":{"type":"string","minLength":1}}}
+        ]});
+        let mut kept = json!({"ref":""});
+        super::drop_blank_optionals(&[(&union, &union)], &mut kept);
+        assert_eq!(kept, json!({"ref":""}));
     }
 
     #[test]

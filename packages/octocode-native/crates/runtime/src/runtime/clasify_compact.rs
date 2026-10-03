@@ -296,7 +296,7 @@ pub(super) fn compact_answer(answer: &Value) -> Value {
 fn unify_continuation(next: &mut Value, matrix: &Matrix<'_>, paths: &Map<String, Value>) {
     let locate = !matrix.locate_ids.is_empty();
     let brief = [
-        ("goal", next.get("goal").cloned()),
+        ("mainGoal", next.get("mainGoal").cloned()),
         ("reasoning", next.get("reasoning").cloned()),
     ];
     if let Some(resources) = next.get_mut("resources").and_then(Value::as_array_mut) {
@@ -359,8 +359,8 @@ mod tests {
                 page(1481, 1851, 0.96, (1551, 1558, 0.68))
             ]}],
             "next":{"clasify":{
-                "id":"matrix-1","goal":"g","reasoning":"r",
-                "resources":[{"id":"f","context":{"tool":"localFetch","query":{"path":"src/server.c","startLine":2608,"endLine":8615,"goal":"g","reasoning":"own"}},"prefilter":["cron"],"maxChars":80000}],
+                "id":"matrix-1","mainGoal":"g","reasoning":"r",
+                "resources":[{"id":"f","context":{"tool":"localFetch","query":{"path":"src/server.c","startLine":2608,"endLine":8615,"mainGoal":"g","reasoning":"own"}},"prefilter":["cron"],"maxChars":80000}],
                 "questions":[{"id":"t","questionType":"locate","target":"timer"}],
                 "carry":{"t":[{"resourceId":"f","exists":0.96,"startLine":1551,"endLine":1558,"probability":0.68,"path":"src/server.c"}]}
             }}
@@ -394,7 +394,7 @@ mod tests {
                 ]}],
                 "next":{
                     "clasify":{
-                        "id":"matrix-1","goal":"g","reasoning":"r",
+                        "id":"matrix-1","mainGoal":"g","reasoning":"r",
                         "resources":[{"id":"f","tool":"localFetch","query":{"path":"src/server.c","startLine":2608,"endLine":8615,"reasoning":"own"},"prefilter":["cron"]}],
                         "questions":[{"id":"t","type":"locate","ask":"timer"}],
                         "carry":{"t":[{"lines":[1551,1558],"exists":0.96,"p":0.68}]}

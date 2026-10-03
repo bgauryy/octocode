@@ -21,8 +21,7 @@ Load when an idiom or API claim needs an authoritative anchor, or when you choos
 | WebAssembly | **wasm-bindgen Guide** (rustwasm org archived 2025; its book is frozen) | https://wasm-bindgen.github.io/wasm-bindgen/ |
 | Onboarding | **Rust by Example** · **Rustlings** | https://doc.rust-lang.org/rust-by-example/ · https://github.com/rust-lang/rustlings |
 
-- Name the document that backs an idiom or API claim. The API Guidelines and the Reference settle disputes.
-- A claim about one crate's behavior needs its source at a ref (`octocode-research`), not a doc.
+- The API Guidelines and the Reference settle disputes.
 - Toolchain baseline: install via **rustup**; `cargo new`/`build`/`run`/`test`/`doc`/`publish`; add deps with `cargo add`; `Cargo.lock` pins versions; `rustup update` keeps the toolchain current.
 - If the canon and this skill disagree, the canon wins: fix the skill via `octocode-skills`.
 
@@ -36,8 +35,8 @@ Load when an idiom or API claim needs an authoritative anchor, or when you choos
 | Async runtime | `tokio` | `smol`, `async-std` are niche |
 | CLI args | `clap` (derive API) | |
 | Structured logging | `tracing` + `tracing-subscriber` | Prefer over `log` in async code |
-| Data parallelism | `rayon` | Benchmark small workloads |
-| HTTP client | `reqwest` | `rustls` feature drops OpenSSL |
+| Data parallelism | `rayon` | |
+| HTTP client | `reqwest` | `rustls` feature drops OpenSSL; prefer `rustls` over native TLS where the platform allows |
 | Web server | `axum` | On tokio/tower/hyper |
 | Regex | `regex` / `regex-automata` | Linear-time, no catastrophic backtracking |
 | Date/time | `jiff` (recommended) or `time`/`chrono` | |
@@ -47,9 +46,5 @@ Load when an idiom or API claim needs an authoritative anchor, or when you choos
 | Iterator tools | `itertools` | `chunk_by`, `dedup`, `cartesian_product` |
 
 - Check transitive weight with `cargo tree`. Log why a canon default did not fit.
-- Test/bench crates (insta, proptest, criterion, assert_cmd, trybuild): `references/testing-and-tooling.md`.
-- A library exposes typed errors (`thiserror`). A library that returns `anyhow::Error` forces the collapse on every consumer.
-- Feature-gate heavy optionals (`default-features = false`) to cut compile time and attack surface (`references/workspace.md`).
-- Prefer `rustls` over native TLS where the platform allows.
 
 Next: how the error crate shapes signatures → `references/idioms.md`.

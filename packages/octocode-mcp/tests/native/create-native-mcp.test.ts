@@ -252,7 +252,7 @@ describe('createNativeMcp registration + execution', () => {
     ]);
 
     const matrix = {
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: 'Locate one fact without caller-authored IDs.',
       resources: [{ context: { value: 'captured source' } }],
       questions: [
@@ -384,7 +384,7 @@ describe('createNativeMcp registration + execution', () => {
       arguments: {
         queries: [
           {
-            goal: 'test goal',
+            mainGoal: 'test goal',
             reasoning: 'boundary test',
             path: '.',
             fullContent: true,
@@ -443,7 +443,7 @@ describe('createNativeMcp registration + execution', () => {
           name: 'localFetch',
           arguments: {
             queries: [
-              { goal: 'test goal', reasoning: 'cancel test', path: '.' },
+              { mainGoal: 'test goal', reasoning: 'cancel test', path: '.' },
             ],
           },
         },

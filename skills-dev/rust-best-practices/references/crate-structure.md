@@ -32,16 +32,13 @@ Load when you decide module boundaries or file placement inside a crate, what go
 ## Design the boundary
 - `#[non_exhaustive]` on public types that will grow.
 - **Do not leak dependency types.** A `reqwest::Error` or `tokio::fs::File` in a public signature makes that crate's version part of your API. Wrap it; if re-export is intended, `pub use dep;`.
-- **One error enum per crate** (`thiserror`), converted with `From` at the edge; the binary collapses to `anyhow` (`references/idioms.md`).
 - **Break cycles by moving the shared piece down**: a tiny `*-types` crate, or a trait in the lower crate that the upper crate implements. Never fix a cycle with features.
-- **Generics monomorphize in the caller**: good for hot paths, costly for compile time. Cold APIs take `&dyn Trait`/concrete types or use the inner-non-generic-fn trick. Tiny hot cross-crate fns get `#[inline]` (no LTO needed).
+- **Generics monomorphize in the caller**: good for hot paths, costly for compile time. Cold APIs take `&dyn Trait`/concrete types or use the inner-non-generic-fn trick.
 - **Features are additive and per-crate.** A feature never removes API or changes default behavior. Expose it from the crate that owns the dep and forward it (`cli = ["app-core/serde"]`).
-- Boundary patterns (sealed trait, typestate): `references/types-and-patterns.md`.
 
 ## Keep boundaries honest
 - Each crate builds and tests alone: `cargo test -p <crate>`, `cargo hack check --each-feature -p <crate>`.
-- Integration tests in `tests/` see only the public API: the best usability check.
-- Enforce layering in CI over `cargo metadata` (or `cargo deny` `[bans]` with `wrappers`): fail if `app-core` depends on an edge crate. Review `cargo tree -p app-core -e normal` when deps change.
+- Enforce layering in CI over `cargo metadata` (or `cargo deny` `[bans]` with `wrappers`): fail if `app-core` depends on an edge crate.
 - Internal crates: `publish = false`, versioned together. Published crates: `cargo semver-checks` before every release.
 
 ## Extract a module into a crate

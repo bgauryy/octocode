@@ -190,7 +190,7 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
             .is_some_and(|w| w.contains("25 of 31")),
         "{data}"
     );
-    assert_eq!(data["next"]["readFixPr"]["confidence"], "medium", "{data}");
+    assert_eq!(data["hints"]["readFixPr"]["confidence"], "medium", "{data}");
     runtime.close().await;
 }
 

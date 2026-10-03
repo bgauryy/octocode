@@ -43,7 +43,7 @@ for (const t of TASKS) {
   const datas = prevAll.parts.map(p => p?.results?.[0]?.data || {});
   const d = { ...datas[0], ...datas[datas.length - 1], totalMatches: datas[0].totalMatches, next: datas.map(x => x.next).filter(Boolean).find(n => n.apply) || datas[datas.length - 1].next };
   let apply = null, applyData = null;
-  if (d.next?.apply?.query) { apply = ocRaw('astRewrite', { queries: [d.next.apply.query] }, { cwd: HERE, reps: 1 }); applyData = apply.parsed?.results?.[0]?.data; }
+  if (d.hints?.apply?.query) { apply = ocRaw('astRewrite', { queries: [d.hints.apply.query] }, { cwd: HERE, reps: 1 }); applyData = apply.parsed?.results?.[0]?.data; }
   const rec = { id: t.id, lang: t.lang, task: `Rewrite ${t.pattern} → ${t.rewrite} in a copy of ${t.src}`,
     shell: { cmd: `ast-grep run -p … -r … (preview)  ;  ast-grep … -U`, calls: 2, chars: sgPrev.chars + sgApply.chars, ms: sgPrev.ms + sgApply.ms, changedLines: changedLines(orig, dSG), parseErrorsAfter: errNodes(dSG, t.lang) },
     sed: { cmd: t.sed, calls: 1, chars: sedRun.chars, ms: sedRun.ms, changedLines: changedLines(orig, dSED), parseErrorsAfter: errNodes(dSED, t.lang), vsAstGrep: diffStat(dSG, dSED) },

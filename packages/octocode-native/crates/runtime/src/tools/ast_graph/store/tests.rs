@@ -1175,7 +1175,7 @@ fn plan_3_rust_module_path_calls_link() {
 /// the astTopology analyses must name the same files on the same tree.
 fn topology(dir: &Path, query: Value) -> Value {
     let mut row = query;
-    row["goal"] = json!("parity");
+    row["mainGoal"] = json!("parity");
     row["reasoning"] = json!("parity");
     row["path"] = json!(dir.join("app"));
     let query: crate::tools::ast_graph::AstTopologyQuery =

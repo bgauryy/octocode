@@ -45,7 +45,7 @@ pub fn execute_syntax(
         .validate_text_bytes(&bytes, Some(&p.canonical), MAX_SOURCE)
         .map_err(super::AstError::from)?;
     let snapshot = digest(&json!([
-        q.path,
+        p.canonical.to_string_lossy(),
         q.lang_type,
         sanitized.content,
         q.named_only

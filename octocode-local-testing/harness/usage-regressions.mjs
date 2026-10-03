@@ -10,7 +10,6 @@ import { ROOT, checks, collect, expandShared, rowData, startServer, structureFil
 const { check, summary } = checks('usage-regressions');
 const client = await startServer();
 const { call, raw } = client;
-const brief = { goal: 'octocode-local-testing usage regression', reasoning: 'Replay a recorded agent input shape.' };
 const RUNTIME = 'packages/octocode-native/crates/runtime/src';
 const LARGE = `${RUNTIME}/contracts/validate.rs`;
 
@@ -28,19 +27,21 @@ const rowError = r => r.json?.results?.[0]?.data ?? {};
 
 // Batches over the row limit: agents resent the identical 7-row call.
 {
-  const rows = Array.from({ length: 7 }, () => ({ ...brief, path: 'package.json', startLine: 1, endLine: 3 }));
+  const rows = Array.from({ length: 7 }, () => ({ path: 'package.json', startLine: 1, endLine: 3 }));
   const mcp = await raw('localFetch', { queries: rows });
   check('U1 MCP: a 7-row localFetch batch says to split into 2 calls', mcp.isError && /split the batch into 2 calls/.test(mcp.text), mcp.text.slice(0, 200));
   const shell = cli('localFetch', { queries: rows });
   check('U1 CLI: a 7-row localFetch batch exits 2 and says to split into 2 calls', shell.exit === 2 && /split the batch into 2 calls/.test(details(shell)), details(shell));
 }
 
-// goal/reasoning beside queries instead of inside each row.
+// mainGoal/reasoning (or the legacy goal) beside queries instead of inside each row.
 {
-  const mcp = await raw('localSearch', { goal: 'g', queries: [{ ...brief, path: RUNTIME, searchText: 'fn validate' }] });
-  check('U2 MCP: a top-level goal is moved into each row', mcp.isError && /Move 'goal' into each queries\[\] row/.test(mcp.text), mcp.text.slice(0, 200));
-  const shell = cli('localSearch', { goal: 'g', queries: [{ ...brief, path: RUNTIME, searchText: 'fn validate' }] });
-  check('U2 CLI: a top-level goal is moved into each row', shell.exit === 2 && /Move 'goal' into each queries\[\] row/.test(details(shell)), details(shell));
+  const mcp = await raw('localSearch', { mainGoal: 'g', queries: [{ path: RUNTIME, searchText: 'fn validate' }] });
+  check('U2 MCP: a top-level mainGoal is moved into each row', mcp.isError && /Move 'mainGoal' into each queries\[\] row/.test(mcp.text), mcp.text.slice(0, 200));
+  const shell = cli('localSearch', { mainGoal: 'g', queries: [{ path: RUNTIME, searchText: 'fn validate' }] });
+  check('U2 CLI: a top-level mainGoal is moved into each row', shell.exit === 2 && /Move 'mainGoal' into each queries\[\] row/.test(details(shell)), details(shell));
+  const legacy = await raw('localSearch', { goal: 'g', queries: [{ path: RUNTIME, searchText: 'fn validate' }] });
+  check('U2 MCP: a top-level legacy goal is moved into each row', legacy.isError && /Move 'goal' into each queries\[\] row/.test(legacy.text), legacy.text.slice(0, 200));
 }
 
 // Field names agents guessed; the suggestion must be the accepted field.
@@ -51,38 +52,38 @@ for (const [label, tool, query, want, never] of [
   ['U6 localSearch isRegex', 'localSearch', { path: RUNTIME, searchText: 'fn', isRegex: true }, "did you mean 'regex'?", null],
   ['U7 localSearch includeHidden', 'localSearch', { path: RUNTIME, searchText: 'fn', includeHidden: true }, "did you mean 'hidden'?", "did you mean 'include'?"],
 ]) {
-  const shell = cli(tool, { queries: [{ ...brief, ...query }] });
+  const shell = cli(tool, { queries: [query] });
   check(`${label}: CLI suggests the accepted field`, shell.exit === 2 && details(shell).includes(want) && (!never || !details(shell).includes(never)), details(shell));
 }
 
 // A row sent to the wrong tool names the tool that owns it.
 {
-  const depth = cli('structureSearch', { queries: [{ ...brief, path: 'packages', depth: 2 }] });
+  const depth = cli('structureSearch', { queries: [{ path: 'packages', depth: 2 }] });
   check('U8 CLI: a single misspelled field is not rerouted to another tool', !/send queries\[0\] to/.test(details(depth)), details(depth));
-  const fetch = cli('localFetch', { queries: [{ ...brief, path: 'package.json', searchText: 'name', pageSize: 3 }] });
+  const fetch = cli('localFetch', { queries: [{ path: 'package.json', searchText: 'name', pageSize: 3 }] });
   check('U8 CLI: localFetch with searchText/pageSize names localSearch', fetch.exit === 2 && /are localSearch fields/.test(details(fetch)), details(fetch));
-  const ast = cli('astSearch', { queries: [{ ...brief, path: 'packages', operation: 'files', pageSize: 5 }] });
+  const ast = cli('astSearch', { queries: [{ path: 'packages', operation: 'files', pageSize: 5 }] });
   check('U9 CLI: astSearch operation "files" names structureSearch', ast.exit === 2 && /is a structureSearch operation/.test(details(ast)), details(ast));
 }
 
 // Booleans for on/off enums stay rejected, but the error names the value.
 {
-  const shell = cli('localSearch', { queries: [{ ...brief, path: RUNTIME, searchText: 'fn validate', regex: true }] });
+  const shell = cli('localSearch', { queries: [{ path: RUNTIME, searchText: 'fn validate', regex: true }] });
   check('U10 CLI: regex:true names regex:"rust"', shell.exit === 2 && /use \\?"rust\\?"/.test(details(shell)), details(shell));
 }
 
 // Unclosed regex groups: the repair must keep the search's meaning and run.
 {
   const grouped = await call('localSearch', { path: RUNTIME, searchText: 'close_unclosed_(group|fn', regex: 'rust' });
-  const repair = rowData(grouped)?.next?.repair;
-  check('U11: an unclosed group of bare alternatives is closed by next.repair', repair?.query?.searchText === 'close_unclosed_(group|fn)', JSON.stringify(repair?.query?.searchText));
+  const repair = rowData(grouped)?.hints?.repair;
+  check('U11: an unclosed group of bare alternatives is closed by hints.repair', repair?.query?.searchText === 'close_unclosed_(group|fn)', JSON.stringify(repair?.query?.searchText));
   if (repair) {
     const followed = await raw(repair.tool, { queries: [repair.query] });
     const lines = collect(followed.sc, o => typeof o.value === 'string').map(o => o.value);
-    check('U11: following next.repair stays on the grouped term (no bare `fn` hits)', !followed.isError && lines.length > 0 && lines.every(l => l.includes('close_unclosed_group')), `${lines.length} lines; ${lines.find(l => !l.includes('close_unclosed_group'))?.slice(0, 80) ?? ''}`);
+    check('U11: following hints.repair stays on the grouped term (no bare `fn` hits)', !followed.isError && lines.length > 0 && lines.every(l => l.includes('close_unclosed_group')), `${lines.length} lines; ${lines.find(l => !l.includes('close_unclosed_group'))?.slice(0, 80) ?? ''}`);
   }
   const call_syntax = await call('localSearch', { path: RUNTIME, searchText: 'repair_alternation|close_unclosed_group(', regex: 'rust' });
-  const escaped = rowData(call_syntax)?.next?.repair;
+  const escaped = rowData(call_syntax)?.hints?.repair;
   check('U12: call syntax keeps the per-alternative escape', escaped?.query?.searchText === 'repair_alternation|close_unclosed_group\\(', JSON.stringify(escaped?.query?.searchText));
   if (escaped) {
     const followed = await raw(escaped.tool, { queries: [escaped.query] });
@@ -101,23 +102,23 @@ for (const [label, query] of [['default', {}], ['fullContent', { fullContent: tr
   const mcp = await call('localFetch', { path: LARGE, ...query });
   const data = rowData(mcp);
   check(`U14 MCP: localFetch ${label} of a 1,600+ line file stays under 25 KB with next.continue`, mcp.bytes < 25_000 && !!data?.next?.continue && data?.isPartial === true, `${mcp.bytes}B`);
-  const shell = cli('localFetch', { queries: [{ ...brief, path: LARGE, ...query }] });
+  const shell = cli('localFetch', { queries: [{ path: LARGE, ...query }] });
   check(`U14 CLI: localFetch ${label} exits 6 under 25 KB`, shell.exit === 6 && shell.bytes < 25_000, `${shell.exit} ${shell.bytes}B`);
 }
 
 // Paths outside the roots: the hint names the trusted place to widen them.
 {
   const outside = path.dirname(ROOT);
-  const shell = cli('localSearch', { queries: [{ ...brief, path: outside, searchText: 'x' }] });
+  const shell = cli('localSearch', { queries: [{ path: outside, searchText: 'x' }] });
   const data = rowError(shell);
-  check('U15 CLI: pathOutsideAllowedRoots names ALLOWED_PATHS and the home .env', data.errorCode === 'pathOutsideAllowedRoots' && (data.hints ?? []).some(h => h.includes('~/.octocode/.env')), JSON.stringify(data.hints));
+  check('U15 CLI: pathOutsideAllowedRoots names ALLOWED_PATHS and the home .env', data.errorCode === 'pathOutsideAllowedRoots' && (data.hints?.text ?? []).some(h => h.includes('~/.octocode/.env')), JSON.stringify(data.hints));
   const fetch = await call('localFetch', { path: path.join(outside, 'x.txt') });
   check('U15 MCP: localFetch outside the roots carries the same hint', /~\/\.octocode\/\.env/.test(fetch.text), fetch.text.slice(0, 200));
 }
 
 // The retired ghSearch command points at the split tools.
 {
-  const shell = cli('ghSearch', { queries: [{ ...brief, owner: 'o', repo: 'r', keywords: ['k'] }] });
+  const shell = cli('ghSearch', { queries: [{ owner: 'o', repo: 'r', keywords: ['k'] }] });
   check('U16 CLI: legacy ghSearch is rejected with the split tools named', shell.exit === 2 && /ghSearchCode/.test(shell.text) && /ghSearchRepo/.test(shell.text), shell.text.slice(0, 160));
 }
 
@@ -173,7 +174,7 @@ for (const [label, query] of [['default', {}], ['fullContent', { fullContent: tr
   const env = { OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH: '20000' };
   const walker = await startServer({ env });
   const rowWalk = async (surface, tool, query, rowsOf, totalOf) => {
-    let input = { queries: [{ ...brief, ...query }] };
+    let input = { queries: [query] };
     const out = { seen: [], calls: 0, bytes: 0, splits: 0, total: undefined, exits: [] };
     while (out.calls < 40) {
       out.calls += 1;

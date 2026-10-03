@@ -24,7 +24,7 @@ pub(super) const REASON: &str = "inferredProject";
 pub(super) const CAPPED_REASON: &str = "importerScanCapped";
 /// The lexical importer scan failed, so no importer was verified.
 pub(super) const FAILED_REASON: &str = "importerScanFailed";
-const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with next.textSearch.";
+const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with hints.textSearch.";
 
 pub(super) const TS_LANGUAGE_IDS: [&str; 4] = [
     "typescript",
@@ -100,12 +100,12 @@ pub(super) fn annotate(
         Some(SCAN_CAPPED) => (
             CAPPED_REASON,
             format!(
-                "More than {MAX_CANDIDATE_FILES} files mention this name; only the first {MAX_CANDIDATE_FILES} were opened and verified as importers. Confirm the rest with next.textSearch."
+                "More than {MAX_CANDIDATE_FILES} files mention this name; only the first {MAX_CANDIDATE_FILES} were opened and verified as importers. Confirm the rest with hints.textSearch."
             ),
         ),
         Some(SCAN_FAILED) => (
             FAILED_REASON,
-            "Importer recovery could not read, open, or resolve every candidate, or its scan failed. Some importers remain unverified; confirm with next.textSearch.".to_owned(),
+            "Importer recovery could not read, open, or resolve every candidate, or its scan failed. Some importers remain unverified; confirm with hints.textSearch.".to_owned(),
         ),
         _ if lacks_project_config(Path::new(anchor_path)) => (REASON, INFERRED_WARNING.to_owned()),
         _ => return,
@@ -159,7 +159,7 @@ const CLANGD_LANGUAGE_IDS: [&str; 4] = ["c", "cpp", "objective-c", "objective-cp
 const COMPILE_DATABASE_HINT: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so includes and cross-file symbols are unresolved; generate one (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON) or use astSearch/localSearch.";
 /// Coverage reason of a C/C++ row answered without a compilation database.
 pub(super) const NO_COMPILE_DATABASE_REASON: &str = "noCompileDatabase";
-const NO_COMPILE_DATABASE_WARNING: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so it answered from the opened file alone: references in other files are missing. Generate a compilation database (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; Make: bear -- make), or confirm with next.textSearch.";
+const NO_COMPILE_DATABASE_WARNING: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so it answered from the opened file alone: references in other files are missing. Generate a compilation database (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; Make: bear -- make), or confirm with hints.textSearch.";
 
 /// Whether a clangd compilation database or flags file covers `start`
 /// (clangd also looks in a `build/` subdirectory of each ancestor).
@@ -216,7 +216,7 @@ mod tests {
 
     fn refs_query(uri: &str) -> LspSearchQuery {
         serde_json::from_value(json!({
-            "operation":"references","goal": "test", "reasoning":"test","uri":uri,
+            "operation":"references","mainGoal": "test", "reasoning":"test","uri":uri,
             "symbolName":"greet","lineHint":1
         }))
         .expect("references query")
@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(next["query"]["searchText"], "\\bgreet\\b");
         // The engine copies the input row's brief onto emitted continuations.
         let mut replay = next["query"].clone();
-        replay["goal"] = serde_json::json!("Find greet's references.");
+        replay["mainGoal"] = serde_json::json!("Find greet's references.");
         replay["reasoning"] = serde_json::json!("Fall back to text search.");
         crate::contracts::validate_query("localSearch", replay)
             .expect("fallback query is contract-valid");
@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(row, refs_row());
 
         let definition: LspSearchQuery = serde_json::from_value(json!({
-            "operation":"definition","goal": "test", "reasoning":"test",
+            "operation":"definition","mainGoal": "test", "reasoning":"test",
             "uri":format!("file://{}", file.display()),"symbolName":"greet","lineHint":1
         }))
         .expect("definition query");

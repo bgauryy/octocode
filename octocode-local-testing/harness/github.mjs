@@ -110,8 +110,11 @@ for (const r of Object.values(pinned)) {
   const mView = sourceView(m);
   const ranges = mView.ranges;
   const inRanges = hitLines.filter(n => ranges.some(g => g.start <= n && n <= g.end));
-  const blocks = mView.text.replace(/\n$/, '').split(/\n?\.\.\. \[lines \d+-\d+ omitted\] \.\.\.\n?/);
-  const exact = ranges.length === blocks.length && ranges.every((g, i) => blocks[i] === lines.slice(g.start - 1, g.end).join('\n'));
+  // One block per numbered range: a run of single lines shares one gap marker.
+  const textLines = mView.text.replace(/\n$/, '').split('\n').filter(l => !/^\.\.\. \[.* omitted\] \.\.\.$/.test(l));
+  const blocks = [];
+  for (const g of ranges) blocks.push(textLines.splice(0, g.end - g.start + 1).join('\n'));
+  const exact = textLines.length === 0 && ranges.every((g, i) => blocks[i] === lines.slice(g.start - 1, g.end).join('\n'));
   check(`${r.dir}: matchString "${needle}" covers every literal hit (${hitLines.length}) with exact windows`, inRanges.length === hitLines.length && exact || (m?.isPartial && exact && inRanges.length > 0), `hits=${hitLines.length} covered=${inRanges.length} ranges=${ranges.length} blocks=${blocks.length} partial=${!!m?.isPartial}`);
 }
 
@@ -249,12 +252,12 @@ for (const r of Object.values(pinned)) {
   const prNumber = +(git(r.dir, 'log', '-1', '--format=%s').match(/#(\d+)\)/)?.[1] ?? 0);
   if (prNumber) {
     const pr = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, content: { changedFiles: true } }))?.pullRequests?.[0];
-    check(`PR #${prNumber}: mergeCommitSha is the pinned squash commit`, pr?.mergeCommitSha === r.sha && !pr?.next?.getMergeCommit, `mergeCommitSha=${pr?.mergeCommitSha}`);
-    // A squash headline `… (#N)` routes straight to next.readPullRequest; otherwise next.findPullRequest searches by SHA.
-    const prHint = commit?.next?.readPullRequest ?? commit?.next?.findPullRequest;
+    check(`PR #${prNumber}: mergeCommitSha is the pinned squash commit`, pr?.mergeCommitSha === r.sha && !pr?.hints?.getMergeCommit, `mergeCommitSha=${pr?.mergeCommitSha}`);
+    // A squash headline `… (#N)` routes straight to hints.readPullRequest; otherwise hints.findPullRequest searches by SHA.
+    const prHint = commit?.hints?.readPullRequest ?? commit?.hints?.findPullRequest;
     check(`commit ${r.sha.slice(0, 8)}: PR continuation exists`, !!prHint);
     const found = prHint ? rowData(await raw(prHint.tool, prHint.query)) : null;
-    check(`commit ${r.sha.slice(0, 8)}: next.readPullRequest/findPullRequest reaches PR #${prNumber}`, collect(found, o => o.number === prNumber && typeof o.title === 'string').length > 0, JSON.stringify(prHint?.query));
+    check(`commit ${r.sha.slice(0, 8)}: hints.readPullRequest/findPullRequest reaches PR #${prNumber}`, collect(found, o => o.number === prNumber && typeof o.title === 'string').length > 0, JSON.stringify(prHint?.query));
     check(`PR #${prNumber}: merged, and its changed files/+/- equal the squash commit`, pr?.state === 'merged' && pr?.additions === numstat.reduce((s, n) => s + n.a, 0) && pr?.deletions === numstat.reduce((s, n) => s + n.d, 0) && numstat.every(n => inventoryRows(pr.changedFiles).some(f => f.path === n.f && f.additions === n.a && f.deletions === n.d)), JSON.stringify({ state: pr?.state, add: pr?.additions, del: pr?.deletions }));
     const patches = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, content: { patches: { mode: 'all' } } }))?.pullRequests?.[0];
     const prPatchOk = numstat.every(n => {
@@ -303,7 +306,7 @@ for (const r of Object.values(pinned)) {
     const lines = localLines(r.dir, t.file);
     const bytes = Buffer.byteLength(local(r.dir, t.file));
     let request = {
-      goal: 'Locate a declaration in an unread GitHub file',
+      mainGoal: 'Locate a declaration in an unread GitHub file',
       reasoning: 'Locate in an unread GitHub file.',
       resources: [{ id: 'gh', context: { tool: 'ghGetFileContent', query: { reasoning: 'unread', owner: r.owner, repo: r.repo, path: t.file, branch: r.sha, fullContent: true } } }],
       questions: [{ id: 't', questionType: 'locate', target: t.target }],
@@ -337,12 +340,12 @@ for (const r of Object.values(pinned)) {
   console.table(rows);
   // Absent target on a remote file stays low everywhere.
   const r = pinned.rust;
-  const absent = await raw('clasify', { queries: [{ goal: 'Absent target stays low', reasoning: 'absent', resources: [{ context: { tool: 'ghGetFileContent', query: { reasoning: 'x', owner: r.owner, repo: r.repo, path: 'tokio/src/sync/oneshot.rs', branch: r.sha, fullContent: true } } }], questions: [{ id: 'a', questionType: 'locate', target: 'The function that parses a YAML configuration file into nested dictionaries.' }] }] });
+  const absent = await raw('clasify', { queries: [{ mainGoal: 'Absent target stays low', reasoning: 'absent', resources: [{ context: { tool: 'ghGetFileContent', query: { reasoning: 'x', owner: r.owner, repo: r.repo, path: 'tokio/src/sync/oneshot.rs', branch: r.sha, fullContent: true } } }], questions: [{ id: 'a', questionType: 'locate', target: 'The function that parses a YAML configuration file into nested dictionaries.' }] }] });
   // Compact pages answer a locate question with the bare exists value.
   const ex = (absent.sc?.queries?.[0]?.resources ?? []).flatMap(res => [res, ...(res.pages ?? [])]).map(p => p.answers?.a).filter(v => typeof v === 'number');
   check('clasify GitHub absent target: every page exists < 0.5', ex.length > 0 && Math.max(...ex) < 0.5, `max=${Math.max(...ex)}`);
   // Scout over a code search: each page is one returned file with its own source.path.
-  const scout = await raw('clasify', { queries: [{ goal: 'Rank code-search files', reasoning: 'scout', resources: [{ context: { tool: 'ghSearchCode', query: { reasoning: 'x', owner: r.owner, repo: r.repo, keywords: ['try_recv'], pageSize: 5 } } }], questions: [{ id: 's', type: 'noul', instructions: 'Does this file define the public try_recv method of an mpsc receiver (not a test)?' }] }] });
+  const scout = await raw('clasify', { queries: [{ mainGoal: 'Rank code-search files', reasoning: 'scout', resources: [{ context: { tool: 'ghSearchCode', query: { reasoning: 'x', owner: r.owner, repo: r.repo, keywords: ['try_recv'], pageSize: 5 } } }], questions: [{ id: 's', type: 'noul', instructions: 'Does this file define the public try_recv method of an mpsc receiver (not a test)?' }] }] });
   // Compact scout pages: the bare P(yes) per file, with the file's path.
   const spages = collect(scout.sc, o => typeof o.answers?.s === 'number' && (o.path ?? o.source?.path)).map(p => ({ path: p.path ?? p.source.path, p: p.answers.s }));
   const topPage = spages.sort((a, b) => b.p - a.p)[0];

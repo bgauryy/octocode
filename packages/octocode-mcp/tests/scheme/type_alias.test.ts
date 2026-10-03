@@ -8,7 +8,7 @@ import {
 
 describe('canonical localSearch lexical contract', () => {
   const base = {
-    goal: 'test goal',
+    mainGoal: 'test goal',
     reasoning: 'exercise lexical contract',
     searchText: 'foo',
     path: 'src',
@@ -45,7 +45,7 @@ describe('structureSearch owns filesystem layout', () => {
   it('accepts file discovery and directory trees', () => {
     expect(
       StructureSearchQuerySchema.safeParse({
-        goal: 'test goal',
+        mainGoal: 'test goal',
         reasoning: 'exercise filesystem contract',
         operation: 'files',
         path: 'src',
@@ -56,7 +56,7 @@ describe('structureSearch owns filesystem layout', () => {
     ).toBe(true);
     expect(
       StructureSearchQuerySchema.safeParse({
-        goal: 'test goal',
+        mainGoal: 'test goal',
         reasoning: 'exercise filesystem contract',
         operation: 'tree',
         path: 'src',
@@ -68,7 +68,7 @@ describe('structureSearch owns filesystem layout', () => {
   it('keeps unsupported aliases rejected', () => {
     expect(
       StructureSearchQuerySchema.safeParse({
-        goal: 'test goal',
+        mainGoal: 'test goal',
         reasoning: 'exercise aliases',
         operation: 'files',
         path: 'src',
@@ -77,7 +77,7 @@ describe('structureSearch owns filesystem layout', () => {
     ).toBe(false);
     expect(
       StructureSearchQuerySchema.safeParse({
-        goal: 'test goal',
+        mainGoal: 'test goal',
         reasoning: 'exercise aliases',
         operation: 'tree',
         path: 'src',
@@ -91,7 +91,7 @@ describe('astSearch carries no filesystem operations', () => {
   it('accepts syntaxTree and rejects retired files/tree shapes', () => {
     expect(
       AstSearchQuerySchema.safeParse({
-        goal: 'test goal',
+        mainGoal: 'test goal',
         reasoning: 'exercise syntax contract',
         operation: 'syntaxTree',
         path: 'src/index.ts',
@@ -104,7 +104,7 @@ describe('astSearch carries no filesystem operations', () => {
     ]) {
       expect(
         AstSearchQuerySchema.safeParse({
-          goal: 'test goal',
+          mainGoal: 'test goal',
           reasoning: 'exercise retired shapes',
           ...retired,
         }).success

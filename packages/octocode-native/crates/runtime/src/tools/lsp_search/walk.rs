@@ -586,14 +586,40 @@ pub(super) fn mark_partial_expansion(
             None => distinct.push((message, 1)),
         }
     }
-    let warnings = distinct
-        .into_iter()
-        .map(|(message, count)| {
-            let items = if count == 1 { "item" } else { "items" };
-            format!("Hierarchy expansion failed for {count} {items}: {message}")
-        })
-        .collect::<Vec<_>>();
-    mark_partial(row, query, reason, &warnings);
+    // The disclosure is one count; the error list is verbose (core field
+    // class `expansionFailures`), listed whole under `debug: true`.
+    let total = failures.len();
+    let items = if total == 1 { "item" } else { "items" };
+    let warning = match distinct.as_slice() {
+        [(message, _)] => {
+            format!(
+                "Hierarchy expansion failed for {total} {items}: {message}. next.retry reruns the walk."
+            )
+        }
+        _ => {
+            let (message, count) =
+                distinct.iter().fold(
+                    &distinct[0],
+                    |top, entry| if entry.1 > top.1 { entry } else { top },
+                );
+            format!(
+                "Hierarchy expansion failed for {total} {items} ({} distinct errors; most frequent, {count}×: {message}). next.retry reruns the walk; debug:true lists every error.",
+                distinct.len()
+            )
+        }
+    };
+    mark_partial(row, query, reason, &[warning]);
+    if let Some(object) = row.as_object_mut() {
+        object.insert(
+            "expansionFailures".into(),
+            json!(
+                distinct
+                    .iter()
+                    .map(|(message, count)| format!("{count}× {message}"))
+                    .collect::<Vec<_>>()
+            ),
+        );
+    }
 }
 
 /// Truncation diagnostics over every direction a hierarchy request walked
@@ -706,16 +732,13 @@ pub(super) fn mark_truncation(
             ),
         ));
     }
+    // `payload.unexpandedParents` names every capped node once; the warning
+    // carries the count.
     if !fan_out_capped.is_empty() {
-        let names = fan_out_capped
-            .iter()
-            .map(|name| name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
         limits.push((
             "hierarchyFanOutLimit",
             format!(
-                "Kept the first {MAX_HIERARCHY_FAN_OUT} results of {} node(s) below the anchor ({names}); each resumes as the anchor of its continuation, which lists every result. {follow}",
+                "Kept the first {MAX_HIERARCHY_FAN_OUT} results of {} node(s) below the anchor (payload.unexpandedParents); each resumes as the anchor of its continuation, which lists every result. {follow}",
                 fan_out_capped.len()
             ),
         ));

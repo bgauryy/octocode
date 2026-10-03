@@ -1,10 +1,10 @@
 # Review cost receipt and evaluation
 
-Load after a two-agent RFC review, whether Jev ran or the workers converged. Load also before improving this skill or claiming that the debate beats the ordinary RFC flow. Provider usage alone is not the cost of preparing, debating, judging, and verifying a decision.
+Load after a two-agent RFC review, whether Jev ran or the workers converged. Load also before improving this skill or claiming that the debate beats the ordinary RFC flow.
 
 ## Cost receipt
 
-Write one JSON receipt under `<output>/octocode-rfc-generator/{name}/review/`. Then run `node scripts/validate-review-cost.mjs receipt.json`. Use this shape:
+Write one JSON receipt under `<output>/octocode-rfc-generator/{name}/review/` with this shape:
 
 ```json
 {
@@ -30,11 +30,11 @@ Write one JSON receipt under `<output>/octocode-rfc-generator/{name}/review/`. T
 - Keep `requestedModel` separate from the unique provider `resolvedModels`. Never infer `resolvedModels` from configuration.
 - After convergence, judge calls may be zero. Then `requestedModel` is null, `resolvedModels` is empty, and elapsed and token fields are null and listed in `unknowns`.
 - Count retries in `attempts` and transport or provider failures in `failures`. `timing.elapsedMs` covers dispatch preparation through completed host verification. Phase times may overlap for parallel work and need not sum to elapsed time.
-- Report bytes as bytes, never as token estimates. Do not calculate total tokens or money while a required component is unknown. Never present judge latency or provider usage as whole-workflow cost.
+- Report bytes as bytes, never as token estimates. Do not calculate total tokens or money while a required component is unknown.
 
 ## Does the debate improve RFC decisions?
 
-The receipt improves accounting coverage. Causal value or accuracy claims need a matched, independently graded comparison:
+The receipt improves accounting coverage. The comparison:
 
 1. Before the scored run, freeze both flows (ordinary RFC and candidate `clasify`), raw case inputs, expected outcomes, rubric, tool schemas, requested and resolved models, budgets, and stopping rule. Keep answer keys from executing agents.
 2. Give each arm the same cases, evidence access, total resource ceiling, and fresh contexts. Score final question dispositions and RFC changes, not debate vocabulary.
@@ -47,4 +47,4 @@ The receipt improves accounting coverage. Causal value or accuracy claims need a
 
 Keep/discard rule: keep the candidate only with strictly better held-out disposition accuracy AND fewer total host tokens, with all guards passing. Otherwise, or when host tokens are unavailable, keep the ordinary path as default and keep this an explicitly requested experiment. One small run shows feasibility or failures, not broad superiority or significance. Store fixtures, hashes, rubric, raw outcomes, receipts, and the report under `<output>/octocode-eval-benchmark/`, outside the shipped skill.
 
-Next: return to `references/jev-review.md` delivery and report what remains unknown.
+Next: return to `references/workflow.md` § Validate and deliver.

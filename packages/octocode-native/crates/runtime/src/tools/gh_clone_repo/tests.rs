@@ -213,7 +213,7 @@ fn setup<'a>(
 fn query() -> GhCloneRepoQuery {
     parse_query(serde_json::json!({
         "owner": "fixture-owner", "repo": "fixture-repo", "branch": "main",
-        "goal": "test", "reasoning": "clone fixture"
+        "mainGoal": "test", "reasoning": "clone fixture"
     }))
 }
 
@@ -239,7 +239,7 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
     // the repository), so the response stage never cuts it mid-sentence.
     let long = repository_not_found(&parse_query(serde_json::json!({
         "owner": "o".repeat(39), "repo": "r".repeat(100),
-        "goal": "test", "reasoning": "long names"
+        "mainGoal": "test", "reasoning": "long names"
     })));
     for hint in [&error.hints[0], &long.hints[0]] {
         assert!(hint.chars().count() <= 120, "{hint}");
@@ -291,7 +291,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
             .into_iter()
             .flat_map(|next| next.values_mut())
         {
-            call["query"]["goal"] = serde_json::json!("test");
+            call["query"]["mainGoal"] = serde_json::json!("test");
             call["query"]["reasoning"] = serde_json::json!("clone fixture");
         }
         crate::contracts::validate_output(

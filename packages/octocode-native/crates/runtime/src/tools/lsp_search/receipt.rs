@@ -155,14 +155,14 @@ pub(super) fn attach_provider_context(
         } else {
             lsp.insert("source".into(), json!("lsp"));
         }
-        if debug {
-            let mut receipt = resolved_server_receipt(config, client);
-            // Anchored rows already carry `workspaceRoot` at the top level.
-            if anchored && let Some(receipt) = receipt.as_object_mut() {
-                receipt.remove("workspaceRoot");
-            }
-            lsp.insert("receipt".into(), receipt);
+        // `lsp.receipt` is verbose (core field class): the verbose stage
+        // drops it unless the row asked for `debug: true`.
+        let mut receipt = resolved_server_receipt(config, client);
+        // Anchored rows already carry `workspaceRoot` at the top level.
+        if anchored && let Some(receipt) = receipt.as_object_mut() {
+            receipt.remove("workspaceRoot");
         }
+        lsp.insert("receipt".into(), receipt);
     }
     // The provider receipt answers "how", not "what": a healthy language-server
     // answer omits it unless `debug` asks. A degraded source stays visible.
@@ -181,9 +181,7 @@ pub(super) fn attach_provider_context(
             }
         }
         ordered.append(envelope);
-        if debug {
-            ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
-        }
+        ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
         *envelope = ordered;
     }
 }

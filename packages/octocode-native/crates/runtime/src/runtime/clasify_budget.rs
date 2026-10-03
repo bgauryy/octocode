@@ -143,7 +143,7 @@ pub(super) fn budget_spent(candidate: Candidate, remaining: usize) -> CapturedPa
                     "Earlier candidates used this call's {remaining} characters; this {}-character candidate was not classified.",
                     candidate.chars
                 ),
-                "Run its next.read, or narrow the page or raise maxChars to classify it.",
+                "Run its hints.read, or narrow the page or raise maxChars to classify it.",
             ),
             context,
         },

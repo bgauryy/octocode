@@ -997,9 +997,10 @@ pub(super) fn attach_patch_cursor(files_pagination: &mut Value, cursor: Option<u
 /// patches verbatim (no escaping), so the default window takes 4/5 of the
 /// page less a fixed reserve for the row header and metadata, never below
 /// 2/5 of it: a default window plus row metadata fits one response page.
-/// An explicit `charLength` is honoured up to the contract maximum, like
-/// body windows; response pagination splits a larger row into `rowPart`s,
-/// and the row's `next.*` rides only its first part.
+/// An explicit `charLength` is honoured up to that one-row budget: a larger
+/// window would split the row into response `rowPart`s whose patch cursor
+/// rides only the first part, so following it would skip the unread parts.
+/// A bigger window comes with a bigger response page (`responseCharLength`).
 const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
 const PATCH_DEFAULT_RESERVE: usize = 5_000;
 /// Page assumed when the runtime did not supply one (direct callers, tests).
@@ -1020,26 +1021,49 @@ fn literal_patch_window(auto_page_chars: Option<usize>, rows: usize) -> usize {
     (share / rows.max(1)).max(MIN_SHARED_PATCH_WINDOW.min(share))
 }
 
+/// The patch window one row gets on a response page of `page` chars.
+pub(super) fn page_patch_budget(page: usize) -> usize {
+    patch_window(None, Some(page), 1)
+}
+
+/// The warning of a patch read whose explicit `charLength` was clamped to
+/// one response page; `None` when it fit.
+pub(super) fn clamp_warning(query: &HistoryItemRequest) -> Option<String> {
+    let length = query.char_length()?;
+    let window = patch_window(Some(length), query.auto_page_chars, 1);
+    (window < length).then(|| {
+        format!(
+            "charLength {length} exceeds one response page; patch windows hold {window} chars. Follow next.continuePatch for the rest."
+        )
+    })
+}
+
+/// Append `text` to a response's `warnings` (success rows keep warnings;
+/// prose hints are for empty and error rows).
+pub(super) fn push_warning(out: &mut Value, text: String) {
+    match out.get_mut("warnings").and_then(Value::as_array_mut) {
+        Some(warnings) => warnings.push(json!(text)),
+        None => out["warnings"] = json!([text]),
+    }
+}
+
 /// Smallest default window a row gets when several rows share the budget.
 const MIN_SHARED_PATCH_WINDOW: usize = 2_000;
 
 /// The patch window of one row. The default window is one call's budget:
-/// `rows` patch-reading rows of the same call split it evenly.
+/// `rows` patch-reading rows of the same call split it evenly. An explicit
+/// `charLength` is clamped to the whole call budget, so one row's window
+/// always fits one response page.
 fn patch_window(char_length: Option<usize>, auto_page_chars: Option<usize>, rows: usize) -> usize {
-    if let Some(length) = char_length {
-        let max = crate::contracts::query_schema_max(
-            crate::tools::id::ToolId::GhGetHistoryItem,
-            None,
-            "charLength",
-        );
-        return length.clamp(1, max.max(1));
-    }
     let page = auto_page(auto_page_chars);
     let (num, den) = PATCH_DEFAULT_SHARE;
     let call_budget = (page * num / den)
         .min(page.saturating_sub(PATCH_DEFAULT_RESERVE))
         .max(page * 2 / 5)
         .max(1);
+    if let Some(length) = char_length {
+        return length.clamp(1, call_budget);
+    }
     let rows = rows.max(1);
     if rows == 1 {
         return call_budget;
@@ -1100,7 +1124,7 @@ mod tests {
     fn patch_request(fields: serde_json::Value) -> HistoryItemRequest {
         let base = json!({
             "operation":"pullRequest",
-            "goal": "test", "reasoning":"test",
+            "mainGoal": "test", "reasoning":"test",
             "owner":"a",
             "repo":"b",
             "number":1,
@@ -1116,7 +1140,7 @@ mod tests {
 
     fn window(fields: Value) -> HistoryItemRequest {
         let base = json!({
-            "operation":"commit","goal":"test","reasoning":"test",
+            "operation":"commit","mainGoal":"test","reasoning":"test",
             "owner":"a","repo":"b","ref":"abc","includeDiff":true
         });
         HistoryItemRequest::from_row(super::super::util::merge(base, fields))
@@ -1424,7 +1448,7 @@ mod tests {
             json!(["a.rs", "next.rs", "b.rs"])
         );
         let request: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"patches":{"mode":"all"}},"filePage":2
         }))
         .expect("query");
@@ -1459,25 +1483,21 @@ mod tests {
         assert_eq!(patch_window(None, None, 2), 7_500);
         assert_eq!(patch_window(None, Some(20_000), 2), 7_500);
         assert_eq!(patch_window(Some(9_000), None, 2), 9_000);
+        assert_eq!(patch_window(Some(90_000), None, 2), 15_000);
         assert_eq!(patch_window(None, None, 50), 2_000);
         assert_eq!(patch_window(None, Some(1_000), 5), 400);
     }
 
-    /// D1: an explicit `charLength` sizes the patch window up to the contract
-    /// maximum, whatever the automatic response page; response pagination
-    /// (not a silent per-patch cap) splits a window larger than one page.
+    /// An explicit `charLength` above one response page is clamped to the
+    /// page's one-row budget: the row never splits into response parts whose
+    /// patch cursor would skip the unread parts.
     #[test]
-    fn explicit_char_length_sizes_the_patch_window_up_to_the_contract_max() {
-        let max = crate::contracts::query_schema_max(
-            crate::tools::id::ToolId::GhGetHistoryItem,
-            None,
-            "charLength",
-        );
-        assert_eq!(max, 100_000);
-        assert_eq!(patch_window(Some(80_000), Some(20_000), 1), 80_000);
-        assert_eq!(patch_window(Some(50_000), None, 1), 50_000);
-        assert_eq!(patch_window(Some(100_000), Some(50_000), 1), 100_000);
-        assert_eq!(patch_window(Some(150_000), Some(1_000), 1), max);
+    fn explicit_char_length_is_clamped_to_one_response_page() {
+        assert_eq!(patch_window(Some(80_000), Some(20_000), 1), 15_000);
+        assert_eq!(patch_window(Some(50_000), None, 1), 15_000);
+        assert_eq!(patch_window(Some(100_000), Some(50_000), 1), 40_000);
+        assert_eq!(patch_window(Some(9_000), Some(50_000), 3), 9_000);
+        assert_eq!(patch_window(Some(150_000), Some(1_000), 1), 400);
         let patch = "+x\n".repeat(30_000);
         let mut query = window(json!({"charLength":80_000}));
         query.auto_page_chars = Some(20_000);
@@ -1490,10 +1510,75 @@ mod tests {
         let row = &page.rows[0];
         assert_eq!(
             row["patch"].as_str().map(|p| p.chars().count()),
-            Some(80_000)
+            Some(15_000)
         );
-        assert_eq!(row["patchPagination"]["charLength"], 80_000);
-        assert_eq!(row["patchPagination"]["nextCharOffset"], 80_000);
+        assert_eq!(row["patchPagination"]["charLength"], 15_000);
+        assert_eq!(page.cursor, Some(15_000));
+    }
+
+    /// A walk with an explicit `charLength` far above the response page reads
+    /// every patch exactly once: each window fits one page, and following
+    /// the cursor never skips or repeats a character of a multi-file stream.
+    #[test]
+    fn oversized_char_length_walk_reads_every_patch_exactly_once() {
+        let files = (0..6)
+            .map(|i| {
+                file(
+                    &format!("f{i}.rs"),
+                    &format!("+{i}\n").repeat(4_000 + i * 3_000),
+                )
+            })
+            .collect::<Vec<_>>();
+        let total = files
+            .iter()
+            .map(|f| f["patch"].as_str().map_or(0, |p| p.chars().count()))
+            .sum::<usize>();
+        for length in [25_000usize, 40_000, 80_000, 100_000] {
+            let mut offset = 0usize;
+            let mut read = HashMap::<String, String>::new();
+            let mut calls = 0;
+            loop {
+                calls += 1;
+                assert!(calls < 100, "cursor did not advance");
+                let mut query = window(json!({"charOffset":offset,"charLength":length}));
+                query.auto_page_chars = Some(20_000);
+                let page = shape_patch_page(files.clone(), true, &query, PatchCursor::Page);
+                let mut taken = 0;
+                for row in &page.rows {
+                    let name = str_at(row, "/filename").unwrap_or("").to_owned();
+                    let text = row["patch"].as_str().unwrap_or("");
+                    let have = read.entry(name).or_default();
+                    let at = row["patchPagination"]["charOffset"].as_u64().unwrap_or(0);
+                    assert_eq!(at as usize, have.chars().count(), "gap or repeat: {row}");
+                    have.push_str(text);
+                    taken += text.chars().count();
+                }
+                assert!(
+                    taken <= patch_window(None, Some(20_000), 1),
+                    "{length}: {taken}"
+                );
+                match page.cursor {
+                    Some(next) => {
+                        assert_eq!(next, offset + taken, "{length}");
+                        offset = next;
+                    }
+                    None => break,
+                }
+            }
+            assert_eq!(
+                calls,
+                total.div_ceil(patch_window(None, Some(20_000), 1)),
+                "{length}"
+            );
+            for source in &files {
+                let name = source["filename"].as_str().unwrap_or("");
+                assert_eq!(
+                    read.get(name).map(String::as_str),
+                    source["patch"].as_str(),
+                    "{length} {name}"
+                );
+            }
+        }
     }
 
     /// D2: a commit row's `patchPagination` speaks per-file coordinates only
@@ -1752,7 +1837,7 @@ mod tests {
             json!([{"path":"src/a.rs","stat":"A +3 -0","patch":"+a"}])
         );
         let scoped = HistoryItemRequest::from_row(json!({
-            "operation":"commit","goal":"g","reasoning":"r","owner":"o","repo":"r",
+            "operation":"commit","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
             "ref":"abc","files":["*.md","src/"]
         }))
         .expect("commit files");

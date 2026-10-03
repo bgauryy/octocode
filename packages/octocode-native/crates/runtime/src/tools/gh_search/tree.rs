@@ -1135,7 +1135,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
     let mut total_bytes = 0usize;
     let mut cursor = offset;
     let mut reason = "listing";
-    let mut warnings = Vec::new();
+    let mut skips = MaterializeSkips::default();
     while cursor < entries.len() {
         if written >= MATERIALIZE_FILE_CAP {
             reason = "writeCap";
@@ -1154,11 +1154,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
             .size
             .is_some_and(|size| size > MATERIALIZE_FILE_BYTES as u64)
         {
-            warnings.push(format!(
-                "Skipped {}: larger than the {} KiB materialize per-file limit.",
-                entry.path,
-                MATERIALIZE_FILE_BYTES / 1024
-            ));
+            skips.oversized.push(entry.path.clone());
             continue;
         }
         // One unreadable file (binary, oversized, unsupported entry) must not
@@ -1188,17 +1184,15 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
                         | ProviderErrorKind::Cancelled
                 ) =>
             {
-                warnings.push(format!("Skipped {}: {}.", entry.path, error.message));
+                skips
+                    .unreadable
+                    .push((entry.path.clone(), error.message.to_string()));
                 continue;
             }
             Err(error) => return Err(error),
         };
         if acquired.bytes.len() > MATERIALIZE_FILE_BYTES {
-            warnings.push(format!(
-                "Skipped {}: larger than the {} KiB materialize per-file limit.",
-                entry.path,
-                MATERIALIZE_FILE_BYTES / 1024
-            ));
+            skips.oversized.push(entry.path.clone());
             continue;
         }
         if total_bytes.saturating_add(acquired.bytes.len()) > MATERIALIZE_TOTAL_BYTES {
@@ -1227,7 +1221,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         written += 1;
     }
     let has_more = cursor < entries.len();
-    let location = json!({
+    let mut location = json!({
         "kind": "local",
         "localPath": root.to_string_lossy(),
         "source": "github-tree",
@@ -1236,6 +1230,10 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         "hasMore": has_more,
         "resolvedBranch": branch,
     });
+    let warnings = skips.warnings();
+    if !skips.is_empty() {
+        location["skipped"] = json!(skips.paths());
+    }
     Ok(Some(MaterializeOutcome {
         location,
         next_offset: has_more.then_some(cursor),
@@ -1244,14 +1242,90 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
     }))
 }
 
+/// Files a materialize page did not write. `location.skipped` names each
+/// path once; the warnings carry counts and each distinct read error once.
+#[derive(Default)]
+struct MaterializeSkips {
+    oversized: Vec<String>,
+    unreadable: Vec<(String, String)>,
+}
+
+impl MaterializeSkips {
+    fn is_empty(&self) -> bool {
+        self.oversized.is_empty() && self.unreadable.is_empty()
+    }
+
+    fn paths(&self) -> Vec<&str> {
+        self.oversized
+            .iter()
+            .map(String::as_str)
+            .chain(self.unreadable.iter().map(|(path, _)| path.as_str()))
+            .collect()
+    }
+
+    fn warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if !self.oversized.is_empty() {
+            warnings.push(format!(
+                "Skipped {} file(s) larger than the {} KiB materialize per-file limit (location.skipped); read them with ghGetFileContent.",
+                self.oversized.len(),
+                MATERIALIZE_FILE_BYTES / 1024
+            ));
+        }
+        if !self.unreadable.is_empty() {
+            let mut errors: Vec<&str> = Vec::new();
+            for (_, message) in &self.unreadable {
+                let message = message.trim_end_matches('.');
+                if !errors.contains(&message) {
+                    errors.push(message);
+                }
+            }
+            warnings.push(format!(
+                "Skipped {} unreadable file(s) (location.skipped): {}.",
+                self.unreadable.len(),
+                errors.join("; ")
+            ));
+        }
+        warnings
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
+    fn materialize_skips_name_each_path_once_and_warn_with_counts() {
+        let skips = MaterializeSkips {
+            oversized: (0..30).map(|n| format!("big/{n}.bin")).collect(),
+            unreadable: vec![
+                ("a.dat".into(), "binary".into()),
+                ("b.dat".into(), "binary".into()),
+                ("c".into(), "unsupported entry".into()),
+            ],
+        };
+        let warnings = skips.warnings();
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with("Skipped 30 file(s) larger than"),
+            "{warnings:?}"
+        );
+        assert!(!warnings[0].contains("big/0.bin"), "{warnings:?}");
+        assert_eq!(
+            warnings[1],
+            "Skipped 3 unreadable file(s) (location.skipped): binary; unsupported entry."
+        );
+        let paths = skips.paths();
+        assert_eq!(paths.len(), 33);
+        assert_eq!(paths[0], "big/0.bin");
+        assert_eq!(paths[32], "c");
+        assert!(MaterializeSkips::default().warnings().is_empty());
+    }
+
+    #[test]
     fn materialization_page_boundary_continues_and_page_ceiling_is_explicit() {
         let query: GhStructureQuery = serde_json::from_value(json!({
             "owner": "a", "repo": "b", "branch": "a".repeat(40),
-            "path": "", "goal": "Read every materialized file", "reasoning": "Preserve the remaining listing"
+            "path": "", "mainGoal": "Read every materialized file", "reasoning": "Preserve the remaining listing"
         })).expect("query");
         let mut value = json!({"structure": [{"dir": ".", "files": ["a.rs"]}]});
         attach_continuations(&mut value, &query, 1, 1, true, false, true, None)

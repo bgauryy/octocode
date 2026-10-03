@@ -35,6 +35,6 @@ Do not convert a decision blocker to an execution detail to pass readiness. A le
 
 ## Return to the RFC workflow
 
-A blocked Draft may describe candidate proposals for investigation but must not present one as the recommendation. Before a final recommendation or readiness claim, check that all decision blockers are resolved and execution questions are resolved or validly deferred. A Draft may be saved or delivered with open blockers when task authority permits; name the owner, evidence gap and next check. Preserve material dissent in either state. Distinguish Draft, In Review, and owner-Accepted; accepted status requires actual owner acceptance. Do not create a parallel artifact format; the owners in `references/workflow.md` stay.
+Before a final recommendation or readiness claim, check that all decision blockers are resolved and execution questions are resolved or validly deferred. A Draft may be saved or delivered with open blockers when task authority permits; name the owner, evidence gap and next check. Preserve material dissent in either state. Distinguish Draft, In Review, and owner-Accepted; accepted status requires actual owner acceptance. Do not create a parallel artifact format; the owners in `references/workflow.md` stay.
 
 Next: consequential unanswered questions may use `references/jev-review.md`; completed closure returns to `references/workflow.md`.

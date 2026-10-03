@@ -34,7 +34,7 @@ macro_rules! history_str_fields {
     ($($field:ident: $($variant:ident)|+;)+) => {
         $(pub fn $field(&self) -> Option<&str> {
             match self {
-                $(Self::$variant { $field, .. } => $field.as_deref(),)+
+                $(Self::$variant { $field, .. } => $field.as_ref().map(|value| value.as_str()),)+
                 _ => None,
             }
         })+
@@ -541,7 +541,8 @@ pub async fn execute<R: CredentialResolver>(
                 v["pagination"]["totalMatches"] = json!(total);
                 v["pagination"]["totalPages"] = json!(1);
             }
-            if let Some((target, candidates)) = read_target(&result.items, is_merged)
+            // The rows name every other readable number; the read takes any.
+            if let Some(target) = read_target(&result.items, is_merged)
                 && let Some((owner, repo)) = scoped
                     .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()))
                     .or_else(|| item_repo(&result.items[target]))
@@ -552,10 +553,6 @@ pub async fn execute<R: CredentialResolver>(
                 v["next"]["readPr"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),
                     "query":pr_read_query(&owner, &repo, number),
                     "confidence":if merged {"medium"} else {"low"}});
-                if candidates.len() > 1 {
-                    v["next"]["readPr"]["candidates"] =
-                        json!(candidate_ids(&result.items, &candidates, scoped.is_none()));
-                }
             }
             if let Some(read) = issue_links_read(&query) {
                 v["next"]["readIssueLinks"] = read;
@@ -584,15 +581,11 @@ pub async fn execute<R: CredentialResolver>(
             } {
                 v["totalCount"] = json!(total);
             }
-            if let Some((target, candidates)) = read_target(&result.items, is_completed)
+            if let Some(target) = read_target(&result.items, is_completed)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
                 && let Some(number) = item_number(&result.items[target])
             {
                 v["next"]["readIssue"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
-                if candidates.len() > 1 {
-                    v["next"]["readIssue"]["candidates"] =
-                        json!(candidate_ids(&result.items, &candidates, false));
-                }
             }
             v
         }
@@ -636,16 +629,6 @@ pub async fn execute<R: CredentialResolver>(
         value["next"]["readCommit"] =
             json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":read,"confidence":"low"});
         // Like readPr/readIssue: the read takes any row's sha as `ref`.
-        let shas = value["commits"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| row.get("sha").cloned())
-            .take(READ_CANDIDATES)
-            .collect::<Vec<_>>();
-        if shas.len() > 1 {
-            value["next"]["readCommit"]["candidates"] = json!(shas);
-        }
     }
     if !result.warnings.is_empty() {
         value["warnings"] = json!(result.warnings);
@@ -827,45 +810,18 @@ fn map_issue(v: Value, by_update: bool) -> Value {
     remove_null_fields(&mut row);
     row
 }
-/// Candidate rows a read continuation names, its target first.
-const READ_CANDIDATES: usize = 3;
-
-/// The row a default read continuation targets: the first row `prefer`
-/// picks (a merged PR, a completed issue), else the first row; plus up to
-/// [`READ_CANDIDATES`] candidate rows, the target first (indexes into
-/// `items`).
-fn read_target(items: &[Value], prefer: fn(&Value) -> bool) -> Option<(usize, Vec<usize>)> {
+/// The row a default read continuation targets: the first readable row
+/// `prefer` picks (a merged PR, a completed issue), else the first readable
+/// row (an index into `items`).
+fn read_target(items: &[Value], prefer: fn(&Value) -> bool) -> Option<usize> {
     let readable = |index: &usize| item_number(&items[*index]).is_some();
-    let target = (0..items.len())
+    (0..items.len())
         .filter(readable)
         .find(|index| prefer(&items[*index]))
-        .or_else(|| (0..items.len()).find(readable))?;
-    let mut candidates = vec![target];
-    candidates.extend(
-        (0..items.len())
-            .filter(readable)
-            .filter(|index| *index != target)
-            .take(READ_CANDIDATES - 1),
-    );
-    Some((target, candidates))
+        .or_else(|| (0..items.len()).find(readable))
 }
 fn item_number(item: &Value) -> Option<u64> {
     item.get("number").and_then(Value::as_u64)
-}
-/// Candidate identities as a read names them: the number, or
-/// `owner/repo#number` when the rows span repositories.
-fn candidate_ids(items: &[Value], candidates: &[usize], cross_repo: bool) -> Vec<Value> {
-    candidates
-        .iter()
-        .filter_map(|index| {
-            let item = &items[*index];
-            let number = item_number(item)?;
-            Some(match item_repo(item).filter(|_| cross_repo) {
-                Some((owner, repo)) => json!(format!("{owner}/{repo}#{number}")),
-                None => json!(number),
-            })
-        })
-        .collect()
 }
 /// `owner`/`repo` of a search item, from its `repository_url`
 /// (`…/repos/{owner}/{repo}`).
@@ -1145,13 +1101,13 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_issue_qualifier_order() {
-        let q: GhSearchHistoryQuery=serde_json::from_str(r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"state":"closed","match":["title"],"label":["bug"]}"#).expect("GitHub history search test data should be valid");
+        let q: GhSearchHistoryQuery=serde_json::from_str(r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"state":"closed","match":["title"],"label":["bug"]}"#).expect("GitHub history search test data should be valid");
         assert_eq!(
             build_query(&q).expect("GitHub history search test data should be valid"),
             "x in:title is:issue repo:a/b is:closed label:\"bug\""
         );
         let archived: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"archived":true}"#,
+            r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"],"archived":true}"#,
         )
         .expect("valid");
         assert!(
@@ -1165,32 +1121,32 @@ mod tests {
         // A leading-quote keyword, an owner carrying operators,
         // and a label with an interior quote.
         let q = parse(
-            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["\"hello\" NOT"]}"#,
+            r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"octocat","repo":"Hello-World","keywords":["\"hello\" NOT"]}"#,
         );
         assert_eq!(
             build_query(&q).expect("valid"),
             "\"hello NOT\" is:issue repo:octocat/Hello-World"
         );
         let q = parse(
-            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","keywords":["repo:evil/x","-y"]}"#,
+            r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","keywords":["repo:evil/x","-y"]}"#,
         );
         assert_eq!(
             build_query(&q).expect("valid"),
             "\"repo:evil/x\" \"-y\" is:pr user:a"
         );
         for raw in [
-            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"octocat OR is:public","repo":"b","keywords":["hello"]}"#,
-            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b:c","keywords":["hello"]}"#,
-            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","author":"x OR is:public"}"#,
-            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","label":["x\" OR is:public"]}"#,
-            r#"{"operation":"issue","goal": "test", "reasoning":"test","owner":"a","repo":"b","created":"x OR is:public"}"#,
-            r#"{"operation":"commit","goal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["x"],"committer":"a b"}"#,
+            r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"octocat OR is:public","repo":"b","keywords":["hello"]}"#,
+            r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"a","repo":"b:c","keywords":["hello"]}"#,
+            r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","author":"x OR is:public"}"#,
+            r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","label":["x\" OR is:public"]}"#,
+            r#"{"operation":"issue","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","created":"x OR is:public"}"#,
+            r#"{"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["x"],"committer":"a b"}"#,
         ] {
             let error = build_query(&parse(raw)).expect_err(raw);
             assert_eq!(error.kind, ProviderErrorKind::Validation, "{raw}");
         }
         let q = parse(
-            r#"{"operation":"issue","goal": "test", "reasoning":"test","owner":"a","repo":"b","label":["good first issue"],"comments":"> 5","author":"dependabot[bot]"}"#,
+            r#"{"operation":"issue","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","label":["good first issue"],"comments":"> 5","author":"dependabot[bot]"}"#,
         );
         let built = build_query(&q).expect("valid");
         assert!(built.contains("label:\"good first issue\""), "{built}");
@@ -1204,7 +1160,7 @@ mod tests {
     fn archived_pull_request_filter_always_routes_to_search() {
         let parse = |extra: &str| -> GhSearchHistoryQuery {
             serde_json::from_str(&format!(
-                r#"{{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b"{extra}}}"#
+                r#"{{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","repo":"b"{extra}}}"#
             ))
             .expect("GitHub history search test data should be valid")
         };
@@ -1224,7 +1180,7 @@ mod tests {
     #[test]
     fn quotes_multiword_history_keywords() {
         let q: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix login"]}"#,
+            r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix login"]}"#,
         )
         .expect("GitHub history search test data should be valid");
         assert!(
@@ -1234,7 +1190,7 @@ mod tests {
         );
         assert!(needs_issue_search_qualifiers(&q));
         let listed: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"issue","goal":"test","reasoning":"test","owner":"a","repo":"b"}"#,
+            r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"a","repo":"b"}"#,
         )
         .expect("GitHub history search test data should be valid");
         assert!(!needs_issue_search_qualifiers(&listed));
@@ -1242,7 +1198,7 @@ mod tests {
     #[test]
     fn commit_search_uses_email_and_committer_date() {
         let q: GhSearchHistoryQuery = serde_json::from_str(
-            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"author":"dev@example.com","since":"2026-01-01T00:00:00Z"}"#,
+            r#"{"operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"author":"dev@example.com","since":"2026-01-01T00:00:00Z"}"#,
         )
         .expect("GitHub history search test data should be valid");
         let query = build_query(&q).expect("GitHub history search test data should be valid");
@@ -1254,7 +1210,7 @@ mod tests {
         // Commit history is repository-scoped by the wire contract.
         assert!(
             serde_json::from_str::<GhSearchHistoryQuery>(
-                r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a"}"#
+                r#"{"operation":"commit","mainGoal":"test","reasoning":"test","owner":"a"}"#
             )
             .is_err()
         );
@@ -1305,35 +1261,22 @@ mod tests {
     }
 
     /// The default PR read targets the merged fix, not the first
-    /// (unmerged) search row; the other rows ride as candidates.
+    /// (unmerged) search row; the rows already name the others.
     #[test]
-    fn read_pr_prefers_the_first_merged_row_and_names_candidates() {
+    fn read_pr_prefers_the_first_merged_row() {
         let rows = [
             json!({"number":13794,"state":"closed","pull_request":{"merged_at":null}}),
             json!({"number":13825,"state":"closed","pull_request":{"merged_at":"2026-09-25T00:29:36Z"}}),
             json!({"number":13787,"state":"open"}),
-            json!({"number":13001,"state":"open"}),
         ];
-        let numbers = |rows: &[Value], picked: Option<(usize, Vec<usize>)>| {
-            picked.map(|(target, candidates)| {
-                (
-                    item_number(&rows[target]).expect("number"),
-                    json!(candidate_ids(rows, &candidates, false)),
-                )
-            })
-        };
-        let (number, candidates) = numbers(&rows, read_target(&rows, is_merged)).expect("rows");
-        assert_eq!(number, 13825);
-        assert_eq!(candidates, json!([13825, 13794, 13787]));
+        let target = read_target(&rows, is_merged).expect("rows");
+        assert_eq!(item_number(&rows[target]), Some(13825));
         // No merged row: the first row, unchanged.
         let open = [
             json!({"number":5,"state":"open"}),
             json!({"number":6,"state":"closed"}),
         ];
-        assert_eq!(
-            numbers(&open, read_target(&open, is_merged)),
-            Some((5, json!([5, 6])))
-        );
+        assert_eq!(read_target(&open, is_merged), Some(0));
         assert_eq!(read_target(&[], is_merged), None);
         let read = pr_read_query("o", "r", 13825);
         assert_eq!(read["number"], 13825);
@@ -1349,12 +1292,8 @@ mod tests {
             json!({"number":2,"state":"closed","state_reason":"not_planned"}),
             json!({"number":3,"state":"closed","state_reason":"completed"}),
         ];
-        let (target, candidates) = read_target(&rows, is_completed).expect("rows");
+        let target = read_target(&rows, is_completed).expect("rows");
         assert_eq!(item_number(&rows[target]), Some(3));
-        assert_eq!(
-            candidate_ids(&rows, &candidates, false),
-            vec![json!(3), json!(1), json!(2)]
-        );
     }
 
     /// A bare issue number in the keywords links straight to that issue's
@@ -1362,13 +1301,13 @@ mod tests {
     #[test]
     fn bare_issue_number_keywords_offer_the_issue_links_read() {
         let q = parse(
-            r##"{"operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["#13786"]}"##,
+            r##"{"operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["#13786"]}"##,
         );
         let read = issue_links_read(&q).expect("bare number");
         assert_eq!(read["query"]["operation"], "issue");
         assert_eq!(read["query"]["number"], 13786);
         let words = parse(
-            r#"{"operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["fix 13786"]}"#,
+            r#"{"operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["fix 13786"]}"#,
         );
         assert!(issue_links_read(&words).is_none());
     }
@@ -1427,7 +1366,7 @@ mod tests {
             normalize_row(&mut row)
                 .map(|()| build_query(&serde_json::from_value(row).expect("typed")).expect("query"))
         };
-        let base = json!({"operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["x"]});
+        let base = json!({"operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","keywords":["x"]});
         let mut flat = base.clone();
         flat["qualifiers"] = json!(
             r#"reviewed-by:dev review:approved comments:>5 label:"good first issue" -is:draft merged:>2026-01-01"#
@@ -1459,7 +1398,7 @@ mod tests {
         twice["author"] = json!("a");
         twice["qualifiers"] = json!("author:b");
         assert!(built(twice).is_err());
-        let mut issue = json!({"operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"r","qualifiers":"review:approved"});
+        let mut issue = json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","qualifiers":"review:approved"});
         assert!(normalize_row(&mut issue).is_err());
     }
 
@@ -1469,7 +1408,7 @@ mod tests {
     #[test]
     fn schema_negation_matches_native_execution() {
         let row = |operation: &str, qualifiers: &str| {
-            json!({"operation":operation,"goal":"g","reasoning":"r","owner":"o","repo":"r",
+            json!({"operation":operation,"mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
                 "qualifiers":qualifiers})
         };
         let mut prepared =
@@ -1566,7 +1505,7 @@ mod tests {
         )
         .expect("transport");
         for page in [1, 1000] {
-            let query = serde_json::from_value(json!({"operation":"pullRequest","goal": "test", "reasoning":"test","keywords":["fix"],"pageSize":1,"page":page})).expect("query");
+            let query = serde_json::from_value(json!({"operation":"pullRequest","mainGoal": "test", "reasoning":"test","keywords":["fix"],"pageSize":1,"page":page})).expect("query");
             let data = execute(
                 &transport,
                 &query,
@@ -1602,10 +1541,11 @@ mod tests {
         }
     }
 
-    /// Commit rows are an index of headlines: the commit read takes any
-    /// row's sha, and names the rows it can read like readPr/readIssue.
+    /// Commit rows are an index of headlines: the commit read targets the
+    /// first sha and takes any other row's sha; the rows already name them,
+    /// so the read carries no second list.
     #[tokio::test]
-    async fn commit_search_reads_name_every_candidate_sha() {
+    async fn commit_search_read_targets_the_first_sha_without_a_candidate_list() {
         use crate::providers::github::{
             CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver,
         };
@@ -1653,7 +1593,7 @@ mod tests {
         )
         .expect("transport");
         let query = serde_json::from_value(
-            json!({"operation":"commit","goal":"test","reasoning":"test",
+            json!({"operation":"commit","mainGoal":"test","reasoning":"test",
             "owner":"o","repo":"r","keywords":["cache"]}),
         )
         .expect("query");
@@ -1667,7 +1607,8 @@ mod tests {
         .expect("history search");
         let read = &data["next"]["readCommit"];
         assert_eq!(read["query"]["ref"], "aaa", "{data}");
-        assert_eq!(read["candidates"], json!(["aaa", "bbb", "ccc"]), "{data}");
+        assert!(read.get("candidates").is_none(), "{data}");
+        assert_eq!(data["commits"].as_array().map(Vec::len), Some(3), "{data}");
     }
 
     /// D4: a plain issue listing pages `is:issue` search results, so every
@@ -1744,7 +1685,7 @@ mod tests {
                 .expect("issue listing")
             }
         };
-        let data = run(json!({"operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"full","pageSize":5,"page":2})).await;
+        let data = run(json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"full","pageSize":5,"page":2})).await;
         assert_eq!(data["issues"].as_array().map(Vec::len), Some(5), "{data}");
         assert_eq!(data["pagination"]["currentPage"], 2, "{data}");
         assert_eq!(data["pagination"]["nextPage"], 3, "{data}");
@@ -1752,7 +1693,7 @@ mod tests {
         assert_eq!(data["totalCount"], 11, "{data}");
         assert!(data.get("skippedPullRequestPages").is_none(), "{data}");
 
-        let empty = run(json!({"operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"prs-only","pageSize":5})).await;
+        let empty = run(json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"prs-only","pageSize":5})).await;
         assert_eq!(empty["issues"], json!([]), "{empty}");
         assert_eq!(empty["status"], "empty", "{empty}");
         assert!(empty.get("pagination").is_none(), "{empty}");
@@ -1766,12 +1707,12 @@ mod tests {
     #[test]
     fn pull_request_search_allows_cross_repo_and_owner_scopes() {
         let both = build_query(&parse(
-            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"]}"#,
+            r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["x"]}"#,
         ))
         .expect("scoped");
         assert!(both.contains("repo:a/b"), "{both}");
         let owner = build_query(&parse(
-            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","keywords":["x"]}"#,
+            r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","keywords":["x"]}"#,
         ))
         .expect("owner-scoped PR search");
         assert!(
@@ -1779,7 +1720,7 @@ mod tests {
             "{owner}"
         );
         let global = build_query(&parse(
-            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","keywords":["x"]}"#,
+            r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","keywords":["x"]}"#,
         ))
         .expect("cross-repo PR search");
         assert!(
@@ -1790,15 +1731,15 @@ mod tests {
         // Without a full repo scope the REST list endpoint is unusable, so the
         // PR path must route through search.
         assert!(should_use_search_for_prs(&parse(
-            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a"}"#
+            r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a"}"#
         )));
         assert!(!should_use_search_for_prs(&parse(
-            r#"{"operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b"}"#
+            r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","repo":"b"}"#
         )));
         // Issues still require the repository scope.
         assert!(
             serde_json::from_str::<GhSearchHistoryQuery>(
-                r#"{"operation":"issue","goal":"test","reasoning":"test","keywords":["x"]}"#
+                r#"{"operation":"issue","mainGoal":"test","reasoning":"test","keywords":["x"]}"#
             )
             .is_err()
         );
@@ -1807,7 +1748,7 @@ mod tests {
     #[test]
     fn commit_search_surfaces_invalid_date_warnings() {
         let q = parse(
-            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"yesterday-ish"}"#,
+            r#"{"operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"yesterday-ish"}"#,
         );
         let (terms, warnings) = build_query_with_warnings(&q).expect("valid");
         assert!(!terms.contains("committer-date"), "{terms}");
@@ -1820,13 +1761,13 @@ mod tests {
     #[test]
     fn inverted_since_until_is_a_validation_error() {
         let q = parse(
-            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"2026-05-01","until":"2026-01-01"}"#,
+            r#"{"operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"since":"2026-05-01","until":"2026-01-01"}"#,
         );
         let error = build_query(&q).expect_err("since after until");
         assert_eq!(error.kind, ProviderErrorKind::Validation);
         assert!(error.message.contains("since"), "{}", error.message);
         let listed = parse(
-            r#"{"operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b","since":"2026-05-01","until":"2026-01-01"}"#,
+            r#"{"operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","since":"2026-05-01","until":"2026-01-01"}"#,
         );
         assert!(build_query(&listed).is_err());
     }

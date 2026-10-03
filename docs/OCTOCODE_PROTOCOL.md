@@ -19,7 +19,7 @@ A coding agent's scarcest resource is context. Dumping files, whole diffs or raw
 
 1. **Several views of the same code.** Each view answers a different kind of question, and every view returns citable anchors (path, line, SHA, id).
 2. **Ask precisely.** Filters, match windows, symbol names and patch filters make one call return the answer instead of a haystack.
-3. **Every result says what to do next.** Executable `next.*` continuations point to the cheapest follow-up, and failures carry repair hints.
+3. **Every result says what to do next.** Executable `next.*` pages reach the rest of a result, `hints.*` leads point to the cheapest optional follow-up, and failures carry repair tips.
 4. **Evidence, not guesses.** Every result is pinned, bounded, honest about completeness and scrubbed of secrets.
 
 | Dimension | Question it answers | Tools |
@@ -44,7 +44,7 @@ flowchart LR
   C --> R
   R --> P[PROVE<br/>LSP identity, diff, references]
   P --> D[DECIDE and cite]
-  R -. next.* continuation .-> F
+  R -. next.* page / hints.* lead .-> F
   P -. zoom out .-> O
 ```
 
@@ -71,19 +71,20 @@ flowchart LR
 - MCP hosts resend every tool definition on every request, so `tools/list` shows a slim view that core generates from the same contract (`publishedInputSchema`), not a second schema. The view:
   - merges operation variants into one object, with each variant's extra required fields on one line;
   - keeps full descriptions on each tool's primary fields; other fields show only their type;
-  - leaves out validation-only bounds and the page, snapshot, and offset fields that agents copy from `next.*`.
+  - leaves out validation-only bounds and the page, snapshot, and offset fields that agents copy from `next.*` and `hints.*`.
 - The view accepts a superset of the contract and is never used to validate. The canonical schema still validates every call, and its errors list every valid field. `octocode scheme` shows the full contract.
 - Budget: the instructions plus every default tool definition stay within 32,000 characters (about 8k tokens); a core test enforces it.
 - Why: agents learn one shape per tool, and drift is caught before it reaches a user.
 
-### 3.2 Goal and reasoning on every query
-- Every new query states a short `goal` (what it must find or decide) and a `reasoning` (why this call advances it).
-- The contract requires them on every query, so the published schema, MCP validation, and native validation agree.
-- `next.*` continuations carry the brief of the query that produced them, so agents replay them unchanged and never retype it.
+### 3.2 Optional brief for multi-call research
+- `mainGoal` (the research question) and `reasoning` (why this call advances it) are **optional on every tool**.
+- Set them only in multi-call research on an unknown. Omit them on simple lookups, reads, listings, and pages.
+- The legacy name `goal` is still accepted for one release and maps to `mainGoal`. A blank brief is dropped, not rejected.
+- `next.*` pages and `hints.*` leads carry `mainGoal`/`reasoning` only when the query that produced them sent them, so agents replay them unchanged and never retype a brief.
 - Why:
-  - **Forced intent.** The agent must say why it is calling, which prevents aimless calls.
-  - **Semantic judgment.** The brief gives clasify's judgment the intent it needs.
-  - **Audit trail.** Every call in a session is explained by its own row.
+  - **Lean lookups.** A simple call spends no input on a brief and cannot fail for a missing one.
+  - **Semantic judgment.** In research, `mainGoal` gives clasify the intent it needs; a `hints.clasify` handoff is offered only when `mainGoal` is set.
+  - **Audit trail.** A research call is explained by its own row.
 - See the [data contract](TOOL_DATA_CONTRACT.md#requests-and-result-rows).
 
 ### 3.3 Context engineering: instructions, descriptions, schemas
@@ -98,13 +99,13 @@ Each layer is budgeted, and tests enforce the budgets:
 - **Schemas** stay lean: descriptions only where a field isn't self-explanatory, enums instead of prose, and examples that validate. `octocode scheme <tool>` shows the full contract on demand, so agents load it only after choosing a tool.
 
 ### 3.4 Batching
-- One call carries **1–5 independent queries** of the same tool, each with its own goal and reasoning.
+- One call carries **1–5 independent queries** of the same tool; in research, each row states its own `mainGoal` and `reasoning`.
 - The rows run concurrently. Results keep input order, and a failing row is isolated: its siblings still succeed.
 - Batch independent probes (e.g. three candidate files, two synonyms). Keep dependent steps sequential.
 
 ### 3.5 Minimal responses by default
-- Results carry the answer plus what's needed to continue: `next`, open pagination, warnings and partial-coverage signals.
-- Scan statistics, provider receipts, snapshots and info-level notes appear only with `debug: true`.
+- Results carry the answer plus what's needed to continue: `next` pages, open pagination, warnings and partial-coverage signals, and optional `hints` (prose tips in `hints.text`, plus leads).
+- Fields the core output contract classes `verbose` (scan stats, receipts, echoes, diagnostics such as row `meta`) appear only with `debug: true`. Paging snapshots are next-call input and stay in every page continuation.
 - Text output drops redundant wrappers: a single-row response has no `results`/`index`/`data` nesting, and path-only rows render as `path` or `path (count)`.
 - A contract guard restores any field the output contract requires, so minimizing never breaks a response.
 
@@ -128,9 +129,11 @@ Every list and every large body can be paged, and every page is honest about wha
   - `hasMore`, `totalPages`, and `countScope:"unknown"` when totals aren't known.
   - Provider caps are reported, never hidden: GitHub's 300-file compare limit and 3000-file PR limit, and the 100-file limit of `gh pr view`.
 
-### 3.8 Next steps and failure hints
-- Every result can carry `next.*`: an **executable** query to replay unchanged (next page, read the top match, open the repo, read the full patch, run clasify on these candidates). Next steps the current surface can't run are removed.
-- **Empty results** come with repair hints: widen the scope, try a synonym, check the ref or index limits. An empty result is never an absence claim until scope, spelling, ref and index limits have been checked.
+### 3.8 Pages, leads, and failure hints
+- Follow-up calls use two channels. Both hold **executable** queries to replay unchanged, and follow-ups the current surface can't run are removed.
+  - **`next.*` = pages.** More of the same result or coverage it still lacks: next page, continue a window or patch, restart a stale snapshot, list skipped binaries. The response is incomplete without them, so follow every relevant one.
+  - **`hints.*` = optional guidance.** `hints.text` holds prose tips; every other entry is a lead such as read the top match, open the repo, read the fix PR, or run clasify on these candidates.
+- **Empty results** come with repair tips in `hints.text`: widen the scope, try a synonym, check the ref or index limits. An empty result is never an absence claim until scope, spelling, ref and index limits have been checked.
 - **Errors** are typed (`invalidInput`, `notFound`, `authentication`, `rateLimited`, …), carry `retryable`, and map to distinct CLI exit codes:
   - 0 success;
   - 1 empty;
@@ -140,7 +143,7 @@ Every list and every large body can be paged, and every page is honest about wha
   - 5 execution, configuration or availability error;
   - 6 partial, meaning there is more to read;
   - 7 rate limited.
-- A renamed repository is followed automatically: `next.retryRenamed` points at the new owner.
+- A renamed repository is detected: the `hints.retryRenamed` lead reruns the query against the new owner.
 
 ### 3.9 Precision layers: AST and LSP
 - **AST (tree-sitter), 12 grammars / 28 extensions:**
@@ -150,7 +153,7 @@ Every list and every large body can be paged, and every page is honest about wha
 - **LSP:**
   - Real language servers (tsserver, rust-analyzer, pyright, clangd, …) resolve definitions, references, call hierarchy, hover and diagnostics.
   - Coordinates are 1-based source positions taken from a real anchor.
-  - A missing server gives a clean `lsp.serverUnavailable` error plus a text-search next step.
+  - A missing server gives a clean `lsp.serverUnavailable` error plus a text-search lead (`hints.textSearch`).
 - **Ranking:**
   - Search hits inside a file are ranked declaration > deciding statement (assignment, `if`, `return`, `throw`) > code > comment.
   - For an exact identifier, the file that declares it ranks first.
@@ -160,9 +163,9 @@ Every list and every large body can be paged, and every page is honest about wha
   - **Scout** rates each file or item from a list tool's results.
   - **Locate** finds the line window that answers a question.
   - **Judge** answers typed questions: contribution, supportsClaim, addsEvidence, and `sufficient`, which asks whether a snippet already answers the question.
-- It returns verdicts and windows, **never file bodies**. Each result carries the exact `next.read` for what's worth opening.
-- The provider receives the evidence plus goal, reasoning and question instructions, never tokens, cursors or snapshots.
-- Judgments are cached per process, keyed on the full state (content + question + goal), and identical in-flight calls are merged. Errors are never cached. The cache lives only as long as the process: a warm MCP server reuses it, but every CLI invocation starts cold.
+- It returns verdicts and windows, **never file bodies**. Each result carries the exact `hints.read` for what's worth opening.
+- The provider receives the evidence plus question instructions and any `mainGoal` and `reasoning` the caller sent, never tokens, cursors or snapshots.
+- Judgments are cached per process, keyed on the full state (content + question + `mainGoal`), and identical in-flight calls are merged. Errors are never cached. The cache lives only as long as the process: a warm MCP server reuses it, but every CLI invocation starts cold.
 - **When it pays** (measured in A/B runs on 2026-09-30):
   - classifying an explicit list without reading every item;
   - locating an answer inside a large known file, with `prefilter` literals when the answer contains one;
@@ -174,8 +177,8 @@ Every list and every large body can be paged, and every page is honest about wha
   - literal targets (22×);
   - screening search snippets, where scores stay flat (0.16–0.38).
 
-  Semantic search pages with at least eight files still carry a `next.clasify` handoff. Prefer a literal search, or classify the files themselves. **Skip it** for identifiers, literals and PR filters, where exact search already settles the question.
-- **Without a key** it disappears entirely: from the tool list, the instructions, and every `next.*`.
+  Semantic search pages with at least eight files still carry a `hints.clasify` handoff when the query set `mainGoal`. Prefer a literal search, or classify the files themselves. **Skip it** for identifiers, literals and PR filters, where exact search already settles the question.
+- **Without a key** it disappears entirely: from the tool list, the instructions, and every `hints.*`.
 - See [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 
 ### 3.11 Security: sanitize input and output
@@ -252,6 +255,7 @@ The only agent-vs-agent run so far is `full-1` (2026-09-30), which ran on a buil
 | Gate, dispatch, row shaping | `crates/runtime/src/runtime/engine.rs`, `domain_dispatch.rs` |
 | Minimal output, next-step filtering | `crates/runtime/src/runtime/response.rs` |
 | Continuation compaction and brief inheritance | `crates/runtime/src/runtime/continuations.rs` |
+| Page vs lead split (`next` vs `hints`) | `crates/runtime/src/runtime/channels.rs` |
 | Rendering and response paging | `crates/runtime/src/runtime/render.rs`, `response_stage.rs`, `crates/runtime/src/response/mod.rs` |
 | Cursors | `crates/runtime/src/runtime/cursor.rs` |
 | Path sandbox and directory pruning | `crates/runtime/src/policy/path.rs`, `policy/prune.rs` |

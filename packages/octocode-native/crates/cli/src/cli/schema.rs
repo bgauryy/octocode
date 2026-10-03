@@ -409,7 +409,7 @@ mod tests {
             octocode_native::contracts::validate(
                 "localFetch",
                 json!({"queries": vec![json!({
-                    "path": "/tmp/schema-admission.txt", "goal": "test", "reasoning": "Check envelope admission."
+                    "path": "/tmp/schema-admission.txt", "mainGoal": "test", "reasoning": "Check envelope admission."
                 }); count]}),
             )
         };

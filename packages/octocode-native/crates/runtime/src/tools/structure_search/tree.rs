@@ -142,8 +142,10 @@ pub fn execute_tree(
     rows.truncate(requested);
     let total = rows.len();
 
+    // The canonical root, not the spelling: a continuation may name the same
+    // directory relative to the workspace.
     let identity = json!([
-        q.path,
+        validated.canonical.to_string_lossy(),
         q.max_depth,
         q.hidden,
         q.no_ignore,
@@ -250,7 +252,7 @@ pub fn execute_tree(
         ignored,
         json!({"noIgnore":true,"page":1}),
         format!(
-            "The walk pruned {ignored} .gitignore'd entries; whether they match these filters is unproven. next.includeIgnored retries with noIgnore:true."
+            "The walk pruned {ignored} .gitignore'd entries; whether they match these filters is unproven. hints.includeIgnored retries with noIgnore:true."
         ),
     );
     Ok(out)

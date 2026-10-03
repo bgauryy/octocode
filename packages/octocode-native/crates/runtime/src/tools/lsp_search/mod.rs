@@ -236,6 +236,23 @@ pub(super) async fn blocking_cancellable<T: Send + 'static>(
     Ok(cancellable(cancel, worker).await?.ok())
 }
 
+/// Name the anchor file and workspace root by their canonical paths, so a
+/// continuation that spells them relative to the workspace (or absolute)
+/// replays the same snapshot. Invalid paths stay for the checks below.
+fn canonicalize_query_paths(query: &mut Value, paths: &PathPolicy) {
+    if let Some(uri) = query.get("uri").and_then(Value::as_str)
+        && let Ok(decoded) = decode_uri_path(uri)
+        && let Ok(valid) = paths.validate_read(&decoded)
+    {
+        query["uri"] = Value::String(valid.canonical.to_string_lossy().into_owned());
+    }
+    if let Some(root) = query.get("workspaceRoot").and_then(Value::as_str)
+        && let Ok(valid) = paths.validate(root)
+    {
+        query["workspaceRoot"] = Value::String(valid.canonical.to_string_lossy().into_owned());
+    }
+}
+
 pub async fn execute(
     query: Value,
     cancel: &dyn CancellationCheck,
@@ -274,6 +291,8 @@ async fn execute_page(
     // `debug` asks for the provider receipt (server identity, fingerprints,
     // capabilities); ordinary rows carry only the answer.
     let debug = query.get("debug").and_then(Value::as_bool) == Some(true);
+    let mut query = query;
+    canonicalize_query_paths(&mut query, paths);
     let query: LspSearchQuery = serde_json::from_value(query)
         .map_err(|error| LspFailure::invalid_query(error.to_string()))?;
     let path = if let Some(uri) = query.uri() {

@@ -210,12 +210,14 @@ describe('usageLines', () => {
     const lines = usageLines(toolNamed('localFetch'));
     expect(lines[0]).toBe('octocode localFetch \'{"queries":[ … ]}\'');
     const body = lines[1]!;
-    expect(body).toContain('<goal>');
-    expect(body).toContain('<reasoning>');
     expect(body).toContain('<path>');
+    // Briefs are optional; the legacy `goal` alias is not advertised.
+    expect(body).toContain('[mainGoal]');
+    expect(body).toContain('[reasoning]');
+    expect(body).not.toContain('<mainGoal>');
+    expect(body).not.toContain('<reasoning>');
+    expect(body).not.toMatch(/[<[]goal[>\]]/);
     // A required field is never also shown as optional.
-    expect(body).not.toContain('[reasoning]');
-    expect(body).not.toContain('[goal]');
     expect(body).not.toContain('[path]');
   });
 

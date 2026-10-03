@@ -363,7 +363,12 @@ fn goal_file_globs(query: &HistoryItemRequest) -> Vec<String> {
     use crate::content::classify_file_type;
     let goal = serde_json::to_value(&query.query)
         .ok()
-        .and_then(|value| value.get("goal").and_then(Value::as_str).map(str::to_owned))
+        .and_then(|value| {
+            value
+                .get("mainGoal")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
         .unwrap_or_default();
     let mut globs = Vec::new();
     for word in goal.split(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))) {
@@ -395,7 +400,7 @@ mod tests {
     #[test]
     fn read_fix_pr_carries_the_patches_of_a_small_fix() {
         let query = HistoryItemRequest::from_row(json!({
-            "operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1
+            "operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1
         }))
         .expect("issue query");
         let prs = map_closing_pull_requests(&[
@@ -454,7 +459,7 @@ mod tests {
     fn read_fix_pr_narrows_to_files_the_goal_names() {
         let issue = |goal: &str| {
             HistoryItemRequest::from_row(json!({
-                "operation":"issue","goal":goal,"reasoning":"r","owner":"o","repo":"r","number":1
+                "operation":"issue","mainGoal":goal,"reasoning":"r","owner":"o","repo":"r","number":1
             }))
             .expect("issue query")
         };

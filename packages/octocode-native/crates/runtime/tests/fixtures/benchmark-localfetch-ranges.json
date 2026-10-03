@@ -1,0 +1,138 @@
+[
+ {
+  "input": {
+   "goal": "read",
+   "reasoning": "wrapper",
+   "path": "python/django/db/transaction.py",
+   "ranges": [
+    " 140-150"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read",
+   "reasoning": "core",
+   "path": "langchain/libs/core/langchain_core/tools/base.py",
+   "ranges": [
+    "70,130",
+    "165,360"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.1: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read",
+   "reasoning": "core",
+   "path": "langchain/libs/core/langchain_core/tools/structured.py",
+   "ranges": [
+    "240,310"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read",
+   "reasoning": "core",
+   "path": "langchain/libs/core/langchain_core/tools/convert.py",
+   "ranges": [
+    "255,345"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read limit appender and handling",
+   "reasoning": "confirm",
+   "path": "go/scrape/target.go",
+   "ranges": [
+    "365,415"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read wrappers",
+   "reasoning": "confirm",
+   "path": "go/scrape/scrape.go",
+   "ranges": [
+    "711,735",
+    "2050,2065",
+    "2159,2172"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.1: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.2: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read key sections",
+   "reasoning": "understand flow",
+   "path": "go/scrape/scrape.go",
+   "ranges": [
+    "1340,1420",
+    "1560,1625",
+    "1655,1775",
+    "1970,1990"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.1: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.2: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.3: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read",
+   "reasoning": "core",
+   "path": "rust/tokio/src/runtime/task/core.rs",
+   "ranges": [
+    "404,440",
+    "575-600"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read mechanism",
+   "reasoning": "details",
+   "path": "java/guava/src/com/google/common/collect/ImmutableSet.java",
+   "ranges": [
+    "660,680",
+    "700,760",
+    "804,900"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.1: Use \"start-end\", e.g. \"95-105\"., queries.0.ranges.2: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "goal": "read constructor",
+   "reasoning": "details",
+   "path": "java/guava/src/com/google/common/cache/LocalCache.java",
+   "ranges": [
+    [
+     "248",
+     "325"
+    ]
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Invalid input: expected string, received array"
+ },
+ {
+  "input": {
+   "goal": "segment ctor",
+   "reasoning": "details",
+   "path": "java/guava/src/com/google/common/cache/LocalCache.java",
+   "ranges": [
+    [
+     "1972",
+     "2005"
+    ]
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Invalid input: expected string, received array"
+ }
+]

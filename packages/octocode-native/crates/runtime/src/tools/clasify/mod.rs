@@ -358,7 +358,7 @@ mod tests {
         json!({
             "id":"decision",
             "reasoning":"Decide whether to inspect the retry branch.",
-            "goal":"Searching for retry handling. Need files that decide a retry.",
+            "mainGoal":"Searching for retry handling. Need files that decide a retry.",
             "resources":[{"id":"resource-1","context":context}],
             "questions":[{"id":"relevance.v1","question":question}]
         })
@@ -444,11 +444,11 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_and_goal_are_required_briefs_and_stay_off_the_expanded_question() {
+    fn optional_briefs_stay_off_the_expanded_question() {
         let provider = jev_provider();
         let mut query = semantic_query(json!({"value":{"observation":true}}), question());
-        let resolved = admitted(&query).expect("required briefs accepted");
-        assert!(resolved[0]["question"].get("goal").is_none());
+        let resolved = admitted(&query).expect("briefs accepted");
+        assert!(resolved[0]["question"].get("mainGoal").is_none());
         assert!(resolved[0]["question"].get("reasoning").is_none());
         assert_eq!(
             prepare(
@@ -462,17 +462,17 @@ mod tests {
         );
         query["carry"] = json!({"t":[{"resourceId":"resource-1","exists":0.9,"startLine":1,"endLine":8,"probability":0.5}]});
         assert!(admitted(&query).is_ok());
-        for field in ["reasoning", "goal"] {
+        for field in ["reasoning", "mainGoal"] {
             let mut missing = query.clone();
             missing.as_object_mut().unwrap().remove(field);
-            assert!(admitted(&missing).is_err(), "missing {field}");
-            for invalid in [
-                Value::Null,
-                json!(7),
-                json!(""),
-                json!(" \t\n"),
-                json!("x".repeat(501)),
-            ] {
+            assert!(admitted(&missing).is_ok(), "{field} is optional");
+            // A blank brief is dropped before validation.
+            for blank in [json!(""), json!(" \t\n")] {
+                let mut dropped = query.clone();
+                dropped[field] = blank;
+                assert!(admitted(&dropped).is_ok(), "blank {field} is dropped");
+            }
+            for invalid in [Value::Null, json!(7), json!("x".repeat(501))] {
                 let mut bad = query.clone();
                 bad[field] = invalid.clone();
                 assert!(admitted(&bad).is_err(), "{field} {invalid}");

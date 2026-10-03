@@ -23,13 +23,10 @@ Load when you add tests, choose a test kind, organize test files, make a suite f
 | Untrusted bytes | `cargo fuzz` targets; turn each crash into a regression unit test |
 | CLI end-to-end | `assert_cmd` + `predicates`, or `snapbox`/`trycmd` for file-driven cases |
 | "This must not compile" (macros, typestate) | `trybuild` |
-| `unsafe` / lock-free code | Miri, `loom` |
 | Async | `#[tokio::test]`; `flavor = "multi_thread"` only when the code needs it |
 
-- Run: `cargo nextest run --workspace` (fast, isolated) + `cargo test --doc` (nextest skips doctests).
-- Features: `cargo hack test --each-feature` for libs with flags; always also `--all-features` and `--no-default-features`.
-- Trust: `cargo llvm-cov nextest` for coverage gaps, `cargo mutants` to prove assertions bite. Coverage % is a map, not a goal.
-- Node addons: test the core crate in Rust; test the binding from JS (vitest/ava) against the built `.node`; the thin binding crate sets `[lib] test = false, doctest = false` (oxc does).
+- Coverage % is a map, not a goal.
+- Node addons: test the binding from JS (vitest/ava) against the built `.node`.
 
 ## Toolchain pin (commit it)
 ```toml
@@ -46,16 +43,15 @@ Built-ins: `cargo add/remove/info`, `cargo tree -d -i <crate>`, `cargo fix --edi
 | IDE | `rust-analyzer` | set `check.command = "clippy"` so the editor shows lints |
 | Watch loop | `bacon` | background check/clippy/test; `cargo-watch` is in maintenance mode |
 | Format | `rustfmt` (+ `rustfmt.toml`), `taplo fmt` for TOML, `cargo sort` for deps | zero-debate diffs |
-| Lint | `clippy` with `[workspace.lints]`; `typos` for spelling | first review pass |
-| Tests | `cargo nextest run` | per-test processes, parallel, retries, JUnit; doctests via `cargo test --doc` |
+| Lint | `clippy` with `[workspace.lints]`; `typos` for spelling | |
+| Tests | `cargo nextest run --workspace` | per-test processes, parallel, retries, JUnit; nextest skips doctests, so also run `cargo test --doc` |
 | Coverage / test quality | `cargo llvm-cov nextest` · `cargo mutants` | source-based lcov/html; proves tests assert |
 | UB / concurrency | `cargo +nightly miri test` · `loom` · `kani` | UB, interleavings, bounded proofs |
 | Inspect codegen | `cargo expand` · `cargo asm` (cargo-show-asm) · `cargo llvm-lines` | macro output, inlining, generic bloat |
-| Profile CPU / size | `samply` · `cargo flamegraph` · `perf` · `cargo bloat --release --crates` | build with a `profiling` profile |
-| Profile memory | `dhat-rs` · `heaptrack` | `references/performance-and-memory.md` |
-| Bench / async | `criterion` / `divan` · `hyperfine` (CLI) · `tokio-console` | `--release` numbers; stuck tasks, busy polls |
+| Profile CPU / memory / size | `references/performance-and-memory.md` | build with a `profiling` profile |
+| Bench / async | `criterion` / `divan` · `hyperfine` (CLI) · `tokio-console` | stuck tasks, busy polls |
 | Unused deps / disk | `cargo machete` · `cargo shear` · `cargo udeps` (nightly) · `cargo sweep` | trim graph and stale `target/` |
-| Features | `cargo hack --each-feature` / `--feature-powerset` | every combo compiles |
+| Features | `cargo hack test --each-feature` / `--feature-powerset`, plus `--all-features` and `--no-default-features` | every combo compiles (libs with flags) |
 | API / MSRV | `cargo semver-checks` · `cargo msrv verify` | no accidental breaking release |
 | Supply chain | `cargo deny` · `cargo audit` · `cargo vet` · `cargo auditable` | `references/safety-and-ffi.md` |
 | Release | `release-plz` / `cargo-release` · `cargo-dist` | version bump, changelog, binaries |
@@ -71,4 +67,4 @@ xtask = "run -p xtask --"
 Anything beyond one command goes in an `xtask` crate, not bash.
 
 ## CI order (fail fast, cheap first)
-`fmt --check` → `clippy -D warnings` → `nextest` + `test --doc` → `deny check` → `hack --each-feature check` → `semver-checks` (libs) → MSRV build → Miri/fuzz on unsafe/parsers. Use `--locked` everywhere; cache with `Swatinem/rust-cache` (+ `sccache` per `references/build-profiles.md`). The merge-blocking security subset is in `references/safety-and-ffi.md`.
+`fmt --check` → `clippy --all-targets -D warnings` → `nextest` + `test --doc` → `audit` (RUSTSEC) + `deny check` (licenses, bans, advisories, duplicates) → `hack --each-feature check` → `semver-checks` (libs) → MSRV build → Miri on unsafe-bearing crates, `cargo fuzz` on parsers/decoders of untrusted bytes. Block merge on fmt through deny plus Miri/fuzz. Cache with `Swatinem/rust-cache` (+ `sccache` per `references/build-profiles.md`).

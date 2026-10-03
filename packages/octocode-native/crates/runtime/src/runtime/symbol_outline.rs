@@ -9,7 +9,10 @@
 //!   501 method fileExists
 //! ```
 //!
-//! A row is `line[-endLine] kind name`. Indentation encodes `parent` and
+//! A row is `line[-endLine] kind name`; consecutive childless siblings of
+//! one kind share a row (`; <range> <name>` each), and adjacent blocks of one
+//! name (a type's `impl` blocks) share a row listing every range, with all
+//! their members under it. Indentation encodes `parent` and
 //! `parentLine` whenever the parent row precedes its member on the page;
 //! otherwise the member carries `(in Parent@line)`. Optional facts follow as
 //! suffixes: `+` (exported), `as a,b` (exportedAs), `doc` (a doc block ends
@@ -19,7 +22,7 @@
 
 use serde_json::Value;
 
-const LEGEND: &str = "line[-endLine] kind name; + exported; indented = member; doc = comment above";
+const LEGEND: &str = "line[-endLine] kind name, + exported, indented = member, doc = comment above, \"; \" joins same-kind siblings, a-b,c-d = one name's blocks";
 
 /// Outline rows: strings, or declaration objects carrying `name`, `kind` and
 /// `line` (the earlier row shape).
@@ -130,9 +133,42 @@ fn section(label: &str, path: &str, rows: &[Value]) -> String {
     text
 }
 
-/// One outline string per declaration object, in order. Nesting is computed
+/// One outline entry per declaration: its nesting depth among the rows, its
+/// line range(s), kind, and the name with its suffixes.
+#[derive(Clone)]
+struct Entry {
+    depth: usize,
+    ranges: Vec<String>,
+    kind: String,
+    label: String,
+    /// The member names a parent outside the rows: `(in Parent@line)`.
+    detached: bool,
+}
+
+/// An entry with the entries nested under it.
+struct Node {
+    entry: Entry,
+    children: Vec<Node>,
+}
+
+/// Outline strings for declaration objects, in order. Nesting is computed
 /// over `rows` alone, so a member whose parent is not among them names it.
+///
+/// Rows are grouped losslessly: adjacent siblings with the same kind, name
+/// and suffixes (a Rust type's several `impl` blocks) share one row listing
+/// each range (`109-891,893-901 impl Server`) with all their members under
+/// it, and consecutive childless siblings of one kind share a row, each
+/// further one as `; <range> <name>` (`130-136 function a; 159-162 b`).
 pub(crate) fn outline_rows(rows: &[Value]) -> Vec<Value> {
+    let entries = outline_entries(rows);
+    let mut index = 0;
+    let forest = merge_blocks(nest(&entries, &mut index, 0));
+    let mut out = Vec::with_capacity(entries.len());
+    emit(&forest, &mut out);
+    out
+}
+
+fn outline_entries(rows: &[Value]) -> Vec<Entry> {
     // Ancestors among `rows`: (name, line).
     let mut stack: Vec<(String, u64)> = Vec::new();
     let mut out = Vec::with_capacity(rows.len());
@@ -160,17 +196,13 @@ pub(crate) fn outline_rows(rows: &[Value]) -> Vec<Value> {
                 }
             }
         }
-        let mut text = "  ".repeat(stack.len());
-        text.push_str(&line.to_string());
+        let mut range = line.to_string();
         if let Some(end) = row.get("endLine").and_then(Value::as_u64) {
-            text.push_str(&format!("-{end}"));
+            range.push_str(&format!("-{end}"));
         }
-        text.push(' ');
-        text.push_str(row["kind"].as_str().unwrap_or_default());
-        text.push(' ');
-        text.push_str(name);
+        let mut label = name.to_owned();
         if row.get("exported").and_then(Value::as_bool) == Some(true) {
-            text.push_str(" +");
+            label.push_str(" +");
         }
         if let Some(public) = row.get("exportedAs").and_then(Value::as_array) {
             let names = public
@@ -178,29 +210,115 @@ pub(crate) fn outline_rows(rows: &[Value]) -> Vec<Value> {
                 .filter_map(Value::as_str)
                 .collect::<Vec<_>>()
                 .join(",");
-            text.push_str(&format!(" as {names}"));
+            label.push_str(&format!(" as {names}"));
         }
         if let Some(doc) = row.get("docStartLine").and_then(Value::as_u64) {
             // A doc block ending right above the declaration is the norm.
             if doc + 1 == line {
-                text.push_str(" doc");
+                label.push_str(" doc");
             } else {
-                text.push_str(&format!(" doc@{doc}"));
+                label.push_str(&format!(" doc@{doc}"));
             }
         }
         if let Some(start) = row.get("startLine").and_then(Value::as_u64) {
-            text.push_str(&format!(" from@{start}"));
+            label.push_str(&format!(" from@{start}"));
         }
         if let Some(column) = row.get("character").and_then(Value::as_u64) {
-            text.push_str(&format!(" col {column}"));
+            label.push_str(&format!(" col {column}"));
         }
+        let is_detached = detached.is_some();
         if let Some(detached) = detached {
-            text.push_str(&detached);
+            label.push_str(&detached);
         }
-        out.push(Value::String(text));
+        out.push(Entry {
+            depth: stack.len(),
+            ranges: vec![range],
+            kind: row["kind"].as_str().unwrap_or_default().to_owned(),
+            label,
+            detached: is_detached,
+        });
         stack.push((name.to_owned(), line));
     }
     out
+}
+
+/// The entries from `index` on at `depth`, each with its deeper entries.
+fn nest(entries: &[Entry], index: &mut usize, depth: usize) -> Vec<Node> {
+    let mut nodes: Vec<Node> = Vec::new();
+    while let Some(entry) = entries.get(*index) {
+        if entry.depth < depth {
+            break;
+        }
+        if entry.depth > depth {
+            let children = nest(entries, index, depth + 1);
+            match nodes.last_mut() {
+                Some(last) => last.children.extend(children),
+                None => nodes.extend(children),
+            }
+            continue;
+        }
+        *index += 1;
+        nodes.push(Node {
+            entry: entry.clone(),
+            children: Vec::new(),
+        });
+    }
+    nodes
+}
+
+/// Merge adjacent siblings that declare the same kind and name with the
+/// same suffixes into one node listing every range.
+fn merge_blocks(nodes: Vec<Node>) -> Vec<Node> {
+    let mut out: Vec<Node> = Vec::with_capacity(nodes.len());
+    for mut node in nodes {
+        node.children = merge_blocks(std::mem::take(&mut node.children));
+        if let Some(last) = out.last_mut()
+            && !node.entry.detached
+            && !last.entry.detached
+            && last.entry.kind == node.entry.kind
+            && last.entry.label == node.entry.label
+        {
+            last.entry.ranges.extend(node.entry.ranges);
+            last.children.extend(node.children);
+            continue;
+        }
+        out.push(node);
+    }
+    out
+}
+
+fn emit(nodes: &[Node], out: &mut Vec<Value>) {
+    let mut row: Option<(String, String)> = None;
+    for node in nodes {
+        let entry = &node.entry;
+        let ranges = entry.ranges.join(",");
+        let groupable = node.children.is_empty() && !entry.detached;
+        if groupable
+            && let Some((kind, text)) = row.as_mut()
+            && *kind == entry.kind
+        {
+            text.push_str(&format!("; {ranges} {}", entry.label));
+            continue;
+        }
+        if let Some((_, text)) = row.take() {
+            out.push(Value::String(text));
+        }
+        let text = format!(
+            "{}{ranges} {} {}",
+            "  ".repeat(entry.depth),
+            entry.kind,
+            entry.label
+        );
+        if groupable {
+            row = Some((entry.kind.clone(), text));
+        } else {
+            out.push(Value::String(text));
+            emit(&node.children, out);
+        }
+    }
+    if let Some((_, text)) = row {
+        out.push(Value::String(text));
+    }
 }
 
 #[cfg(test)]
@@ -234,6 +352,44 @@ mod tests {
                  600 method orphan col 4 (in Gone@7)\n\
                  700 function main + as default from@699\n"
             )]
+        );
+    }
+
+    /// Same-kind leaf siblings share a row and a name's adjacent blocks share
+    /// one parent row; every declaration's range, kind, name and suffixes
+    /// stay readable.
+    #[test]
+    fn outline_rows_group_siblings_and_merge_blocks_losslessly() {
+        let objects = [
+            json!({"name":"Server","kind":"struct","line":105,"endLine":107,"exported":true}),
+            json!({"name":"Server","kind":"impl","line":109,"endLine":891}),
+            json!({"name":"connect","kind":"function","line":194,"endLine":204,"exported":true,"docStartLine":164}),
+            json!({"name":"ready","kind":"function","line":307,"endLine":310,"exported":true,"docStartLine":306}),
+            json!({"name":"MAX","kind":"constant","line":320,"parent":"Server"}),
+            json!({"name":"Server","kind":"impl","line":893,"endLine":901}),
+            json!({"name":"poll_read","kind":"function","line":894,"endLine":900,"parent":"Server"}),
+            json!({"name":"Client","kind":"impl","line":984,"endLine":990}),
+            json!({"name":"open","kind":"function","line":985,"endLine":989,"parent":"Client"}),
+            json!({"name":"orphan","kind":"function","line":2000,"parent":"Gone","parentLine":7}),
+            json!({"name":"lone","kind":"function","line":2001}),
+        ];
+        let mut objects = objects.to_vec();
+        for object in &mut objects[2..4] {
+            object["parent"] = json!("Server");
+        }
+        assert_eq!(
+            outline_rows(&objects),
+            [
+                json!("105-107 struct Server +"),
+                json!("109-891,893-901 impl Server"),
+                json!("  194-204 function connect + doc@164; 307-310 ready + doc"),
+                json!("  320 constant MAX"),
+                json!("  894-900 function poll_read"),
+                json!("984-990 impl Client"),
+                json!("  985-989 function open"),
+                json!("2000 function orphan (in Gone@7)"),
+                json!("2001 function lone"),
+            ]
         );
     }
 

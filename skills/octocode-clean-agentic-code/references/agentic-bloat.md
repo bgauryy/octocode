@@ -1,51 +1,48 @@
 # Agent Bloat
 
-Load when agent-authored code adds weight without adding behavior: type, lint, or compiler suppressions, speculative abstraction, annotation churn, scratch scripts, attribution comments, or literal and parameter noise. Why: a suppression outlives its cause silently, and a suppressed dead-code or unused lint hides exactly the candidates this skill hunts.
-
-Every row is behavior-preserving once its evidence bar holds. A row marked "report" needs a behavioral decision: send it to `references/agentic-correctness.md`.
+Load when agent-authored code adds weight without behavior: checker suppressions, speculative abstraction, churn, scratch scripts, attribution comments, literal or parameter noise. A suppressed dead-code lint hides the candidates this skill hunts. Rows preserve behavior once their bar holds; send "Report" rows to `references/agentic-correctness.md`.
 
 ## Checker suppressions
 
-Signals: `#[allow]`, `eslint-disable`, `@ts-ignore`, `# noqa`, `# type: ignore`, `//nolint`, `as any`. Exempt generated files, vendored code, test fixtures, and third-party corpora. A suppression in emitted text (a generator writing `/* eslint-disable */` into its output) belongs to the output, not to the generator.
+Signals: `#[allow]`, `eslint-disable`, `@ts-ignore`, `# noqa`, `# type: ignore`, `//nolint`, `as any`. Exempt generated files, vendored code, test fixtures, and third-party corpora. A suppression a generator writes into its output belongs to the output.
 
 | Signal | Keep when | Otherwise |
 |---|---|---|
-| `as any`, `: any`, `as unknown as`, `@ts-ignore`, `@ts-nocheck`, `# type: ignore`, `cast(Any, …)` | the file is generated, or the line states why the type system cannot express the value | Replace with the real type when the typecheck passes; if the real fix changes runtime code, report it |
-| Non-null `!` or `as T` on a value the types call nullable | an adjacent invariant proves presence | Report: removal changes the null path |
-| `eslint-disable`, `# noqa`, `//nolint`, `#[allow(…)]` | one line or item, with a reason comment | Remove when the linter passes without it; a file- or crate-wide suppression needs a reason per lint |
-| Suppressed `dead_code`, `unused`, or `unreachable` lint | the cause is structural (one shared helper module compiled into many test binaries) and the reason is written down | Fix the cause: delete the dead item, or remove the code that makes the arm unreachable. A reason that names a removed counterpart ("parity with the old X") is itself residue |
-| Suppressed complexity lint (`too_many_arguments`, cognitive complexity, type complexity) | always, until a structural change | Inventory it for `references/structure.md`; never fix it inside a batch. Raising the threshold in config only moves the suppression |
-| Suppression of a safety lint (`expect_used`, `panic`, `unwrap_used`) in production code | a comment states the invariant that makes the call infallible | Report: replacing it with error handling changes behavior |
+| `as any`, `: any`, `as unknown as`, `@ts-ignore`, `@ts-nocheck`, `# type: ignore`, `cast(Any, …)` | generated file, or the line says why the type cannot be expressed | Use the real type when the typecheck passes; report a fix that changes runtime code |
+| Non-null `!` or `as T` on a nullable value | an adjacent invariant proves presence | Report: removal changes the null path |
+| `eslint-disable`, `# noqa`, `//nolint`, `#[allow(…)]` | one line or item, with a reason | Remove when the linter passes without it; a file- or crate-wide suppression needs a reason per lint |
+| Suppressed `dead_code`, `unused`, `unreachable` | structural cause (one helper module compiled into many test binaries), reason written | Delete the dead item or the code that makes the arm unreachable. A reason naming a removed counterpart ("parity with the old X") is residue |
+| Suppressed complexity lint (`too_many_arguments`, cognitive or type complexity) | always, until a structural change | Inventory it for `references/structure.md`; never fix it in a batch. A raised config threshold only moves the suppression |
+| Safety lint (`expect_used`, `panic`, `unwrap_used`) suppressed in production | a comment states why the call cannot fail | Report: error handling changes behavior |
 
-Sweep: let the checker find stale suppressions instead of judging each one by eye.
+Sweep (the checker finds stale suppressions):
+1. Make each first-party suppression self-reporting: `#[allow]` → `#[expect]` (`unfulfilled_lint_expectations`); `@ts-ignore` → `@ts-expect-error`; ESLint `--report-unused-disable-directives`; mypy `warn_unused_ignores`; ruff `RUF100`; golangci-lint `nolintlint`.
+2. Run the checker under every configuration the repo builds (feature sets, targets, test and non-test).
+3. Delete each suppression no configuration needs. Otherwise fix the local cause: feature-gated value in the literal, map instead of a struct with an unread field, write out the arm a macro made unreachable, drop an import-path hack the runtime provides.
+4. Move blanket test allowances to tool config (`allow-expect-in-tests`, `allow-panic-in-tests`, an ESLint override for test globs).
+5. Keep the self-reporting form only where every configuration fulfills it; revert the rest. Each survivor carries a reason (`reason = "…"` or a line comment).
 
-1. Make every first-party suppression self-reporting: Rust `#[allow]` → `#[expect]` (`unfulfilled_lint_expectations` names each stale lint); TypeScript `@ts-ignore` → `@ts-expect-error`; ESLint `--report-unused-disable-directives`; mypy `warn_unused_ignores`; ruff `RUF100`; golangci-lint `nolintlint`.
-2. Run the checker under every configuration the repo builds: each feature set, target, and test and non-test build. A suppression can be needed in one configuration only.
-3. Delete each suppression that no configuration needs. For one that some configuration needs, fix the local cause where it exists: move a feature-gated value into the literal instead of mutating it, deserialize into a map instead of a struct with an unread field, write out the match arm a macro made unreachable, or drop an import-path hack the runtime already provides.
-4. Move blanket test allowances to tool config (`allow-expect-in-tests`, `allow-panic-in-tests`, an ESLint override for test globs) instead of per-file attributes.
-5. Keep the self-reporting form only where every configuration fulfills it, so the next fix fails the build; revert the rest to the plain form. Each survivor carries its reason (`reason = "…"`, or a comment on the line).
-
-Removing a suppression is behavior-preserving; changing the code it guarded may not be. Run the full lint, typecheck, and test suite after the sweep.
+Changing the guarded code may change behavior.
 
 ## Speculative generality
 
 | Signal | Evidence bar |
 |---|---|
-| Interface, ABC, or Protocol with one implementation | No implementor through public exports, plugins, or test substitutes |
+| Interface, ABC, or Protocol with one implementation | No implementor via public exports, plugins, or test substitutes |
 | Factory, registry, or strategy table with one entry | No config or plugin path registers another |
-| Option or parameter that every caller passes the same value | All callers listed with `lspSearch`; the symbol is not exported |
-| Generic parameter with one instantiation; a wrapper that only forwards | No public contract names it |
-| Unused parameter on an internal signature | Not exported, and no interface or callback slot requires it |
+| Option every caller passes with the same value | All callers listed with `lspSearch`; symbol not exported |
+| Generic with one instantiation; wrapper that only forwards | No public contract names it |
+| Unused parameter on an internal signature | Not exported; no interface or callback slot requires it |
 
 ## Churn and leftovers
 
 | Signal | Remove when |
 |---|---|
-| Hunks that only add or change type hints, decorators, or annotations on otherwise untouched functions | No runtime reader consumes them (pydantic, dataclasses, FastAPI, attrs, DI containers, reflection); else report |
+| Hunks that only change type hints, decorators, or annotations on untouched functions | No runtime reader uses them (pydantic, dataclasses, FastAPI, attrs, DI containers, reflection); else report |
 | Unreferenced `fix_*`, `migrate_*`, `debug_*`, `scratch*`, `tmp_*` scripts, or `test_*` files outside test roots | No script, CI job, or doc runs them |
-| AI-attribution comments in source: `generated by`, `written with`, `assisted by` plus a model or tool name (not data, fixtures, or recorded transcripts) | No disclosure or license policy requires them |
+| AI-attribution comments (`generated by`, `written with`, `assisted by` + model or tool name), not in data, fixtures, or transcripts | No disclosure or license policy requires them |
 | One string literal repeated across a module | Every copy means the same thing; extract one constant |
-| New `console.log`, `print(`, `dbg!`, `println!` in non-CLI code | Report: log and stdout output is observable |
-| `sleep(` or a retry loop wrapped around a failing call | Report: the workaround hides the root cause |
+| New `console.log`, `print(`, `dbg!`, `println!` in non-CLI code | Report: output is observable |
+| `sleep(` or a retry loop around a failing call | Report: it hides the root cause |
 
-Next: for reinvention and scope creep load `references/agentic-defects.md`; for the report-only tier load `references/agentic-correctness.md`; for knots the complexity lints point at load `references/structure.md`; to run the batch load `references/cleanup-playbook.md`.
+Next: reinvention and scope creep → `references/agentic-defects.md`; batch → `references/cleanup-playbook.md`.

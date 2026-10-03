@@ -14,13 +14,13 @@ pub const MAX_PAGE_CHARS: usize = 24_000;
 /// continuations and handoffs.
 const ROW_SKELETON_CHARS: usize = 2_000;
 
-/// Room for the caller's `goal` and `reasoning`, which row continuations
+/// Room for the caller's `mainGoal` and `reasoning`, which row continuations
 /// copy. They are budgeted at a fixed size rather than measured, so a walk
 /// whose continuation rewords them still cuts every page at the same rows.
 const FREE_TEXT_CHARS: usize = 1_200;
 
 /// Query fields that never change which rows a page holds.
-const UNSIZED_QUERY_FIELDS: [&str; 5] = ["goal", "reasoning", "page", "matchPage", "snapshot"];
+const UNSIZED_QUERY_FIELDS: [&str; 5] = ["mainGoal", "reasoning", "page", "matchPage", "snapshot"];
 
 /// Counts the UTF-16 units of UTF-8 written to it.
 struct Utf16Counter(usize);
@@ -118,8 +118,8 @@ mod tests {
 
     #[test]
     fn reserve_ignores_free_text_and_cursor_fields() {
-        let first = json!({"goal": "g", "reasoning": "r", "path": "src", "searchText": "x"});
-        let later = json!({"goal": "a much longer goal", "reasoning": "reworded",
+        let first = json!({"mainGoal": "g", "reasoning": "r", "path": "src", "searchText": "x"});
+        let later = json!({"mainGoal": "a much longer goal", "reasoning": "reworded",
             "path": "src", "searchText": "x", "page": 7, "snapshot": "lexical-live-v1:abc"});
         assert_eq!(reserve_chars(&first, 2), reserve_chars(&later, 2));
         let wider = json!({"path": "src", "searchText": "a longer search"});

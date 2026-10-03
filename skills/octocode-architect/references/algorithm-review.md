@@ -4,7 +4,7 @@ Load when an algorithm, data structure, scheduler, parser, query, cache, retry l
 
 ## Contract first
 
-Write `inputs + preconditions → postconditions + invariants → failure/termination behavior → cost model`. Identify the reference oracle when one exists. Do not optimize before the correctness contract and representative workload are explicit.
+After the lobby contract, identify the reference oracle when one exists and make the representative workload explicit.
 
 | Check | Possible flaws | Strong evidence |
 |---|---|---|
@@ -20,9 +20,9 @@ Write `inputs + preconditions → postconditions + invariants → failure/termin
 ## Efficient proof ladder
 
 1. Trace the smallest counterexample and each state transition in exact code.
-2. State why the invariant holds or where it can break; do not call tests a proof.
+2. State why the invariant holds or where it can break.
 3. Compare against a simple oracle, exhaustive small state space, metamorphic property, or prior implementation when practical.
 4. Measure only the cost the decision names, under comparable inputs and resource limits.
-5. Classify `confirmed | likely | candidate | dismissed`; unresolved input bounds, concurrency ordering, or numeric range cap the claim below confirmed.
+5. Unresolved input bounds, concurrency ordering, or numeric range cap the claim below confirmed.
 
 If the flaw crosses module or ownership boundaries, continue with `references/architecture-analysis.md`. If a proven flaw needs structural change, load `references/change-discipline.md`.

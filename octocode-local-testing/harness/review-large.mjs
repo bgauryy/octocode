@@ -6,7 +6,7 @@ try {
  const m=rowData(await run('metadata',q)).pullRequests[0];
  check('fixture exceeds 100 changed files',m.changedFilesCount>100,m.changedFilesCount);
  check('metadata excludes changed-file bodies',!m.changedFiles);
- check('metadata offers file inventory',!!m.next?.getChangedFiles);
+ check('metadata offers file inventory',!!m.hints?.getChangedFiles);
  let e=await run('inventory page 1',{...q,content:{changedFiles:true},pageSize:100});let files=[];let pages=0;
  for(;e&&pages<40;pages++){
   const pr=rowData(e)?.pullRequests?.[0];
@@ -14,7 +14,7 @@ try {
   check('page '+(pages+1)+' excludes patches',inventoryRows(pr?.changedFiles).every(f=>f.path&&!Object.hasOwn(f,'patch')));
   check('page '+(pages+1)+' preserves head SHA',pr?.sourceSha===m.sourceSha);
   files.push(...inventoryRows(pr?.changedFiles));
-  const next=nextHints(e.sc).find(h=>h.path.endsWith('nextChangedFilesPage'));
+  const next=nextHints(e.sc).find(h=>h.path.endsWith('.next.nextChangedFilesPage'));
   e=next?await run('inventory page '+(pages+2),next.query,true):null;
  }
  check('inventory terminates',!e);

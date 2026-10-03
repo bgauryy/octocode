@@ -18,20 +18,20 @@ node octocode-local-testing/harness/debug-call.mjs localFetch '{"path":"/abs/fil
 
 | Path | What |
 |---|---|
-| `harness/mcp-client.mjs` | Shared stdio MCP client, `next.*` walker, check recorder |
+| `harness/mcp-client.mjs` | Shared stdio MCP client, `next.*` page walker, check recorder |
 | `harness/workflows.mjs` | Regression checks for every fixed defect + continuation hygiene |
 | `harness/usage-regressions.mjs` | Input shapes and failures mined from recorded agent sessions, replayed on MCP and the CLI: batch/brief placement, guessed field names, wrong-tool rows, regex repairs, bounded large reads, root-policy hints, warm LSP |
 | `harness/grammar.mjs` | All 12 Tree-sitter grammars and their extensions on small fixtures |
 | `harness/navigate.mjs` | Agent-style ORIENT → SEARCH → READ → PROVE walk per grammar repo, each hop fed only by copied values; hop/byte budget |
-| `harness/remote.mjs` | GitHub search/read/history, artifactSearch, clasify; every returned `next.*` must execute |
+| `harness/remote.mjs` | GitHub search/read/history, artifactSearch, clasify; every returned `next.*` page and `hints.*` lead must execute |
 | `harness/github.mjs` | GitHub data fidelity against the local clones at the pinned SHA: file bytes/ranges/matchString/byte chunks, code-search precision + verbatim snippets + filters + pagination, tree = `git ls-tree`, commit/compare/PR = `git diff`, history filters, clasify locate/scout over GitHub files |
-| `harness/artifacts.mjs` | artifactSearch fidelity: 8 registries (npm, PyPI, crates, Maven, NuGet, Go, Packagist, RubyGems) against each registry's own API; `next.viewRepo` names and opens the same repo |
+| `harness/artifacts.mjs` | artifactSearch fidelity: 8 registries (npm, PyPI, crates, Maven, NuGet, Go, Packagist, RubyGems) against each registry's own API; `hints.viewRepo` names and opens the same repo |
 | `harness/perf.mjs` | Cache effectiveness: lspSearch page 2 vs page 1, symbols/topology continuation pages and repeated analyses, tokio Rust linking gaps |
 | `harness/clasify.mjs` | clasify locate on 18 files across 12 grammars and 6 huge repos: strict declaration-in-window, `best` ranking, near-tie runner-ups, identifier hints, host-byte savings |
 | `harness/repo-sweep.mjs` | One big real repo per grammar: every tool, full pagination, cross-tool correlation |
 | `harness/deps-flows.mjs` | Imports/dependencies between files: `astTopology` edges proven line-by-line with `localFetch`, cross-checked against `astSearch` import syntax and `lspSearch` identity |
 | `harness/large-files.mjs` | Extremely large files (3 MB checker.ts, 28 MB log, 1-line 1.9 MB bundle, 20k-function file) with pagination walked to the end |
-| `harness/competitors.mjs` | Frozen competitor tasks (`harness/competitor-tasks.json`, local corpora + pinned GitHub refs) run as an octocode recipe and as the expert shell recipe (rg/sed/git/gh/ast-grep/npm); same truth check both sides, calls/bytes/ms per side, ratios and medians in `results/competitors.json`. Normalized by default: local tasks run with the MCP workspace and shell cwd at the corpus repo root, short agent-sized briefs, and an `unfiltered` first-try shell arm reported beside the expert arm (`OCTOCODE_COMPETITOR_NORMALIZE=0` = legacy octocode-root run). Sensors: `nextShare`, next entries per row (cap 2; `OCTOCODE_COMPETITOR_STRICT_NEXT=1` fails), never-trim (a truncation signal needs a paging continuation or a terminal-limit disclosure). Fails on a wrong octocode answer (including a row seen twice or never across a row-continuation walk) or a never-trim violation in a fully walked recipe. Clasify tasks need `OCTOCODE_COMPETITOR_CLASIFY=1` (paid). S1 sensors and the byte gate: see [Competitor sensors](#competitor-sensors) |
+| `harness/competitors.mjs` | Frozen competitor tasks (`harness/competitor-tasks.json`, local corpora + pinned GitHub refs) run as an octocode recipe and as the expert shell recipe (rg/sed/git/gh/ast-grep/npm); same truth check both sides, calls/bytes/ms per side, ratios and medians in `results/competitors.json`. Normalized by default: local tasks run with the MCP workspace and shell cwd at the corpus repo root, short agent-sized briefs, and an `unfiltered` first-try shell arm reported beside the expert arm (`OCTOCODE_COMPETITOR_NORMALIZE=0` = legacy octocode-root run). Sensors: `nextShare`/`hintsShare`, lead entries per menu (cap 2; `OCTOCODE_COMPETITOR_STRICT_NEXT=1` fails), never-trim (a truncation signal needs a paging continuation or a terminal-limit disclosure). Fails on a wrong octocode answer (including a row seen twice or never across a row-continuation walk) or a never-trim violation in a fully walked recipe. Clasify tasks need `OCTOCODE_COMPETITOR_CLASIFY=1` (paid). S1 sensors and the byte gate: see [Competitor sensors](#competitor-sensors) |
 | `harness/sensors.mjs` | Pure sensor functions for `competitors.mjs` (continuation pages vs leads, schema errors, verbose fields, body hash + key byte shares, byte gate); `node harness/sensors.mjs --self-test` |
 | `harness/verbose-fields.json` | Configurable list of default-output (`debug:false`) fields the verbose sensor reports |
 | `fixtures/lsp/` | TS/JS layouts that hide importers from tsserver (inferred project, CommonJS alias) |
@@ -46,13 +46,13 @@ node octocode-local-testing/harness/debug-call.mjs localFetch '{"path":"/abs/fil
 | Sensor | What it measures | Effect |
 |---|---|---|
 | `nextShare` / `hintsShare` / `leadShare` | Bytes under `next`, under `hints`, and of lead continuations wherever they live, over response bytes | Report |
-| Lead entries per menu | Lead continuations in one menu: `hints` entries, plus non-page `next` entries in today's shape. Pages in `next` are uncapped | Cap 2; fails only with `OCTOCODE_COMPETITOR_STRICT_NEXT=1` |
+| Lead entries per menu | Lead continuations in one menu: `hints` entries, plus non-page `next` entries in the legacy shape. Pages in `next` are uncapped | Cap 2; fails only with `OCTOCODE_COMPETITOR_STRICT_NEXT=1` |
 | Schema errors | MCP/CLI input-validation errors, plus rows with a schema `errorCode` | Fails above 0 |
 | Verbose fields | Default-output fields from `harness/verbose-fields.json` (for example `responsePagination` with `hasMore:false`, or pagination fields that a page continuation repeats). Rows queried with `debug:true` are skipped | Report only |
 | Verbatim replay | Each continuation in `next` and each non-`text` entry in `hints` runs unchanged. Entries that the recipe already ran count; up to `OCTOCODE_COMPETITOR_REPLAY_MAX` (default 3) others are called per task. CLI-only tools are counted, not run | Fails on a validation error |
 | Byte gate | Each task is compared with the pinned anchor `results/competitors-anchor.json` and the rolling baseline `results/competitors-rolling.json`. Bytes or calls above 1.5× a baseline fail when the ratio to the shell also gets worse; if the shell recipe changed, the absolute growth alone fails. Local tasks also fail when unique evidence (file:line pairs, files) shrinks or never-trim violations grow. Each record stores a body hash and key byte shares, so a flag names the key that grew. A changed octocode recipe is reported and not compared | Fails |
 
-Each page continuation is recognized by its name: `next*`, `continue*`, `restart`, `searchUnpatchedFile`, `binarySkipped`, and `responsePagination.next`. The sensors read both continuation shapes: the current one, where `next` also holds leads and `hints` is a list of prose strings, and the planned one, where `hints` is `{text?, <lead>: {tool, query}}`.
+Each page continuation is recognized by its name: `next*`, `continue*`, `restart`, `searchUnpatchedFile`, `binarySkipped`, and `responsePagination.next`. The sensors read both continuation shapes: the current one, where `next` holds only pages and `hints` is `{text?, <lead>: {tool, query}}`, and the legacy one, where `next` also held leads and `hints` was a list of prose strings.
 
 ```sh
 node octocode-local-testing/harness/competitors.mjs --self-test          # sensor self-tests, no server

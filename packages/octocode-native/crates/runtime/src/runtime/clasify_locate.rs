@@ -575,6 +575,29 @@ pub(super) fn with_row_reads(mut best: Value, reads: &[LocateRead]) -> Value {
     best
 }
 
+/// Window probability at which an open walk offers its read first.
+const READ_FIRST_P: f64 = 0.95;
+/// Existence a read-first window also needs.
+const READ_FIRST_EXISTS: f64 = 0.9;
+
+/// The tip for an open walk whose first locate question already has a
+/// window this strong: read it first, since it usually answers. Its read is
+/// the query's `hints.read`; the walk stays in `next.clasify`, so later
+/// pages are still reachable.
+pub(super) fn read_first_hint(best: &Value, locate_ids: &[&str]) -> Option<String> {
+    let row = best.get(locate_ids.first()?)?.as_array()?.first()?;
+    let p = row.get("probability").and_then(Value::as_f64)?;
+    let exists = row.get("exists").and_then(Value::as_f64)?;
+    if p < READ_FIRST_P || exists < READ_FIRST_EXISTS || row.pointer("/next/read").is_none() {
+        return None;
+    }
+    Some(format!(
+        "Lines {}-{} scored p={p:.2}: run hints.read first; follow next.clasify only to screen the rest of the file.",
+        row.get("startLine")?,
+        row.get("endLine")?
+    ))
+}
+
 /// A located page's `next.read` points at its top window. It stays only for
 /// an answering page (`exists` ≥ 0.5) whose read `best` does not already
 /// carry: a non-answer is not a read to run (its window stays in `matches`,
@@ -659,7 +682,7 @@ pub(super) fn bare_identifier(target: &str) -> Option<&str> {
 
 pub(super) fn bare_target_hint(identifier: &str) -> String {
     format!(
-        "Target `{identifier}` is a bare identifier: locate was skipped (no read or provider call); run next.localSearch for its exact matches."
+        "Target `{identifier}` is a bare identifier: locate was skipped (no read or provider call); run hints.localSearch for its exact matches."
     )
 }
 
@@ -672,22 +695,8 @@ fn identifier_tokens(target: &str) -> impl Iterator<Item = &str> {
         .filter(|token| looks_like_identifier(token))
 }
 
-fn literal_target(target: &str) -> Option<&str> {
+pub(super) fn literal_target(target: &str) -> Option<&str> {
     identifier_tokens(target).next()
-}
-
-/// Up to `limit` distinct identifiers a goal names, as prefilter literals.
-pub(super) fn goal_literals(goal: &str, limit: usize) -> Vec<String> {
-    let mut literals: Vec<String> = Vec::new();
-    for token in identifier_tokens(goal) {
-        if literals.len() == limit {
-            break;
-        }
-        if !literals.iter().any(|seen| seen == token) {
-            literals.push(token.to_owned());
-        }
-    }
-    literals
 }
 
 /// `next.localSearch`: the first identifier a locate target names, searched
@@ -700,18 +709,18 @@ pub(super) fn literal_search<'a>(
 ) -> Option<Value> {
     let literal = targets.into_iter().find_map(literal_target)?;
     let path = local_scope(resources)?;
-    let query: crate::contracts::tool_types::LocalSearchQuery = serde_json::from_value(
-        // The typed query needs a brief; it is dropped again so the response
-        // stage gives this hint the matrix's own brief.
-        json!({"path":path,"searchText":literal,"regex":"literal","goal":"-","reasoning":"-"}),
-    )
-    .ok()?;
+    // The response stage gives this hint the matrix's own brief, if any.
+    literal_file_search(&path, literal)
+}
+
+/// `localSearch` for `literal`, matched literally under `path`.
+pub(super) fn literal_file_search(path: &str, literal: &str) -> Option<Value> {
+    let query: crate::contracts::tool_types::LocalSearchQuery =
+        serde_json::from_value(json!({"path":path,"searchText":literal,"regex":"literal"})).ok()?;
     let mut query = serde_json::to_value(query).ok()?;
     super::continuations::compact_input(ToolId::LocalSearch.as_str(), &mut query);
     let object = query.as_object_mut()?;
     object.retain(|_, value| !value.is_null());
-    object.remove("goal");
-    object.remove("reasoning");
     Some(json!({"tool":ToolId::LocalSearch.as_str(),"query":query}))
 }
 
@@ -1282,7 +1291,7 @@ mod tests {
         assert_eq!(next["query"]["regex"], "literal");
         assert!(next["query"].get("page").is_none(), "compact: {next}");
         let mut replay = next["query"].clone();
-        replay["goal"] = json!("Find the parser.");
+        replay["mainGoal"] = json!("Find the parser.");
         replay["reasoning"] = json!("Literal target.");
         crate::contracts::validate_query("localSearch", replay).unwrap();
         // Several local resources search their deepest shared directory.

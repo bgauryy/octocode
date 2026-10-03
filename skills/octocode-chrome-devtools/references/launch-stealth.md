@@ -12,7 +12,7 @@ node $S/open-browser.mjs --headless --port 9222 --enableFeatures WebMCP --url "<
 
 - Other flags: `--windowSize WxH`, `--userAgent`, `--chromePath` (only for non-standard installs), `--proxyBypassList`, `--proxyPacUrl`, `--config <proxy.json>`.
 - Mobile: the window size sets only outer dimensions; also use CDP Emulation.
-- State lives under `<cwd>/.octocode/tmp/chrome-devtools/`: timestamped runs, `browser-state/` (profiles, session files), `session-meta/port-<N>/`. Prune with `prune-artifacts.mjs`.
+- State lives under `<cwd>/.octocode/tmp/chrome-devtools/`: timestamped runs, `browser-state/` (profiles, session files), `session-meta/port-<N>/`.
 
 ## Stealth
 
@@ -25,6 +25,6 @@ Every sandbox/runner run applies `undercover.mjs` and runs 15 self-checks before
 | `--no-stealth` | Disables stealth (debug only) |
 | Unsandboxed runner only | `CDP_STEALTH_ALLOW_FAIL=1` logs failures; `CDP_SKIP_STEALTH_VERIFY=1` skips verify |
 
-Smoke tests: `stealth-check` (bot.sannysoft.com) and `affiliates-stealth-check`. `octocode-scraping --provider cdp` uses the same patches unless `--no-cdp-stealth`. Stealth does not solve CAPTCHAs; switch to visible user-auth.
+Smoke tests: `stealth-check` (bot.sannysoft.com) and `affiliates-stealth-check`. `octocode-scraping --provider cdp` uses the same patches unless `--no-cdp-stealth`.
 
 Next: launch problems → `recovery.md`; auth → `intents.md#auth`.

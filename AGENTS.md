@@ -27,7 +27,7 @@ $OCTO scheme <name> --compact
 $OCTO <toolName> '{"queries":[…]}'
 ```
 
-Check the live schema before calling. Include `goal` and `reasoning`. `localSearch` uses `path` + `searchText`, with `pageSize`/`maxMatchesPerFile`; it has no `operation`, `directory`, `maxResults`, `limit`, or `maxFiles`. For file discovery, `structureSearch` requires `operation:"files"` with `names` (basename or path globs) and/or `extensions`; its default operation is `tree`.
+Check the live schema before calling. Add `mainGoal` and `reasoning` only in multi-call research on unknowns; omit them on simple lookups. `localSearch` uses `path` + `searchText`, with `pageSize`/`maxMatchesPerFile`; it has no `operation`, `directory`, `maxResults`, `limit`, or `maxFiles`. For file discovery, `structureSearch` requires `operation:"files"` with `names` (basename or path globs) and/or `extensions`; its default operation is `tree`.
 
 Skills are the default entry point for research, architecture, and eval work:
 
@@ -46,7 +46,7 @@ Dogfood `clasify` when it changes the next action: pass unread lists/large fetch
 
 After every tool/skill use, note friction, gaps, or bad defaults and log them instead of silently working around them. Raw findings: [GOTCHAS](.octocode/GOTCHAS.md); current classification practice: [OCTOCODE_CLASIFY](docs/OCTOCODE_CLASIFY.md); frozen history: [JEV](.octocode/JEV.md).
 
-For repo-wide topology: `$OCTO graph ingest <path>`, then `$OCTO graph query <op>` (`$OCTO graph --help`). Graph/`astTopology` edges are candidates; confirm references/callers with `lspSearch` before deletion claims. Follow executable `next.*` continuations or report the explicit terminal limit; never silently drop pages. Rebuild and test the real CLI/MCP/skill path after each package change.
+For repo-wide topology: `$OCTO graph ingest <path>`, then `$OCTO graph query <op>` (`$OCTO graph --help`). Graph/`astTopology` edges are candidates; confirm references/callers with `lspSearch` before deletion claims. Follow every executable `next.*` page or report the explicit terminal limit; never silently drop pages. `hints.*` leads are optional. Rebuild and test the real CLI/MCP/skill path after each package change.
 
 ## One contract pipeline
 

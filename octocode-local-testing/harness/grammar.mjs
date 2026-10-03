@@ -55,8 +55,8 @@ for (const [lang, l] of Object.entries(L)) {
   res.symbolsDir = dirSym.isError ? 'ERR' : `ok(${declarations(dirSym).filter(o => typeof o.name === 'string' && typeof o.line === 'number').length})`;
   check(`${lang}: directory symbols (no langType)`, !dirSym.isError && dirSym.rowErrors === 0, dirSym.text.slice(0, 100));
   const bad = await call('astSearch', { operation: 'symbols', path: dir, langType: lang });
-  const repair = rowData(bad)?.next?.repair;
-  check(`${lang}: directory symbols with langType returns an exact repair`, !!repair && !('langType' in repair.query), JSON.stringify(rowData(bad)?.hints ?? []).slice(0, 100));
+  const repair = rowData(bad)?.hints?.repair;
+  check(`${lang}: directory symbols with langType returns an exact repair`, !!repair && !('langType' in repair.query), JSON.stringify(rowData(bad)?.hints ?? {}).slice(0, 100));
   if (l.call) {
     // Captures are opt-in (captureText); default rows carry line/column/value only.
     const m = await call('astSearch', { operation: 'match', path: dir, langType: lang, pattern: `${l.call}($A)`, captureText: true });

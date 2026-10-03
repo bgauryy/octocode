@@ -40,7 +40,7 @@ The Rust implementation is the only production scanner. `patterns.rs` is its sou
 
 `clasify` sends data to the configured classification provider (`OCTOCODE_CLASSIFICATION_API_HOST`, default Jev); nothing leaves when no key is set. Each request carries:
 - the captured evidence, after the same output sanitization as a direct tool call, including a search page's absolute `base`;
-- the matrix `goal` and `reasoning`;
+- the matrix `mainGoal` and `reasoning`, when the caller set them;
 - the question text;
 - a `read` descriptor naming the tool and its query (search text, paths, repositories).
 

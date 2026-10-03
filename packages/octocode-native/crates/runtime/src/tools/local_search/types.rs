@@ -6,11 +6,23 @@ pub use crate::contracts::tool_types::{
     LocalSearchQueryResultView, LocalSearchQuerySort, LocalSearchQueryUnique,
 };
 
+/// Largest `contextLines` applied around a hit.
+pub const MAX_CONTEXT_LINES: u32 = 100;
+
 /// The engine counts in `u32`; the wire contract owns the field set and its
 /// JSON integer types.
 impl LocalSearchQuery {
+    /// Context lines per hit, clamped to [`MAX_CONTEXT_LINES`]: a larger
+    /// request uses the maximum instead of failing the call.
     pub fn context_lines(&self) -> Option<u32> {
-        self.context_lines.map(u32_of_signed)
+        self.context_lines
+            .map(|n| u32_of_signed(n).min(MAX_CONTEXT_LINES))
+    }
+    /// The requested context when it exceeded the maximum.
+    pub fn context_lines_clamped_from(&self) -> Option<u32> {
+        self.context_lines
+            .map(u32_of_signed)
+            .filter(|n| *n > MAX_CONTEXT_LINES)
     }
     pub fn match_content_length(&self) -> Option<u32> {
         self.match_content_length.map(|n| u32_of(n.get()))
@@ -96,8 +108,6 @@ pub struct ItemPagination {
     pub total_pages: Option<u32>,
     pub total_matches: u32,
     pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_match_page: Option<u32>,
     /// Lines of this file's hits on later pages, ascending and
     /// comma-joined (`"548,591,1098"`): read them directly or page on.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,8 +154,6 @@ pub struct SearchStats {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilePagination {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot: Option<String>,
     pub current_page: u32,
     pub total_pages: u32,
     /// Grid pages only; streamed pages are cut by the response budget.
@@ -155,8 +163,6 @@ pub struct FilePagination {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_matches: Option<u32>,
     pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_page: Option<u32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub out_of_range: bool,
 }

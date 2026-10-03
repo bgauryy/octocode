@@ -358,7 +358,7 @@ fn match_extract(
             .any(|line| lines[line - 1].len() > LONG_LINE_BYTES);
     if let Some(requested) = q.context_lines_clamped_from() {
         warnings.push(format!(
-            "contextLines {requested} clamped to {}; next.readContext reads the rest of the requested context.",
+            "contextLines {requested} clamped to {}; hints.readContext reads the rest of the requested context.",
             super::types::MAX_CONTEXT_LINES
         ));
     }

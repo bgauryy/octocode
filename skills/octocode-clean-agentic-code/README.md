@@ -1,16 +1,6 @@
 # Octocode Clean Agentic Code
 
-Remove dead weight from a codebase without changing observable behavior.
-
-Use when behavior-preserving cleanup must remove dead exports and stubs, structural bloat, agent residue and bloat, instruction cruft, or test debt. Detect spaghetti and refuse cleanup that extends it. Report disguised failures (error masking, gamed tests, placeholder credentials) instead of deleting them.
-
-Not for: behavior-changing refactors → `octocode-architect`; callers and blast radius → `octocode-research`; instruction rewrites that change intent → `octocode-prompt-optimizer`; bug fixes.
-
-## Workflow
-
-```text
-SCOPE → AUDIT → INVENTORY → TRIAGE → CONSENT → EXCISE → VERIFY
-```
+Remove dead weight, agent residue, instruction cruft, and test debt without changing observable behavior. The flow lives in `SKILL.md`.
 
 ## Install
 
@@ -18,6 +8,4 @@ SCOPE → AUDIT → INVENTORY → TRIAGE → CONSENT → EXCISE → VERIFY
 npx -y octocode skill install octocode-clean-agentic-code
 ```
 
-## Maintainer verification
-
-Run the `octocode-skills` review against this folder.
+Maintainers: run the `octocode-skills` review against this folder.

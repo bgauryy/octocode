@@ -117,7 +117,7 @@ fn invalid_time_filters_are_rejected_instead_of_skipped() {
     for field in ["modifiedWithin", "modifiedBefore", "accessedWithin"] {
         let error = run(
             &root.0,
-            json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"time":{field:"banana"}}),
+            json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"time":{field:"banana"}}),
         )
         .expect_err("invalid filter must not broaden the result");
         assert_eq!(error.code, "invalidInput");
@@ -131,7 +131,7 @@ fn invalid_size_filter_is_invalid_input_not_an_execution_failure() {
     std::fs::write(root.0.join("source.rs"), "source\n").expect("source");
     let error = run(
         &root.0,
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"size":{"greater":"10zz"}}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"size":{"greater":"10zz"}}),
     )
     .expect_err("an unparsable size must be rejected");
     assert_eq!(error.code, "invalidInput", "{error:?}");
@@ -143,7 +143,7 @@ fn missing_path_is_not_found() {
     let root = Fixture::new();
     let error = run(
         &root.0,
-        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0.join("nope")}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0.join("nope")}),
     )
     .expect_err("missing path");
     assert_eq!(error.code, "structure.policy.notFound", "{error:?}");
@@ -163,7 +163,7 @@ fn modified_and_full_detail_return_the_file_modification_time() {
         .expect("epoch")
         .as_millis() as f64;
     for detail in ["basic", "modified", "full"] {
-        let out = run(&root.0, json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","detail":detail,"sort":"name"})).expect("files");
+        let out = run(&root.0, json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"entryType":"f","detail":detail,"sort":"name"})).expect("files");
         if detail == "basic" {
             assert!(listed(&out)[0].get("modifiedMs").is_none());
         } else {
@@ -181,7 +181,7 @@ fn line_sort_and_full_counts_work_above_two_thousand_entries() {
         std::fs::write(root.0.join(format!("file-{i:04}.rs")), "line\n").expect("file");
     }
     std::fs::write(root.0.join("largest.rs"), "line\n".repeat(7)).expect("largest");
-    let out = run(&root.0, json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","detail":"full","sort":"lines","pageSize":1})).expect("files");
+    let out = run(&root.0, json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"entryType":"f","detail":"full","sort":"lines","pageSize":1})).expect("files");
     assert_eq!(out["pagination"]["totalFiles"], 2002);
     assert!(
         listed(&out)[0]["path"]
@@ -202,7 +202,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     std::fs::write(root.0.join("visible.rs"), "pub fn visible() {\n}\n").expect("source");
     let files = run(
         &root.0,
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"detail":"full","sort":"lines","entryType":"f"}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"detail":"full","sort":"lines","entryType":"f"}),
     )
     .expect("files");
     assert_eq!(files["pagination"]["totalFiles"], 1);
@@ -211,7 +211,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     assert!(!files.to_string().contains("tfstate"));
     let tree = run(
         &root.0,
-        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"hidden":true}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"hidden":true}),
     )
     .expect("tree");
     assert_eq!(tree["entries"], json!(["visible.rs (21B)"]), "{tree}");
@@ -234,7 +234,7 @@ fn cancellation_interrupts_descendant_traversal() {
     let (paths, security) = simple_policy(&root.0);
     for operation in ["files", "tree"] {
         let error = execute_row(
-            json!({"operation":operation,"goal": "test", "reasoning":"test","path":root.0}),
+            json!({"operation":operation,"mainGoal": "test", "reasoning":"test","path":root.0}),
             &paths,
             &security,
             &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
@@ -258,7 +258,7 @@ fn escaped_links_are_pruned_before_line_counting() {
     .expect("policy");
     let security = ContentSecurity::new();
     let files = execute_row(
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
         &paths,
         &security,
         &Active,
@@ -276,7 +276,7 @@ fn files_path_sort_is_lexicographic_and_stable() {
     let (paths, security) = simple_policy(&root.0);
     let run = || {
         let out = execute_row(
-            json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","sort":"path"}),
+            json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"entryType":"f","sort":"path"}),
             &paths,
             &security,
             &Active,
@@ -303,7 +303,7 @@ fn files_continuation_rejects_stale_snapshot() {
     }
     let (paths, security) = simple_policy(&root.0);
     let page1 = execute_row(
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2}),
         &paths,
         &security,
         &Active,
@@ -312,7 +312,7 @@ fn files_continuation_rejects_stale_snapshot() {
     let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
     // Happy path: the freshly emitted snapshot must be accepted on page 2.
     let good = execute_row(
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
         &Active,
@@ -325,7 +325,7 @@ fn files_continuation_rejects_stale_snapshot() {
     assert_eq!(good["pagination"]["currentPage"], json!(2));
     std::fs::write(root.0.join("newcomer.rs"), "x\n").expect("mutate corpus");
     let page2 = execute_row(
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"entryType":"f","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
         &Active,
@@ -348,6 +348,33 @@ fn files_continuation_rejects_stale_snapshot() {
     assert_ne!(fresh["snapshot"], page1["snapshot"]);
 }
 
+/// A continuation that names its root relative to the workspace (as the
+/// response envelope spells it) continues the same snapshot; the page number
+/// travels once, in `next.nextPage.query`.
+#[test]
+fn a_workspace_relative_continuation_keeps_its_snapshot() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join("sub")).expect("dir");
+    for i in 0..6 {
+        std::fs::write(root.0.join(format!("sub/f{i}.rs")), "x\n").expect("file");
+    }
+    for operation in ["tree", "files"] {
+        let first = run(&root.0, json!({"operation":operation,"path":root.0.join("sub"),"pageSize":2,"mainGoal":"test","reasoning":"test"})).expect("first");
+        assert!(
+            first["pagination"].get("nextPage").is_none(),
+            "{operation}: {first}"
+        );
+        let mut relative = first["next"]["nextPage"]["query"].clone();
+        relative["path"] = json!("sub");
+        let second = run(&root.0, relative).expect("second");
+        assert!(second.get("errorCode").is_none(), "{operation}: {second}");
+        assert_eq!(
+            second["pagination"]["currentPage"], 2,
+            "{operation}: {second}"
+        );
+    }
+}
+
 #[test]
 fn continuation_snapshots_bind_page_size_and_rendered_metadata() {
     let root = Fixture::new();
@@ -355,7 +382,7 @@ fn continuation_snapshots_bind_page_size_and_rendered_metadata() {
         std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
     }
     for operation in ["tree", "files"] {
-        let first = run(&root.0, json!({"operation":operation,"path":root.0,"pageSize":2,"goal":"test","reasoning":"test"})).expect("first");
+        let first = run(&root.0, json!({"operation":operation,"path":root.0,"pageSize":2,"mainGoal":"test","reasoning":"test"})).expect("first");
         let mut resized = first["next"]["nextPage"]["query"].clone();
         resized["pageSize"] = json!(3);
         let rejected = run(&root.0, resized).expect("resized cursor");
@@ -367,7 +394,7 @@ fn continuation_snapshots_bind_page_size_and_rendered_metadata() {
             run(&root.0, rejected["next"]["restart"]["query"].clone()).expect("restart");
         assert_eq!(restarted["pagination"]["currentPage"], 1);
     }
-    let first = run(&root.0, json!({"operation":"files","path":root.0,"detail":"full","pageSize":2,"goal":"test","reasoning":"test"})).expect("first files");
+    let first = run(&root.0, json!({"operation":"files","path":root.0,"detail":"full","pageSize":2,"mainGoal":"test","reasoning":"test"})).expect("first files");
     std::fs::write(root.0.join("f3.rs"), "changed\nmetadata\n").expect("change listed evidence");
     let rejected =
         run(&root.0, first["next"]["nextPage"]["query"].clone()).expect("unchanged cursor");
@@ -381,7 +408,7 @@ fn continuation_snapshots_bind_page_size_and_rendered_metadata() {
 fn files_disclose_policy_withheld_coverage_without_exposing_names() {
     let root = Fixture::new();
     std::fs::write(root.0.join(".env.production"), "DUMMY_VALUE=placeholder\n").expect("fixture");
-    let out = run(&root.0, json!({"operation":"files","path":root.0,"names":[".env.production"],"noIgnore":true,"defaultExcludes":false,"goal":"test","reasoning":"test"})).expect("listing");
+    let out = run(&root.0, json!({"operation":"files","path":root.0,"names":[".env.production"],"noIgnore":true,"defaultExcludes":false,"mainGoal":"test","reasoning":"test"})).expect("listing");
     assert!(listed(&out).is_empty(), "{out}");
     assert!(
         out["warnings"]
@@ -405,7 +432,7 @@ fn files_line_count_counts_lines_not_newlines_plus_one() {
     std::fs::write(root.0.join("empty.rs"), "").expect("empty");
     let out = run(
         &root.0,
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"detail":"full","entryType":"f"}),
     )
     .expect("files");
     let count = |name: &str| {
@@ -428,7 +455,7 @@ fn file_rows_omit_the_default_file_type() {
     std::fs::write(root.0.join("dir/a.rs"), "fn a() {}\n").expect("a");
     let out = run(
         &root.0,
-        json!({"operation":"files","goal": "test", "reasoning":"test","path":root.0,"sort":"path"}),
+        json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.0,"sort":"path"}),
     )
     .expect("files");
     let rows = listed(&out);
@@ -454,14 +481,14 @@ fn tree_outlines_in_path_order_with_bounded_depth() {
     std::fs::write(root.0.join("README.md"), "").expect("readme");
     let top = run(
         &root.0,
-        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"maxDepth":0}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"maxDepth":0}),
     )
     .expect("top");
     assert_eq!(top["entries"], json!(["README.md (0B)", "src/"]), "{top}");
     assert!(top.get("pagination").is_none(), "{top}");
     let all = run(
         &root.0,
-        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"maxDepth":5}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"maxDepth":5}),
     )
     .expect("all");
     assert_eq!(
@@ -478,7 +505,7 @@ fn tree_outlines_in_path_order_with_bounded_depth() {
     assert_eq!(all["summary"], "5 entries (3 files, 2 dirs, 3B)");
     let dirs = run(
         &root.0,
-        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"maxDepth":5,"entryType":"d"}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"maxDepth":5,"entryType":"d"}),
     )
     .expect("dirs");
     assert_eq!(dirs["entries"], json!(["src/", "src/deep/"]), "{dirs}");
@@ -492,7 +519,7 @@ fn tree_pages_through_next_and_rejects_stale_snapshots() {
     }
     let page1 = run(
         &root.0,
-        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"pageSize":2}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"pageSize":2}),
     )
     .expect("page1");
     assert_eq!(page1["pagination"]["totalPages"], 3, "{page1}");
@@ -523,9 +550,9 @@ fn tree_pages_through_next_and_rejects_stale_snapshots() {
 fn old_ast_shapes_are_not_structure_queries() {
     let root = Fixture::new();
     for retired in [
-        json!({"operation":"tree","goal": "test", "reasoning":"test","treeKind":"filesystem","path":root.0}),
-        json!({"operation":"syntaxTree","goal": "test", "reasoning":"test","path":root.0}),
-        json!({"operation":"tree","goal": "test", "reasoning":"test","path":root.0,"langType":"rust"}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","treeKind":"filesystem","path":root.0}),
+        json!({"operation":"syntaxTree","mainGoal": "test", "reasoning":"test","path":root.0}),
+        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"langType":"rust"}),
     ] {
         assert!(
             serde_json::from_value::<StructureSearchQuery>(retired).is_err(),
@@ -577,7 +604,7 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
     };
     let out = run(
         &root.0,
-        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0,"hidden":true}),
+        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0,"hidden":true}),
     )
     .expect("tree");
     assert_eq!(names(&out), [".gitignore", "main.rs"], "{out}");
@@ -590,7 +617,7 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
     );
     let all = run(
         &root.0,
-        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0,"hidden":true,"noIgnore":true}),
+        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0,"hidden":true,"noIgnore":true}),
     )
     .expect("tree");
     assert_eq!(
@@ -601,7 +628,7 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
     // Without `hidden`, dot entries are out of view and not counted.
     let plain = run(
         &root.0,
-        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0}),
+        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0}),
     )
     .expect("tree");
     assert!(
@@ -641,7 +668,7 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
     };
     let out = run(
         &root.0,
-        json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"names":["package.json","*.node"]}),
+        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":root.0,"names":["package.json","*.node"]}),
     )
     .expect("files");
     let base = root.0.file_name().unwrap().to_string_lossy().into_owned();
@@ -655,7 +682,7 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
     );
     let all = run(
         &root.0,
-        json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"names":["package.json","*.node"],"defaultExcludes":false}),
+        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":root.0,"names":["package.json","*.node"],"defaultExcludes":false}),
     )
     .expect("files");
     assert_eq!(paths(&all).len(), 4, "{all}");
@@ -676,7 +703,7 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
 
     let tree = run(
         &root.0,
-        json!({"operation":"tree","goal":"test","reasoning":"test","path":repos}),
+        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":repos}),
     )
     .expect("tree");
     assert_eq!(tree["status"], "empty", "{tree}");
@@ -701,7 +728,7 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
 
     let files = run(
         &root.0,
-        json!({"operation":"files","goal":"test","reasoning":"test","path":repos,"extensions":["java"]}),
+        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":repos,"extensions":["java"]}),
     )
     .expect("files");
     assert_eq!(files["status"], "empty", "{files}");
@@ -729,8 +756,8 @@ fn empty_listing_without_ignored_entries_offers_no_ignore_retry() {
     std::fs::create_dir_all(root.0.join("empty")).expect("dir");
     let empty = root.0.join("empty");
     for query in [
-        json!({"operation":"tree","goal":"test","reasoning":"test","path":empty}),
-        json!({"operation":"files","goal":"test","reasoning":"test","path":empty,"extensions":["java"]}),
+        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":empty}),
+        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":empty,"extensions":["java"]}),
     ] {
         let out = run(&root.0, query).expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
@@ -752,7 +779,7 @@ fn tree_summary_counts_gitignored_entries_it_left_out() {
     std::fs::write(root.0.join("repos/README.md"), "# repos\n").expect("file");
     let out = run(
         &root.0,
-        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0.join("repos")}),
+        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0.join("repos")}),
     )
     .expect("tree");
     assert_eq!(out["entries"].as_array().map(Vec::len), Some(1), "{out}");
@@ -765,7 +792,7 @@ fn tree_summary_counts_gitignored_entries_it_left_out() {
     assert!(out.get("hints").is_none(), "{out}");
     let all = run(
         &root.0,
-        json!({"operation":"tree","goal":"test","reasoning":"test","path":root.0.join("repos"),"noIgnore":true}),
+        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0.join("repos"),"noIgnore":true}),
     )
     .expect("tree");
     assert!(
@@ -789,7 +816,7 @@ fn path_sorted_listing_stops_walking_at_the_limit() {
         }
     }
     let listing = |limit: Option<u32>| {
-        let mut query = json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"extensions":["go"],"sort":"path"});
+        let mut query = json!({"operation":"files","mainGoal":"test","reasoning":"test","path":root.0,"extensions":["go"],"sort":"path"});
         if let Some(limit) = limit {
             query["limit"] = json!(limit);
         }
@@ -835,13 +862,13 @@ fn tree_filters_names_and_files_lists_ignored_entries_on_request() {
     std::fs::write(root.0.join("gen.rs"), "x\n").expect("gen");
     let tree = run(
         &root.0,
-        json!({"operation":"tree","goal":"t","reasoning":"t","path":root.0,"names":["*_test.rs"]}),
+        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"names":["*_test.rs"]}),
     )
     .expect("tree");
     assert_eq!(tree["entries"], json!(["a_test.rs (2B)"]), "{tree}");
     let prefix = format!("{}/", root.0.file_name().unwrap().to_string_lossy());
     let files = |extra: Value| {
-        let mut query = json!({"operation":"files","goal":"t","reasoning":"t","path":root.0,"extensions":["rs"]});
+        let mut query = json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"extensions":["rs"]});
         query
             .as_object_mut()
             .expect("query")
@@ -871,7 +898,7 @@ fn files_default_to_path_order() {
     }
     let out = run(
         &root.0,
-        json!({"operation":"files","goal":"t","reasoning":"t","path":root.0,"entryType":"f"}),
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"entryType":"f"}),
     )
     .expect("files");
     let base = root.0.file_name().unwrap().to_string_lossy().into_owned();
@@ -896,7 +923,7 @@ fn a_default_listing_is_one_page_within_the_budget_and_budget_pages_beyond_it() 
     for n in 0..150 {
         std::fs::write(root.0.join(format!("module_{n:03}.py")), "x = 1\n").expect("source");
     }
-    let query = json!({"operation":"files","goal":"test","reasoning":"test","path":root.0,"names":["*.py"]});
+    let query = json!({"operation":"files","mainGoal":"test","reasoning":"test","path":root.0,"names":["*.py"]});
     let out = run(&root.0, query.clone()).expect("files");
     assert_eq!(listed(&out).len(), 150, "{out}");
     assert_eq!(out["pagination"]["hasMore"], false, "{out}");
@@ -951,7 +978,7 @@ fn files_rows_group_by_directory_in_listing_order() {
     let name = root.0.file_name().unwrap().to_string_lossy().into_owned();
     let out = run(
         &root.0,
-        json!({"operation":"files","goal":"t","reasoning":"t","path":root.0,"sort":"path"}),
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"sort":"path"}),
     )
     .expect("files");
     assert_eq!(
@@ -984,7 +1011,7 @@ fn files_rows_group_by_directory_in_listing_order() {
 
     let full = run(
         &root.0,
-        json!({"operation":"files","goal":"t","reasoning":"t","path":root.0.join("sub/deep"),"detail":"full"}),
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0.join("sub/deep"),"detail":"full"}),
     )
     .expect("full");
     let entry = full["files"][0]["files"][1].as_str().expect("entry");
@@ -1000,7 +1027,7 @@ fn files_rows_group_by_directory_in_listing_order() {
     // A file root is its name inside its parent (`""`, the root's parent).
     let file = run(
         &root.0,
-        json!({"operation":"files","goal":"t","reasoning":"t","path":root.0.join("a.rs")}),
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0.join("a.rs")}),
     )
     .expect("file root");
     assert_eq!(file["files"], json!([{"dir": "", "files": ["a.rs (10)"]}]));
@@ -1016,7 +1043,7 @@ fn a_group_split_across_pages_repeats_its_directory_on_each_page() {
         std::fs::write(root.0.join(format!("src/f{n}.rs")), "x\n").expect("file");
     }
     let name = root.0.file_name().unwrap().to_string_lossy().into_owned();
-    let mut query = json!({"operation":"files","goal":"t","reasoning":"t","path":root.0,"entryType":"f","pageSize":2});
+    let mut query = json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"entryType":"f","pageSize":2});
     let mut pages = Vec::new();
     loop {
         let out = run(&root.0, query.clone()).expect("page");
@@ -1071,7 +1098,7 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
     std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
     let out = run(
         &root.0,
-        json!({"operation":"tree","goal":"t","reasoning":"t","path":root.0,"maxDepth":1}),
+        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"maxDepth":1}),
     )
     .expect("tree");
     assert_eq!(out["entries"], json!(["src/", "src/lib.rs (2B)"]), "{out}");

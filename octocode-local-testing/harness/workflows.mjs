@@ -41,11 +41,11 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
 // F3 — root-only search in a mixed TS+Rust root routes to the other language.
 {
   const ws = await call('lspSearch', { workspaceRoot: NATIVE, operation: 'workspaceSymbol', symbolName: 'is_alive' });
-  const route = nextHints(ws.sc).find(h => h.path.endsWith('.searchRust'));
-  check('F3: mixed root names the searched language and offers next.searchRust', (rowData(ws)?.lsp?.language ?? (/\btypescript language server\b/.test(JSON.stringify(rowData(ws)?.hints ?? [])) ? 'typescript' : undefined)) === 'typescript' && !!route, JSON.stringify(rowData(ws)?.hints));
+  const route = nextHints(ws.sc).find(h => h.path.endsWith('.hints.searchRust'));
+  check('F3: mixed root names the searched language and offers hints.searchRust', (rowData(ws)?.lsp?.language ?? (/\btypescript language server\b/.test(JSON.stringify(rowData(ws)?.hints?.text ?? [])) ? 'typescript' : undefined)) === 'typescript' && !!route, JSON.stringify(rowData(ws)?.hints));
   if (route) {
     const followed = await raw(route.tool, route.query);
-    check('F3: following next.searchRust finds is_alive', (rowData(followed)?.payload?.items ?? []).some(i => i.name === 'is_alive'), followed.text.slice(0, 100));
+    check('F3: following hints.searchRust finds is_alive', (rowData(followed)?.payload?.items ?? []).some(i => i.name === 'is_alive'), followed.text.slice(0, 100));
   }
 }
 
@@ -76,14 +76,14 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
   const right = await call('localFetch', { path: file, matchString: 'ghp_1234' });
   const wrong = await call('localFetch', { path: file, matchString: 'ghp_9999' });
   check('F8: right and wrong secret guesses are indistinguishable', JSON.stringify(rowData(right)?.hints) === JSON.stringify(rowData(wrong)?.hints) && rowData(right)?.errorCode === rowData(wrong)?.errorCode);
-  check('F8: the miss explains redaction', (rowData(right)?.hints ?? []).some(h => h.includes('REDACTED')), JSON.stringify(rowData(right)?.hints));
+  check('F8: the miss explains redaction', (rowData(right)?.hints?.text ?? []).some(h => h.includes('REDACTED')), JSON.stringify(rowData(right)?.hints));
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
 // F9 — directory symbols with langType returns an exact, executable repair.
 {
   const bad = await call('astSearch', { operation: 'symbols', path: path.join(NATIVE, 'scripts'), langType: 'JavaScript' });
-  const repair = nextHints(bad.sc).find(h => h.path.endsWith('.repair'));
+  const repair = nextHints(bad.sc).find(h => h.path.endsWith('.hints.repair'));
   check('F9: repair continuation drops langType', !!repair && !('langType' in repair.query), JSON.stringify(rowData(bad)?.hints));
   if (repair) {
     const fixed = await raw(repair.tool, repair.query);
@@ -113,7 +113,7 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
   }
 }
 
-// Continuation hygiene: every next.* seen above executes without validation errors.
+// Continuation hygiene: every next.* page and hints.* lead seen above executes without validation errors.
 const seen = new Set();
 let followed = 0;
 const invalid = [];
@@ -127,7 +127,7 @@ for (const entry of [...client.log]) {
     if (/Input validation error/.test(out.text)) invalid.push(`${h.path}: ${out.text.slice(0, 120)}`);
   }
 }
-check(`continuations: ${followed} next.* executed, none invalid`, invalid.length === 0, invalid.slice(0, 2).join(' | '));
+check(`continuations: ${followed} next.*/hints.* executed, none invalid`, invalid.length === 0, invalid.slice(0, 2).join(' | '));
 
 const result = summary();
 writeResults('workflows', { ...result });

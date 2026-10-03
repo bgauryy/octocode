@@ -14,7 +14,7 @@ mod tests {
     /// `null` removes a field so its contract default applies.
     fn ls_query(fields: serde_json::Value, base: Option<&LocalSearchQuery>) -> LocalSearchQuery {
         let mut value = base.map_or_else(
-            || serde_json::json!({"path": "_", "searchText": "_", "goal": "test", "reasoning": "test"}),
+            || serde_json::json!({"path": "_", "searchText": "_", "mainGoal": "test", "reasoning": "test"}),
             |base| serde_json::to_value(base).expect("query serializes"),
         );
         let object = value.as_object_mut().expect("query object");
@@ -123,6 +123,36 @@ mod tests {
                 .is_none(),
             "{detailed}"
         );
+    }
+
+    /// contextLines above the maximum clamps (as file reads do) and says so,
+    /// instead of failing the call.
+    #[test]
+    fn context_lines_above_the_maximum_clamp_with_a_note() {
+        let (root, policy, security) = context_fixture();
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle", "contextLines": 500}),
+            None,
+        );
+        assert_eq!(request.context_lines(), Some(100));
+        assert_eq!(request.context_lines_clamped_from(), Some(500));
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        let body = serde_json::to_value(result).expect("serialize");
+        assert!(
+            body["files"][0]["matches"][0]["value"]
+                .as_str()
+                .is_some_and(|value| value.contains("other_1") && value.contains("other_9")),
+            "{body}"
+        );
+        assert!(
+            body["hints"].as_array().is_some_and(|hints| hints
+                .iter()
+                .any(|hint| hint == "contextLines 500 clamped to 100.")),
+            "{body}"
+        );
+        let within = ls_query(serde_json::json!({"contextLines": 100}), Some(&request));
+        assert_eq!(within.context_lines_clamped_from(), None);
     }
 
     #[test]
@@ -1088,7 +1118,7 @@ mod tests {
         assert_eq!(query["matchString"], "needle");
         assert_eq!(query["contextLines"], 6);
         let mut runnable = query.clone();
-        runnable["goal"] = serde_json::json!("g");
+        runnable["mainGoal"] = serde_json::json!("g");
         runnable["reasoning"] = serde_json::json!("r");
         crate::contracts::validate_query("localFetch", runnable).expect("valid localFetch read");
         let regex = search_fixture(
@@ -1750,7 +1780,10 @@ mod tests {
             ),
         );
         assert_eq!(body["pagination"]["totalPages"], 2, "{body}");
-        assert!(body["pagination"]["snapshot"].is_string(), "{body}");
+        assert!(
+            body["next"]["nextPage"]["query"]["snapshot"].is_string(),
+            "{body}"
+        );
     }
 
     // Continuations re-materialize only the context default the view uses: none
@@ -1924,7 +1957,7 @@ mod tests {
             reads += 1;
             assert_eq!(read["tool"], "localFetch", "{read}");
             let mut query = read["query"].clone();
-            query["goal"] = serde_json::json!("test");
+            query["mainGoal"] = serde_json::json!("test");
             query["reasoning"] = serde_json::json!("test");
             let query: crate::tools::local_fetch::LocalFetchQuery =
                 serde_json::from_value(query).expect("localFetch query");
@@ -2073,7 +2106,7 @@ mod tests {
             .expect("clipped");
         assert_eq!(widened["matchContentLength"], longest, "{widened}");
         let mut widened = widened.clone();
-        widened["goal"] = serde_json::json!("test");
+        widened["mainGoal"] = serde_json::json!("test");
         widened["reasoning"] = serde_json::json!("test");
         let again = execute_local_search(
             &serde_json::from_value(widened).expect("widened query"),
@@ -2242,7 +2275,7 @@ mod tests {
             serde_json::json!(["woff2", "png"]),
             "{listing}"
         );
-        query["goal"] = serde_json::json!("test");
+        query["mainGoal"] = serde_json::json!("test");
         query["reasoning"] = serde_json::json!("test");
         let query: crate::tools::structure_search::StructureSearchQuery =
             serde_json::from_value(query).expect("structureSearch query");
@@ -2290,7 +2323,7 @@ mod tests {
         );
         let mut query = result.next.as_ref().expect("next")["binarySkipped"]["query"].clone();
         assert!(query.get("extensions").is_none(), "{query}");
-        query["goal"] = serde_json::json!("test");
+        query["mainGoal"] = serde_json::json!("test");
         query["reasoning"] = serde_json::json!("test");
         let query: crate::tools::structure_search::StructureSearchQuery =
             serde_json::from_value(query).expect("structureSearch query");
@@ -2527,6 +2560,128 @@ mod tests {
             !file.matches[0].value.contains("ghp_"),
             "{}",
             file.matches[0].value
+        );
+    }
+
+    /// A default-mode pattern spelled like code (`.unwrap()`) warns that it
+    /// is a regex and offers the literal search as a lead; literal mode and
+    /// escaped patterns do not.
+    #[test]
+    fn a_code_shaped_regex_warns_and_offers_the_literal_search() {
+        let files = [("a.rs", "x.unwrap();\nunwrap_or(1);\nfoo_unwrap()\n")];
+        let body = search_fixture(
+            &files,
+            ls_query(serde_json::json!({"searchText": ".unwrap()"}), None),
+        );
+        let hint = body["hints"][0].as_str().expect("trap hint");
+        assert!(
+            hint.contains("empty group") && hint.contains("hints.searchLiteral"),
+            "{body}"
+        );
+        let lead = &body["next"]["searchLiteral"];
+        assert_eq!(lead["tool"], "localSearch", "{body}");
+        assert_eq!(lead["query"]["regex"], "literal", "{body}");
+        assert_eq!(lead["query"]["searchText"], ".unwrap()", "{body}");
+        for key in ["page", "matchPage", "snapshot"] {
+            assert!(lead["query"].get(key).is_none(), "{key}: {body}");
+        }
+        for quiet in [
+            serde_json::json!({"searchText": ".unwrap()", "regex": "literal"}),
+            serde_json::json!({"searchText": "\\.unwrap\\(\\)"}),
+            serde_json::json!({"searchText": "unwrap"}),
+        ] {
+            let body = search_fixture(&files, ls_query(quiet.clone(), None));
+            assert!(
+                body["next"].get("searchLiteral").is_none(),
+                "{quiet}: {body}"
+            );
+            assert!(body.get("hints").is_none(), "{quiet}: {body}");
+        }
+    }
+
+    #[test]
+    fn regex_trap_skips_escapes_and_character_classes() {
+        use super::executor::regex_trap as trap;
+        assert!(trap("ctx.Done()").is_some());
+        assert!(trap("a.(b|c)").is_some_and(|reason| reason.contains("`.`")));
+        assert!(trap("foo()").is_some_and(|reason| reason.contains("empty group")));
+        assert!(trap("\\(\\)").is_none());
+        assert!(trap("[()]").is_none());
+        assert!(trap("[].(]x").is_none());
+        assert!(trap("\\.(x)").is_none());
+        assert!(trap("(a)").is_none());
+    }
+
+    /// An empty search whose text lives only in ignored or hidden files says
+    /// so, and its lead finds them.
+    #[test]
+    fn an_empty_search_names_matches_under_ignored_and_hidden_paths() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::create_dir(root.path().join(".git")).expect("repository marker");
+        fs::write(root.path().join(".gitignore"), "logs/\n").expect("gitignore");
+        fs::create_dir_all(root.path().join("logs")).expect("ignored dir");
+        fs::create_dir_all(root.path().join(".notes")).expect("hidden dir");
+        fs::write(root.path().join("logs/log.txt"), "needle-here\n").expect("fixture");
+        fs::write(root.path().join(".notes/x.txt"), "needle-here\n").expect("fixture");
+        fs::write(root.path().join("src.txt"), "other\n").expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle-here"}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        assert!(result.files.is_empty());
+        let hints = result.hints.join(" ");
+        assert!(
+            hints.contains("2 file(s) under ignored or hidden paths match"),
+            "{hints}"
+        );
+        let next = result.next.as_ref().expect("lead");
+        let lead = &next["includeIgnored"];
+        assert_eq!(lead["query"]["noIgnore"], true, "{lead}");
+        assert_eq!(lead["query"]["hidden"], true, "{lead}");
+        let retried: LocalSearchQuery =
+            serde_json::from_value(lead["query"].clone()).expect("lead query");
+        let found = execute_local_search(&retried, &policy, &security, &NeverCancel, None, None)
+            .expect("retry");
+        assert_eq!(found.files.len(), 2, "{found:?}");
+        // Nothing to find elsewhere: no probe hint and no lead.
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "absent-everywhere"}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        assert!(result.next.is_none(), "{:?}", result.next);
+        assert_eq!(result.hints.len(), 1, "{:?}", result.hints);
+    }
+
+    /// The file-page number and snapshot travel once, in `next.*.query`.
+    #[test]
+    fn paged_results_keep_cursor_fields_only_in_their_continuations() {
+        let body = search_fixture(
+            &[("a.txt", "foo\nfoo\nfoo\n"), ("b.txt", "foo\n")],
+            ls_query(
+                serde_json::json!({"searchText": "foo", "pageSize": 1, "maxMatchesPerFile": 1, "contextLines": 0}),
+                None,
+            ),
+        );
+        let pagination = &body["pagination"];
+        assert_eq!(pagination["totalPages"], 2, "{body}");
+        assert!(pagination.get("snapshot").is_none(), "{body}");
+        assert!(pagination.get("nextPage").is_none(), "{body}");
+        assert_eq!(body["next"]["nextPage"]["query"]["page"], 2, "{body}");
+        assert!(
+            body["next"]["nextPage"]["query"]["snapshot"].is_string(),
+            "{body}"
+        );
+        let file = &body["files"][0]["pagination"];
+        assert_eq!(file["hasMore"], true, "{body}");
+        assert!(file.get("nextMatchPage").is_none(), "{body}");
+        assert_eq!(
+            body["next"]["nextMatchPage"]["query"]["matchPage"], 2,
+            "{body}"
         );
     }
 }

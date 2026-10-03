@@ -337,9 +337,9 @@ fn compiled_pattern(pattern: &str) -> Result<Regex, String> {
         .clone()
 }
 
-/// A blank value fails the non-blank patterns (`\S`) the briefs and paths
-/// use, and a search `qualifiers` string fails on one term: name the fix
-/// instead of the regex.
+/// A blank value fails the non-blank patterns (`\S`) paths and names use
+/// (a blank brief is dropped before validation), and a search `qualifiers`
+/// string fails on one term: name the fix instead of the regex.
 fn pattern_message(value: &str, path: &[String], regex: &Regex) -> String {
     if path.last().map(String::as_str) == Some("qualifiers")
         && let Some(term) = super::qualifiers::qualifier_terms(value)
@@ -358,12 +358,7 @@ fn pattern_message(value: &str, path: &[String], regex: &Regex) -> String {
     if !value.trim().is_empty() {
         return "String does not match required pattern".into();
     }
-    const BRIEF: &str = "(goal and reasoning are required on every query).";
-    match path.last().map(String::as_str) {
-        Some("goal") => format!("is empty; give one line on what to find or decide {BRIEF}"),
-        Some("reasoning") => format!("is empty; give one line on why this query {BRIEF}"),
-        _ => "is empty; give non-blank text.".into(),
-    }
+    "is empty; give non-blank text.".into()
 }
 
 /// A split qualifier term as it was written: a value with spaces is quoted.

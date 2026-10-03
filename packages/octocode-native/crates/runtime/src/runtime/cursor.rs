@@ -328,7 +328,7 @@ pub enum CursorError {
 /// Request fields that state intent or diagnostics, never which results a
 /// page holds: a replayed continuation may carry them differently, so every
 /// page digest ignores them.
-pub const INTENT_FIELDS: [&str; 3] = ["goal", "reasoning", "debug"];
+pub const INTENT_FIELDS: [&str; 3] = ["mainGoal", "reasoning", "debug"];
 
 pub fn scope_digest(value: &Value) -> Result<String, CursorError> {
     let bytes = serde_json::to_vec(value).map_err(|_| CursorError::Invalid)?;

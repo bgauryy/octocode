@@ -196,11 +196,15 @@ impl DomainDispatcher {
             .await
             .map_err(|_| ExecutionError::WorkerFailed)?
         })?;
-        // Opt-in: start the named file's language server in the background
-        // so a following lspSearch on it finds a warm pooled client.
-        if let Some(query) = prewarm_query
-            && let Some(file) = prewarm::anchor_file(&query, &result.data)
-        {
+        // Start a language server in the background so a following
+        // lspSearch finds a warm pooled client: for the file an offered
+        // lspSearch call names, or (opt-in) the file a read or search names.
+        let lead = prewarm::targeted_enabled(self.config.env_value("OCTOCODE_LSP_PREWARM"))
+            .then(|| prewarm::lead_file(&result.data))
+            .flatten();
+        if let Some(file) = lead.or_else(|| {
+            prewarm_query.and_then(|query| prewarm::anchor_file(&query, &result.data))
+        }) {
             prewarm::schedule(
                 &self.handle,
                 &self.lsp_pool,

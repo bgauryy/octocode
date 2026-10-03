@@ -126,7 +126,7 @@ pub async fn call(
 ) -> Result<ToolOutcome, RuntimeError> {
     if let Some(object) = query.as_object_mut() {
         object
-            .entry("goal")
+            .entry("mainGoal")
             .or_insert_with(|| json!("Exercise the native runtime integration path."));
         object
             .entry("reasoning")

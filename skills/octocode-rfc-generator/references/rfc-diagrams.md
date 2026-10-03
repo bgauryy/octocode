@@ -3,10 +3,9 @@
 Load when an RFC or plan section explains a flow, structure, comparison, proportion, lifecycle, or schedule. Mermaid makes the shape explicit: humans see it, and agents read nodes and edges as facts. Prose carries the why and the evidence.
 
 ## Rules
-- **One message per diagram,** stated in one caption line. If you cannot state the message, drop the diagram.
+- **One message per diagram.** If you cannot state the message, drop the diagram.
 - **True data, drawn to scale.** Every number traces to a cited source. Mark computed or estimated figures.
 - **Small:** ≤15 nodes or ≤8 points. Split big pictures into an overview plus details. Label every non-obvious edge.
-- **Text stays authoritative.** Thresholds, owners, and IDs also appear in a table or sentence.
 - **Same names** as the code, schema, and tables (tool names, `S1`, `Q1`).
 - **Beta types may not render.** When the argument rests on a `*-beta` chart, also give its numbers in a table.
 - **No decoration:** no diagram that restates one sentence, no meaningless colors.
@@ -44,6 +43,6 @@ flowchart LR
 
 A measured series against a target: `xychart-beta` with `title "p95 latency (ms), lower is better"`, `x-axis [baseline, S2, S3, final]`, `y-axis "ms" 0 --> 400`, `bar [380, 260, 210, 190]`, `line [200, 200, 200, 200]`.
 
-`scripts/validate-rfc.mjs` rejects a mermaid block whose first keyword is not a known type. It warns when `RFC.md` has no diagram. Neither check proves a diagram is true; review data and scales by hand.
+Validator checks never prove a diagram is true; review data and scales by hand.
 
-Next: return to the section template in `references/rfc-template.md` or `references/rfc-implementation.md`.
+Next: return to the section being drafted in `references/rfc-template.md` or `references/rfc-implementation.md`.

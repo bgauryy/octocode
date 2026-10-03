@@ -8,7 +8,7 @@ use support::Workspace;
 const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 
 fn row(extra: Value) -> Value {
-    let mut query = json!({"goal":"Find the needle.","reasoning":"Exercise input guards."});
+    let mut query = json!({"mainGoal":"Find the needle.","reasoning":"Exercise input guards."});
     for (key, value) in extra.as_object().unwrap() {
         query[key] = value.clone();
     }
@@ -209,7 +209,7 @@ async fn clasify_redacts_evidence_but_rejects_a_credential_in_a_context_read() {
     ]);
     let input = json!({
         "id":"decision",
-        "goal":"Decide whether the file states the fact.",
+        "mainGoal":"Decide whether the file states the fact.",
         "reasoning":"Exercise the context-read input guard.",
         "resources":[{"id":"source","context":{"tool":"localFetch","query":{"path":file,"matchString":TOKEN}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]

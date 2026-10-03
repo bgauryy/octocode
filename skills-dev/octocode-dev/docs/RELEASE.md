@@ -4,7 +4,7 @@ Publishing is owner-triggered. It never runs from CI or an agent session. Every 
 
 ## Order of operations
 
-Core publishes before the packages that embed its contracts: the native binary embeds the contract that `@octocodeai/config` generates from core (`yarn contracts:regen`), so a stale published core makes a clean `npm install` diverge from the shipped binary. Native and its platform packages must be on npm before mcp and the launcher.
+Core publishes before the packages that embed its contracts: the native binary embeds the contract that `@octocodeai/config` generates from core (`yarn contracts:regen`), so a stale published core makes a clean `npm install` diverge from the shipped binary. Native and its platform packages must be on npm before mcp and the launcher. The plugins (steps 8–9) wait until the pinned MCP and launcher versions are available.
 
 1. **Core** (`octocode-mcp-host` repo): commit a clean tree. Publish `@octocodeai/octocode-core` at the version pinned in `packages/octocode-config/package.json` `dependencies`. Check it with `npm view`.
 2. **Switch to the registry**: `node skills-dev/octocode-dev/scripts/prepublish.mjs --fix`, `yarn install`, `node skills-dev/octocode-dev/scripts/dev.mjs prepublish`, then `yarn workspace @octocodeai/config check:core-contract-sync:published`.
@@ -13,8 +13,8 @@ Core publishes before the packages that embed its contracts: the native binary e
 5. **Native** (`@octocodeai/octocode-native`).
 6. **MCP** (`octocode-mcp`).
 7. **Launcher** (`octocode`).
-8. **Codex plugin** (`@octocodeai/codex-plugin`), after the pinned MCP and launcher versions are available. Follow `<repo>/packages/octocode-codex-plugin/ARCHITECTURE.md`, then update `.agents/plugins/marketplace.json` to the published plugin version.
-9. **Claude Code plugin** (`@octocodeai/claude-plugin`), after the pinned MCP and launcher versions are available. Follow `<repo>/packages/octocode-claude-plugin/ARCHITECTURE.md`, then publish `.claude-plugin/marketplace.json` with the matching npm version.
+8. **Codex plugin** (`@octocodeai/codex-plugin`). Follow `<repo>/packages/octocode-codex-plugin/ARCHITECTURE.md`, then update `.agents/plugins/marketplace.json` to the published plugin version.
+9. **Claude Code plugin** (`@octocodeai/claude-plugin`). Follow `<repo>/packages/octocode-claude-plugin/ARCHITECTURE.md`, then publish `.claude-plugin/marketplace.json` with the matching npm version.
 
 Then smoke-test from a clean temp dir (`npx -y octocode-mcp@<v>`, `npx -y octocode@<v> scheme --compact`). Run `node skills-dev/octocode-dev/scripts/dev.mjs setup` to restore the dev resolutions.
 

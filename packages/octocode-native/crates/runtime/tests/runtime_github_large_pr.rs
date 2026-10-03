@@ -11,6 +11,15 @@ use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// No page and no lead: `next` is absent and `hints` holds at most prose.
+fn no_continuation(value: &serde_json::Value) -> bool {
+    value.get("next").is_none()
+        && value
+            .get("hints")
+            .and_then(serde_json::Value::as_object)
+            .is_none_or(|hints| hints.keys().all(|key| key == "text"))
+}
+
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
 fn pr(changed_files: usize) -> Value {
@@ -196,7 +205,7 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     for kept in ["mergedAt", "targetBranch", "labels"] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
-    let menu = row["next"].as_object().expect("next");
+    let menu = row["hints"].as_object().expect("hints");
     // 250 files: no every-patch read, no placeholder literal search (only
     // the caller knows the literal), and no merge-commit read beside the
     // row's mergeCommitSha.
@@ -246,7 +255,7 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
         json!({"content": {"changedFiles": true}, "debug": false}),
     )
     .await;
-    let menu = &data["pullRequests"][0]["next"];
+    let menu = &data["pullRequests"][0]["hints"];
     let selected = &menu["reviewPatches"];
     assert_eq!(
         selected["query"]["files"],
@@ -301,7 +310,7 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
         "{data}"
     );
     assert!(
-        data["pullRequests"][0].get("next").is_none(),
+        no_continuation(&data["pullRequests"][0]),
         "filtered reads carry no menu: {data}"
     );
 }
@@ -394,11 +403,11 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     let first = run(&server, query).await;
     let first_row = &first["pullRequests"][0];
     assert_eq!(first_row["title"], "Large refactor", "{first_row}");
-    assert!(first_row.get("next").is_some(), "{first_row}");
+    assert!(first_row.get("hints").is_some(), "{first_row}");
     // A literal search of every patch needs the caller's literal: it is
     // never offered as an executable placeholder.
     assert!(
-        first_row["next"].get("findInPatches").is_none(),
+        first_row["hints"].get("findInPatches").is_none(),
         "{first_row}"
     );
 
@@ -533,7 +542,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     // A patch read carries the identity it re-proves (number, state, the
     // head it read) and no follow-up menu; the metadata read names the PR.
     let row = &data["pullRequests"][0];
-    assert!(row.get("next").is_none(), "{row}");
+    assert!(no_continuation(row), "{row}");
     for dropped in [
         "mergeCommitSha",
         "additions",
@@ -569,17 +578,17 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     // An explicit matchContext still narrows the patch: the whole patch
     // stays reachable.
     assert_eq!(
-        only_hits["next"]["readFullPatches"]["query"]["content"]["patches"]["files"],
+        only_hits["hints"]["readFullPatches"]["query"]["content"]["patches"]["files"],
         json!(["src/big.rs"]),
         "{only_hits}"
     );
     assert_eq!(
-        data["next"]["readFullPatches"]["query"]["content"]["patches"]["files"],
+        data["hints"]["readFullPatches"]["query"]["content"]["patches"]["files"],
         json!(["src/big.rs"]),
         "{data}"
     );
     // Following the read returns the raw patch.
-    let mut full = data["next"]["readFullPatches"]["query"].clone();
+    let mut full = data["hints"]["readFullPatches"]["query"].clone();
     for key in ["operation", "owner", "repo", "number"] {
         full.as_object_mut().map(|q| q.remove(key));
     }
@@ -638,13 +647,13 @@ async fn minified_pr_views_carry_lossless_raw_reads() {
         "{trimmed}"
     );
     assert!(trimmed.get("fullPatchChars").is_none(), "{trimmed}");
-    let untrimmed = &data["next"]["readUntrimmed"]["query"];
+    let untrimmed = &data["hints"]["readUntrimmed"]["query"];
     assert_eq!(
         untrimmed["content"]["patches"]["files"],
         json!(["src/big.rs"]),
         "{data}"
     );
-    let raw_read = &data["next"]["readRawBody"]["query"];
+    let raw_read = &data["hints"]["readRawBody"]["query"];
     assert_eq!(raw_read["minify"], "none", "{data}");
     let follow = |query: &Value| {
         let mut query = query.clone();
@@ -658,7 +667,7 @@ async fn minified_pr_views_carry_lossless_raw_reads() {
         full["pullRequests"][0]["changedFiles"][0]["patch"], big,
         "{full}"
     );
-    assert!(full.pointer("/next/readUntrimmed").is_none(), "{full}");
+    assert!(full.pointer("/hints/readUntrimmed").is_none(), "{full}");
     let body = run(&server, follow(raw_read)).await;
     assert_eq!(body["pullRequests"][0]["body"], raw_body, "{body}");
     assert!(body["pullRequests"][0].get("bodyView").is_none(), "{body}");
@@ -668,8 +677,8 @@ async fn minified_pr_views_carry_lossless_raw_reads() {
         json!({"content": {"body": true, "patches": {"mode": "all"}}, "minify": "none"}),
     )
     .await;
-    assert!(plain.pointer("/next/readUntrimmed").is_none(), "{plain}");
-    assert!(plain.pointer("/next/readRawBody").is_none(), "{plain}");
+    assert!(plain.pointer("/hints/readUntrimmed").is_none(), "{plain}");
+    assert!(plain.pointer("/hints/readRawBody").is_none(), "{plain}");
 }
 
 /// D1: `matchString` searches patches, so a pull-request read with a
@@ -834,7 +843,7 @@ async fn patch_rows_in_one_call_share_one_budget() {
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let row = |file: &str| {
         json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 9,
-               "goal": "g", "reasoning": "r", "minify": "none",
+               "mainGoal": "g", "reasoning": "r", "minify": "none",
                "content": {"patches": {"mode": "selected", "files": [file]}}})
     };
     let outcome = runtime
@@ -869,8 +878,10 @@ async fn patch_rows_in_one_call_share_one_budget() {
 }
 
 /// A whole-PR patch walk that asks for a larger response page gets patch
-/// windows sized to it: fewer calls than the default page, and the windows
-/// still tile every patch exactly (no gap, no repeat).
+/// windows sized to it, and the windows still tile every patch exactly (no
+/// gap, no repeat). Without an explicit page the first `continuePatch` hop
+/// asks for the largest page itself, so the walk takes at most one call more
+/// than an explicit largest-page walk; every hop runs unchanged.
 #[tokio::test]
 async fn explicit_response_page_sizes_patch_walk_windows() {
     let server = MockServer::start().await;
@@ -898,21 +909,24 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
         ("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", "20000".into()),
     ]);
-    let walk = |page: Option<u64>| {
+    let walk = |page: Option<u64>, char_length: Option<u64>| {
         let runtime = &runtime;
         async move {
-            let mut query = json!({"operation": "pullRequest", "owner": "a", "repo": "b",
-                "number": 9, "goal": "g", "reasoning": "r", "minify": "none",
+            let mut first = json!({"operation": "pullRequest", "owner": "a", "repo": "b",
+                "number": 9, "mainGoal": "g", "reasoning": "r", "minify": "none",
                 "include": ["patches"]});
+            if let Some(length) = char_length {
+                first["charLength"] = json!(length);
+            }
+            let mut envelope = json!({"queries": [first]});
+            if let Some(page) = page {
+                envelope["responseCharLength"] = json!(page);
+            }
             let mut read = std::collections::BTreeMap::<String, String>::new();
             let mut calls = 0;
             loop {
                 calls += 1;
                 assert!(calls <= 60, "walk did not finish");
-                let mut envelope = json!({"queries": [query]});
-                if let Some(page) = page {
-                    envelope["responseCharLength"] = json!(page);
-                }
                 let outcome = runtime
                     .execute(format!("walk-{calls}"), "ghGetHistoryItem".into(), envelope)
                     .await
@@ -924,6 +938,17 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
                     "a patch window overflowed its page: {content}"
                 );
                 let data = &content["results"][0]["data"];
+                // A charLength above the page is clamped and says so on the
+                // call that asked; the windows below still tile every patch.
+                let clamped = data["warnings"].as_array().is_some_and(|text| {
+                    text.iter()
+                        .any(|t| t.as_str().is_some_and(|t| t.starts_with("charLength")))
+                });
+                assert_eq!(
+                    clamped,
+                    char_length.is_some() && calls == 1,
+                    "call {calls}: {data}"
+                );
                 for file in data["pullRequests"][0]["changedFiles"]
                     .as_array()
                     .into_iter()
@@ -937,26 +962,32 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
                 }
                 // One check at the merge commit, on the first window only.
                 assert_eq!(
-                    data["next"].get("readAtMerge").is_some(),
+                    data["hints"].get("readAtMerge").is_some(),
                     calls == 1,
                     "call {calls}: {data}"
                 );
+                // The hop is a one-row call that carries the largest page.
                 match data["next"]["continuePatch"]["query"].as_object() {
-                    Some(next) => query = Value::Object(next.clone()),
+                    Some(next) => {
+                        assert_eq!(next["responseCharLength"], json!(page.unwrap_or(50_000)));
+                        envelope = Value::Object(next.clone());
+                    }
                     None => break,
                 }
             }
             (calls, read)
         }
     };
-    let (default_calls, default_read) = walk(None).await;
-    let (explicit_calls, explicit_read) = walk(Some(50_000)).await;
+    let (default_calls, default_read) = walk(None, None).await;
+    let (explicit_calls, explicit_read) = walk(Some(50_000), None).await;
+    let (_, oversized_read) = walk(None, Some(80_000)).await;
     for (path, patch) in ["src/a.rs", "src/b.rs"].iter().zip(&patches) {
         assert_eq!(default_read.get(*path), Some(patch), "{path}");
         assert_eq!(explicit_read.get(*path), Some(patch), "{path}");
+        assert_eq!(oversized_read.get(*path), Some(patch), "{path}");
     }
     assert!(
-        explicit_calls * 2 <= default_calls,
+        default_calls <= explicit_calls + 1,
         "explicit {explicit_calls} vs default {default_calls} calls"
     );
     runtime.close().await;
@@ -1083,7 +1114,10 @@ async fn files_scope_matching_nothing_is_an_empty_row_with_a_hint() {
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "noSelectedFilesMatched", "{data}");
     assert!(
-        data["hints"][0].as_str().unwrap_or("").contains("include"),
+        data["hints"]["text"][0]
+            .as_str()
+            .unwrap_or("")
+            .contains("include"),
         "{data}"
     );
     runtime.close().await;

@@ -1,39 +1,40 @@
 # Declaration hygiene: types, schemas, dependencies
 
-Load when reviewing type definitions, interfaces, enums, schemas, or protocol shapes for redundancy or aliasing, or package.json files for unused, duplicate, misaligned, or phantom dependencies.
+Load for redundant or aliased types, interfaces, enums, schemas, or protocol shapes, and for unused, duplicate, misaligned, or phantom dependencies in package.json.
 
 ## Types and schemas
 
-| Signal | Verification or action |
+| Signal | Verify or act |
 |---|---|
-| `type Foo = Bar` with no added constraint | LSP: all consumers can reference Bar directly |
-| `interface A extends B {}` with no extra members | Trace A's references and intended role; matching members alone do not establish equivalence |
-| `enum X` duplicating another enum's values | Identify the canonical enum; confirm all callers on it |
-| Two interfaces with identical or near-identical shape in different modules | AST structural match; one is a verbatim copy |
-| Same Zod / JSON Schema object defined in two files | Text search for distinguishing field literals; choose the canonical one |
-| Protocol type re-declared per version (`v1`, `v2`) with identical shape | Trace supported producers and consumers; check persisted and serialized payload compatibility before sharing a definition |
-| Compatibility shim mapping old message format to new | All producers emit the new format; the shim is dead |
-| Type reachable only behind an always-on feature flag | Inline unconditionally; remove the flag branch |
+| `type Foo = Bar` with no added constraint | LSP: all consumers can use Bar |
+| `interface A extends B {}` with no members | Trace A's references and role; same members do not prove equivalence |
+| `enum X` duplicating another enum | Pick the canonical enum; confirm callers |
+| Near-identical interfaces in two modules | AST structural match shows a copy |
+| Same Zod / JSON Schema object in two files | Text-search distinguishing field literals; pick one |
+| Protocol type re-declared per version (`v1`, `v2`), same shape | Trace producers and consumers; check persisted and serialized payload compatibility first |
+| Shim mapping old message format to new | All producers emit the new format |
+| Type reachable only behind an always-on flag | Inline it; remove the flag branch |
 
-Use exact source and `astSearch` to compare constraints, then `lspSearch` references for consumers in the configured project. Type aliases and interfaces have no callable hierarchy. Check public exports, generated consumers, and protocol/version boundaries; empty references alone do not establish safe deletion. Do not merge types that share shape but serve different semantic roles (`UserId` and `ProductId` as `string` aliases): confirm semantic identity before deletion.
+- Compare constraints with an exact read and `astSearch`; find consumers with `lspSearch` references. Aliases and interfaces have no call hierarchy.
+- Check public exports, generated consumers, and protocol/version boundaries; empty references do not prove a delete safe.
+- Do not merge same-shape types with different roles (`UserId` and `ProductId` as `string`). Confirm semantic identity first.
 
 ## Dependencies
 
-| Signal | Verification or action |
+| Signal | Act |
 |---|---|
-| Package in `dependencies` / `devDependencies` with no import | `localSearch` text across all source files for the package name |
-| Package used only in tests but listed in `dependencies` | Move to `devDependencies` after confirming no production import |
-| Peer dep also listed as a direct dep | Confirm whether the package ships its own copy |
-| Same package at different versions across workspace packages | Choose the highest compatible version; update all declarations |
-| Direct version pin duplicating a root `resolutions` entry | Remove the pin; rely on the root resolution |
-| Two packages pull the same transitive dep at different versions | Add an explicit root resolution |
-| Package in root `package.json` and a workspace package | Keep it only where the usage lives |
-| Entry in both `dependencies` and `devDependencies` | Keep the correct category |
-| Build tool listed as both dev dep and peer dep | Choose one; confirm the consuming package's intent |
-| Import in source but absent from `package.json`, or resolved only through a transitive dep | Add a direct declaration at the correct version, or remove the import |
+| In `dependencies` / `devDependencies`, no import | `localSearch` the package name across all sources |
+| Used only in tests, listed in `dependencies` | Move to `devDependencies` after no production import is confirmed |
+| Peer dep also a direct dep | Check whether the package ships its own copy |
+| Different versions across workspace packages | Highest compatible version everywhere |
+| Pin duplicating a root `resolutions` entry | Remove the pin |
+| One transitive dep at two versions | Add a root resolution |
+| In root and in a workspace `package.json` | Keep it where the usage lives |
+| In both `dependencies` and `devDependencies` | Keep the correct one |
+| Build tool as both dev and peer dep | Choose per the consumer's intent |
+| Imported but undeclared, or resolved only transitively | Declare it at the correct version, or remove the import |
 
-Internal monorepo packages use `workspace:*` (or the project's configured protocol), never a version pin; a pin breaks local resolution.
+- Internal monorepo packages use `workspace:*` (or the configured protocol), never a pin; a pin breaks local resolution.
+- A dependency removal or version change needs explicit consent first. Unused-only removals in an approved batch may proceed.
 
-Consent gate: removing a dependency or changing a version affects all consumers and needs explicit consent before any edit. Unused-only removals within an approved batch may proceed together.
-
-Next: return to `references/cleanup-playbook.md` TRIAGE and EXCISE.
+Next: run the batch with `references/cleanup-playbook.md`.

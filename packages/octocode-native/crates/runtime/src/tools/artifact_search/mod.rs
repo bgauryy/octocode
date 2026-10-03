@@ -191,11 +191,11 @@ async fn run(
         data["next"]["viewRepo"] = json!({
             "tool": ToolId::GhStructure.as_str(),
             "source": { "scope": "defaultBranch", "verification": "unverified" },
+            "why": "Default-branch code; not release evidence.",
             // The root at depth one is ghStructure's default listing.
             "query": {
                 "owner": owner,
                 "repo": repo,
-                "reasoning": "Default-branch code; not release evidence.",
             },
         });
         if let Some(directory) = artifact
@@ -218,7 +218,7 @@ async fn run(
                 "verification": if attested { "provenance" } else { "unverified" },
             });
             release["query"]["branch"] = json!(reference);
-            release["query"]["reasoning"] = json!(if attested {
+            release["why"] = json!(if attested {
                 "Release commit attested by npm provenance."
             } else {
                 "Registry release-ref lead; if unpushed, omit branch."
@@ -445,14 +445,14 @@ mod cursor_signing_tests {
             state.as_bytes()
         );
         let continued = crate::providers::artifact::artifact_query(
-            json!({"cursor": token, "goal": "continue", "reasoning": "next page", "debug": true}),
+            json!({"cursor": token, "mainGoal": "continue", "reasoning": "next page", "debug": true}),
             Some(&keyword_query(&["http"])),
         );
         let continued_scope = cursor_scope(&continued).expect("continuation scope");
         assert_eq!(continued_scope, scope);
         // A replay with a different brief keeps the same page scope.
         let rebriefed = crate::providers::artifact::artifact_query(
-            json!({"cursor": continued.cursor(), "goal": "other", "reasoning": "other"}),
+            json!({"cursor": continued.cursor(), "mainGoal": "other", "reasoning": "other"}),
             Some(&keyword_query(&["http"])),
         );
         assert_eq!(cursor_scope(&rebriefed).expect("rebriefed scope"), scope);
@@ -489,7 +489,7 @@ mod cursor_signing_tests {
                 "type": "npm",
                 "keywords": ["http"],
                 "cursor": cursor_value,
-                "goal": "test", "reasoning": "test",
+                "mainGoal": "test", "reasoning": "test",
             });
             async move {
                 execute(&query, dead, CancellationToken::new(), false, None, 0, true)
@@ -511,7 +511,7 @@ mod cursor_signing_tests {
         );
         let scope = cursor_scope(&typed).expect("scope");
         let token = cursor::sign_state(key, &scope, br#"{"offset":30,"page":2}"#).expect("sign");
-        let query = json!({"type": "npm", "keywords": ["http"], "cursor": token, "goal": "test", "reasoning": "test"});
+        let query = json!({"type": "npm", "keywords": ["http"], "cursor": token, "mainGoal": "test", "reasoning": "test"});
         let issued = execute(&query, dead, CancellationToken::new(), false, None, 0, true)
             .await
             .expect_err("dead budget");
@@ -557,7 +557,7 @@ mod npm_auth_tests {
             "type": "npm",
             "packageName": "audit-package",
             "registry": format!("http://127.0.0.1:{port}"),
-            "goal": "test", "reasoning": "test",
+            "mainGoal": "test", "reasoning": "test",
         });
         // Generous: building the system HTTP client (native root certs) can
         // be slow in sandboxed test environments.
@@ -589,7 +589,7 @@ mod npm_auth_tests {
             "type": "npm",
             "packageName": "no-such-package-zz",
             "registry": format!("http://127.0.0.1:{}", server.address().port()),
-            "goal": "test", "reasoning": "test",
+            "mainGoal": "test", "reasoning": "test",
         });
         let deadline = Instant::now() + std::time::Duration::from_secs(300);
         let error = run(
@@ -628,7 +628,7 @@ mod npm_auth_tests {
             "type": "npm",
             "packageName": "audit-package",
             "registry": format!("http://127.0.0.1:{}", server.address().port()),
-            "goal": "test", "reasoning": "test",
+            "mainGoal": "test", "reasoning": "test",
         });
         let deadline = Instant::now() + std::time::Duration::from_secs(300);
         let data = run(
@@ -652,9 +652,11 @@ mod npm_auth_tests {
         assert!(view.get("confidence").is_none(), "{data}");
         assert_eq!(view["source"]["scope"], "defaultBranch", "{data}");
         assert_eq!(view["source"]["verification"], "unverified", "{data}");
-        let reasoning = view["query"]["reasoning"].as_str().expect("reasoning");
-        assert!(reasoning.contains("not release evidence"), "{data}");
-        assert!(reasoning.chars().count() <= 60, "{reasoning}");
+        // The lead's reason is `why`; its query carries no invented brief.
+        assert!(view["query"].get("reasoning").is_none(), "{data}");
+        let why = view["why"].as_str().expect("why");
+        assert!(why.contains("not release evidence"), "{data}");
+        assert!(why.chars().count() <= 60, "{why}");
         let release = &data["next"]["viewReleaseSource"];
         assert_eq!(release["tool"], "ghStructure", "{data}");
         assert_eq!(release["query"]["branch"], sha, "{data}");
@@ -688,9 +690,9 @@ mod npm_auth_tests {
         let release = &data["next"]["viewReleaseSource"];
         assert_eq!(release["query"]["branch"], sha, "{data}");
         assert_eq!(release["source"]["verification"], "unverified", "{data}");
-        let reasoning = release["query"]["reasoning"].as_str().expect("reasoning");
-        assert!(reasoning.contains("omit branch"), "{data}");
-        assert!(reasoning.chars().count() <= 60, "{reasoning}");
+        let why = release["why"].as_str().expect("why");
+        assert!(why.contains("omit branch"), "{data}");
+        assert!(why.chars().count() <= 60, "{why}");
     }
 
     #[tokio::test]

@@ -18,7 +18,7 @@ The catalog shows available tools and configuration gates; a compact schema show
 
 Execute with `TOOL_NAME 'JSON'` — one query object or a batch of up to five same-tool queries. Batch only independent work; sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation from an earlier one.
 
-Required `goal` and `reasoning` are short decision context stated on every new query (each batch row carries its own), not ranking controls or proof. A `next.*` continuation already carries the brief of the query that produced it. Result `index` maps to the zero-based input position, and one row can fail while siblings succeed; `hints` suggest recovery, not result data. Do not mix fields across operations or assume a former tool name still aliases. Follow executable `next.*` calls across collection, content, diagnostic, and whole-response pagination — a first page, bounded scan, empty result, or bare cursor is not a completeness claim. See [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works) for the full shared envelope.
+`mainGoal` and `reasoning` are optional decision context for multi-call research on an unknown (each batch row states its own); omit them on simple lookups. They are not ranking controls or proof. A `next.*` page or `hints.*` lead carries the brief only when the query that produced it sent one. Result `index` maps to the zero-based input position, and one row can fail while siblings succeed; `hints` (prose tips in `hints.text`, plus optional leads) suggest recovery or follow-ups, not result data. Do not mix fields across operations or assume a former tool name still aliases. Follow executable `next.*` pages across collection, content, diagnostic, and whole-response pagination — a first page, bounded scan, empty result, or bare cursor is not a completeness claim. See [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works) for the full shared envelope.
 
 ## Choose the evidence surface
 
@@ -96,9 +96,9 @@ File reads expose `none`, `standard`, and `symbols`. History is operation-specif
 
 ## Follow the complete continuation contract
 
-Inspect every result row: `status` (`empty` and `error` are different outcomes), `data`, `next`, warnings and hints. Responses are minimal by default; `debug:true` adds `meta` (evidence kind, scan stats, provider receipts, snapshots). Use returned executable queries rather than reconstructing paths from display strings.
+Inspect every result row: `status` (`empty` and `error` are different outcomes), `data`, `next` pages, warnings, and `hints`. Responses are minimal by default; `debug:true` adds the fields the contract classes verbose: `meta` (evidence kind, diagnostics), scan stats, receipts, and echoes. Use returned executable queries rather than reconstructing paths from display strings.
 
-For each partial surface, execute its `next.*` call with the supplied tool and query. Do not advance every counter together or compute the next offset from the requested character length; semantic chunking can expand a window to a boundary, and page counters can be estimates while the continuation offset is authoritative. Whole-response continuations carry a snapshot; when the result set changes, the tool returns a restart with an offset-zero query, and earlier pages must be discarded.
+For each partial surface, execute its `next.*` page with the supplied tool and query; `hints.*` leads are optional. Do not advance every counter together or compute the next offset from the requested character length; semantic chunking can expand a window to a boundary, and page counters can be estimates while the continuation offset is authoritative. Whole-response continuations carry a snapshot; when the result set changes, the tool returns a restart with an offset-zero query, and earlier pages must be discarded.
 
 | Surface | Independent bounds to inspect |
 |---|---|

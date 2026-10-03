@@ -139,7 +139,7 @@ mod drift_tests {
             "src/api.rs",
             "pub fn handle() {\n    crate::portable::sanitize();\n    crate::tools::inner::used();\n}\n",
         );
-        let query = json!({"goal":"find dead code","reasoning":"test","analysis":"deadCode","path":root.path(),"rustWorkspace":"cargo"});
+        let query = json!({"mainGoal":"find dead code","reasoning":"test","analysis":"deadCode","path":root.path(),"rustWorkspace":"cargo"});
         let out = run(query, root.path()).expect("dead code");
         let names = out["results"]
             .as_array()
@@ -174,7 +174,7 @@ mod drift_tests {
             }
         }
         let query =
-            json!({"goal": "test", "reasoning":"test","analysis":"cycles","path":root.path()});
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"cycles","path":root.path()});
         let error = run(query.clone(), root.path()).expect_err("scope refused");
         assert_eq!(error.code, "ast.graph.scopeTooBroad");
         assert!(
@@ -219,7 +219,7 @@ mod drift_tests {
         })
         .expect("paths");
         let security = ContentSecurity::new();
-        let query: AstTopologyQuery = serde_json::from_value(json!({"goal": "test", "reasoning":"test","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
+        let query: AstTopologyQuery = serde_json::from_value(json!({"mainGoal": "test", "reasoning":"test","analysis":"dependencies","path":root,"file":"include/widget.h","languageGlobs":{"cpp":["include/**/*.h"]}})).expect("query");
         let built = graph::build_graph(&query, &paths, &security, &Active).expect("graph");
         assert!(
             built
@@ -246,7 +246,7 @@ mod drift_tests {
             )
             .expect("file");
         }
-        let first = run(json!({"analysis":"reachability","path":root,"entrypoints":["f0000.ts"],"pageSize":1,"goal":"test","reasoning":"test"}), root).expect("first");
+        let first = run(json!({"analysis":"reachability","path":root,"entrypoints":["f0000.ts"],"pageSize":1,"mainGoal":"test","reasoning":"test"}), root).expect("first");
         let mut resized = first["next"]["nextPage"]["query"].clone();
         resized["pageSize"] = json!(2);
         let rejected = run(resized, root).expect("resized cursor");
@@ -299,7 +299,7 @@ mod drift_tests {
         let base = root.join("base");
         let out = run(
             json!({
-                "goal": "test", "reasoning":"test","analysis":"drift",
+                "mainGoal": "test", "reasoning":"test","analysis":"drift",
                 "path": head.to_string_lossy(),
                 "baseline": base.to_string_lossy()
             }),
@@ -331,12 +331,12 @@ mod drift_tests {
         // The wire contract scopes baseline to drift and requires it there.
         let parse = |query: Value| serde_json::from_value::<AstTopologyQuery>(query);
         assert!(
-            parse(json!({"goal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy(),"baseline":root.to_string_lossy()}))
+            parse(json!({"mainGoal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy(),"baseline":root.to_string_lossy()}))
                 .is_err(),
             "baseline rejected on cycles"
         );
         assert!(
-            parse(json!({"goal": "test", "reasoning":"test","analysis":"drift","path":root.to_string_lossy()}))
+            parse(json!({"mainGoal": "test", "reasoning":"test","analysis":"drift","path":root.to_string_lossy()}))
                 .is_err(),
             "drift requires baseline"
         );
@@ -358,7 +358,7 @@ mod drift_tests {
         std::fs::write(root.join("bar.rs"), "pub fn thing() {}\n").unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -403,7 +403,7 @@ mod drift_tests {
         ] {
             std::fs::write(root.join(name), text).unwrap();
         }
-        let query = json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"b.ts"});
+        let query = json!({"mainGoal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"b.ts"});
         let out = run(query, root).expect("dependents");
         assert_eq!(
             out["coverage"]["diagnosticCounts"]["unresolved-internal"], 2,
@@ -444,7 +444,7 @@ mod drift_tests {
         .unwrap();
         let src = package.join("src");
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":src.to_string_lossy(),"file":"enums/flags.ts"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependents","path":src.to_string_lossy(),"file":"enums/flags.ts"}),
             temp.path(),
         )
         .expect("dependents");
@@ -471,7 +471,7 @@ mod drift_tests {
         .unwrap();
         let src = repo.join("src");
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":src.to_string_lossy(),"file":"enums/flags.ts"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependents","path":src.to_string_lossy(),"file":"enums/flags.ts"}),
             temp.path(),
         )
         .expect("dependents");
@@ -517,7 +517,7 @@ mod drift_tests {
             std::fs::write(root.join(name), text).unwrap();
         }
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"t.ts"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"t.ts"}),
             root,
         )
         .expect("dependents");
@@ -583,7 +583,7 @@ mod drift_tests {
             "use crate::sync::Notify;\npub fn l(_: Notify) {}\n",
         );
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"src/sync/notify.rs","rustWorkspace":"cargo"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"src/sync/notify.rs","rustWorkspace":"cargo"}),
             root,
         )
         .expect("dependents");
@@ -614,7 +614,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -665,7 +665,7 @@ mod drift_tests {
         std::fs::write(root.join("tsdb/db_test.go"), "package tsdb\n").unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"main.go"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"main.go"}),
             root,
         )
         .expect("dependencies");
@@ -678,7 +678,7 @@ mod drift_tests {
         assert!(rows.iter().all(|r| r["importLine"] == 5), "{out}");
 
         let dependents = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"tsdb/head.go"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"tsdb/head.go"}),
             root,
         )
         .expect("dependents");
@@ -704,7 +704,7 @@ mod drift_tests {
         )
         .unwrap();
         let out = run(
-            json!({"goal":"test","reasoning":"test","analysis":"dependents","path":root.join("tsdb").to_string_lossy(),"file":"chunkenc/chunk.go"}),
+            json!({"mainGoal":"test","reasoning":"test","analysis":"dependents","path":root.join("tsdb").to_string_lossy(),"file":"chunkenc/chunk.go"}),
             root,
         )
         .expect("dependents");
@@ -731,7 +731,7 @@ mod drift_tests {
         )
         .unwrap();
         let out = run(
-            json!({"goal":"test","reasoning":"test","analysis":"dependents","path":root.join("pkg").to_string_lossy(),"file":"utils/text.py"}),
+            json!({"mainGoal":"test","reasoning":"test","analysis":"dependents","path":root.join("pkg").to_string_lossy(),"file":"utils/text.py"}),
             root,
         )
         .expect("dependents");
@@ -761,7 +761,7 @@ mod drift_tests {
         )
         .unwrap();
         let out = run(
-            json!({"goal":"test","reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"src/com/acme/Lists.java"}),
+            json!({"mainGoal":"test","reasoning":"test","analysis":"dependents","path":root.to_string_lossy(),"file":"src/com/acme/Lists.java"}),
             root,
         )
         .expect("dependents");
@@ -796,7 +796,7 @@ mod drift_tests {
         )
         .unwrap();
         let out = run(
-            json!({"goal":"test","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/Multimaps.java"}),
+            json!({"mainGoal":"test","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/Multimaps.java"}),
             root,
         )
         .expect("dependencies");
@@ -825,7 +825,7 @@ mod drift_tests {
         .unwrap();
         std::fs::write(root.join("b.ts"), "export const b = 1;\n").unwrap();
         let out = run(
-            json!({"goal":"test","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"a.ts","page":2,"pageSize":100}),
+            json!({"mainGoal":"test","reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"a.ts","page":2,"pageSize":100}),
             root,
         )
         .expect("out-of-range page");
@@ -849,7 +849,7 @@ mod drift_tests {
         let temp = tempfile::TempDir::new().expect("temp");
         let root = temp.path();
         let error = run(
-            json!({"goal":"test","reasoning":"test","analysis":"dependencies","file":"src/a.ts"}),
+            json!({"mainGoal":"test","reasoning":"test","analysis":"dependencies","file":"src/a.ts"}),
             root,
         )
         .expect_err("relative file without path");
@@ -881,7 +881,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/App.java"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"src/com/acme/App.java"}),
             root,
         )
         .expect("dependencies");
@@ -904,7 +904,7 @@ mod drift_tests {
         std::fs::write(root.join("b.ts"), "export const b = 1;\n").unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"path","path":root.to_string_lossy(),"file":"a.ts","target":"b.ts"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"path","path":root.to_string_lossy(),"file":"a.ts","target":"b.ts"}),
             root,
         )
         .expect("path result");
@@ -921,7 +921,7 @@ mod drift_tests {
             std::fs::write(root.join(format!("f{i}.js")), "export const x = 1;\n").unwrap();
         }
         std::fs::write(root.join("a.js"), "export const a = 1;\n").unwrap();
-        let query = |page: u32| json!({"goal": "test", "reasoning":"test","analysis":"reachability","path":root.to_string_lossy(),"pageSize":2,"page":page});
+        let query = |page: u32| json!({"mainGoal": "test", "reasoning":"test","analysis":"reachability","path":root.to_string_lossy(),"pageSize":2,"page":page});
 
         let first = run(query(1), root).expect("page 1");
         let second = run(query(2), root).expect("page 2");
@@ -946,7 +946,7 @@ mod drift_tests {
         std::fs::write(root.join("unread.ts"), [0xff]).unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
             root,
         )
         .expect("dependencies result");
@@ -979,7 +979,7 @@ mod drift_tests {
         .unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"dependencies","path":root.to_string_lossy(),"file":"entry.ts"}),
             root,
         )
         .expect("dependencies result");
@@ -1002,7 +1002,7 @@ mod drift_tests {
         std::fs::write(root.join("two.py"), "def two(): pass\n").unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"cycles","path":root.to_string_lossy()}),
             root,
         )
         .expect("cycles result");
@@ -1057,7 +1057,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("src/helper.rs"), "pub fn run() {}\n").unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
             root,
         )
         .expect("dead code result");
@@ -1099,7 +1099,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("util.rs"), "pub fn util() {}\n").unwrap();
 
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy()}),
             root,
         )
         .expect("dead code result");
@@ -1124,7 +1124,7 @@ mod dead_code_root_tests {
             std::fs::write(root.join(name), content).unwrap();
         }
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
             root,
         )
         .expect("dead code result");
@@ -1188,7 +1188,7 @@ mod dead_code_root_tests {
             std::fs::write(path, content).unwrap();
         }
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"rustWorkspace":"cargo"}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"rustWorkspace":"cargo"}),
             root,
         )
         .expect("dead code result");
@@ -1349,7 +1349,7 @@ mod dead_code_root_tests {
         std::fs::write(root.join("mod.ts"), "export function unused() {}\n").unwrap();
         std::fs::write(root.join("main.ts"), "import './mod'\n").unwrap();
         let out = run(
-            json!({"goal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
+            json!({"mainGoal": "test", "reasoning":"test","analysis":"deadCode","path":root.to_string_lossy(),"entrypoints":["main.ts"]}),
             root,
         )
         .expect("dead code result");

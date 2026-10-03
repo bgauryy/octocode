@@ -1,28 +1,6 @@
 # Octocode Architect
 
-Analyze software architecture with exact code evidence, then make or verify the smallest safe change.
-
-## Use when
-
-- A change affects algorithms, boundaries, contracts, data/control flow, persisted state, or several consumers.
-- You need dependency, cycle, reachability, dead-code, coupling, or blast-radius analysis.
-- A maintainability or performance problem may justify a safe refactor.
-
-## Not for
-
-- Gathering evidence without a specific architecture decision → `octocode-research`
-- Behavior-preserving cleanup of dead code and agent residue → `octocode-clean-agentic-code`
-- Open-ended exploration before a decision is formed → `octocode-brainstorming`
-
-## Workflow
-
-```text
-FRAME → MODEL → PROVE → CHANGE → VERIFY
-```
-
-Review-only tasks stop at evidence-backed findings. Authorized implementation tasks include the smallest verified refactor needed for the named quality goal.
-
-Evidence comes through `octocode-research`. File topology uses beta `astTopology` (set `OCTOCODE_BETA=true`) or the persisted `octocode graph ingest` / `octocode graph query` CLI; both return syntactic leads that need exact reads and LSP identity before a verdict.
+Analyze software architecture with exact code evidence, then make or verify the smallest safe change. Agent rules live in `SKILL.md`.
 
 ## Install
 
@@ -32,12 +10,7 @@ npx -y octocode skill install octocode-architect
 
 ## Maintainer verification
 
-```bash
-node scripts/eval-architect.mjs --self-test
-node scripts/eval-architect.mjs --json
-```
-
-Then run the `octocode-skills` review against this folder.
+Run the checks named at the end of `SKILL.md`.
 
 ## Sources
 

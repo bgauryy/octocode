@@ -1,5 +1,6 @@
 //! Request lifetime and bounded scheduling shared by both native interfaces.
 
+pub mod channels;
 mod clasify_batch;
 mod clasify_compact;
 mod clasify_context;
@@ -23,6 +24,7 @@ pub mod response;
 mod response_stage;
 mod session_stats;
 pub(crate) mod symbol_outline;
+mod verbose;
 
 pub use cursor::CursorError;
 pub use engine::{FailureKind, HostOptions, RuntimeError, ToolOutcome, ToolRuntime};

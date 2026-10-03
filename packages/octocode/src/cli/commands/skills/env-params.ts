@@ -121,7 +121,7 @@ export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
     ...CLASSIFICATION_KEY_PARAMS,
   ],
   'octocode-roast': GITHUB_TOKEN_PARAMS,
-  // eval, prompt-optimizer, skills, subagent: no special env params
+  // eval, agentic-prompts, skills, subagent: no special env params
 };
 
 // ─── Runtime status check ─────────────────────────────────────────────────────

@@ -557,7 +557,7 @@ mod tests {
                 "clasify",
                 json!({
                     "id":"missing-question-field",
-                    "goal": "test", "reasoning":"Check the selected question.",
+                    "mainGoal": "test", "reasoning":"Check the selected question.",
                     "resources":[{"id":"held","context":{"value":"Observed evidence"}}],
                     "questions":[question]
                 }),
@@ -575,7 +575,7 @@ mod tests {
         let error = prepare_many_and_validate(
             "lspSearch",
             json!({"queries":[{
-                "goal":"g","reasoning":"r","operation":"definition",
+                "mainGoal":"g","reasoning":"r","operation":"definition",
                 "uri":"/tmp/a.rs","symbolName":"finish","lineHint":3,
                 "position":{"line":3,"character":1}
             }]}),

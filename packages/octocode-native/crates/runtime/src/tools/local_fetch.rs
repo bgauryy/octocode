@@ -721,7 +721,7 @@ mod tests {
 
     /// A query built from wire JSON (fields the test does not name default).
     fn qj(path: &Path, fields: serde_json::Value) -> LocalFetchQuery {
-        let mut query = serde_json::json!({"path": path.to_string_lossy(), "goal": "test", "reasoning": "test"});
+        let mut query = serde_json::json!({"path": path.to_string_lossy(), "mainGoal": "test", "reasoning": "test"});
         for (key, value) in fields.as_object().expect("object") {
             query[key] = value.clone();
         }

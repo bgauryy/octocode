@@ -1,4 +1,4 @@
-//! System commands: authentication, cache maintenance, and skill delegation.
+//! System commands: authentication and cache maintenance.
 //!
 //! These wrap [`ToolRuntime`] to surface credential state and login/logout —
 //! the environment-management side of the CLI, distinct from tool dispatch in
@@ -348,41 +348,6 @@ pub fn cache(runtime: &ToolRuntime, action: &str) -> u8 {
             eprintln!("Usage: octocode cache <status|clear>");
             let _ = other;
             2
-        }
-    }
-}
-
-pub fn skill(args: &[String]) -> u8 {
-    // Skill materialization lives in the npm CLI. If the `octocode` on PATH is
-    // this native binary instead of the npm launcher, spawning would recurse
-    // forever — the guard variable breaks that loop with a clear error.
-    if std::env::var_os("OCTOCODE_SKILL_DELEGATED").is_some() {
-        eprintln!("octocode skill: the `octocode` on PATH is the native binary, not the npm CLI.");
-        eprintln!("Install the npm CLI (npm i -g octocode) or run: npx -y octocode skill …");
-        return 1;
-    }
-    let mut command = std::process::Command::new("octocode");
-    command
-        .arg("skill")
-        .args(args)
-        .env("OCTOCODE_SKILL_DELEGATED", "1");
-    match command.status() {
-        Ok(status) => status.code().unwrap_or(1) as u8,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let rest = if args.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", args.join(" "))
-            };
-            eprintln!("octocode skill requires the Node CLI (`octocode`) on PATH.");
-            eprintln!("Install: npm i -g octocode");
-            eprintln!("Then:    octocode skill{rest}");
-            eprintln!("Or:      npx -y octocode skill{rest}");
-            1
-        }
-        Err(error) => {
-            eprintln!("failed to spawn octocode skill: {error}");
-            1
         }
     }
 }

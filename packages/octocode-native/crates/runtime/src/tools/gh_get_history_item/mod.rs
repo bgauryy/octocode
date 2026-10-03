@@ -91,11 +91,8 @@ pub const PATCH_ROWS_KEY: &str = "\u{0}patchRows";
 /// of the configured automatic page. Same lifecycle as [`PATCH_ROWS_KEY`].
 pub const RESPONSE_PAGE_KEY: &str = "\u{0}responsePage";
 
-/// Whether a validated row reads patch text without an explicit window.
-fn reads_default_patch_window(row: &Value) -> bool {
-    if row.get("charLength").is_some() {
-        return false;
-    }
+/// Whether a validated row reads patch text.
+fn reads_patches(row: &Value) -> bool {
     let patches_selected = row
         .pointer("/content/patches/mode")
         .and_then(Value::as_str)
@@ -113,29 +110,36 @@ fn reads_default_patch_window(row: &Value) -> bool {
     }
 }
 
+/// Whether a validated row reads patch text without an explicit window.
+fn reads_default_patch_window(row: &Value) -> bool {
+    row.get("charLength").is_none() && reads_patches(row)
+}
+
 /// One patch budget per call: when two or more rows read patches with the
 /// default window, each row is stamped with that count so the windows split
 /// one response page instead of each taking a whole one, which would push
 /// a multi-row read into response pagination. An explicit response page
-/// (`responseCharLength`) is stamped on every default-window row, so a walk
-/// that asks for larger pages gets larger patch windows (fewer hops). `None`
-/// leaves rows as-is.
+/// (`responseCharLength`) is stamped on every patch-reading row, so a walk
+/// that asks for larger pages gets larger patch windows (fewer hops) and an
+/// explicit `charLength` is clamped to that page, not the configured one.
+/// `None` leaves rows as-is.
 pub fn share_patch_budget(rows: &[Value], response_page: Option<usize>) -> Option<Vec<Value>> {
     let count = rows
         .iter()
         .filter(|row| reads_default_patch_window(row))
         .count();
-    (count > 1 || (count == 1 && response_page.is_some())).then(|| {
+    let paged = response_page.is_some() && rows.iter().any(reads_patches);
+    (count > 1 || paged).then(|| {
         rows.iter()
             .map(|row| {
                 let mut row = row.clone();
-                if reads_default_patch_window(&row)
-                    && let Some(fields) = row.as_object_mut()
-                {
-                    if count > 1 {
+                let shared = count > 1 && reads_default_patch_window(&row);
+                let stamped = response_page.filter(|_| reads_patches(&row));
+                if let Some(fields) = row.as_object_mut() {
+                    if shared {
                         fields.insert(PATCH_ROWS_KEY.into(), Value::from(count));
                     }
-                    if let Some(page) = response_page {
+                    if let Some(page) = stamped {
                         fields.insert(RESPONSE_PAGE_KEY.into(), Value::from(page));
                     }
                 }
@@ -458,13 +462,17 @@ impl GhGetHistoryItemQuery {
     }
     pub fn include_diff(&self) -> bool {
         match self {
-            Self::Commit { include_diff, .. } | Self::Compare { include_diff, .. } => *include_diff,
+            Self::Commit { include_diff, .. } | Self::Compare { include_diff, .. } => {
+                include_diff.as_ref().is_some_and(|include| include.0)
+            }
             _ => false,
         }
     }
     pub fn path(&self) -> Option<&str> {
         match self {
-            Self::Commit { path, .. } | Self::Compare { path, .. } => path.as_deref(),
+            Self::Commit { path, .. } | Self::Compare { path, .. } => {
+                path.as_ref().map(|path| path.as_str())
+            }
             _ => None,
         }
     }
@@ -694,7 +702,7 @@ mod tests {
     fn false_content_selectors_do_not_request_sections() {
         let query = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest", "owner":"o", "repo":"r", "number":1,
-            "goal":"Read the pull request.","reasoning":"False selectors must stay off.",
+            "mainGoal":"Read the pull request.","reasoning":"False selectors must stay off.",
             "content":{
                 "body":false,"changedFiles":false,"reviews":false,
                 "comments":{"discussion":false,"reviewInline":false,"includeBots":false}
@@ -712,13 +720,13 @@ mod tests {
     #[test]
     fn flat_selectors_alias_the_nested_shapes() {
         let flat = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
             "include":["body","files","patches","comments","reviews"],
             "files":["src/**"],"status":["modified"]
         }))
         .expect("flat shape");
         let nested = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
             "content":{"body":true,"changedFiles":true,"patches":{"mode":"all"},
                 "comments":{"discussion":true,"reviewInline":true},"reviews":true},
             "fileFilter":{"paths":["src/**"],"status":["modified"]}
@@ -731,7 +739,7 @@ mod tests {
         );
         // Commit include patches = includeDiff; base folds compare in.
         let commit = HistoryItemRequest::from_row(json!({
-            "operation":"commit","goal":"g","reasoning":"r","owner":"o","repo":"r",
+            "operation":"commit","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
             "ref":"head-sha","base":"base-sha","include":["patches"],"files":["src/*.rs"]
         }))
         .expect("commit with base");
@@ -741,7 +749,7 @@ mod tests {
         assert!(commit.include_diff());
         assert_eq!(commit.file_scope, ["src/*.rs"]);
         let issue = HistoryItemRequest::from_row(json!({
-            "operation":"issue","goal":"g","reasoning":"r","owner":"o","repo":"r","number":2,
+            "operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":2,
             "include":["comments"]
         }))
         .expect("issue include");
@@ -766,19 +774,19 @@ mod tests {
     fn missing_identity_is_rejected() {
         // The wire contract requires each operation's identity.
         for row in [
-            json!({"operation":"commit","goal": "test", "reasoning":"test","owner":"a","repo":"b"}),
-            json!({"operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b"}),
-            json!({"operation":"compare","goal": "test", "reasoning":"test","owner":"a","repo":"b","base":"x"}),
+            json!({"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b"}),
+            json!({"operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b"}),
+            json!({"operation":"compare","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","base":"x"}),
         ] {
             assert!(HistoryItemRequest::from_row(row).is_err());
         }
         let committed = HistoryItemRequest::from_row(
-            json!({"operation":"commit","goal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"x"}),
+            json!({"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"x"}),
         )
         .expect("GitHub history test data should be valid");
         assert!(validate(&committed).is_ok());
         let blank = HistoryItemRequest::from_row(json!({
-            "operation":"compare","goal": "test", "reasoning":"test","owner":"a","repo":"b","base":"","head":"x"
+            "operation":"compare","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","base":"","head":"x"
         }))
         .expect("GitHub history test data should be valid");
         assert!(validate(&blank).is_err());

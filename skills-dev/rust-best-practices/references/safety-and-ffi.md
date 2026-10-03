@@ -1,17 +1,17 @@
 # Safety, security, and FFI
 
-Load when you review `unsafe`, validate untrusted input, gate a release, build a Node addon (napi-rs), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
+Load when you review `unsafe`, validate untrusted input, build a Node addon (napi-rs), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
 
 ## unsafe
 - Default to `#![forbid(unsafe_code)]` at the crate root. Otherwise `#![deny(unsafe_code)]` with `#[allow]` on the few audited modules.
-- Every `unsafe` block gets a `// SAFETY:` comment: the invariant that makes it sound and why it holds here. For FFI, state null-ness, lifetime, alignment, and thread-affinity. No invariant → not ready to ship.
+- The `// SAFETY:` comment says why the invariant holds here; for FFI it states null-ness, lifetime, alignment, and thread-affinity. No invariant → not ready to ship.
 - Keep `unsafe` minimal, wrapped in a safe API that upholds the invariant; do not leak raw pointers/lifetimes across the boundary.
 - Run **Miri** (`cargo +nightly miri test`) on any crate with `unsafe`: it catches UB, data races, and invalid aliasing.
 - Prefer a vetted crate (`bytes`, `zerocopy`, `bytemuck`) over hand-rolled `transmute`/pointer casts.
 
 ## Untrusted input
 - Validate and bound everything crossing a trust boundary (sizes, lengths, ranges, encodings); reject early with a typed error. Values from the other side of an FFI boundary (sizes, indices, UTF-8) are untrusted input.
-- **DoS via unbounded resources** is the common real-world Rust vuln: cap request/body/file sizes, time out fetches and parses, bound channel capacity and in-flight work. An OOM from an attacker-sized input is a security bug.
+- **DoS via unbounded resources** is the common real-world Rust vuln: cap request/body/file sizes, time out fetches and parses, bound in-flight work. An OOM from an attacker-sized input is a security bug.
 - **Regex ReDoS:** use `regex` (linear-time). A PCRE-style engine (`pcre2`, `fancy-regex`) on untrusted patterns/inputs needs a backtracking bound.
 - **SSRF / path traversal:** canonicalize URLs/paths for anything that fetches or reads for a caller; allowlist hosts/roots, do not blocklist. Filesystem: `cap-std` (capability dirs) or canonicalize-then-`starts_with(root)`; reject symlink escapes.
 - Secrets: never log them; scrub tokens/keys from error chains and debug output. Wrap in `secrecy::SecretString` (redacted `Debug`, zeroized on drop); compare tokens/MACs with `subtle` (constant-time), never `==`.
@@ -24,19 +24,11 @@ Load when you review `unsafe`, validate untrusted input, gate a release, build a
 
 ## Supply chain
 - `build.rs` and proc-macros run arbitrary code at build time: review new ones like code you execute. `cargo geiger` counts `unsafe` in the dep tree; `cargo vet` records who reviewed what.
-- `cargo auditable build` embeds the dep list so shipped binaries stay scannable. CI uses `--locked`. `deny.toml` bans duplicates, yanked crates, unknown registries, and git sources.
-
-## Release gate (CI) — block merge on all of
-- `cargo fmt --check`
-- `cargo clippy --all-targets -- -D warnings`
-- `cargo test` (unit + integration + doc)
-- `cargo audit` (RUSTSEC advisories)
-- `cargo deny check` (licenses, bans, advisories, duplicates)
-- Miri on unsafe-bearing crates; `cargo fuzz` targets for parsers/decoders of untrusted bytes.
+- `cargo auditable build` embeds the dep list so shipped binaries stay scannable. `deny.toml` bans duplicates, yanked crates, unknown registries, and git sources.
 
 ## FFI: panic must not cross the boundary
 - Unwinding across an FFI boundary is undefined behavior. Guard every `extern "C"` / exported entry point: `std::panic::catch_unwind` at the boundary and convert to an error code, or build with `panic = "abort"`.
-- napi-rs converts `Result::Err` into a thrown JS error. Return `napi::Result`; map core errors with `napi::Error::new(Status::InvalidArg, msg)`. Never `panic!`/`unwrap()` in exports; enforce with `unwrap_used = "deny"` (this repo does).
+- Return `napi::Result` (`references/napi.md`); map core errors with `napi::Error::new(Status::InvalidArg, msg)`. Never `panic!`/`unwrap()` in exports; enforce with `unwrap_used = "deny"` (this repo does).
 
 ## FFI: napi-rs threads
 - **Async rule:** any call > ~1ms is `#[napi]` on an `async fn` (napi's tokio runtime, for I/O), an `AsyncTask` (`Task` trait, libuv's pool, supports `AbortSignal`) for short jobs, or CPU work on `spawn_blocking` / a dedicated pool. Never block Node's event loop.
@@ -45,7 +37,7 @@ Load when you review `unsafe`, validate untrusted input, gate a release, build a
 - Feature-gate the addon (`#[cfg(feature = "napi-addon")]`) so the core crate still builds as a plain `rlib`/CLI without Node.
 
 ## FFI: crate types, linking, data
-- `crate-type = ["cdylib", "rlib"]`: `cdylib` for the loadable `.node`/`.so`, `rlib` so Rust consumers and integration tests link the same code (this repo uses exactly this).
+- `crate-type = ["cdylib", "rlib"]`: `cdylib` for the loadable `.node`/`.so`, `rlib` so Rust consumers and integration tests link the same code (this repo uses exactly this); drop `rlib` without a Rust consumer.
 - Wrapping C (tree-sitter grammars, compression, crypto): isolate the `-sys` / `cc`-built crate so a Rust edit doesn't retrigger the C compile; feature-gate optional grammars/backends.
-- Generate C headers with `cbindgen` when exposing a C ABI; keep the `unsafe extern` surface tiny and wrapped in a safe Rust API.
+- Generate C headers with `cbindgen` when exposing a C ABI.
 - Prefer copying owned data (`String`, `Vec<u8>`, `Buffer`) over lending pointers. A borrowed slice that outlives the Rust call is a use-after-free.

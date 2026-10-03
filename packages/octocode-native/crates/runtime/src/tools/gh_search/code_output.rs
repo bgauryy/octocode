@@ -183,8 +183,8 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
         Some(crate::content::FileType::Code) if !crate::content::is_test_path(path) => "medium",
         _ => "low",
     };
-    // A cross-tool read states its own reason rather than reusing the
-    // search's.
+    // A cross-tool read states its reason in `why`; its query carries only
+    // the brief the caller sent, which the response stage copies.
     Some(json!({
         "tool": ToolId::GhGetFileContent.as_str(),
         "confidence": confidence,
@@ -195,7 +195,6 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
             "path": file.get("path")?,
             "matchString": token,
             "contextLines": 5,
-            "reasoning": "Read the top code hit's matched region.",
         },
     }))
 }
@@ -259,7 +258,8 @@ pub(super) async fn resolve_lines<
         &sha,
         &paths,
         &query.keywords,
-        &query.goal,
+        // Without a mainGoal the keywords alone pick the best hit.
+        query.main_goal.as_ref().map_or("", |goal| goal.as_str()),
         context,
         security,
     )
@@ -279,7 +279,7 @@ pub(super) struct PageReads {
 }
 
 /// Shape file rows: resolved files list numbered `lines` instead of index
-/// fragments; fragment `matchIndices` stay only under `debug`; a repo-scoped
+/// fragments; fragment `matchIndices` are verbose (core field class); a repo-scoped
 /// page names owner/repo once. The top read is a line range of the top
 /// resolved hit, else `fragment_read` kept inside the verified source scope.
 pub(super) fn shape_files(
@@ -365,13 +365,6 @@ pub(super) fn shape_files(
             row.shift_remove("owner");
             row.shift_remove("repo");
         }
-        if !query.debug
-            && let Some(matches) = row.get_mut("matches").and_then(Value::as_array_mut)
-        {
-            for matched in matches.iter_mut().filter_map(Value::as_object_mut) {
-                matched.shift_remove("matchIndices");
-            }
-        }
     }
     PageReads {
         top: top.flatten().or(fragment_read),
@@ -410,7 +403,6 @@ fn hits_read(
         "path": path,
         "branch": sha,
         "contextLines": 0,
-        "reasoning": "Read every hit line of this file.",
     });
     match keywords.as_slice() {
         [] => return None,
@@ -491,7 +483,6 @@ fn line_read(
         // The commit the lines were read at: a branch push cannot shift
         // the window before the read runs.
         "branch": sha,
-        "reasoning": "Read the top code hit's lines.",
     });
     Some(json!({
         "tool": ToolId::GhGetFileContent.as_str(),

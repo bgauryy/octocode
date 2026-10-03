@@ -242,8 +242,7 @@ pub(super) fn resolve(
             "Only read tools can provide classification context.",
         ))
     })?;
-    let prepared =
-        prepare(tool, &with_context_brief(&source["query"])).map_err(ContextFailure::from)?;
+    let prepared = prepare(tool, &source["query"]).map_err(ContextFailure::from)?;
     let checked_input = dispatcher.security.validate_input_parameters(&prepared);
     if !checked_input.is_valid {
         return Err(ContextFailure::from(error(
@@ -282,7 +281,11 @@ pub(super) fn resolve(
     // Same central rule as the public path: continuations inherit their row's
     // brief, so search-type context tools (readTopMatch) validate like direct calls.
     super::continuations::inherit_briefs(&mut state, &[Some(&prepared)]);
-    contracts::validate_output(tool, &state).map_err(|violation| {
+    // The public contract sees leads and tips under `hints`; the walk below
+    // keeps reading the tool's own `next`.
+    let mut public = state.clone();
+    super::channels::split_hints(&mut public, id);
+    contracts::validate_output(tool, &public).map_err(|violation| {
         // Name the violated field (never the received value) so the defect is
         // reportable instead of an opaque failure.
         let detail = violation.issues.first().map_or_else(String::new, |issue| {
@@ -931,49 +934,31 @@ fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
         })
 }
 
-/// A clasify resource read is a sub-read of its matrix: the matrix states the
-/// brief (sent to the provider once), and the resource query need not repeat
-/// it. The read tool's contract requires a brief, so a neutral one is supplied
-/// when the resource omits it; it never reaches the provider.
-fn with_context_brief(query: &Value) -> Value {
-    let mut query = query.clone();
-    if let Some(object) = query.as_object_mut() {
-        object
-            .entry("goal")
-            .or_insert_with(|| json!("Evidence for a classification question."));
-        object
-            .entry("reasoning")
-            .or_insert_with(|| json!("Read the resource the matrix judges."));
-    }
-    query
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn search_context_continuations_inherit_the_resource_brief() {
-        let prepared = with_context_brief(&json!({"path":"src"}));
-        let mut state = json!({"results":[{"index":0,"data":{"next":{
-            "readTopMatch":{"tool":"ghGetFileContent","query":{"path":"a.rs"}}
-        }}}]});
-        super::super::continuations::inherit_briefs(&mut state, &[Some(&prepared)]);
-        let query = &state["results"][0]["data"]["next"]["readTopMatch"]["query"];
-        assert_eq!(query["path"], "a.rs");
-        assert_eq!(query["goal"], prepared["goal"]);
-        assert_eq!(query["reasoning"], prepared["reasoning"]);
-    }
-
-    #[test]
-    fn a_resource_brief_is_kept_and_a_missing_one_is_supplied() {
-        let own = with_context_brief(&json!({"path":"a","goal":"Mine.","reasoning":"Why."}));
+    fn search_context_continuations_carry_only_the_brief_the_resource_sent() {
+        let read_top_match = json!({"tool":"ghGetFileContent","query":{"path":"a.rs"}});
+        let mut bare =
+            json!({"results":[{"index":0,"data":{"next":{"readTopMatch":read_top_match}}}]});
+        super::super::continuations::inherit_briefs(&mut bare, &[Some(&json!({"path":"src"}))]);
+        let query = &bare["results"][0]["data"]["next"]["readTopMatch"]["query"];
         assert_eq!(
-            (own["goal"].as_str(), own["reasoning"].as_str()),
+            query,
+            &json!({"path":"a.rs"}),
+            "no brief was sent, none is added"
+        );
+        let own = json!({"path":"src","mainGoal":"Mine.","reasoning":"Why."});
+        let mut briefed =
+            json!({"results":[{"index":0,"data":{"next":{"readTopMatch":read_top_match}}}]});
+        super::super::continuations::inherit_briefs(&mut briefed, &[Some(&own)]);
+        let query = &briefed["results"][0]["data"]["next"]["readTopMatch"]["query"];
+        assert_eq!(
+            (query["mainGoal"].as_str(), query["reasoning"].as_str()),
             (Some("Mine."), Some("Why."))
         );
-        let bare = with_context_brief(&json!({"path":"a"}));
-        assert!(bare["goal"].is_string() && bare["reasoning"].is_string());
     }
 
     #[test]
@@ -1085,8 +1070,8 @@ mod tests {
     fn nested_context_uses_the_canonical_query_contract() {
         for query in [
             json!({}),
-            json!({"queries":[{"path":"/tmp/f","goal": "test", "reasoning":"Read"}]}),
-            json!({"path":"/tmp/f","goal": "test", "reasoning":"Read","responseCharOffset":0}),
+            json!({"queries":[{"path":"/tmp/f","mainGoal": "test", "reasoning":"Read"}]}),
+            json!({"path":"/tmp/f","mainGoal": "test", "reasoning":"Read","responseCharOffset":0}),
             json!({"cursor":"opaque"}),
         ] {
             assert!(prepare("localFetch", &query).is_err(), "{query}");
@@ -1094,18 +1079,21 @@ mod tests {
         assert!(
             prepare(
                 "localFetch",
-                &json!({"path":"/tmp/f","goal": "test", "reasoning":"Read"})
+                &json!({"path":"/tmp/f","mainGoal": "test", "reasoning":"Read"})
             )
             .is_ok()
         );
-        assert!(prepare("localFetch", &json!({"path":"/tmp/f"})).is_err());
+        assert!(
+            prepare("localFetch", &json!({"path":"/tmp/f"})).is_ok(),
+            "a nested read needs no brief"
+        );
     }
 
     #[test]
     fn nested_context_cannot_materialize_tree_files() {
         let query = json!({
             "owner":"o", "repo":"r",
-            "goal": "test", "reasoning":"Inspect tree", "materialize":true
+            "mainGoal": "test", "reasoning":"Inspect tree", "materialize":true
         });
         let error = prepare("ghStructure", &query).expect_err("materialization writes files");
         assert_eq!(error.code, "invalidClassificationContext");
@@ -1115,7 +1103,7 @@ mod tests {
                 "ghStructure",
                 &json!({
                     "owner":"o", "repo":"r",
-                    "goal": "test", "reasoning":"Inspect tree", "materialize":false
+                    "mainGoal": "test", "reasoning":"Inspect tree", "materialize":false
                 })
             )
             .is_ok()
@@ -1134,7 +1122,7 @@ mod tests {
         );
         let err_unknown = prepare(
             "localFetch",
-            &json!({"path":"/tmp/f","goal": "test", "reasoning":"r","typo":1}),
+            &json!({"path":"/tmp/f","mainGoal": "test", "reasoning":"r","typo":1}),
         )
         .expect_err("unknown field must be rejected");
         assert_eq!(err_unknown.code, "invalidClassificationContext");
@@ -1147,7 +1135,7 @@ mod tests {
 
     #[test]
     fn artifact_domain_cursors_are_valid_context_and_receipt_continuations() {
-        let artifact = json!({"type":"npm","keywords":["parser"],"goal": "test", "reasoning":"Find packages","cursor":"provider-cursor","pageSize":2});
+        let artifact = json!({"type":"npm","keywords":["parser"],"mainGoal": "test", "reasoning":"Find packages","cursor":"provider-cursor","pageSize":2});
         assert!(prepare("artifactSearch", &artifact).is_ok());
         let receipt = receipt(
             "artifactSearch",
@@ -1159,16 +1147,16 @@ mod tests {
     #[test]
     fn failed_context_recovery_requires_an_exact_executable_continuation() {
         let exact = json!({"next":{"continue":{"tool":"localFetch","confidence":"exact","query":{
-            "path":"/tmp/f","goal": "test", "reasoning":"Recover","offset":0,"chunkSize":100
+            "path":"/tmp/f","mainGoal": "test", "reasoning":"Recover","offset":0,"chunkSize":100
         }}}});
         assert_eq!(
             exact_continuation(&exact),
             Some(json!({"tool":"localFetch","query":{
-                "path":"/tmp/f","goal": "test", "reasoning":"Recover","offset":0,"chunkSize":100
+                "path":"/tmp/f","mainGoal": "test", "reasoning":"Recover","offset":0,"chunkSize":100
             }}))
         );
         let candidate = json!({"next":{"continue":{"tool":"localFetch","confidence":"candidate","query":{
-            "path":"/tmp/f","goal": "test", "reasoning":"Guess","offset":0,"chunkSize":100
+            "path":"/tmp/f","mainGoal": "test", "reasoning":"Guess","offset":0,"chunkSize":100
         }}}});
         assert!(exact_continuation(&candidate).is_none());
         assert!(exact_continuation(&json!({"next":{}})).is_none());
@@ -1177,7 +1165,7 @@ mod tests {
     #[test]
     fn coverage_receipts_never_copy_bodies_and_preserve_only_valid_continuations() {
         let state = json!({"results":[{"index":0,"data":{"content":"SECRET_BODY","isPartial":true,"next":{
-            "continue":{"tool":"localFetch","query":{"path":"/tmp/f","goal": "test", "reasoning":"Read","offset":2},"confidence":"exact","content":"SECRET_BODY"},
+            "continue":{"tool":"localFetch","query":{"path":"/tmp/f","mainGoal": "test", "reasoning":"Read","offset":2},"confidence":"exact","content":"SECRET_BODY"},
             "invalid":{"tool":"localFetch","query":{}},"effect":{"tool":"astRewrite","query":{}}
         }}}]});
         let receipt = receipt("localFetch", &state);
@@ -1201,8 +1189,8 @@ mod tests {
     #[test]
     fn an_oversized_receipt_keeps_its_main_continuation() {
         let state = json!({"results":[{"index":0,"data":{"isPartial":true,"next":{
-            "continue":{"tool":"localFetch","query":{"path":"/tmp/f","goal":"test","reasoning":"Read","offset":2},"confidence":"exact"},
-            "readOther":{"tool":"localFetch","query":{"path":format!("/tmp/{}", "a".repeat(MAX_RECEIPT_BYTES)),"goal":"test","reasoning":"Read"}}
+            "continue":{"tool":"localFetch","query":{"path":"/tmp/f","mainGoal":"test","reasoning":"Read","offset":2},"confidence":"exact"},
+            "readOther":{"tool":"localFetch","query":{"path":format!("/tmp/{}", "a".repeat(MAX_RECEIPT_BYTES)),"mainGoal":"test","reasoning":"Read"}}
         }}}]});
         let receipt = receipt("localFetch", &state);
         assert!(receipt.to_string().len() <= MAX_RECEIPT_BYTES);
@@ -1243,7 +1231,7 @@ mod tests {
                 name.into(),
                 json!({"tool":"ghGetHistoryItem","confidence":"exact","query":{
                     "operation":"pullRequest","owner":"example","repo":"repo","number":1,
-                    "content":content,"goal": "test", "reasoning":"Inspect selected evidence","debug":false
+                    "content":content,"mainGoal": "test", "reasoning":"Inspect selected evidence","debug":false
                 }}),
             );
         }
@@ -1254,7 +1242,7 @@ mod tests {
     fn empty_code_search_does_not_replay_tree_discovery_as_a_continuation() {
         let state = json!({"results":[{"status":"empty","data":{"next":{
             "viewStructure":{"tool":"ghStructure","confidence":"exact","query":{
-                "goal": "test", "reasoning":"Verify the repository scope","owner":"fastify",
+                "mainGoal": "test", "reasoning":"Verify the repository scope","owner":"fastify",
                 "repo":"fastify","path":"","pageSize":100
             }}
         }}}]});
@@ -1265,7 +1253,7 @@ mod tests {
     #[test]
     fn nested_match_pages_are_exhausted_before_the_file_page_advances() {
         let search = |page: u32, match_page: u32| {
-            json!({"goal": "test", "reasoning":"r","path":"/w","searchText":"marker","pageSize":1,
+            json!({"mainGoal": "test", "reasoning":"r","path":"/w","searchText":"marker","pageSize":1,
                 "maxMatchesPerFile":1,"page":page,"matchPage":match_page})
         };
         // localSearch emits the outer axis first; following it would skip the
@@ -1282,11 +1270,11 @@ mod tests {
 
     #[test]
     fn cross_tool_drill_downs_are_not_same_resource_continuations() {
-        let search = json!({"goal": "test", "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r",
+        let search = json!({"mainGoal": "test", "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r",
             "keywords":["k"],"page":2});
         let state = json!({"results":[{"index":0,"data":{"next":{
             "readPr":{"tool":"ghGetHistoryItem","confidence":"low","query":{
-                "goal": "test", "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r","number":7}},
+                "mainGoal": "test", "reasoning":"r","operation":"pullRequest","owner":"o","repo":"r","number":7}},
             "nextPage":{"tool":"ghSearchHistory","confidence":"exact","query":search}
         }}}]});
         let receipt = receipt("ghSearchHistory", &state);
@@ -1402,7 +1390,7 @@ mod tests {
                 },
                 "sourceLineRanges": [{"start": start, "end": end}],
                 "next": {"continue": {"tool": "localFetch",
-                    "query": {"path": "/tmp/f", "goal": "test", "reasoning": "R", "offset": next_offset, "chunkSize": length}
+                    "query": {"path": "/tmp/f", "mainGoal": "test", "reasoning": "R", "offset": next_offset, "chunkSize": length}
                 }}
             }}]
         })
@@ -1431,7 +1419,7 @@ mod tests {
                 },
                 "sourceLineRanges": [{"start": 1, "end": 1}],
                 "next": if has_more { json!({"continue": {"tool": "localFetch",
-                    "query": {"path": "/tmp/f", "goal": "test", "reasoning": "R",
+                    "query": {"path": "/tmp/f", "mainGoal": "test", "reasoning": "R",
                         "offset": offset + length, "chunkSize": length}
                 }}) } else { json!(null) }
             }}]
@@ -1605,13 +1593,13 @@ mod tests {
         let state = json!({"results":[{"data":{"pullRequests":[{"number":1,"next":{
             "getChangedFiles":{"tool":"ghGetHistoryItem","query":{
                 "operation":"pullRequest","owner":"o","repo":"r","number":1,
-                "include":["files","body"],"minify":"standard","pageSize":20,"goal":"g","reasoning":"r"}},
+                "include":["files","body"],"minify":"standard","pageSize":20,"mainGoal":"g","reasoning":"r"}},
             "getDiscussion":{"tool":"ghGetHistoryItem","query":{
                 "operation":"pullRequest","owner":"o","repo":"r","number":1,
-                "include":["comments","reviews"],"minify":"standard","goal":"g","reasoning":"r"}},
+                "include":["comments","reviews"],"minify":"standard","mainGoal":"g","reasoning":"r"}},
             "reviewPatches":{"tool":"ghGetHistoryItem","query":{
                 "operation":"pullRequest","owner":"o","repo":"r","number":1,
-                "include":["patches"],"files":["a.rs"],"minify":"standard","goal":"g","reasoning":"r"}}
+                "include":["patches"],"files":["a.rs"],"minify":"standard","mainGoal":"g","reasoning":"r"}}
         }}]}}]});
         let compact = receipt("ghGetHistoryItem", &state);
         assert!(compact.get("next").is_none(), "{compact}");
@@ -1622,7 +1610,7 @@ mod tests {
         let state = json!({"results":[{"data":{"type":"issues","issues":[{"number":1,"next":{
             "readMergedFix":{"tool":"ghGetHistoryItem","query":{
                 "operation":"pullRequest","owner":"o","repo":"r","number":2,
-                "goal":"g","reasoning":"r"}}
+                "mainGoal":"g","reasoning":"r"}}
         }}]}}]});
         let compact = receipt_with_evaluation("ghGetHistoryItem", &state, true, Some("issue"));
         assert!(compact.get("next").is_none(), "{compact}");

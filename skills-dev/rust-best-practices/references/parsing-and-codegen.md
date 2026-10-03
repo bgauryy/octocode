@@ -6,7 +6,7 @@ Load when parsing source (tree-sitter, oxc, syn), running structural queries, or
 - **Reuse the parser** per worker (`thread_local! { RefCell<Parser> }`), `reset()` + `set_language()` per file — never `Parser::new()` in a hot loop (see `references/performance-and-memory.md`).
 - **Compile queries once** and share (`OnceLock`/`LazyLock` → `Arc<Query>`); allocate the `QueryCursor` per call (cheap) or thread-local it.
 - **Full re-parse is fine for file-at-a-time / batch** analysis; incremental (`Tree::edit`) only pays off for interactive editing of the same buffer. Don't add incremental complexity for batch tools.
-- **Contain parser panics across FFI**: wrap third-party parser calls (oxc, C grammars) in `catch_unwind` (and a deep-stack runner for deeply-nested input) so an ICE can't unwind across a `cdylib`/N-API boundary (`references/safety-and-ffi.md`).
+- Run third-party parsers (oxc, C grammars) on a deep-stack runner for deeply-nested input.
 
 ## Query & predicate safety
 - Validate query shape up front; reject unknown fields (`#[serde(deny_unknown_fields)]`) and unknown node kinds against the grammar's symbol table.
@@ -24,6 +24,6 @@ Load when parsing source (tree-sitter, oxc, syn), running structural queries, or
 - **Re-parse the result to validate syntax.** Byte-splicing cleanly does *not* mean the output parses — re-parse the staged text and reject if it introduces new parse/ERROR nodes vs the original. A "matches-remaining == 0" postcondition is not a validity check.
 - Make apply transactional: content-hash the source+query snapshot, re-check file hashes against disk before commit, journal for rollback. A partial multi-file rewrite must be recoverable.
 
-Next: for parser reuse/allocation cost, load `references/performance-and-memory.md`; for untrusted-input bounds, `references/safety-and-ffi.md`; for the FFI panic boundary, `references/safety-and-ffi.md`.
+Next: for parser reuse/allocation cost, load `references/performance-and-memory.md`; for untrusted-input bounds and the FFI panic boundary (`catch_unwind` around parser calls), `references/safety-and-ffi.md`.
 
 For handles, walking, queries, octo/oxc/ast-grep specifics and the engine defect list, use the `ast-best-practices` skill.

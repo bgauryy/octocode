@@ -191,9 +191,10 @@ fn required_guidance(tool_name: &str, issue: &ValidationIssue) -> Option<&'stati
     })
 }
 
-/// `goal`/`reasoning` sent beside `queries` instead of inside each row.
+/// `mainGoal`/`reasoning` (or the legacy `goal`) sent beside `queries`
+/// instead of inside each row.
 fn is_root_brief(path: &[String]) -> bool {
-    matches!(path, [field] if field == "goal" || field == "reasoning")
+    matches!(path, [field] if field == "mainGoal" || field == "goal" || field == "reasoning")
 }
 
 fn root_brief_message(field: &str) -> String {
@@ -456,8 +457,9 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
 
 /// Lossless, schema-driven input repair shared by every host before
 /// validation: a JSON-encoded `queries` array, JSON-encoded or bare-scalar
-/// values in list-only fields, and exact integer/boolean strings in
-/// integer/boolean-only fields (see `coerce`). The input keeps its shape (flat
+/// values in list-only fields, exact integer/boolean strings in
+/// integer/boolean-only fields, line-range spellings, near-miss members of
+/// closed string sets, and blank optional values dropped (see `coerce`). The input keeps its shape (flat
 /// query, query array, or envelope); nothing is validated or defaulted, and
 /// an unknown tool is returned unchanged.
 #[must_use]
@@ -487,8 +489,28 @@ pub fn normalize_input(tool_name: &str, mut input: Value) -> Value {
     };
     for row in rows {
         coerce::coerce_lossless(&typed, row);
+        normalize_row(&tool["rules"], row);
+        coerce::drop_blank_optionals(&typed, row);
     }
     input
+}
+
+/// The row-level normalizers hosts share before validation: legacy field
+/// renames (`goal` → `mainGoal`) and blank optional fields dropped. Trimming
+/// and every other normalizer run with validation.
+fn normalize_row(rules: &Value, row: &mut Value) {
+    for rule in rules
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|rule| rule["phase"] == "normalize")
+    {
+        match rule["opcode"].as_str() {
+            Some("rename_fields") => rename_fields(row, &rule["args"]),
+            Some("drop_blank_fields") => drop_blank_fields(row, &rule["args"]),
+            _ => {}
+        }
+    }
 }
 
 /// Validates a single flat query object and returns the validated, defaulted
@@ -542,8 +564,22 @@ fn apply_normalization_rules(
         .as_array()
         .ok_or_else(|| internal("rules must be an array".into()))?;
     for rule in rules.iter().filter(|rule| rule["phase"] == "normalize") {
-        match rule["opcode"].as_str() {
-            Some("trim_fields") => trim_fields(input, &rule["args"]),
+        let opcode = rule["opcode"].as_str();
+        let row_normalizer: Option<fn(&mut Value, &Value)> = match opcode {
+            Some("trim_fields") => Some(trim_fields),
+            Some("rename_fields") => Some(rename_fields),
+            Some("drop_blank_fields") => Some(drop_blank_fields),
+            _ => None,
+        };
+        if let Some(normalize) = row_normalizer {
+            if let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut) {
+                for query in queries {
+                    normalize(query, &rule["args"]);
+                }
+            }
+            continue;
+        }
+        match opcode {
             Some(opcode) => {
                 return Err(issue(
                     "contract.unsupported-normalizer",
@@ -561,28 +597,54 @@ fn apply_normalization_rules(
     Ok(())
 }
 
-fn trim_fields(input: &mut Value, args: &Value) {
+fn trim_fields(query: &mut Value, args: &Value) {
     let Some(fields) = args["fields"].as_array() else {
         return;
     };
-    let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut) else {
-        return;
-    };
-    for query in queries {
-        for field in fields.iter().filter_map(Value::as_str) {
-            if let Some(array_field) = field.strip_suffix("[]") {
-                if let Some(values) = query.get_mut(array_field).and_then(Value::as_array_mut) {
-                    for value in values {
-                        if let Some(text) = value.as_str() {
-                            *value = Value::String(text.trim().to_owned());
-                        }
+    for field in fields.iter().filter_map(Value::as_str) {
+        if let Some(array_field) = field.strip_suffix("[]") {
+            if let Some(values) = query.get_mut(array_field).and_then(Value::as_array_mut) {
+                for value in values {
+                    if let Some(text) = value.as_str() {
+                        *value = Value::String(text.trim().to_owned());
                     }
                 }
-            } else if let Some(value) = query.get_mut(field)
-                && let Some(text) = value.as_str()
-            {
-                *value = Value::String(text.trim().to_owned());
             }
+        } else if let Some(value) = query.get_mut(field)
+            && let Some(text) = value.as_str()
+        {
+            *value = Value::String(text.trim().to_owned());
+        }
+    }
+}
+
+/// Moves each legacy field to its canonical name; a canonical value the row
+/// already carries wins and the legacy one is dropped.
+fn rename_fields(query: &mut Value, args: &Value) {
+    let (Some(fields), Some(row)) = (args["fields"].as_object(), query.as_object_mut()) else {
+        return;
+    };
+    for (from, to) in fields {
+        let Some(to) = to.as_str() else { continue };
+        if let Some(value) = row.remove(from) {
+            row.entry(to.to_owned()).or_insert(value);
+        }
+    }
+}
+
+/// Removes optional string fields that hold only whitespace: they carry no
+/// information, so dropping them is lossless.
+fn drop_blank_fields(query: &mut Value, args: &Value) {
+    let (Some(fields), Some(row)) = (args["fields"].as_array(), query.as_object_mut()) else {
+        return;
+    };
+    for field in fields.iter().filter_map(Value::as_str) {
+        if row
+            .get(field)
+            .and_then(Value::as_str)
+            .is_some_and(|text| text.trim().is_empty())
+        {
+            row.remove(field);
         }
     }
 }
@@ -800,7 +862,7 @@ mod tests {
 
     #[test]
     fn pure_clasify_requires_correlation_and_preserves_provider_entries() {
-        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","goal":"Files that decide the next read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer",
+        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","mainGoal":"Files that decide the next read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer",
             "type": "noul", "instructions": {"prompt":"Assess supplied state"}, "criteria":{"true":null,"false":null}
         }]});
         let prepared = prepare_and_validate("clasify", query.clone(), PrepareOptions::default())
@@ -833,18 +895,17 @@ mod tests {
         }
         let mut blank_reasoning = query.clone();
         blank_reasoning["reasoning"] = json!("");
-        assert!(
-            prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default()).is_err(),
-            "blank reasoning is rejected"
-        );
+        let dropped = prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default())
+            .expect("blank reasoning is dropped");
+        assert!(dropped.get("reasoning").is_none());
         let mut missing_goal = query.clone();
         missing_goal
             .as_object_mut()
             .expect("query object")
-            .remove("goal");
+            .remove("mainGoal");
         assert!(
-            prepare_and_validate("clasify", missing_goal, PrepareOptions::default()).is_err(),
-            "missing goal"
+            prepare_and_validate("clasify", missing_goal, PrepareOptions::default()).is_ok(),
+            "mainGoal is optional"
         );
     }
 
@@ -852,25 +913,25 @@ mod tests {
     fn validates_local_fetch_and_applies_schema_defaults() {
         let output = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","goal":"Read the fixture.","reasoning":"The next step needs these lines."}]}),
+            json!({"queries":[{"path":"/tmp/a","mainGoal":"Read the fixture.","reasoning":"The next step needs these lines."}]}),
         )
         .expect("valid query");
-        assert_eq!(output["queries"][0]["goal"], "Read the fixture.");
+        assert_eq!(output["queries"][0]["mainGoal"], "Read the fixture.");
         assert!(
             validate(
                 "localFetch",
                 json!({"queries":[{"path":"/tmp/a","reasoning":"The next step needs these lines."}]}),
             )
-            .is_err(),
-            "missing goal"
+            .is_ok(),
+            "mainGoal is optional"
         );
         assert!(
             validate(
                 "localFetch",
-                json!({"queries":[{"path":"/tmp/a","goal":"Read the fixture."}]}),
+                json!({"queries":[{"path":"/tmp/a","mainGoal":"Read the fixture."}]}),
             )
-            .is_err(),
-            "missing reasoning"
+            .is_ok(),
+            "reasoning is optional"
         );
     }
 
@@ -878,7 +939,7 @@ mod tests {
     fn rejects_local_fetch_relations_and_unknown_fields() {
         let relation = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","fullContent":true,"chunkSize":2,"goal": "test", "reasoning":"Read the complete fixture."}]}),
+            json!({"queries":[{"path":"/tmp/a","fullContent":true,"chunkSize":2,"mainGoal": "test", "reasoning":"Read the complete fixture."}]}),
         )
         .expect_err("invalid relation");
         // `chunkSize` is a valid chunk control, mutually exclusive with
@@ -897,7 +958,7 @@ mod tests {
         assert!(
             validate(
                 "localFetch",
-                json!({"queries":[{"path":"/tmp/a","wat":true,"goal": "test", "reasoning":"Exercise unknown-field validation."}]})
+                json!({"queries":[{"path":"/tmp/a","wat":true,"mainGoal": "test", "reasoning":"Exercise unknown-field validation."}]})
             )
             .is_err()
         );
@@ -932,7 +993,7 @@ mod tests {
     fn formats_stable_cli_input_errors() {
         let range = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","startLine":5,"endLine":2,"goal": "test", "reasoning":"Exercise range validation."}]}),
+            json!({"queries":[{"path":"/tmp/a","startLine":5,"endLine":2,"mainGoal": "test", "reasoning":"Exercise range validation."}]}),
         )
         .expect_err("range");
         assert_eq!(
@@ -942,24 +1003,19 @@ mod tests {
                 "details":["queries.0.endLine: Set endLine greater than or equal to startLine."]
             })
         );
-        // A blank brief names the field and the fix, not a regex.
+        // A blank brief carries nothing: it is dropped, not rejected.
         let blank = validate(
             "localFetch",
             json!({"queries":[
-                {"path":"/tmp/a","goal":"ok","reasoning":"ok"},
-                {"path":"/tmp/a","goal":"  ","reasoning":""}]}),
+                {"path":"/tmp/a","mainGoal":"ok","reasoning":"ok"},
+                {"path":"/tmp/a","mainGoal":"  ","reasoning":""}]}),
         )
-        .expect_err("blank brief");
-        assert_eq!(
-            format_input_error("localFetch", &blank, false)["details"],
-            json!([
-                "queries.1.goal: is empty; give one line on what to find or decide (goal and reasoning are required on every query).",
-                "queries.1.reasoning: is empty; give one line on why this query (goal and reasoning are required on every query)."
-            ])
-        );
+        .expect("blank brief is dropped");
+        assert!(blank["queries"][1].get("mainGoal").is_none());
+        assert!(blank["queries"][1].get("reasoning").is_none());
         let blank_path = validate(
             "localFetch",
-            json!({"queries":[{"path":" ","goal":"ok","reasoning":"ok"}]}),
+            json!({"queries":[{"path":" ","mainGoal":"ok","reasoning":"ok"}]}),
         )
         .expect_err("blank path");
         assert_eq!(
@@ -968,7 +1024,7 @@ mod tests {
         );
         let unknown = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","madeUp":true,"goal": "test", "reasoning":"Exercise unknown-field validation."}]}),
+            json!({"queries":[{"path":"/tmp/a","madeUp":true,"mainGoal": "test", "reasoning":"Exercise unknown-field validation."}]}),
         )
         .expect_err("unknown");
         assert_eq!(
@@ -985,8 +1041,8 @@ mod tests {
         let unknown = validate(
             "localFetch",
             json!({"queries":[
-                {"path":"/tmp/a","goal":"test","reasoning":"Valid row."},
-                {"path":"/tmp/a","madeUp":true,"goal":"test","reasoning":"Unknown field."}
+                {"path":"/tmp/a","mainGoal":"test","reasoning":"Valid row."},
+                {"path":"/tmp/a","madeUp":true,"mainGoal":"test","reasoning":"Unknown field."}
             ]}),
         )
         .expect_err("unknown");
@@ -1002,8 +1058,8 @@ mod tests {
         let accepted = validate(
             "localFetch",
             json!({"queries":[
-                {"path":"/tmp/a","startLine":"2","endLine":"10","goal":"test","reasoning":"Coerce."},
-                {"path":"/tmp/a","fullContent":"false","goal":"test","reasoning":"Coerce."}
+                {"path":"/tmp/a","startLine":"2","endLine":"10","mainGoal":"test","reasoning":"Coerce."},
+                {"path":"/tmp/a","fullContent":"false","mainGoal":"test","reasoning":"Coerce."}
             ]}),
         )
         .expect("lossless strings coerce");
@@ -1012,7 +1068,7 @@ mod tests {
         assert_eq!(accepted["queries"][1]["fullContent"], false);
         let search = validate(
             "localSearch",
-            json!({"queries":[{"path":"/tmp","searchText":"10","pageSize":"5","goal":"test","reasoning":"Coerce."}]}),
+            json!({"queries":[{"path":"/tmp","searchText":"10","pageSize":"5","mainGoal":"test","reasoning":"Coerce."}]}),
         )
         .expect("string fields keep their string");
         assert_eq!(search["queries"][0]["searchText"], "10");
@@ -1020,8 +1076,8 @@ mod tests {
         let union = validate(
             "lspSearch",
             json!({"queries":[
-                {"uri":"/tmp/a.rs","position":{"line":"3","character":"0"},"goal":"test","reasoning":"Coerce."},
-                {"uri":"/tmp/a.rs","symbolName":"main","lineHint":"4","goal":"test","reasoning":"Coerce."}
+                {"uri":"/tmp/a.rs","position":{"line":"3","character":"0"},"mainGoal":"test","reasoning":"Coerce."},
+                {"uri":"/tmp/a.rs","symbolName":"main","lineHint":"4","mainGoal":"test","reasoning":"Coerce."}
             ]}),
         )
         .expect("union branches coerce their own typed fields");
@@ -1042,7 +1098,7 @@ mod tests {
             assert!(
                 validate(
                     "localFetch",
-                    json!({"queries":[{"path":"/tmp/a","startLine":bad,"endLine":10,"goal":"test","reasoning":"No coercion."}]}),
+                    json!({"queries":[{"path":"/tmp/a","startLine":bad,"endLine":10,"mainGoal":"test","reasoning":"No coercion."}]}),
                 )
                 .is_err(),
                 "{bad:?} must not coerce"
@@ -1052,7 +1108,7 @@ mod tests {
             assert!(
                 validate(
                     "localFetch",
-                    json!({"queries":[{"path":"/tmp/a","fullContent":bad,"goal":"test","reasoning":"No coercion."}]}),
+                    json!({"queries":[{"path":"/tmp/a","fullContent":bad,"mainGoal":"test","reasoning":"No coercion."}]}),
                 )
                 .is_err(),
                 "{bad:?} must not coerce"
@@ -1062,7 +1118,7 @@ mod tests {
 
     #[test]
     fn list_fields_sent_json_encoded_or_bare_are_repaired_before_validation() {
-        let brief = json!({"goal":"test","reasoning":"Repair host encodings."});
+        let brief = json!({"mainGoal":"test","reasoning":"Repair host encodings."});
         let row = |extra: Value| {
             let mut row = brief.clone();
             row.as_object_mut()
@@ -1132,7 +1188,7 @@ mod tests {
                 (json!(["248", "325"]), json!(["248-325"])),
                 (json!([248, 325]), json!(["248-325"])),
             ] {
-                let mut row = json!({"goal":"g","reasoning":"r","ranges":ranges});
+                let mut row = json!({"mainGoal":"g","reasoning":"r","ranges":ranges});
                 row.as_object_mut()
                     .expect("row")
                     .extend(extra.as_object().expect("extra").clone());
@@ -1143,12 +1199,67 @@ mod tests {
         }
     }
 
+    /// Near-miss enum members, line-number pairs and blank optional values
+    /// repair against the real tool contracts, so the row then validates.
+    #[test]
+    fn near_misses_pairs_and_blank_optionals_validate_after_normalization() {
+        let brief = json!({"mainGoal":"g","reasoning":"r"});
+        let with = |extra: Value| {
+            let mut row = brief.clone();
+            row.as_object_mut()
+                .expect("row")
+                .extend(extra.as_object().expect("extra").clone());
+            json!({"queries":[row]})
+        };
+        for (tool, input, pointer, expected) in [
+            (
+                "ghSearchHistory",
+                with(json!({"operation":"pullRequests","keywords":["x"],"owner":"o","repo":"r"})),
+                "/queries/0/operation",
+                json!("pullRequest"),
+            ),
+            (
+                "lspSearch",
+                with(json!({"operation":"reference","uri":"a.ts","symbolName":"a","lineHint":1})),
+                "/queries/0/operation",
+                json!("references"),
+            ),
+            (
+                "ghGetHistoryItem",
+                with(
+                    json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,"include":["patch"]}),
+                ),
+                "/queries/0/include",
+                json!(["patches"]),
+            ),
+            (
+                "localFetch",
+                with(json!({"path":"/tmp/a.rs","ranges":[["248","325"],[400,410]]})),
+                "/queries/0/ranges",
+                json!(["248-325", "400-410"]),
+            ),
+        ] {
+            let normalized = normalize_input(tool, input);
+            assert_eq!(normalized.pointer(pointer), Some(&expected), "{tool}");
+            validate(tool, normalized).unwrap_or_else(|error| panic!("{tool}: {error:?}"));
+        }
+        let blank = normalize_input(
+            "artifactSearch",
+            with(json!({"type":"npm","packageName":"zod","version":" "})),
+        );
+        assert!(blank["queries"][0].get("version").is_none(), "{blank}");
+        validate("artifactSearch", blank).expect("blank optional dropped");
+        let required = normalize_input("localSearch", with(json!({"path":" ","searchText":"x"})));
+        assert_eq!(required["queries"][0]["path"], " ");
+        assert!(validate("localSearch", required).is_err());
+    }
+
     #[test]
     fn unrepairable_list_values_get_honest_array_hints() {
         let reject = |include: Value| {
             let error = validate(
                 "localSearch",
-                json!({"queries":[{"path":"/tmp","searchText":"x","include":include,"goal":"test","reasoning":"Hint."}]}),
+                json!({"queries":[{"path":"/tmp","searchText":"x","include":include,"mainGoal":"test","reasoning":"Hint."}]}),
             )
             .expect_err("not an array");
             error.issues[0].message.clone()
@@ -1164,7 +1275,7 @@ mod tests {
     fn names_the_selector_a_sibling_branch_needs_for_a_rejected_literal() {
         let error = validate(
             "localSearch",
-            json!({"queries":[{"path":"/tmp","searchText":"foo","unique":"list","goal": "test", "reasoning":"List values."}]}),
+            json!({"queries":[{"path":"/tmp","searchText":"foo","unique":"list","mainGoal": "test", "reasoning":"List values."}]}),
         )
         .expect_err("unique:list needs matchOnly");
         let formatted = format_input_error("localSearch", &error, false);
@@ -1181,7 +1292,7 @@ mod tests {
     #[test]
     fn guidance_names_every_form_alias_and_core_required_message() {
         let details = |tool: &str, mut row: Value| {
-            row["goal"] = json!("g");
+            row["mainGoal"] = json!("g");
             row["reasoning"] = json!("r");
             let error = validate(tool, json!({"queries":[row]})).expect_err(tool);
             format_input_error(tool, &error, true)["details"]
@@ -1224,7 +1335,7 @@ mod tests {
     fn names_the_mode_of_a_field_declared_by_a_sibling_branch() {
         let error = validate(
             "artifactSearch",
-            json!({"queries":[{"type":"npm","packageName":"zod","pageSize":3,"goal": "test", "reasoning":"Exact lookup."}]}),
+            json!({"queries":[{"type":"npm","packageName":"zod","pageSize":3,"mainGoal": "test", "reasoning":"Exact lookup."}]}),
         )
         .expect_err("pageSize is discovery-only");
         let formatted = format_input_error("artifactSearch", &error, false);
@@ -1253,7 +1364,7 @@ mod tests {
             ),
         ] {
             let mut query = json!({
-                "goal":"g","reasoning":"r","operation":"commit",
+                "mainGoal":"g","reasoning":"r","operation":"commit",
                 "owner":"octocat","repo":"Hello-World"
             });
             query[field] = value;
@@ -1380,7 +1491,14 @@ mod tests {
             super::suggest_field("searchText", &local_fetch),
             Some("matchString")
         );
-        let local_search = ["searchText", "include", "regex", "hidden", "page", "goal"];
+        let local_search = [
+            "searchText",
+            "include",
+            "regex",
+            "hidden",
+            "page",
+            "mainGoal",
+        ];
         for (guess, field) in [
             ("filePattern", "include"),
             ("fileFilter", "include"),
@@ -1414,7 +1532,7 @@ mod tests {
     fn a_row_sent_to_the_wrong_tool_names_the_tool_that_owns_its_fields() {
         let error = validate(
             "localFetch",
-            json!({"queries":[{"path":"package.json","searchText":"name","pageSize":3,"goal":"g","reasoning":"r"}]}),
+            json!({"queries":[{"path":"package.json","searchText":"name","pageSize":3,"mainGoal":"g","reasoning":"r"}]}),
         )
         .expect_err("localSearch fields");
         let formatted = format_input_error("localFetch", &error, false).to_string();
@@ -1429,7 +1547,7 @@ mod tests {
 
         let error = validate(
             "structureSearch",
-            json!({"queries":[{"path":"packages","depth":2,"goal":"g","reasoning":"r"}]}),
+            json!({"queries":[{"path":"packages","depth":2,"mainGoal":"g","reasoning":"r"}]}),
         )
         .expect_err("misspelled maxDepth");
         let formatted = format_input_error("structureSearch", &error, false).to_string();
@@ -1444,7 +1562,7 @@ mod tests {
 
         let error = validate(
             "astSearch",
-            json!({"queries":[{"path":"packages","operation":"files","pageSize":5,"goal":"g","reasoning":"r"}]}),
+            json!({"queries":[{"path":"packages","operation":"files","pageSize":5,"mainGoal":"g","reasoning":"r"}]}),
         )
         .expect_err("structureSearch operation");
         let formatted = format_input_error("astSearch", &error, false).to_string();
@@ -1457,7 +1575,7 @@ mod tests {
     #[test]
     fn an_oversized_batch_says_how_to_split_it() {
         let rows = (0..7)
-            .map(|_| json!({"path":"package.json","goal":"g","reasoning":"r"}))
+            .map(|_| json!({"path":"package.json","mainGoal":"g","reasoning":"r"}))
             .collect::<Vec<_>>();
         let error = validate("localFetch", json!({ "queries": rows })).expect_err("too many rows");
         let formatted = format_input_error("localFetch", &error, false).to_string();
@@ -1471,13 +1589,13 @@ mod tests {
     fn a_top_level_brief_is_moved_into_each_row() {
         let error = crate::contracts::prepare_many_and_validate(
             "localSearch",
-            json!({"goal":"g","queries":[{"path":".","searchText":"x","goal":"g","reasoning":"r"}]}),
+            json!({"mainGoal":"g","queries":[{"path":".","searchText":"x","mainGoal":"g","reasoning":"r"}]}),
             PrepareOptions { source_label: "test" },
         )
-        .expect_err("goal is per row");
+        .expect_err("mainGoal is per row");
         let formatted = format_input_error("localSearch", &error, false).to_string();
         assert!(
-            formatted.contains("Move 'goal' into each queries[] row"),
+            formatted.contains("Move 'mainGoal' into each queries[] row"),
             "{formatted}"
         );
     }

@@ -126,7 +126,7 @@ scen('missing-path', 'Nonexistent path', `rg -n foo src/nope.ts`, 'localSearch',
 {
   const f = S('src/rw.ts'); fs.writeFileSync(f, 'console.log("a");\nconsole.log("b");\n');
   const prev = oc('astRewrite', { path: S('src'), langType: 'typescript', ruleKind: 'pattern', pattern: 'console.log($A)', rewrite: 'logger.info($A)', include: ['rw.ts'] }, { cwd: P, reps: 1 });
-  const nx = prev.parsed?.results?.[0]?.data?.next?.apply?.query;
+  const nx = prev.parsed?.results?.[0]?.data?.hints?.apply?.query;
   fs.appendFileSync(f, 'console.log("c");\n');
   const ap = nx ? ocRaw('astRewrite', { queries: [nx] }, { cwd: P, reps: 1 }) : null;
   const after = fs.readFileSync(f, 'utf8');

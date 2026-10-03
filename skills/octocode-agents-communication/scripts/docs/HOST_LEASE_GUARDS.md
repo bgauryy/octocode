@@ -1,10 +1,6 @@
 # Host-side lease admission
 
-Path leases remain advisory across vendors. A SQLite row cannot fence an arbitrary
-OS write. The host can make a useful narrower guarantee: reject a supported,
-structured file-edit call when the agent does not currently hold its covering lease.
-This closes accidental unleased `write`/`edit` calls without pretending to parse every
-shell command, subprocess, custom tool, or editor action.
+Leases stay advisory: a SQLite row cannot fence an OS write. A host can still reject a structured file-edit call that lacks a covering lease. This stops accidental unleased `write`/`edit` calls, not shell commands, subprocesses, custom tools or editor actions.
 
 ## Shared read-only check
 
@@ -13,40 +9,26 @@ agents-communication check_write '{"paths":[{"path":"src/module.ts"},{"path":"te
   --session SESSION_ID --workspace /absolute/repo --database /absolute/store.sqlite
 ```
 
-`check_write` is a CLI-only host integration seam, not another model-facing tool.
-It accepts 1–32 `{path, kind?}` targets, including absent files; `kind` defaults to `file` and tree targets are rejected. It uses the same path
-resolver and conservative caseless namespace as acquisition. Workspace escapes and
-existing directory targets are rejected. Check both concrete endpoints of a file
-rename; recursive directory mutations need a separate tree-aware host integration.
+`check_write` is a CLI-only host seam, not a model-facing tool. It takes 1–32 `{path, kind?}` targets, including absent files; `kind` defaults to `file`, and tree targets, workspace escapes and existing directories are rejected. It uses the acquisition path resolver and caseless namespace. Check both endpoints of a file rename; recursive directory mutations need a tree-aware host integration.
 
-The command checks active identity and owned live file/tree coverage in one read
-snapshot. Host adapters also pass `vendorSession` to validate the native session
-binding in that same snapshot; generic raw callers may omit it. It never acquires, renews, stages messages, or changes storage. `ok:false`
-means at least one path lacks coverage; errors also mean the host must not admit a
-guarded write. `checks` identifies coverage and the lease ID/effective expiry, capped
-by owner presence. `checkedAt` is the snapshot time and `advisory:true` remains explicit.
-The result is not an enduring capability: expiry, release, a later extension rewrite,
-or filesystem topology changes can invalidate it after the check.
+One read snapshot checks active identity and live owned file/tree coverage, plus the native binding when adapters pass `vendorSession`. It never acquires, renews, stages or writes. `ok:false` or an error means the host must not admit the write. `checks` gives coverage, lease ID and effective expiry (capped by owner presence), with `checkedAt` and `advisory:true`. The result can go stale on expiry, release, input rewrite or filesystem change.
 
 ## Check setup before editing
 
 | Setup | Covered operations | Configuration evidence |
 | --- | --- | --- |
-| Pi `tools: 'editing'` | `write`, `edit` | Enabled automatically; `controller.getGuardCapabilities()` reports `configured` and current `bound` state |
-| Pi other profiles | None by default | Set `requireLeases:true` explicitly; the same capability receipt reports the result |
-| Claude guard | `Write`, `Edit` | `--config` emits a stderr capability receipt with `configured:false`: it is only a settings preview |
-| OpenCode guard | `write`, `edit` | Explicit plugin factory and native-session map; importing alone installs nothing |
-| Cursor/Grok message hooks | None | `host-config` emits a stderr capability receipt with `configured:false` and no supported edit operations |
-| Codex | No bundled guard | `host-config --vendor codex` rejects unsupported setup |
+| Pi `tools: 'editing'` | `write`, `edit` | Automatic; `controller.getGuardCapabilities()` reports `configured` and `bound` |
+| Pi other profiles | None by default | Set `requireLeases:true`; same capability receipt |
+| Claude guard | `Write`, `Edit` | `--config` stderr receipt `configured:false` (settings preview only) |
+| OpenCode guard | `write`, `edit` | Explicit plugin factory and native-session map; import alone installs nothing |
+| Cursor/Grok message hooks | None | `host-config` stderr receipt `configured:false`, no edit operations |
+| Codex | No bundled guard | `host-config --vendor codex` rejects setup |
 
-Native settings remain on stdout unchanged. Preview receipts never claim that a
-host loaded or enabled a hook. Verify a blocked unleased structured write and a
-successful leased write in the actual configured host before relying on admission.
-None of these receipts promise shell/custom-tool or operating-system fencing.
+Native settings stay unchanged on stdout; a preview receipt never claims a host loaded a hook. Before you rely on admission, check in the real host that an unleased structured write is blocked and a leased one succeeds.
 
 ## Pi editing setup
 
-Configure a trusted extension to load the existing inbox adapter:
+Load the inbox adapter from a trusted extension:
 
 ```js
 import { registerPiInbox } from '/absolute/skill/scripts/pi-inbox.mjs';
@@ -61,30 +43,13 @@ export default function (pi) {
 }
 ```
 
-The editing tool profile enables admission by default and rejects
-`requireLeases:false`. Other profiles retain their messaging behavior; explicitly
-set `requireLeases:true` when they also use structured writes. The adapter registers a
-`tool_call` handler for Pi's structured `write` and `edit` tools. It resolves their
-`input.path` from the event's working directory through the same
-`hooks/lease-check.mjs` admission call as the Claude and OpenCode guards. Missing/stale bindings, missing paths, failed coverage, expired
-results, and CLI failures return an explicit block before that tool runs. The
-adapter never auto-acquires a lease; the agent must coordinate and retry.
-Its initial identity context states whether the guard is configured once per
-binding; this is not repeated on every event. The returned controller exposes
-`getGuardCapabilities()` for host checks without model calls or database writes.
+The editing profile enables admission and rejects `requireLeases:false`; other profiles opt in with `requireLeases:true`. A `tool_call` handler resolves `input.path` of `write`/`edit` from the event cwd through the shared `hooks/lease-check.mjs`. Missing/stale bindings or paths, failed coverage, expired results and CLI failures block before the tool runs. Nothing auto-acquires: the agent coordinates and retries. Identity context states once per binding whether the guard is on; `getGuardCapabilities()` checks without model calls or DB writes.
 
-This gate does not cover `bash`, `powershell`, arbitrary custom tools, user terminal
-commands, or unrelated processes. Pi allows later handlers to rewrite input; use a
-trusted extension order and do not treat admission as a sandbox. Disabling or
-removing the extension also removes its gate. [Pi's extension contracts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)
-and [event types](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/extensions/types.ts)
-document the blocking event and mutable input.
+Not covered: `bash`, `powershell`, custom tools, user terminals, other processes. Later Pi handlers can rewrite input: use a trusted extension order. Admission is not a sandbox; removing the extension removes it. See [Pi extension contracts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) and [event types](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/extensions/types.ts).
 
 ## Claude opt-in
 
-The optional Node adapter checks only Claude's structured `PreToolUse` `Write` and
-`Edit` calls. Generate a preview with the existing DB identity and its exact native
-Claude session ID (the DB identity must have matching `vendorSession`):
+The optional Node adapter checks only `PreToolUse` `Write`/`Edit`. Preview with the DB identity and its exact native session ID (the identity's `vendorSession` must match):
 
 ```sh
 node /absolute/skill/scripts/hooks/claude-lease-guard.mjs --config \
@@ -93,30 +58,15 @@ node /absolute/skill/scripts/hooks/claude-lease-guard.mjs --config \
   --session DB_SESSION_ID --host-session CLAUDE_SESSION_UUID
 ```
 
-This prints a POSIX-shell-safe settings fragment; it writes no settings and creates
-no identity. Merge the fragment into the intended session's settings, preserving
-existing lifecycle/message hooks. For an owned CLI session, pass that fragment via
-`claude --settings` and the same UUID via `--session-id`. Do not use options that
-disable hooks. A resumed session with a different native ID needs a new binding.
-Use this adapter and its matching bundled CLI together.
+It prints a POSIX-shell-safe settings fragment and writes nothing. Merge it into the session's settings beside existing hooks, or pass it via `claude --settings` with the same UUID via `--session-id`. Never disable hooks. A resumed session with a new native ID needs a new binding. Use the bundled CLI version.
 
-For supported calls, it checks the event's session and working directory, then makes
-one read-only Python `check_write` call. Failed coverage, malformed input, missing or
-stale binding, and checker failures return an explicit deny. Covered calls return
-`{}` so normal host permission checks still apply. The guard does not renew presence
-or acquire a lease, and must not be configured as an async hook. Node is optional
-for this adapter; raw communication remains a standalone Python CLI.
+Per call it checks session and cwd, then one read-only `check_write`: failures or malformed/stale input deny; covered calls return `{}` so normal permissions still apply. It acquires and renews nothing and must not run async. Only this adapter needs Node.
 
-This covers neither Bash/MCP/custom tools nor OS writes. If Node cannot start, the
-hook is disabled, or the host terminates it before a response, the adapter cannot
-supply its denial. Host failure semantics and later hook input rewrites remain
-outside this gate. [Claude's hook contract](https://code.claude.com/docs/en/hooks)
-describes the structured inputs and permission decision.
+Not covered: Bash/MCP/custom tools, OS writes, or a hook that fails to start or is killed before it answers. See [Claude's hook contract](https://code.claude.com/docs/en/hooks).
 
 ## OpenCode opt-in
 
-Create a trusted local plugin using the factory; importing the helper alone installs
-nothing. Bind every participating native session explicitly to its DB identity:
+Create a trusted local plugin from the factory (importing installs nothing) and bind every participating native session to its DB identity:
 
 ```js
 import { createOpenCodeLeaseGuard } from '/absolute/skill/scripts/hooks/opencode-lease-guard.mjs';
@@ -129,45 +79,21 @@ export const CommunicationLeaseGuard = createOpenCodeLeaseGuard({
 });
 ```
 
-OpenCode loads trusted plugins from `.opencode/plugins/`. This factory returns a
-`tool.execute.before` handler for the built-in `write` and `edit` tools and their
-`args.filePath` (absolute paths only, matching the documented tool contract).
-Unbound native sessions, failed checks and in-flight argument changes
-throw before execution. The mapping is copied at creation; restart/reconfigure it
-for new native sessions. Restrict this opt-in plugin to hosts where all participating
-sessions have mappings. It does not discover identities, create sessions, call models,
-or consume messages. Shell, `apply_patch`, custom tools, post-check rewrites by other
-plugins and formatter side effects remain outside coverage. Disable alternative
-mutation paths separately when a stronger host policy is required. See the [plugin guide](https://opencode.ai/docs/plugins/).
+OpenCode loads trusted plugins from `.opencode/plugins/`. The `tool.execute.before` handler guards built-in `write`/`edit` (absolute `args.filePath`); unbound sessions, failed checks and in-flight argument changes throw. The session map is copied at creation, so reconfigure for new sessions and use it only where every participating session is mapped. It creates and consumes nothing. Shell, `apply_patch`, custom tools, other plugins' rewrites and formatter side effects stay outside. See the [plugin guide](https://opencode.ai/docs/plugins/).
 
 ## Other hosts: supported seams, not installed adapters
 
 | Host | Documented pre-execution seam | Material limits |
 | --- | --- | --- |
-| Codex | `PreToolUse` for `apply_patch`, Bash and local/MCP tools | Patch text needs an exact parser; some specialized paths bypass hooks and `write_stdin` does not rerun the pre-hook |
+| Codex | `PreToolUse` for `apply_patch`, Bash and local/MCP tools | Patch text needs an exact parser; some paths bypass hooks; `write_stdin` does not rerun the pre-hook |
 | Grok | `PreToolUse` with explicit deny; Claude-compatible matcher aliases | `Write`/`Edit` alias to `search_replace`; crashes/timeouts/malformed output fail open |
 
-These are documented seams ([Codex](https://learn.chatgpt.com/docs/hooks),
-[Grok](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md)),
-not installed or tested guards. Existing message/lifecycle hooks do not enforce
-leases and must not be relabeled as edit guards.
+These seams ([Codex](https://learn.chatgpt.com/docs/hooks), [Grok](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md)) are neither installed nor tested. Message/lifecycle hooks do not enforce leases; never relabel them as edit guards.
 
-All three structured guards reject parent (`..`) traversal, leading `@`/`~`,
-file URLs and Unicode-space aliases rather than guessing how each host rewrites them.
-Use a plain repository-relative or absolute path; OpenCode requires an absolute one.
-On Windows, shell-style slash-root and drive-relative aliases are also rejected.
-This matters for symlink/parent combinations: Pi lexically normalizes a path before
-writing, while the Python lease resolver follows physical traversal. Rejecting these
-ambiguous inputs prevents a lease for one target from admitting a different target. Plain symlink paths still undergo Python canonical checks.
+All three guards reject parent (`..`) traversal, leading `@`/`~`, file URLs and Unicode-space aliases instead of guessing host rewrites; on Windows also slash-root and drive-relative aliases. Use a plain repository-relative or absolute path (OpenCode: absolute). Reason: Pi normalizes lexically while the Python resolver follows physical traversal, so with symlinks a lease for one target could admit another. Plain symlink paths still get Python canonical checks.
 
-Stronger write isolation requires host permissions/sandbox policy that removes
-alternative mutation paths, or a trusted mutation service that checks ownership
-inside the write operation. Regex inspection of shell text is not a substitute.
+Stronger isolation needs a host sandbox that removes other mutation paths, or a mutation service that checks ownership inside the write; shell-text regex is no substitute.
 
 ## Verification boundary
 
-`tests/lease-guard.test.mjs`, `tests/pi-lease-guard.test.mjs`,
-`tests/claude-lease-guard.test.mjs` and `tests/opencode-lease-guard.test.mjs` run the
-real CLI against deterministic host fixtures: unleased structured writes are blocked
-before the side effect and leased writes proceed. They prove structured-write gates
-only, not shell/custom-tool enforcement or hostile-extension resistance.
+`tests/lease-guard.test.mjs`, `tests/pi-lease-guard.test.mjs`, `tests/claude-lease-guard.test.mjs` and `tests/opencode-lease-guard.test.mjs` run the real CLI against deterministic host fixtures: unleased structured writes are blocked before the side effect, leased writes proceed. They prove structured-write gates only, not shell/custom-tool enforcement or hostile-extension resistance.

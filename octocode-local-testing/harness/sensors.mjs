@@ -4,15 +4,15 @@
 // anchor plus rolling baseline). Pure functions only; `--self-test` runs them
 // on synthetic responses.
 //
-// Two continuation containers, detected by type so today's and the next
-// contract both read correctly:
-//   next   pagination/coverage continuations (nextPage, continue*, restart,
-//          nextDiagnostics, searchUnpatchedFile, binarySkipped, and the
-//          envelope responsePagination.next). Today it also carries leads.
-//   hints  leads: `{ text?: string[], <leadName>: {tool, query} }`. Today it is
-//          a prose string[] on error rows (no continuations).
-// A lead is any `hints` entry, or a `next` entry whose name is not a page
-// name. Briefs (goal / mainGoal / reasoning) may be absent from any query.
+// Two continuation containers (core `CONTINUATION_CHANNELS`):
+//   next   pages: continuations that reach unshown data of the same result,
+//          plus the envelope responsePagination.next.
+//   hints  `{ text?: string[], <leadName>: {tool, query} }`: prose tips and
+//          optional lead calls.
+// A lead is any `hints` entry, or (in legacy streams, where `next` also held
+// leads and `hints` was a prose string[]) a `next` entry that core classifies
+// as a lead. Briefs (goal / mainGoal / reasoning) may be absent from any query.
+import { continuationChannel } from '@octocodeai/config/schema';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,31 +37,33 @@ export function hintEntries(container, name = 'hints') {
 export const envelopeContainer = sc => sc?.responsePagination?.next ?? sc?.responsePagination?.hints;
 /** True when a `hints`/`next` value holds executable continuations (error rows carry `hints` as prose strings). */
 export const isHintContainer = (key, value) => isHintKey(key) && hintEntries(value).length > 0;
-/** Page (pagination/coverage) continuation names; everything else is a lead. */
-export const PAGE_NAME = /^(?:next(?:[A-Z]\w*)?|continue\w*|restart|searchUnpatchedFile|binarySkipped)$/;
-/** Lead entries offered by one object: all of its `hints` entries plus non-page `next` entries (today's shape). */
-export function leadEntries(holder) {
+/** The emitting tool of a structured response when the caller does not know it: clasify answers carry `queries`. */
+export const responseTool = sc => (Array.isArray(sc?.queries) ? 'clasify' : '');
+/** True when core classifies continuation `name` of `tool` as a page. */
+export const isPageName = (name, tool = '') => continuationChannel(tool, name) === 'page';
+/** Lead entries offered by one object: all of its `hints` entries plus lead-named `next` entries (legacy shape). */
+export function leadEntries(holder, tool = '') {
   if (!holder || typeof holder !== 'object' || Array.isArray(holder)) return [];
-  return [...hintEntries(holder.hints), ...hintEntries(holder.next).filter(e => !PAGE_NAME.test(e.name))];
+  return [...hintEntries(holder.hints), ...hintEntries(holder.next).filter(e => !isPageName(e.name, tool))];
 }
 /** Largest lead menu (the R2 cap applies to leads; `next` pages are uncapped) under a node. */
-export function maxLeadEntries(node) {
+export function maxLeadEntries(node, tool = responseTool(node)) {
   let max = 0;
   const walk = n => {
     if (!n || typeof n !== 'object') return;
-    if (!Array.isArray(n)) max = Math.max(max, leadEntries(n).length);
+    if (!Array.isArray(n)) max = Math.max(max, leadEntries(n, tool).length);
     for (const child of Object.values(n)) walk(child);
   };
   walk(node);
   return max;
 }
-/** Page continuations of a response: `next` entries with page names, plus the envelope `responsePagination.next`. */
-export function pageEntries(sc) {
+/** Page continuations of a response: page-named `next` entries, plus the envelope `responsePagination.next`. */
+export function pageEntries(sc, tool = responseTool(sc)) {
   const out = [];
   const walk = n => {
     if (!n || typeof n !== 'object') return;
     for (const [key, child] of Object.entries(n)) {
-      if (key === 'next') out.push(...hintEntries(child, 'next').filter(e => PAGE_NAME.test(e.name)));
+      if (key === 'next') out.push(...hintEntries(child, 'next').filter(e => isPageName(e.name, tool)));
       else walk(child);
     }
   };
@@ -82,11 +84,11 @@ export function bytesUnderKey(value, keyName) {
   return total;
 }
 /** JSON bytes of lead entries wherever they live (comparable across the next → hints move). */
-export function leadBytes(value) {
+export function leadBytes(value, tool = responseTool(value)) {
   let total = 0;
   const walk = n => {
     if (!n || typeof n !== 'object') return;
-    if (!Array.isArray(n)) for (const e of leadEntries(n)) total += JSON.stringify(e.hint).length + e.name.length + 3;
+    if (!Array.isArray(n)) for (const e of leadEntries(n, tool)) total += JSON.stringify(e.hint).length + e.name.length + 3;
     for (const child of Object.values(n)) walk(child);
   };
   walk(value);
@@ -323,13 +325,17 @@ export function selfTest() {
   assert(canonical(allHintEntries(withNext)) === canonical(allHintEntries(withHints)) && allHintEntries(withHints).length === 2, 'hints and next walk to the same continuations (row + envelope)');
   assert(hintEntries(envelopeContainer(withHints)).length === 1 && hintEntries(envelopeContainer(withNext)).length === 1, 'envelope continuation read from responsePagination.next (or .hints)');
   assert(allHintEntries({ results: [{ status: 'error', data: { hints: ['Verify the path exists'] } }] }).length === 0, 'error-row prose hints are not continuations');
-  // Today: leads inside `next`, prose `hints`. Next contract: pages in `next`, leads + text in `hints`.
+  // Legacy streams: leads inside `next`, prose `hints`. Current contract: pages in `next`, leads + text in `hints`.
   const today = { next: { nextPage: hint('localSearch', { page: 2 }), readFixPr: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) }, hints: ['prose'] };
   const after = { next: { nextPage: hint('localSearch', { page: 2 }) }, hints: { text: ['prose'], readFixPr: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) } };
   assert(leadEntries(today).length === 2 && leadEntries(after).length === 2 && maxLeadEntries({ results: [{ data: after }] }) === 2, 'leads counted the same in both shapes (pages uncapped)');
   assert(pageEntries({ results: [{ data: today }] }).length === 1 && pageEntries({ results: [{ data: after }], responsePagination: { next: hint('x', { responseCharOffset: 9 }) } }).length === 2, 'page continuations read from next only (+ envelope)');
   assert(leadBytes(today) === leadBytes(after) && leadBytes(today) > 0, 'lead bytes comparable across the move');
   assert(allHintEntries(after).length === 3, 'replay set: every next entry and every non-text hints entry');
+  // The page/lead rule is core's: clasify's own walk is a page, a clasify handoff elsewhere is a lead.
+  const clasifyWalk = { queries: [{ next: { clasify: hint('clasify', { resources: [] }), read: hint('localFetch', { path: 'a' }) } }] };
+  assert(pageEntries(clasifyWalk).length === 1 && maxLeadEntries(clasifyWalk) === 1, 'legacy clasify: next.clasify is a page, next.read a lead');
+  assert(leadEntries({ next: { clasify: hint('clasify', {}), expandCaptures: hint('astSearch', {}) } }, 'localSearch').length === 1, 'legacy handoff: clasify on another tool is a lead, expand* a page');
 
   // Schema errors.
   assert(schemaErrors({ isError: true, raw: undefined, text: 'Input validation error: Invalid arguments for tool localFetch: queries.0.ranges.0: Use "start-end"' }).count === 1, 'call-level input validation error counted');

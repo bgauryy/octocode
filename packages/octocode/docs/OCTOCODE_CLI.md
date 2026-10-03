@@ -45,15 +45,15 @@ and prints single-line JSON (`--pretty` indents).
 |---|---|
 | `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the full input contract (default `--view full`). `--view variants` lists branch names, selectors, and examples; `--view query` prints the self-contained query schema, and `--select FIELD=VALUE` (or `variant=NAME`, `--view query` only) keeps one union branch. Output validation schemas remain internal. |
 | `showConfig` | Print the global `.env` path; `--json` includes file existence. Honors `OCTOCODE_HOME`. |
-| `config` | Inspect config paths and key names; `--check KEY`, `--add KEY VALUE`, `--remove KEY`, and `--json`. Values are never printed. |
+| `config` | Inspect config paths and key names; `--check KEY` (exit 0 = set, exit 1 = unset), `--add KEY VALUE`, `--remove KEY`, and `--json`. Values are never printed. |
 | `auth` | GitHub auth: `status` (default; `--json`), `login` (device flow; `--refresh`, `--force`, `--hostname`, `--json`), `logout`. See [`auth`](#auth--github-authentication). |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
-| `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. |
+| `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. Runs in the npm launcher; the native binary forwards `skill` to it. |
 | `graph` | `graph ingest <path>` builds a persisted code graph under `<workspace>/.octocode/graph/`; `graph query <op>` answers bounded questions from it. See [`graph`](#graph--persisted-code-graph). |
 | `help` | Print help for any command. |
 
 Hidden maintenance commands (still available, not part of the agent surface):
-`cache <status|clear>` and `lsp-server <list|install|uninstall|clean|status|which>`.
+`cache <status|clear>` and `lsp-server <list|install|uninstall|remove|clean|status|which>` (`remove` is an alias of `uninstall`).
 
 Use `npx octocode <command> --help` for the live command help.
 
@@ -66,9 +66,9 @@ npx octocode --help
 npx octocode auth --json
 npx octocode scheme --compact
 npx octocode scheme localSearch
-npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/src","goal":"Map the source tree.","reasoning":"Map the source tree."}'
-npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"createServer","resultView":"matchOnly","goal":"Locate the server entry.","reasoning":"Locate the server entry."}'
-npx octocode localFetch '{"path":"./src/index.ts","fullContent":true,"goal":"Read the entry file.","reasoning":"Read the entry file."}'
+npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/src"}'
+npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"createServer","resultView":"matchOnly"}'
+npx octocode localFetch '{"path":"./src/index.ts","fullContent":true}'
 npx octocode skill list
 npx octocode skill install octocode-research --platform pi --global
 ```
@@ -111,15 +111,20 @@ map cheaply → search narrowly → read exact evidence → follow symbols or hi
 ```
 
 ```bash
-npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/crates/runtime/src","goal":"Map the runtime crate.","reasoning":"Map the runtime crate."}'
-npx octocode localSearch '{"path":"/ABS/repo/crates/runtime/src","searchText":"ToolRuntime","resultView":"matchOnly","goal":"Find the runtime type.","reasoning":"Find the runtime type."}'
-npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs","matchString":"ToolRuntime","goal":"Read the definition site.","reasoning":"Read the definition site."}'
-npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"goal":"Trace usages.","reasoning":"Trace usages."}'
+npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/crates/runtime/src","mainGoal":"Where is ToolRuntime built and used?","reasoning":"Map the crate before searching."}'
+npx octocode localSearch '{"path":"/ABS/repo/crates/runtime/src","searchText":"ToolRuntime","resultView":"matchOnly","mainGoal":"Where is ToolRuntime built and used?","reasoning":"Find the defining file."}'
+npx octocode localFetch '{"path":"/ABS/repo/crates/runtime/src/runtime/engine.rs","matchString":"ToolRuntime","mainGoal":"Where is ToolRuntime built and used?","reasoning":"Read the definition."}'
+npx octocode lspSearch '{"uri":"/ABS/repo/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40,"mainGoal":"Where is ToolRuntime built and used?","reasoning":"Trace its callers."}'
 ```
 
-Every query requires nonblank `goal` (what the query must find) and
-`reasoning` (why it advances the goal) strings; a `next.*` continuation
-already carries the brief of the query that produced it. Queries accept a single object, a JSON
+The brief is optional. Add `mainGoal` (the research question the query serves)
+and `reasoning` (why the query advances it) only in multi-call research on an
+unknown; omit both on simple lookups. A blank brief field is dropped. The
+legacy name `goal` is accepted for one release and maps to `mainGoal`.
+Responses split follow-ups into two channels: `next` holds pages and coverage
+continuations (the result is incomplete until you run them), and `hints` holds
+optional leads plus prose tips in `hints.text`. A `next` page or `hints` lead
+carries the brief only when the producing query sent one. Queries accept a single object, a JSON
 array, or `{"queries":[…]}` for a batch (up to 5). Large queries avoid shell
 quoting with `--input <file>`.
 
@@ -128,8 +133,8 @@ quoting with `--input <file>`.
 ## `ghCloneRepo` — materialize a GitHub repository
 
 ```bash
-npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","goal":"Analyze locally.","reasoning":"Analyze locally."}'
-npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next","goal":"Analyze one package.","reasoning":"Analyze one package."}'
+npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js"}'
+npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next"}'
 ```
 
 Use `ghCloneRepo` when you need to inspect several files, run structural (AST)
@@ -351,7 +356,8 @@ npx octocode install --ide cursor --dry-run   # print the config without writing
 
 Supported clients (`install --list`): Cursor, Claude Desktop, Claude Code,
 Windsurf, Zed, VS Code Cline/Roo/Continue, OpenCode, Trae, Antigravity, Codex,
-Gemini CLI, Goose, Kiro. Other flags: `--method npx|bunx|pnpm`,
+Gemini CLI, Goose, Kiro. The short ids `claude` and `vscode` map to
+`claude-desktop` and `vscode-cline`. Other flags: `--method npx|bunx|pnpm`,
 `--enable-local true|false`, `--backup` / `--rollback <file>`. Run
 `octocode install --help` for the full list.
 
@@ -406,6 +412,10 @@ this repo's `skills/` directory at build/publish time. Install can use a bundled
 skill or `--add <local-path>` (a directory containing `SKILL.md`). It atomically materializes a durable
 copy under `$OCTOCODE_HOME/skills/<name>`, then optionally links agent-specific
 skill directories to that copy. Links never target an npm or `npx` cache.
+The npm launcher owns `skill`: the native binary forwards every `skill`
+argument to the `octocode` launcher on PATH, so both report the same flags and
+status. It fails with exit 1 and a `npx -y octocode skill …` rerun command when
+that launcher is missing or resolves back to a native binary.
 
 ```bash
 npx octocode skill list
@@ -454,9 +464,9 @@ retired skills (for example `octocode-clasify` → `octocode-research`) under
 ### Orient in a local codebase
 
 ```bash
-npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/src","goal":"Map the tree.","reasoning":"Map the tree."}'
-npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"parseArgs","resultView":"matchOnly","goal":"Find the parser.","reasoning":"Find the parser."}'
-npx octocode localFetch '{"path":"/ABS/repo/src/cli/parser.ts","matchString":"parseArgs","goal":"Read the parser.","reasoning":"Read the parser."}'
+npx octocode structureSearch '{"operation":"tree","path":"/ABS/repo/src"}'
+npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"parseArgs","resultView":"matchOnly"}'
+npx octocode localFetch '{"path":"/ABS/repo/src/cli/parser.ts","matchString":"parseArgs"}'
 ```
 
 ### Structure, blast radius, and risks (code graph)
@@ -466,7 +476,7 @@ npx octocode graph ingest /ABS/repo
 npx octocode graph query dependents src/config.ts --depth 2   # who is affected
 npx octocode graph query impact --since origin/main            # changed files -> tests to run
 npx octocode graph query issues --min-score 0.3                # triage, then verify each lead
-npx octocode lspSearch '{"operation":"references","uri":"/ABS/repo/src/config.ts","symbolName":"load","lineHint":12,"goal":"Prove the graph lead.","reasoning":"Prove the graph lead."}'
+npx octocode lspSearch '{"operation":"references","uri":"/ABS/repo/src/config.ts","symbolName":"load","lineHint":12}'
 ```
 
 Use the graph for repo-wide structure (imports, callers, cycles, reachability,
@@ -479,9 +489,9 @@ GitHub code search can return zero rows when a provider has not indexed a repo.
 Treat that as a provider gap, not proof of absence.
 
 ```bash
-npx octocode ghStructure '{"owner":"vercel","repo":"next.js","path":"packages/next","goal":"Browse the package.","reasoning":"Browse the package."}'
-npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next","goal":"Materialize for search.","reasoning":"Materialize for search."}'
-npx octocode localSearch '{"path":"<clone localPath>/src","searchText":"useState","resultView":"matchOnly","goal":"Prove the usage.","reasoning":"Prove the usage."}'
+npx octocode ghStructure '{"owner":"vercel","repo":"next.js","path":"packages/next"}'
+npx octocode ghCloneRepo '{"owner":"vercel","repo":"next.js","sparsePath":"packages/next"}'
+npx octocode localSearch '{"path":"<clone localPath>/src","searchText":"useState","resultView":"matchOnly"}'
 ```
 
 ### Symbols and references
@@ -489,24 +499,24 @@ npx octocode localSearch '{"path":"<clone localPath>/src","searchText":"useState
 Get line anchors first, then trace the symbol:
 
 ```bash
-npx octocode lspSearch '{"uri":"/ABS/repo/src/index.ts","operation":"documentSymbols","goal":"List anchors.","reasoning":"List anchors."}'
-npx octocode lspSearch '{"uri":"/ABS/repo/src/index.ts","operation":"references","symbolName":"runCLI","lineHint":42,"goal":"Trace callers.","reasoning":"Trace callers."}'
+npx octocode lspSearch '{"uri":"/ABS/repo/src/index.ts","operation":"documentSymbols"}'
+npx octocode lspSearch '{"uri":"/ABS/repo/src/index.ts","operation":"references","symbolName":"runCLI","lineHint":42}'
 ```
 
 ### Package to source
 
 ```bash
-npx octocode artifactSearch '{"type":"npm","packageName":"zod","goal":"Locate the package.","reasoning":"Locate the package."}'
-npx octocode ghSearchCode '{"keywords":["ZodObject"],"owner":"colinhacks","repo":"zod","goal":"Find the source.","reasoning":"Find the source."}'
+npx octocode artifactSearch '{"type":"npm","packageName":"zod"}'
+npx octocode ghSearchCode '{"keywords":["ZodObject"],"owner":"colinhacks","repo":"zod"}'
 ```
 
 ### Pull requests and history
 
 ```bash
-npx octocode ghSearchHistory '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","state":"merged","pageSize":10,"goal":"Survey merged PRs.","reasoning":"Survey merged PRs."}'
-npx octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","number":123,"content":{"patches":{"mode":"all"},"comments":{"discussion":true}},"goal":"Read PR 123.","reasoning":"Read PR 123."}'
-npx octocode ghSearchHistory '{"operation":"commit","owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z","goal":"Find recent commits.","reasoning":"Find recent commits."}'
-npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"octocode","base":"v1.0.0","head":"v2.0.0","goal":"Diff releases.","reasoning":"Diff releases."}'
+npx octocode ghSearchHistory '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","state":"merged","pageSize":10}'
+npx octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","number":123,"content":{"patches":{"mode":"all"},"comments":{"discussion":true}}}'
+npx octocode ghSearchHistory '{"operation":"commit","owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z"}'
+npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"octocode","base":"v1.0.0","head":"v2.0.0"}'
 ```
 
 ### Agent or script mode
@@ -514,7 +524,7 @@ npx octocode ghGetHistoryItem '{"operation":"compare","owner":"bgauryy","repo":"
 ```bash
 npx octocode scheme --compact
 npx octocode scheme localSearch --view query --compact
-npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultView":"matchOnly","goal":"Locate the entry.","reasoning":"Locate the entry."}'
+npx octocode localSearch '{"path":"/ABS/repo/src","searchText":"runCLI","resultView":"matchOnly"}'
 npx octocode clasify --input request.json
 ```
 

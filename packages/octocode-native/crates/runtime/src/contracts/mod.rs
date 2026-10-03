@@ -521,8 +521,8 @@ mod contract_owner_tests {
 
     #[test]
     fn mcp_normalization_wraps_bare_queries_and_repairs_without_validating() {
-        let row = json!({"goal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":"[\"*.ts\"]"});
-        let expected = json!({"queries":[{"goal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":["*.ts"]}]});
+        let row = json!({"mainGoal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":"[\"*.ts\"]"});
+        let expected = json!({"queries":[{"mainGoal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":["*.ts"]}]});
         assert_eq!(normalize_envelope("localSearch", row.clone()), expected);
         assert_eq!(
             normalize_envelope("localSearch", json!([row.clone()])),
@@ -544,7 +544,7 @@ mod contract_owner_tests {
             json!({"queries":"{}"})
         );
         // clasify: the bare matrix is wrapped like every other bare query.
-        let matrix = json!({"goal":"g","reasoning":"r","resources":[],"questions":[]});
+        let matrix = json!({"mainGoal":"g","reasoning":"r","resources":[],"questions":[]});
         assert_eq!(
             normalize_envelope("clasify", matrix.clone()),
             json!({"queries":[matrix]})
@@ -574,26 +574,36 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn public_queries_require_goal_and_reasoning() {
+    fn public_queries_take_an_optional_brief_and_drop_a_blank_one() {
         let omitted = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs"}),
             PrepareOptions::default(),
-        );
-        assert!(omitted.is_err(), "a call without a brief is rejected");
+        )
+        .expect("a call without a brief is accepted");
+        assert!(omitted.get("mainGoal").is_none() && omitted.get("reasoning").is_none());
         let blank = prepare_and_validate(
             "localFetch",
-            json!({"path":"/tmp/source.rs","goal":"   ","reasoning":"   "}),
+            json!({"path":"/tmp/source.rs","mainGoal":"   ","reasoning":"   "}),
             PrepareOptions::default(),
-        );
-        assert!(blank.is_err(), "a blank brief is rejected");
+        )
+        .expect("a blank brief is dropped, not rejected");
+        assert!(blank.get("mainGoal").is_none() && blank.get("reasoning").is_none());
+        let legacy = prepare_and_validate(
+            "localFetch",
+            json!({"path":"/tmp/source.rs","goal":" Read the source. "}),
+            PrepareOptions::default(),
+        )
+        .expect("the legacy goal maps to mainGoal");
+        assert_eq!(legacy["mainGoal"], "Read the source.");
+        assert!(legacy.get("goal").is_none());
         let ok = prepare_and_validate(
             "localFetch",
-            json!({"path":"/tmp/source.rs","goal":" Read the source. ","reasoning":" The next step needs these lines. "}),
+            json!({"path":"/tmp/source.rs","mainGoal":" Read the source. ","reasoning":" The next step needs these lines. "}),
             PrepareOptions::default(),
         )
         .expect("a trimmed brief is accepted");
-        assert_eq!(ok["goal"], "Read the source.");
+        assert_eq!(ok["mainGoal"], "Read the source.");
         assert_eq!(ok["reasoning"], "The next step needs these lines.");
     }
 
@@ -602,8 +612,8 @@ mod contract_owner_tests {
         let queries = prepare_many_and_validate(
             "localFetch",
             json!({"queries":[
-                {"path":"/tmp/a","goal": "test", "reasoning":"Read both."},
-                {"path":"/tmp/b","goal": "test", "reasoning":"Read both."}
+                {"path":"/tmp/a","mainGoal": "test", "reasoning":"Read both."},
+                {"path":"/tmp/b","mainGoal": "test", "reasoning":"Read both."}
             ]}),
             PrepareOptions::default(),
         )
@@ -616,14 +626,14 @@ mod contract_owner_tests {
         let split = prepare_many_and_validate(
             "localFetch",
             json!({"queries":[
-                {"path":"/tmp/a","goal":"Find the writer.","reasoning":"Read both."},
-                {"path":"/tmp/b","goal":"Find the caller.","reasoning":"Read one."}
+                {"path":"/tmp/a","mainGoal":"Find the writer.","reasoning":"Read both."},
+                {"path":"/tmp/b","mainGoal":"Find the caller.","reasoning":"Read one."}
             ]}),
             PrepareOptions::default(),
         )
         .expect("each batch row carries its own goal and reasoning");
-        assert_eq!(split[0]["goal"], "Find the writer.");
-        assert_eq!(split[1]["goal"], "Find the caller.");
+        assert_eq!(split[0]["mainGoal"], "Find the writer.");
+        assert_eq!(split[1]["mainGoal"], "Find the caller.");
         assert_eq!(split[1]["reasoning"], "Read one.");
     }
 
@@ -634,7 +644,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"matrix",
-                "reasoning":"  Classify every resource.  ","goal":"Decide the next read.",
+                "reasoning":"  Classify every resource.  ","mainGoal":"Decide the next read.",
                 "resources":[
                     {"id":"r1","context":{"value":{"text":"one"}}},
                     {"id":"r2","context":{"value":{"text":"two"}}}
@@ -662,7 +672,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"duplicates",
-                "reasoning":"Classify resources.","goal":"Decide the next read.",
+                "reasoning":"Classify resources.","mainGoal":"Decide the next read.",
                 "resources":[
                     {"id":"same","context":{"value":"one"}},
                     {"id":"same","context":{"value":"two"}}
@@ -684,7 +694,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"oversized",
-                "reasoning":"Classify resources.","goal":"Decide the next read.",
+                "reasoning":"Classify resources.","mainGoal":"Decide the next read.",
                 "resources":resources,
                 "questions":questions
             }),
@@ -698,7 +708,7 @@ mod contract_owner_tests {
             json!({"id":id,"context":{
                 "tool":"localSearch",
                 "candidateEvidence":"fileChunks",
-                "query":{"goal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
+                "query":{"mainGoal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
             }})
         });
         let hydrated_questions = (0..3)
@@ -708,7 +718,7 @@ mod contract_owner_tests {
             "clasify",
             json!({
                 "id":"expanded",
-                "reasoning":"Classify bounded file candidates.","goal":"Decide the next read.",
+                "reasoning":"Classify bounded file candidates.","mainGoal":"Decide the next read.",
                 "resources":hydrated_resources,
                 "questions":hydrated_questions
             }),
@@ -726,14 +736,14 @@ mod contract_owner_tests {
                 json!({
                     "tool":"localFetch",
                     "candidateEvidence":"fileChunks",
-                    "query":{"goal": "test", "reasoning":"Invalid search mode.","path":"/tmp/a.rs"}
+                    "query":{"mainGoal": "test", "reasoning":"Invalid search mode.","path":"/tmp/a.rs"}
                 }),
                 "clasify.candidate-evidence",
             ),
             (
                 json!({
                     "tool":"localFetch",
-                    "query":{"goal": "test", "reasoning":"Incomplete range.","path":"/tmp/a.rs","startLine":1}
+                    "query":{"mainGoal": "test", "reasoning":"Incomplete range.","path":"/tmp/a.rs","startLine":1}
                 }),
                 "clasify.line-range",
             ),
@@ -742,7 +752,7 @@ mod contract_owner_tests {
                 "clasify",
                 json!({
                     "id":"invalid-context",
-                    "reasoning":"Reject invalid delegated context before execution.","goal":"Decide the next read.",
+                    "reasoning":"Reject invalid delegated context before execution.","mainGoal":"Decide the next read.",
                     "resources":[{"id":"r","context":context}],
                     "questions":[with_id("q", &question)]
                 }),
@@ -759,7 +769,7 @@ mod contract_owner_tests {
         let error = prepare_many_and_validate(
             "clasify",
             json!({"queries":[{
-                "reasoning":"Reject a flat resource's search mode.","goal":"Decide the next read.",
+                "reasoning":"Reject a flat resource's search mode.","mainGoal":"Decide the next read.",
                 "resources":[flat],
                 "questions":[with_id("q", &question)]
             }]}),
@@ -774,11 +784,11 @@ mod contract_owner_tests {
         let matrix = |id: &str| {
             json!({
                 "id":id,
-                "reasoning":"Exercise the total expanded-cell limit.","goal":"Decide the next read.",
+                "reasoning":"Exercise the total expanded-cell limit.","mainGoal":"Decide the next read.",
                 "resources":[{"id":"r","context":{
                     "tool":"localSearch",
                     "candidateEvidence":"fileChunks",
-                    "query":{"goal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
+                    "query":{"mainGoal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
                 }}],
                 "questions":(0..5).map(|index| with_id(format!("q{index}"), &question)).collect::<Vec<_>>()
             })
@@ -796,7 +806,7 @@ mod contract_owner_tests {
     fn clasify_rejects_duplicate_batch_query_ids() {
         let query = json!({
             "id":"qa",
-            "reasoning":"Classify resources.","goal":"Decide the next read.",
+            "reasoning":"Classify resources.","mainGoal":"Decide the next read.",
             "resources":[{"id":"r","context":{"value":"one"}}],
             "questions":[{"id":"q1","type":"noul","instructions":"Relevant?"}]
         });
@@ -1095,7 +1105,7 @@ mod contract_owner_tests {
                     "state":"merged",
                     "author":"octocode",
                     "createdAt":"2026-08-07T20:37:26Z",
-                    "next":{
+                    "hints":{
                         "getBody":{
                             "tool":"ghGetHistoryItem",
                             "confidence":"exact",
@@ -1106,14 +1116,14 @@ mod contract_owner_tests {
                                 "number":463,
                                 "content":{"body":true},
                                 "pageSize":30,
-                                "goal": "test", "reasoning":"Read the optional body.",
+                                "mainGoal": "test", "reasoning":"Read the optional body.",
                                 "debug":false
                             }
                         }
                     }
                 }],
                 "errorCode":"noSelectedFilesMatched",
-                "hints":["Choose a changed path first."]
+                "hints":{"text":["Choose a changed path first."]}
             }
         }]});
         validate_output("ghGetHistoryItem", &output).expect("valid history output");
@@ -1170,7 +1180,7 @@ mod contract_owner_tests {
         let data = |mut query: serde_json::Value| {
             let object = query.as_object_mut().unwrap();
             object
-                .entry("goal")
+                .entry("mainGoal")
                 .or_insert_with(|| json!("Find the repository."));
             object
                 .entry("reasoning")
@@ -1204,7 +1214,7 @@ mod contract_owner_tests {
         let data = |mut query: serde_json::Value| {
             let object = query.as_object_mut().unwrap();
             object
-                .entry("goal")
+                .entry("mainGoal")
                 .or_insert_with(|| json!("Decide whether the candidate is unused."));
             object
                 .entry("reasoning")
@@ -1242,7 +1252,7 @@ mod contract_owner_tests {
         let data = |mut query: serde_json::Value| {
             let object = query.as_object_mut().unwrap();
             object
-                .entry("goal")
+                .entry("mainGoal")
                 .or_insert_with(|| json!("Read the repository tree."));
             object
                 .entry("reasoning")
@@ -1276,7 +1286,7 @@ mod contract_owner_tests {
         let data = |mut query: serde_json::Value| {
             let object = query.as_object_mut().unwrap();
             object
-                .entry("goal")
+                .entry("mainGoal")
                 .or_insert_with(|| json!("Find the history page."));
             object
                 .entry("reasoning")
@@ -1353,7 +1363,7 @@ mod contract_owner_tests {
                 "repo": "b",
                 "materialize": true,
                 "materializeOffset": 12,
-                "goal": "test", "reasoning": "Exercise materialized tree validation."
+                "mainGoal": "test", "reasoning": "Exercise materialized tree validation."
             }),
             PrepareOptions::default(),
         )

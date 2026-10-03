@@ -59,7 +59,7 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
         ("REQUEST_TIMEOUT", "30000".into()),
     ]);
     let search = json!({
-        "goal":"How does the retry policy stop repeated failed attempts?",
+        "mainGoal":"How does the retry policy stop repeated failed attempts?",
         "reasoning":"Select the deciding source among candidates and preserve exceptions.",
         "path":root.parent().unwrap(), "searchText":"retry delay",
         "sort":"path", "page":page, "pageSize":page_size, "contextLines":1
@@ -73,7 +73,7 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
         .await
         .expect("search");
     let mut matrix =
-        outcome.structured_content["results"][0]["data"]["next"]["clasify"]["query"].clone();
+        outcome.structured_content["results"][0]["data"]["hints"]["clasify"]["query"].clone();
     assert_eq!(matrix["reasoning"], search["reasoning"]);
     assert_eq!(matrix["resources"][0]["tool"], "localSearch");
     assert_eq!(matrix["resources"][0]["candidateEvidence"], "fileChunks");
@@ -107,7 +107,7 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
                     "{page}"
                 );
                 assert_eq!(page["answers"]["sufficient"], 0.98);
-                deciding_read = Some(page["next"]["read"].clone());
+                deciding_read = Some(page["hints"]["read"].clone());
             }
         }
         let Some(next) = query.pointer("/next/clasify") else {
@@ -174,8 +174,7 @@ async fn large_paged_local_read_offers_clasify_locate() {
         }
     };
     let brief = |extra: Value| {
-        let mut query =
-            json!({"goal":"find the housekeeping timer","reasoning":"read the file","path":file});
+        let mut query = json!({"mainGoal":"find the housekeeping timer","reasoning":"read the file","path":file});
         query
             .as_object_mut()
             .unwrap()
@@ -183,7 +182,7 @@ async fn large_paged_local_read_offers_clasify_locate() {
         query
     };
     let paged = read(brief(json!({}))).await;
-    let offer = &paged["next"]["clasify"];
+    let offer = &paged["hints"]["clasify"];
     assert_eq!(offer["tool"], "clasify", "{paged}");
     let matrix = &offer["query"];
     assert_eq!(matrix["resources"][0]["tool"], "localFetch");
@@ -200,9 +199,9 @@ async fn large_paged_local_read_offers_clasify_locate() {
     for targeted in [
         read(brief(json!({"matchString":"detail 2400"}))).await,
         read(brief(json!({"startLine":1,"endLine":40}))).await,
-        read(json!({"goal":"g","reasoning":"r","path":small})).await,
+        read(json!({"mainGoal":"g","reasoning":"r","path":small})).await,
     ] {
-        assert!(targeted["next"].get("clasify").is_none(), "{targeted}");
+        assert!(targeted["hints"].get("clasify").is_none(), "{targeted}");
     }
     runtime.close().await;
 }

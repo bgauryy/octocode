@@ -27,7 +27,7 @@ async fn a_matching_snapshot_pages_the_stored_envelope_without_re_executing() {
             "localSearch".into(),
             json!({
                 "queries":[{"path":root,"searchText":"needle","pageSize":50,
-                    "goal":"Find needles.","reasoning":"Exercise page replay."}],
+                    "mainGoal":"Find needles.","reasoning":"Exercise page replay."}],
                 "responseCharLength": 800
             }),
         )
@@ -112,7 +112,7 @@ async fn a_matching_snapshot_does_not_re_dispatch_and_a_mismatch_does() {
             json!({
                 "queries":[{"owner":"a","repo":"b","path":"src/lib.rs","branch":"main",
                     "forceRefresh":true,"fullContent":true,
-                    "goal":"Read the file.","reasoning":"Exercise page replay."}],
+                    "mainGoal":"Read the file.","reasoning":"Exercise page replay."}],
                 "responseCharLength": 800
             }),
         )
@@ -149,7 +149,7 @@ async fn rows_scope_pages_replay_the_stored_envelope() {
     let file = workspace.write("src/a.txt", lines("original"));
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
-    let row = |word: &str| json!({"path":root,"searchText":word,"goal":"Find needles.","reasoning":"Exercise page replay."});
+    let row = |word: &str| json!({"path":root,"searchText":word,"mainGoal":"Find needles.","reasoning":"Exercise page replay."});
     let first = runtime
         .execute(
             "rows-1".into(),

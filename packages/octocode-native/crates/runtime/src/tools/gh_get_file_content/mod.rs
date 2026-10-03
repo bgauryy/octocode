@@ -678,7 +678,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
-            "chunkType": "lines", "chunkSize": 2, "goal": "test", "reasoning": "test"
+            "chunkType": "lines", "chunkSize": 2, "mainGoal": "test", "reasoning": "test"
         }))
         .expect("ghGetFileContent query");
         let result = execute_default_regex(
@@ -737,7 +737,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
-            "matchString": "TOKEN", "contextLines": 0, "goal": "test", "reasoning": "test"
+            "matchString": "TOKEN", "contextLines": 0, "mainGoal": "test", "reasoning": "test"
         }))
         .expect("query");
         let result = execute_default_regex(
@@ -781,7 +781,7 @@ mod tests {
         query: Value,
     ) -> GhGetFileContentResult {
         let mut query = query;
-        query["goal"] = "test".into();
+        query["mainGoal"] = "test".into();
         query["reasoning"] = "test".into();
         let query: GhGetFileContentQuery = serde_json::from_value(query).expect("query");
         execute_default_regex(
@@ -840,7 +840,7 @@ mod tests {
         );
         assert_eq!(stamped.files[0].last_modified_by.as_deref(), Some("Ada"));
         let mut missing = serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","branch":sha,"debug":true});
-        missing["goal"] = "test".into();
+        missing["mainGoal"] = "test".into();
         missing["reasoning"] = "test".into();
         let missing: GhGetFileContentQuery = serde_json::from_value(missing).expect("query");
         assert!(
@@ -956,7 +956,7 @@ mod tests {
         };
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
             "owner": "a", "repo": "b", "path": "big.txt", "branch": sha,
-            "fullContent": true, "goal": "test", "reasoning": "test"
+            "fullContent": true, "mainGoal": "test", "reasoning": "test"
         }))
         .expect("query");
         let result = execute_default_regex(

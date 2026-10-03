@@ -1,6 +1,6 @@
 # Word choice, abbreviations, and inclusive terms
 
-Load when a specific word is in question, when introducing a short form or a specialist term, or when a term might exclude, stereotype, or read as violent — and before touching a replacement table row. The guide's word list decides, not preference. `assets/google-word-list.tsv` carries all 597 entries as `term`, `verdict` (`dont-use`, `avoid`, `caution`, `usage`), and the guide's own guidance. Look the term up, then quote it:
+Load when a specific word, short form, specialist term, or possibly exclusive term is in question. The guide's word list decides, not preference: `assets/google-word-list.tsv` holds all 597 entries as `term`, `verdict` (`dont-use`, `avoid`, `caution`, `usage`), and guidance. Look the term up, then quote it:
 
 ```bash
 grep -iP "^[^\t]*allows you to" assets/google-word-list.tsv
@@ -8,92 +8,74 @@ node scripts/style-lint.mjs docs/ --only word-list        # dont-use and avoid t
 node scripts/refresh-word-list.mjs --dry-run              # when an entry looks stale
 ```
 
-IF a word isn't in the list → THEN follow Merriam-Webster's first listed spelling (`canceled`, not `cancelled`); for a technical term, follow the authoritative documentation for that technology.
+IF a word isn't in the list → THEN use Merriam-Webster's first spelling (`canceled`); for a technical term, use that technology's own docs.
 
 ## Replace on sight
+
+`style-lint.mjs --only word-list` flags every `dont-use` and `avoid` term with the guide's replacement. Terms the lint routes here, or that the list misses:
 
 | Don't use | Use instead |
 |---|---|
 | `allows you to` | lets you |
-| `e.g.`, `i.e.` | for example, that is |
 | `via`, `leverage`, `utilize` | with, through, use |
-| `just`, `simply`, `easy` | delete the word — though `just` is fine in a phrase like `or just example-kind` |
-| `etc.`, `and so on` | finish the list or use "such as"; `etc.` is acceptable in a tight list |
-| `currently`, `now`, `new`, `soon`, `latest`, `recently`, `eventually` | delete it, or name the release version and date |
+| `just`, `simply`, `easy` | delete (`just` is fine in "or just example-kind") |
 | `please note`, `note that` | state the fact |
-| `click here`, `read this document` | descriptive link text |
-| `click on` | click — and hyphenate `right-click`, `double-click`; Android uses tap |
-| `hover` | hold the pointer over |
-| `check` (a checkbox) | select — and `deselect` is clear |
-| `above`, `below` | earlier, preceding, later, following; for versions use `later`, `earlier` |
+| `click on` | click; hyphenate `right-click`, `double-click`; Android uses tap |
 | `abort`, `terminate`, `kill` | stop, exit, cancel, end |
-| `hang` | stops responding |
-| `hit` (a button) | click |
-| `we`, `our`, `us` (addressing the reader) | you |
+| `hit` (a button); `deselect` | click; clear |
 | `this article`, `this page`, `this topic` | this document |
-| `account name` | username |
-| `disable` (for something broken) | inactive, unavailable, deactivate |
-| `native` (feature) | built-in |
-| `first-class citizen` | name the actual capability |
-| `allowlist`, `denylist` as verbs | rewrite the sentence ("allow requests from…") |
-| `legacy`, `anti-pattern` | plain description, or define on first use |
-| `blast radius`; `shifting left` | affected area; moving earlier in the process — or define on first use |
-| `off-the-shelf`; `back-of-the-envelope`; `cold standby` | ready-made or prebuilt; informal estimate; backup system |
-| `foo`, `bar`, `baz` | meaningful placeholder names | <!-- style-lint: ignore-line metasyntactic-name -->
-| `doc`, `repo`, `k8s`, `cell phone`, `mobile` (alone) | documentation, repository, Kubernetes, mobile device |
-| `and/or` | "or", or "A, B, or both" — acceptable only where space is tight |
-| `postmortem` | retrospective |
-| `as of this writing` | delete it |
+| `first-class citizen` | the actual capability |
+| `legacy` | plain description, or define on first use |
+| `off-the-shelf`; `back-of-the-envelope`; `cold standby` | prebuilt; informal estimate; backup system |
+| `doc` (alone) | documentation |
 
-`ingest` is conditional: use import, load, or copy for plain data movement, and `ingest` only when the step does significant processing. Keep these spellings: `on-premises`, `OAuth 2.0`, plugin (noun), plug-in (adjective), plug in (verb), allowlist and denylist as nouns.
+- `ingest`: use import, load, or copy for plain data movement; `ingest` only when the step does significant processing.
+- Keep: `on-premises`, `OAuth 2.0`, plugin (noun), plug-in (adjective), plug in (verb), allowlist and denylist as nouns.
 
 ## Abbreviations
 
-- Spell out on first use with the abbreviation in parentheses, and italicize both: "*Border Gateway Protocol* (*BGP*)". Lowercase the spelled-out form unless it's a proper noun: "data manipulation language (DML)", not "Data Manipulation Language (DML)".
-- Skip the expansion for terms the audience already knows (API, HTML, PDF, AI).
-- IF the first mention falls in a heading → THEN use the abbreviation there and spell it out in the first paragraph that follows.
-- IF you use the abbreviation only once → THEN include it only if it's as familiar as the spelled-out term; otherwise leave it out.
-- Don't abbreviate terms unrelated to the document's topic — spell out "low Earth orbit" instead of introducing `LEO`.
-- Acronyms take no periods (API, NASA); shortened words do (Dr.) — except date and time abbreviations, country abbreviations, US state abbreviations (DC), and shortenings read as words (app, sync, demo).
-- Never use an abbreviation as a verb: "use SSH to connect", not "ssh into". Choose "a" or "an" by how the abbreviation sounds aloud ("a SQL query", "an SAP system").
-- Spell out symbol substitutions: "10 times faster", not "10x faster"; "approximately", not "approx.".
-- No internet slang: no `tl;dr`, `ymmv`, `RTFM`. Write what you mean, literally.
-- Put the abbreviation inside the link text with its long form (`references/style-claims.md`).
+- First use: spell out, abbreviation in parentheses, both italic: "*Border Gateway Protocol* (*BGP*)". Lowercase the long form unless it is a proper noun.
+- Skip the expansion for terms the audience knows (API, HTML, PDF, AI).
+- First mention in a heading: define it there only when worth the length; else use the abbreviation only if it is the better-known form, and spell it out in the next paragraph.
+- Used only once: include the abbreviation only if it is as familiar as the long form.
+- Don't abbreviate terms outside the topic ("low Earth orbit", not `LEO`).
+- Acronyms take no periods (API); shortened words do (Dr.), except date, time, country, and US state abbreviations (DC) and words such as app, sync, demo.
+- Never use an abbreviation as a verb: "use SSH to connect", not "ssh into". Pick "a" or "an" by sound ("a SQL query", "an SAP system").
+- Spell out symbol substitutions: "10 times faster", not "10x"; "approximately", not "approx.".
 
 ## Jargon
 
-- First choice: write around the term. Second: replace it with specific language (the plain-language swaps the guide names are in § Replace on sight).
-- IF the term appears once → THEN describe it in plain language with the term in parentheses, or link a trusted definition. IF the term recurs throughout → THEN describe it briefly in parentheses on first reference.
-- Jargon is worth keeping when readers search for it — SEO is a legitimate reason, a definition is still required.
-- Vague, overloaded words count as jargon too: `solution`, `support`, `workload`. Say which one you mean.
-- Jargon that is a code item stays in code font (`references/style-code.md`).
+- First write around the term; else replace it with specific language (§ Replace on sight).
+- Term used once: describe it in plain words with the term in parentheses, or link a definition. Recurring term: define it briefly in parentheses on first use.
+- Keep jargon readers search for, but still define it.
+- Vague words count as jargon: `solution`, `support`, `workload`. Say which one you mean.
 
 ## Inclusive terms
 
-Most of this is one principle: drop idiomatic, figurative, and metaphorical language; use literal, precise terms in their primary sense. Figurative phrasing is what turns ableist, violent, or graphic. Don't build documentation on a metaphor — no "pets versus cattle".
+Use literal terms in their primary sense. Drop idioms, figures, and metaphors; they turn ableist, violent, or graphic. Don't build docs on a metaphor ("pets versus cattle").
 
 | Don't use | Use instead |
 |---|---|
 | `blacklist`; `whitelist`; `graylist` | denylist, excludelist, blocklist; allowlist, trustlist, safelist; provisional list |
-| `master` with `slave` | primary/secondary, primary/replica, controller/worker, leader/follower, active/standby — and never the pair `master`/`slave` in any context |
+| `master` with `slave` | primary/secondary, primary/replica, controller/worker, leader/follower, active/standby; never the pair `master`/`slave` |
 | `sanity check` | quick check, confidence check, preliminary check, coherence check |
-| `dummy value`; `dumb down` | placeholder; simplify, remove technical jargon |
-| `crazy`, `insane`, `lunatic`, `bonkers` | complicated, complex, baffling, unexpected — and only for inanimate things |
+| `dummy value`; `dumb down` | placeholder; simplify |
+| `crazy`, `insane`, `lunatic`, `bonkers` | complicated, complex, baffling, unexpected (inanimate things only) |
 | `blind to`, `blind write`, `blind change` | unaware of; a write without a read; change without confirming the value |
 | `cripple` | slow down, degrade |
 | `man hours`, `manpower`, `mankind` | person-hours; staff or workforce; humanity |
-| `guys`, `you guys`; `he/she` generically | everyone, folks; singular "they" |
+| `guys`, `you guys`; generic `he/she` | everyone, folks; singular "they" |
 | `grandfathered`; `ninja`, `guru`, `rockstar` | legacy, exempt; expert |
-| `mom test`, `grandmother test`, `grandma test`, `girlfriend test` | beginner user test, novice user test |
+| `mom test`, `grandma test`, `girlfriend test` | beginner user test, novice user test |
 | `female adapter`, `male adapter` | socket, plug |
 | `STONITH` and other graphic terms | the literal action ("fence failed nodes") |
 
-- Check that a replacement is technically accurate for your context — and that a list is even involved.
-- Don't swap a non-inclusive **verb** for an inclusive one; rewrite the sentence. "You can allow requests from a range of IP addresses", not "You can allowlist a range".
-- IF replacing an established term risks confusing readers → THEN name it once in parentheses and use the replacement after: "add them to an allowlist (sometimes called a `whitelist`)".
-- IF code, a flag, or an API fixes the term → THEN keep it in code font, use it as little as possible, and use the preferred term in prose. IF a graphic term must appear → THEN mention it once and phrase the rest to de-emphasize it.
-- "person with disabilities", or the community's identity-first term (Deaf, autistic, blind). Never "the disabled" or "a quadriplegic" — say "people with disabilities", "a quadriplegic person". Don't call people without disabilities `normal` or `healthy`; use nondisabled, sighted, hearing, or neurotypical person.
-- No euphemisms: not `physically challenged`, `special`, `differently abled`, or `handi-capable`. No "suffers from", "victim of", "wheelchair-bound".
-- "older adults", not "seniors" or cute phrasing; "aging population" works for the group. Avoid framing people as "native speakers" versus "non-native speakers".
+- Check that the replacement is accurate in context.
+- Don't swap a non-inclusive verb for an inclusive verb; rewrite: "You can allow requests from a range of IP addresses".
+- Established term at risk of confusion: name it once in parentheses, then use the replacement ("an allowlist (sometimes called a `whitelist`)").
+- Term fixed by code, a flag, or an API: keep it in code font, use it rarely, use the preferred term in prose. A required graphic term: mention it once, then de-emphasize.
+- "person with disabilities", or the community's identity-first term (Deaf, autistic). Never "the disabled". Don't call others `normal` or `healthy`; use nondisabled, sighted, hearing, neurotypical.
+- No euphemisms (`physically challenged`, `special`, `differently abled`, `handi-capable`) and no "suffers from", "victim of", "wheelchair-bound".
+- "older adults" or "aging population", not "seniors". Avoid "native speaker" versus "non-native speaker".
 
-Upstream: [Word list](https://developers.google.com/style/word-list) · [Abbreviations](https://developers.google.com/style/abbreviations) · [Jargon](https://developers.google.com/style/jargon) · [Inclusive language](https://developers.google.com/style/inclusive-documentation). Verify a disputed or missing rule against the live page → `references/style-pass.md`.
+Source: [Word list](https://developers.google.com/style/word-list).

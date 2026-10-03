@@ -86,7 +86,7 @@ fn clasify_missing_key_is_actionable() {
     let workspace = Workspace::new();
     let query = serde_json::json!({
         "id":"decision",
-        "goal": "test", "reasoning":"Choose the next inspection.",
+        "mainGoal": "test", "reasoning":"Choose the next inspection.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     });
@@ -110,7 +110,7 @@ fn clasify_with_every_resource_failed_exits_by_failure_class() {
     let workspace = Workspace::new();
     let run = |question: serde_json::Value| {
         let query = serde_json::json!({
-            "goal": "test", "reasoning":"Exercise failure exit codes.",
+            "mainGoal": "test", "reasoning":"Exercise failure exit codes.",
             "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
             "questions":[question]
         });
@@ -140,7 +140,7 @@ fn tool_output_is_compact_by_default_and_pretty_on_request() {
     let workspace = Workspace::new();
     let query = serde_json::json!({
         "id":"decision",
-        "goal": "test", "reasoning":"Exercise output formatting.",
+        "mainGoal": "test", "reasoning":"Exercise output formatting.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     })
@@ -180,7 +180,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
     .unwrap();
     let query = serde_json::json!({
         "id":"decision",
-        "goal": "test", "reasoning":"Exercise the opt-out.",
+        "mainGoal": "test", "reasoning":"Exercise the opt-out.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
     })
@@ -333,26 +333,17 @@ fn auth_login_and_skill_fail_closed() {
         .output()
         .expect("auth login");
     assert_eq!(login.status.code(), Some(1));
-    // Native subcommands (list/install/remove/check/info) succeed without the
-    // Node CLI; only non-native subcommands delegate and must fail closed
-    // when no `octocode` npm launcher is on PATH.
-    let native = workspace
-        .cli()
-        .args(["skill", "list"])
-        .output()
-        .expect("skill list");
-    assert!(native.status.success(), "{}", stderr(&native));
-    let skill = workspace
-        .cli()
-        .args(["skill", "run", "demo"])
-        .output()
-        .expect("skill");
-    assert_eq!(skill.status.code(), Some(1));
-    let text = format!("{}{}", stdout(&skill), stderr(&skill));
-    assert!(
-        text.contains("npx -y octocode skill") || text.contains("octocode skill run"),
-        "{text}"
-    );
+    // Every skill subcommand runs in the npm launcher; with none on PATH the
+    // host fails closed and names the rerun command.
+    for args in [["skill", "list"], ["skill", "run"]] {
+        let skill = workspace.cli().args(args).output().expect("skill");
+        assert_eq!(skill.status.code(), Some(1));
+        let text = format!("{}{}", stdout(&skill), stderr(&skill));
+        assert!(
+            text.contains(&format!("npx -y octocode {}", args.join(" "))),
+            "{text}"
+        );
+    }
 }
 
 #[test]
@@ -513,143 +504,6 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
 }
 
 #[test]
-fn skill_lifecycle_runs_natively_without_the_node_cli() {
-    // list/install/remove/check/info work with the npm CLI absent. The
-    // workspace PATH has no `octocode`, and the delegation guard is armed so
-    // any accidental delegation fails loudly.
-    let workspace = Workspace::new();
-    let source = workspace.home.join("src").join("demo-skill");
-    std::fs::create_dir_all(source.join("references")).expect("skill dirs");
-    std::fs::write(
-        source.join("SKILL.md"),
-        "---\nname: demo-skill\ndescription: \"Native demo\"\n---\n# Demo\n",
-    )
-    .expect("skill md");
-    std::fs::write(source.join("references").join("g.md"), "guide\n").expect("skill ref");
-
-    let install = workspace
-        .cli()
-        .env("OCTOCODE_SKILL_DELEGATED", "1")
-        .args([
-            "skill",
-            "install",
-            "--add",
-            source.to_str().expect("utf8 path"),
-            "--platform",
-            "claude",
-            "--json",
-        ])
-        .output()
-        .expect("skill install");
-    assert!(install.status.success(), "{}", stderr(&install));
-    let installed: serde_json::Value =
-        serde_json::from_str(stdout(&install)).expect("install json");
-    assert_eq!(installed["ok"], true, "{installed}");
-    assert_eq!(installed["skills"][0]["canonicalStatus"], "installed");
-    assert_eq!(
-        installed["skills"][0]["destinations"][0]["status"],
-        "linked"
-    );
-
-    let list = workspace
-        .cli()
-        .env("OCTOCODE_SKILL_DELEGATED", "1")
-        .args(["skill", "list", "--json"])
-        .output()
-        .expect("skill list");
-    assert!(list.status.success(), "{}", stderr(&list));
-    let listed: serde_json::Value = serde_json::from_str(stdout(&list)).expect("list json");
-    assert_eq!(listed["count"], 1, "{listed}");
-    assert_eq!(listed["skills"][0]["name"], "demo-skill");
-
-    let check = workspace
-        .cli()
-        .env("OCTOCODE_SKILL_DELEGATED", "1")
-        .args(["skill", "check", "--json"])
-        .output()
-        .expect("skill check");
-    assert!(check.status.success(), "{}", stderr(&check));
-    let checked: serde_json::Value = serde_json::from_str(stdout(&check)).expect("check json");
-    assert_eq!(checked["ok"], true, "{checked}");
-    assert_eq!(checked["skills"][0]["status"], "ok");
-
-    let info = workspace
-        .cli()
-        .env("OCTOCODE_SKILL_DELEGATED", "1")
-        .args(["skill", "info", "demo-skill"])
-        .output()
-        .expect("skill info");
-    assert!(info.status.success(), "{}", stderr(&info));
-    assert!(stdout(&info).contains("Native demo"), "{}", stdout(&info));
-
-    let remove = workspace
-        .cli()
-        .env("OCTOCODE_SKILL_DELEGATED", "1")
-        .args(["skill", "remove", "demo-skill", "--purge", "--json"])
-        .output()
-        .expect("skill remove");
-    assert!(remove.status.success(), "{}", stderr(&remove));
-    let removed: serde_json::Value = serde_json::from_str(stdout(&remove)).expect("remove json");
-    assert_eq!(removed["ok"], true, "{removed}");
-    assert!(
-        !workspace.home.join("skills").join("demo-skill").exists(),
-        "canonical copy must be purged"
-    );
-}
-
-#[test]
-fn skill_passthrough_sends_skill_argv_to_node_cli() {
-    let workspace = Workspace::new();
-    let bin = workspace.home.join("bin");
-    std::fs::create_dir_all(&bin).expect("bin");
-    let log = workspace.home.join("skill-argv.txt");
-    let stub = bin.join("octocode");
-    std::fs::write(
-        &stub,
-        format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" > '{}'\n",
-            log.display()
-        ),
-    )
-    .expect("stub");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-    }
-    let output = workspace
-        .cli()
-        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .args(["skill", "run", "demo", "--json"])
-        .output()
-        .expect("skill spawn");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let recorded = std::fs::read_to_string(&log).expect("argv log");
-    assert!(recorded.contains("skill"), "{recorded}");
-    assert!(recorded.contains("run"), "{recorded}");
-    assert!(recorded.contains("--json"), "{recorded}");
-}
-
-#[test]
-fn skill_delegation_guard_breaks_native_recursion() {
-    // When the `octocode` on PATH is the native binary itself (not the npm
-    // launcher), the delegation guard must fail fast instead of respawning.
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .env("OCTOCODE_SKILL_DELEGATED", "1")
-        .args(["skill", "run", "demo"])
-        .output()
-        .expect("skill spawn");
-    assert_eq!(output.status.code(), Some(1));
-    assert!(
-        stderr(&output).contains("native binary, not the npm CLI"),
-        "{}",
-        stderr(&output)
-    );
-}
-
-#[test]
 fn tool_rejects_non_canonical_fields() {
     let workspace = Workspace::new();
     let output = workspace
@@ -681,7 +535,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
         "path": path,
         "chunkType": "lines",
         "chunkSize": 3,
-        "goal": "test", "reasoning": "Verify paginated native reads."
+        "mainGoal": "test", "reasoning": "Verify paginated native reads."
     })
     .to_string();
     let first = workspace
@@ -750,7 +604,7 @@ fn tool_reads_query_from_input_file() {
     let source = workspace.write("input-source.rs", "fn from_file() {}\n");
     let query = serde_json::json!({
         "path": source,
-        "goal": "test", "reasoning": "Verify --input file queries."
+        "mainGoal": "test", "reasoning": "Verify --input file queries."
     })
     .to_string();
     let query_file = workspace.write("query.json", &query);
@@ -940,13 +794,13 @@ fn tool_accepts_bulk_queries() {
             "path": first,
             "startLine": 1,
             "endLine": 1,
-            "goal": "test", "reasoning": "Verify the first native bulk query."
+            "mainGoal": "test", "reasoning": "Verify the first native bulk query."
         },
         {
             "path": second,
             "startLine": 1,
             "endLine": 1,
-            "goal": "test", "reasoning": "Verify the second native bulk query."
+            "mainGoal": "test", "reasoning": "Verify the second native bulk query."
         }
     ])
     .to_string();
@@ -987,7 +841,7 @@ fn localfetch_accepts_host_line_range_spellings() {
     ] {
         let query = serde_json::json!({
             "path": path, "ranges": ranges,
-            "goal": "test", "reasoning": "Verify tolerant line ranges."
+            "mainGoal": "test", "reasoning": "Verify tolerant line ranges."
         })
         .to_string();
         let output = workspace
@@ -1015,7 +869,7 @@ fn localsearch_emits_structured_results() {
         "searchText": "needle",
         "path": path,
         "resultView": "matchOnly",
-        "goal": "test", "reasoning": "Verify structured lexical output."
+        "mainGoal": "test", "reasoning": "Verify structured lexical output."
     })
     .to_string();
     let output = workspace
@@ -1042,7 +896,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
         "ruleKind": "pattern",
         "pattern": "pub const $NAME: u32 = $VALUE;",
         "rewrite": "pub const $NAME: u64 = $VALUE;",
-        "goal": "test", "reasoning": "Verify guarded native rewrite application."
+        "mainGoal": "test", "reasoning": "Verify guarded native rewrite application."
     });
     let preview = workspace
         .cli()
@@ -1059,9 +913,9 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     let value: serde_json::Value = serde_json::from_str(stdout(&preview)).expect("preview JSON");
     let data = &value["results"][0]["data"];
     assert_eq!(data["mode"], "preview", "{data}");
-    // Apply replays the preview's next.apply verbatim: it binds the snapshot
+    // Apply replays the preview's hints.apply verbatim: it binds the snapshot
     // and the expected before-hashes.
-    let apply = data["next"]["apply"]["query"].clone();
+    let apply = data["hints"]["apply"]["query"].clone();
     assert_eq!(apply["apply"], true, "{data}");
     assert!(apply["snapshot"].is_string(), "{data}");
     assert!(apply["expectedHashes"].is_object(), "{data}");
@@ -1090,7 +944,7 @@ fn json_errors_do_not_leak_duplicate_stderr() {
     let missing = workspace.workspace.join("missing.rs");
     let query = serde_json::json!({
         "path": missing,
-        "goal": "test", "reasoning": "Verify native read errors."
+        "mainGoal": "test", "reasoning": "Verify native read errors."
     })
     .to_string();
     let output = workspace
@@ -1182,7 +1036,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
         .env("OCTOCODE_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
-            r#"{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"goal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}"#,
+            r#"{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"mainGoal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}"#,
         ]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))
         .await

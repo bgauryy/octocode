@@ -443,10 +443,18 @@ fn preserve_continuation_metadata(value: &mut Value, original_query: &Value) {
                 .map(str::to_owned);
             if let (Some(_tool), Some(mut next_query)) = (continuation_tool, object.remove("query"))
             {
-                if let Some(next_query_object) = next_query.as_object_mut() {
-                    for field in ["debug"] {
-                        if let Some(value) = original_query.get(field) {
-                            next_query_object.insert(field.into(), value.clone());
+                // A one-row call continuation carries the setting on its row.
+                let rows: Vec<&mut Value> =
+                    match next_query.get_mut("queries").and_then(Value::as_array_mut) {
+                        Some(rows) => rows.iter_mut().collect(),
+                        None => vec![&mut next_query],
+                    };
+                for row in rows {
+                    if let Some(row) = row.as_object_mut() {
+                        for field in ["debug"] {
+                            if let Some(value) = original_query.get(field) {
+                                row.insert(field.into(), value.clone());
+                            }
                         }
                     }
                 }
@@ -478,7 +486,7 @@ pub fn result_row(
             && object.get("type").and_then(Value::as_str) == Some("compare");
         for key in [
             "cache",
-            "goal",
+            "mainGoal",
             "reasoning",
             "debug",
             "researchSuggestions",
@@ -542,18 +550,17 @@ pub fn result_row(
         }
         meta["diagnostics"] = Value::Object(diagnostics);
     }
-    let mut row = json!({"index":index,"data":data});
-    if query.get("debug").and_then(Value::as_bool) == Some(true) {
-        row["meta"] = meta;
-    }
+    // `meta` is verbose: the verbose stage drops it unless the row asked
+    // for `debug: true`.
+    let mut row = json!({"index":index,"meta":meta,"data":data});
     if let Some(status) = status {
         row["status"] = json!(status);
     }
     row
 }
 
-/// Default responses carry the answer and what the next call needs. Each tool
-/// declares the fields it computes for diagnosis ([`debug_only_fields`]); the
+/// Default responses carry the answer and what the next call needs. Fields
+/// core classes verbose are already gone (`super::verbose`); the
 /// shared rules below remove only structure that asserts nothing: finished
 /// single-page pagination, snapshots that every continuation already
 /// carries, false/zero defaults, info-level notes, and echoes of the request.
@@ -563,9 +570,6 @@ pub fn result_row(
 pub fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
     if query.get("debug").and_then(Value::as_bool) == Some(true) {
         return;
-    }
-    if let Some(fields) = row.as_object_mut() {
-        fields.remove("cache");
     }
     if row["status"] == "error" {
         return;
@@ -584,10 +588,10 @@ pub fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
     let saved = variants
         .iter()
         .flat_map(|variant| variant.iter())
-        .filter(|key| is_removable(tool, key))
+        .filter(|key| is_removable(key))
         .filter_map(|key| data.get(key).map(|value| (key.clone(), value.clone())))
         .collect::<std::collections::BTreeMap<_, _>>();
-    minimize_data(data, tool, query);
+    minimize_data(data, query);
     if tool.is_github() {
         super::github_output::compact(tool, &mut row["data"], query);
     }
@@ -613,9 +617,8 @@ pub fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
 }
 
 /// Every top-level field a minimization rule can remove for this tool.
-fn is_removable(tool: ToolId, key: &str) -> bool {
+fn is_removable(key: &str) -> bool {
     is_pagination_key(key)
-        || debug_only_fields(tool).contains(&key)
         || matches!(
             key,
             "truncated"
@@ -638,10 +641,7 @@ fn is_removable(tool: ToolId, key: &str) -> bool {
         )
 }
 
-fn minimize_data(data: &mut Map<String, Value>, tool: ToolId, query: &Value) {
-    for path in debug_only_fields(tool) {
-        remove_path(data, path);
-    }
+fn minimize_data(data: &mut Map<String, Value>, query: &Value) {
     let more = data
         .iter()
         .any(|(key, value)| is_pagination_key(key) && value["hasMore"] == true);
@@ -771,64 +771,6 @@ fn variants_of(
         }
     }
     variants
-}
-
-/// Fields each tool computes to explain how an answer was produced, not the
-/// answer itself. Dotted paths name nested fields. Confidence signals (e.g.
-/// topology `completeness`/`confidence`, coverage totals) are not listed.
-const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
-    match tool {
-        ToolId::LocalSearch | ToolId::AstSearch => &["searchEngine", "filesScanned"],
-        ToolId::LocalFetch => &[
-            "modified",
-            "sourceBytes",
-            "returnedBytes",
-            "selectedMatchCount",
-        ],
-        ToolId::GhGetFileContent => &[
-            "files.sourceBytes",
-            "files.returnedBytes",
-            "files.selectedMatchCount",
-        ],
-        ToolId::StructureSearch => &["filesScanned"],
-        // Per-row graph analytics (layer, in-degree, dominator, transitive
-        // flag) and per-language linking explain the graph, not the edges.
-        ToolId::AstTopology => &[
-            "filesScanned",
-            "operation",
-            "results.inboundCount",
-            "results.topologicalLayer",
-            "results.transitiveEdge",
-            "results.immediateDominator",
-            "summary.condensationComponentCount",
-            "summary.topologicalLayerCount",
-            "summary.transitiveEdgeCount",
-            // Repeats `coverage.imports`; `completeness.graph` states the gap.
-            "summary.importResolution",
-            "coverage.languages",
-        ],
-        ToolId::GhSearchHistory => &["effectiveQuery", "scope"],
-        _ => &[],
-    }
-}
-
-/// Remove a dotted field path; a segment naming an array applies the rest of
-/// the path to each object in it (`files.sourceBytes`).
-fn remove_path(data: &mut Map<String, Value>, path: &str) {
-    match path.split_once('.') {
-        Some((head, rest)) => match data.get_mut(head) {
-            Some(Value::Object(child)) => remove_path(child, rest),
-            Some(Value::Array(items)) => {
-                for child in items.iter_mut().filter_map(Value::as_object_mut) {
-                    remove_path(child, rest);
-                }
-            }
-            _ => {}
-        },
-        None => {
-            data.remove(path);
-        }
-    }
 }
 
 fn is_pagination_key(key: &str) -> bool {
@@ -1185,7 +1127,11 @@ pub fn envelope_in(
             .filter(|root| roots.iter().all(|other| other.as_ref() == Some(root)));
         let mut value = envelope(rows);
         if let Some(root) = single {
-            anchor_topology(&mut value, &root);
+            let workspace = paths
+                .validate(".")
+                .ok()
+                .map(|valid| valid.canonical.to_string_lossy().into_owned());
+            anchor_topology(&mut value, &root, workspace.as_deref());
         }
         return value;
     }
@@ -1208,11 +1154,67 @@ pub fn envelope_in(
         .ok()
         .map(|valid| valid.canonical.to_string_lossy().into_owned())
         .filter(|root| Path::new(root).parent().is_some());
+    if let Some(workspace) = workspace.as_deref() {
+        for row in &mut rows {
+            relativize_continuation_paths(&mut row["data"], workspace, 0);
+        }
+    }
     let mut value = compact(rows, workspace);
     if tool == ToolId::StructureSearch {
         relativize_listing_dirs(&mut value);
     }
     value
+}
+
+/// Query fields that name a local file or directory in a continuation.
+const CONTINUATION_PATH_FIELDS: [&str; 3] = ["path", "uri", "workspaceRoot"];
+
+/// Spell every absolute local path inside a continuation query (`{tool,
+/// query}` under `next`, `hints`, or a row) relative to the workspace root,
+/// which relative paths resolve against: the same file, without repeating
+/// the root the response already names as `base`. Paths outside the
+/// workspace, `file://` uris and non-local fields stay as they are.
+fn relativize_continuation_paths(value: &mut Value, workspace: &str, depth: usize) {
+    if depth > 12 {
+        return;
+    }
+    match value {
+        Value::Object(map) => {
+            if map.get("tool").is_some_and(Value::is_string)
+                && let Some(Value::Object(query)) = map.get_mut("query")
+            {
+                for field in CONTINUATION_PATH_FIELDS {
+                    if let Some(Value::String(path)) = query.get_mut(field)
+                        && let Some(relative) = workspace_relative(path, workspace)
+                    {
+                        *path = relative;
+                    }
+                }
+                return;
+            }
+            for child in map.values_mut() {
+                relativize_continuation_paths(child, workspace, depth + 1);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                relativize_continuation_paths(item, workspace, depth + 1);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `path` relative to `workspace` (`.` for the root itself) when it is an
+/// absolute path under it.
+fn workspace_relative(path: &str, workspace: &str) -> Option<String> {
+    if path == workspace {
+        return Some(".".to_owned());
+    }
+    path.strip_prefix(workspace)?
+        .strip_prefix('/')
+        .filter(|rest| !rest.is_empty())
+        .map(str::to_owned)
 }
 
 /// structureSearch `files` groups (`{dir, files}`) in a row's data.
@@ -1269,28 +1271,35 @@ fn relativize_listing_dirs(value: &mut Value) {
 }
 
 /// astTopology fields (`file`, entrypoints, diagnostics) are relative to the
-/// scanned directory, so `base` is that directory and the row `path` is `.`
-/// (a file root keeps its parent as `base` and its file name as `path`).
-fn anchor_topology(value: &mut Value, root: &Path) {
-    let is_dir = root.is_dir();
-    let Some(parent) = root.parent() else {
+/// scanned directory (a file root's parent), which groups every row. Like
+/// the other local tools, `base` is the workspace root and the row `path`
+/// names that directory relative to it (`.` for the root itself), so `base`
+/// + `path` + `file` resolves each file. A directory outside the workspace
+/// becomes `base` itself, with `path` `.`.
+fn anchor_topology(value: &mut Value, root: &Path, workspace: Option<&str>) {
+    let Some(dir) = (if root.is_dir() {
+        Some(root)
+    } else {
+        root.parent()
+    }) else {
         return;
     };
-    let display = if is_dir {
-        Some(".".to_owned())
-    } else {
-        root.file_name()
-            .map(|name| name.to_string_lossy().into_owned())
+    let dir_text = dir.to_string_lossy();
+    let (base, display) = match workspace
+        .and_then(|workspace| Some((workspace, workspace_relative(&dir_text, workspace)?)))
+    {
+        Some((workspace, relative)) => (workspace.to_owned(), relative),
+        None => (dir_text.into_owned(), ".".to_owned()),
     };
-    if let (Some(display), Some(rows)) = (display, value["results"].as_array_mut()) {
+    if let Some(rows) = value["results"].as_array_mut() {
         for row in rows {
             if row["data"].get("path").is_some_and(Value::is_string) {
                 row["data"]["path"] = json!(display);
             }
+            relativize_continuation_paths(&mut row["data"], &base, 0);
         }
     }
-    let base = if is_dir { root } else { parent };
-    value["base"] = json!(base.to_string_lossy());
+    value["base"] = json!(base);
 }
 
 /// Inverse of [`rewrite_paths`] for one directory prefix: same traversal and
@@ -1613,6 +1622,8 @@ mod tests {
 
     fn minimized(tool: ToolId, query: Value, data: Value) -> Value {
         let mut row = json!({"index":0,"data":data,"cache":1});
+        // The engine order: the verbose stage, then the minimizer.
+        super::super::verbose::prune_row(&mut row, tool, &query);
         minimize_row(&mut row, tool, &query);
         row
     }
@@ -2003,6 +2014,40 @@ mod tests {
         assert!(ws.paths.validate(path).is_ok(), "{path} in {value}");
     }
 
+    /// Continuation queries name local paths relative to the workspace root
+    /// (`base`), which resolves them to the same files; outside paths stay.
+    #[test]
+    fn continuation_query_paths_are_workspace_relative() {
+        let ws = workspace();
+        let root = ws.root.to_string_lossy().into_owned();
+        let outside = ws.outside.join("o.rs").to_string_lossy().into_owned();
+        let row = json!({"index":0,"data":{
+            "files":[{"path":format!("{root}/src/a.rs")}],
+            "next":{"nextPage":{"tool":"localSearch","query":{"path":format!("{root}/src"),"searchText":"x","page":2}}},
+            "hints":{"read":{"tool":"localFetch","query":{"path":outside.clone()}},
+                     "refs":{"tool":"lspSearch","query":{"uri":format!("{root}/src/a.rs"),"workspaceRoot":root.clone()}}}
+        }});
+        let value = envelope_in(
+            vec![row],
+            ToolId::LocalSearch,
+            &[Some(&json!({"path": format!("{root}/src")}))],
+            &ws.paths,
+        );
+        let data = &value["results"][0]["data"];
+        assert_eq!(data["next"]["nextPage"]["query"]["path"], "src", "{value}");
+        assert_eq!(
+            data["hints"]["read"]["query"]["path"],
+            outside.as_str(),
+            "{value}"
+        );
+        assert_eq!(data["hints"]["refs"]["query"]["uri"], "src/a.rs", "{value}");
+        assert_eq!(
+            data["hints"]["refs"]["query"]["workspaceRoot"], ".",
+            "{value}"
+        );
+        assert_resolvable(&ws, &value, "src");
+    }
+
     #[test]
     fn structure_and_ast_rows_are_workspace_relative_for_any_query_root() {
         let ws = workspace();
@@ -2213,27 +2258,50 @@ mod tests {
         assert!(items[1].get("uri").is_none(), "{value}");
     }
 
+    /// astTopology rows are grouped under the scanned directory: `base` is
+    /// the workspace like every local tool, the row `path` names the scanned
+    /// directory relative to it, and `base` + `path` + `file` is the file.
+    /// Continuations name the root relative to the workspace too.
     #[test]
-    fn topology_base_is_the_scanned_directory() {
+    fn topology_rows_resolve_from_the_workspace_base() {
         let ws = workspace();
-        let mut topology = vec![
-            json!({"index":0,"data": {"path": "workspace/relative", "results": [{"file": "runtime/b.rs"}]}}),
-        ];
+        let root = ws.root.to_string_lossy().into_owned();
+        let topology = vec![json!({"index":0,"data": {
+            "path": "workspace/relative",
+            "results": [{"file": "runtime/b.rs"}],
+            "next": {"nextPage": {"tool":"astTopology","query":{"path":format!("{root}/src"),"analysis":"dependents","file":"runtime/b.rs","page":2}}}
+        }})];
         let value = envelope_in(
-            std::mem::take(&mut topology),
+            topology,
             ToolId::AstTopology,
             &[Some(&json!({"path":"src"}))],
             &ws.paths,
         );
-        assert_eq!(
-            value["base"],
-            ws.root.join("src").to_string_lossy().as_ref()
-        );
-        assert_eq!(value["results"][0]["data"]["path"], ".");
-        let file = value["results"][0]["data"]["results"][0]["file"]
-            .as_str()
-            .expect("file");
+        assert_eq!(value["base"], root.as_str(), "{value}");
+        let data = &value["results"][0]["data"];
+        assert_eq!(data["path"], "src", "{value}");
+        let file = data["results"][0]["file"].as_str().expect("file");
         assert!(ws.root.join("src").join(file).is_file());
+        assert_eq!(data["next"]["nextPage"]["query"]["path"], "src", "{value}");
+        // The workspace root itself is `.`; a root outside it is its own base.
+        let value = envelope_in(
+            vec![
+                json!({"index":0,"data":{"path":"x","results":[{"file":"packages/app/src/a.rs"}]}}),
+            ],
+            ToolId::AstTopology,
+            &[Some(&json!({"path":"."}))],
+            &ws.paths,
+        );
+        assert_eq!(value["results"][0]["data"]["path"], ".", "{value}");
+        let outside = ws.outside.to_string_lossy().into_owned();
+        let value = envelope_in(
+            vec![json!({"index":0,"data":{"path":"x","results":[{"file":"o.rs"}]}})],
+            ToolId::AstTopology,
+            &[Some(&json!({"path": outside.clone()}))],
+            &ws.paths,
+        );
+        assert_eq!(value["base"], outside.as_str(), "{value}");
+        assert_eq!(value["results"][0]["data"]["path"], ".", "{value}");
     }
 
     #[test]
@@ -2442,13 +2510,14 @@ mod tests {
 
     #[test]
     fn result_metadata_requires_debug() {
-        let normal = result_row(
+        let mut normal = result_row(
             ToolId::from_name("localSearch").expect("known tool"),
             0,
             &json!({"debug":false}),
             json!({"files":[]}),
             None,
         );
+        super::super::verbose::prune_row(&mut normal, ToolId::LocalSearch, &json!({"debug":false}));
         assert!(normal.get("meta").is_none());
 
         let debug = result_row(
@@ -2466,7 +2535,7 @@ mod tests {
         let row = result_row(
             ToolId::from_name("localFetch").expect("known tool"),
             0,
-            &json!({"goal": "test", "reasoning":"Read the next exact page.","debug":false}),
+            &json!({"mainGoal": "test", "reasoning":"Read the next exact page.","debug":false}),
             json!({
                 "next": {
                     "continue": {
@@ -2490,7 +2559,7 @@ mod tests {
         let row = result_row(
             ToolId::from_name("clasify").expect("known tool"),
             0,
-            &json!({"goal": "test", "reasoning":"Evaluate captured evidence.","debug":false}),
+            &json!({"mainGoal": "test", "reasoning":"Evaluate captured evidence.","debug":false}),
             json!({
                 "context": {
                     "next": {
@@ -2499,7 +2568,7 @@ mod tests {
                             "query": {
                                 "path":"/repo/a.rs",
                                 "offset":2,
-                                "goal": "test", "reasoning":"Read the next exact page.",
+                                "mainGoal": "test", "reasoning":"Read the next exact page.",
                                 "debug":true
                             }
                         }

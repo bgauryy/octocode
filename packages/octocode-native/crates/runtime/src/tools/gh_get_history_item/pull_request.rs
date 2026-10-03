@@ -4,7 +4,10 @@ use super::continuations::{
     INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation, attach_raw_body_read,
     pr_next_menu, promote_pr_continuations,
 };
-use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
+use super::files::{
+    FileFilter, InventoryFilter, clamp_warning, file_page_size, patch_selection, push_warning,
+    shape_pr_files,
+};
 use super::graphql::{
     GraphqlCollection, GraphqlOutcome, GraphqlPr, graphql_complete_collection_eligible,
     graphql_pull_request, map_graphql_comments, map_graphql_commits, map_graphql_files,
@@ -469,6 +472,11 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     if !unsearched.is_empty() {
         out["pullRequests"][0]["unsearchedFiles"] = json!(unsearched);
     }
+    if (patch_mode != "none" || needle.is_some())
+        && let Some(warning) = clamp_warning(query)
+    {
+        push_warning(&mut out, warning);
+    }
     promote_pr_continuations(&mut out, query);
     attach_full_patch_continuation(&mut out, query);
     attach_raw_body_read(&mut out, query, &minified);
@@ -477,8 +485,10 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     }
     // A cross-tool read: the top-level `next`, not the row's PR-read menu.
     // One check at the merge commit is enough: a later patch window does not
-    // repeat it.
+    // repeat it. Lossless re-reads of reshaped views come first; the optional
+    // check joins only while the leads stay within the menu cap.
     if !query.later_page()
+        && lead_count(&out) < super::continuations::MENU_CAP
         && let Some(read) = super::continuations::read_at_merge(
             query,
             &raw,
@@ -496,6 +506,18 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         out["graphqlFallback"] = json!(reason);
     }
     Ok(out)
+}
+
+/// Leads (not pages) already offered at the response level.
+fn lead_count(out: &Value) -> usize {
+    use crate::runtime::channels::{Channel, channel};
+    out.get("next")
+        .and_then(Value::as_object)
+        .map_or(0, |next| {
+            next.keys()
+                .filter(|name| channel(ToolId::GhGetHistoryItem, name) == Channel::Lead)
+                .count()
+        })
 }
 
 /// A `matchString` search that skipped patchless files covers only part of
@@ -633,7 +655,7 @@ mod tests {
 
     fn summary(raw: Value, debug: bool) -> Value {
         let query = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r",
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
             "number":1,"debug":debug
         }))
         .expect("query");

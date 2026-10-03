@@ -227,7 +227,7 @@ mod tests {
         assert!(view_dropped_text("a <!-- hidden --> b", "a b"));
         let raw = "Fixes #1\n<!-- checklist: tests added -->\n[![ci](https://x/badge.svg)](https://x)\nBody";
         let pr = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1
         }))
         .expect("pr query");
         let mut first_more = None;
@@ -236,7 +236,7 @@ mod tests {
         assert!(dropped, "{text}");
         assert!(!text.contains("checklist"), "{text}");
         let raw_pr = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
             "minify":"none"
         }))
         .expect("raw pr query");

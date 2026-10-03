@@ -2,6 +2,24 @@
 
 Cross-vendor agent discovery, durable messages, advisory path leases, shared context memories, and host delivery. The bundle exposes a CLI and a [stdio MCP server](#connect-through-mcp), backed by one Python runtime and one SQLite database. The [skill](SKILL.md) owns the worker workflow, [host setup](scripts/docs/HOST_SETUP.md) owns administration, and `<command> --help` is the input reference.
 
+## Multi-vendor messaging
+
+Agents from different vendors message each other in one workspace: a Codex agent can ask a Claude Code agent for a review, and a Pi agent can hand off to an OpenCode agent. Every message goes through the same SQLite outbox/inbox, so routing, leases, replies and audit do not depend on the vendor. Delivery differs only in how new peer context reaches each host:
+
+| Host | Delivery path (bind with) | Idle wake on `wake:"action"` | Managed `run` | Edit guard |
+| --- | --- | --- | --- | --- |
+| Claude Code | Native inbox socket, frame between tools (`attach claude`) | Native policy decides | Yes | `PreToolUse` Write/Edit hook |
+| Codex | [App-server](https://learn.chatgpt.com/docs/app-server) tool-output injection (`attach codex`) | Yes: feeds the current turn, or starts one at idle | Yes | None bundled |
+| Pi | `pi-inbox.mjs` extension (`pi.sendMessage`, durable session receipts), `steer` at idle | Yes, at idle | Yes | Yes (`editing` profile) |
+| OpenCode | Loopback HTTP server: `/message` `noReply`, action `/prompt_async` (`attach opencode`) | Yes, through `/prompt_async` | No | Opt-in plugin |
+| Grok Build | ACP leader socket (`attach grok`), or post-tool hooks (`host-hook --vendor grok`) | Socket: yes; hooks: no | No | None bundled |
+| Cursor | Post-tool hooks, `additional_context` (`host-hook --vendor cursor`) | No: context arrives on the next tool event | No | None bundled |
+| Any other agent | CLI/MCP `inbox`, `hook` or `inbox wait` poll | No: the agent polls | No | None |
+
+- Status: Cursor hooks are contract-fixture-tested, not live-model verified. Grok hooks need a Git project root (Grok 1.0.41).
+- Passive mail (`wake:"passive"`) never starts a turn on any host.
+- Receipts differ per transport; see [the service protocol](scripts/docs/SERVICE_PROTOCOL.md#identity-and-capabilities). Hook details: [host hooks](scripts/docs/HOST_HOOKS.md). Guards: [lease guards](scripts/docs/HOST_LEASE_GUARDS.md).
+
 ## Get started
 
 - The package is **private and unpublished**. Copy or install the built `skills/octocode-agents-communication/` folder into your host's skill location; the agent reads its `SKILL.md`.
@@ -24,15 +42,17 @@ comm peers --session SESSION_ID
 comm hook '{"format":"json"}' --session SESSION_ID
 comm send_message '{"to":"RECIPIENT_ID","body":"Can you review src/api?","key":"api-review-1","reasoning":"Check the API change before handoff","wake":"action"}' \
   --session SESSION_ID
+comm lock '{"path":"src/api","reasoning":"Apply review fixes"}' --session RECIPIENT_ID
+comm unlock '{"leaseId":LEASE_ID}' --session RECIPIENT_ID
 comm complete '{"message":123,"reply":"Review complete; see src/api."}' \
   --session RECIPIENT_ID
 comm leave --session SESSION_ID
 ```
 
-- `join` returns `id`; keep it as `SESSION_ID`. Reuse an identity that a managed host supplies; do not register it again.
-- Feed the hook's `context` into the agent as peer data. Your host must invoke the hook and consume its output.
-- Presence expires after 60 seconds. Keep it with `heartbeat` every 15 seconds or a supervised `listen` process. A raw listener maintains presence only.
-- `complete` with `reply` answers and completes a received request in one operation (`123` = received message ID, run as the receiver). The worker routine (leases, FYIs, batch completion) is in the [skill](SKILL.md).
+- `join` returns `id`; keep it as `SESSION_ID`.
+- Your host must invoke the hook and feed its `context` into the agent.
+- Presence timing and renewal: [host setup](scripts/docs/HOST_SETUP.md#setup). A raw listener maintains presence only.
+- In `complete`, `123` is the received message ID, run as the receiver. The worker routine (leases, FYIs, batch completion) is in the [skill](SKILL.md).
 - `leave` releases that identity's leases.
 
 ## Connect through MCP
@@ -47,36 +67,32 @@ Installing the skill makes its instructions and scripts available; configure you
 ```
 
 - Managed mode creates a fresh identity, maintains presence and live owned leases, and leaves on EOF or a termination signal.
-- Every 15 seconds it extends live leases to at least 60 seconds ahead. It never shortens longer leases or revives expired ones. Workers still acquire and unlock explicitly.
+- Every 15 seconds it extends live leases to at least 60 seconds ahead. It never shortens longer leases or revives expired ones.
 - To reuse an identity, replace `--name reviewer` with `--session SESSION_ID` and supply the same vendor.
 - Readiness on stderr reports the identity and manual-inbox delivery mode. Stdout carries MCP messages only.
 - Each agent needs its own identity and connection. Participants share the canonical workspace and database.
-- Managed mode owns a raw participant: it rejects native-bound identities and another delivery owner. It supplies callable tools, not incoming push or idle-host wakeup; read `inbox` at task boundaries.
+- Managed mode owns a raw participant: it rejects native-bound identities and another delivery owner. It supplies callable tools, not incoming push or idle-host wakeup.
 - For automatic delivery through a host hook/native adapter or an existing supervised listener, keep that host's lifecycle and use `comm mcp --session SESSION_ID`. Plain mode never leaves or maintains the host's identity.
 - The server binds calls to its identity, so tools omit sender session/workspace arguments.
 - `--tools` restricts discovery and calls. Omit it for all agent tools, or add document/lease tools when needed. `schema tools` lists names; `schema <command>` shows inputs.
-- Every paginated result supplies `next: {command,input}`; run that command with its input unchanged.
 
 ## Supported hosts
 
-At setup, confirm the host/vendor and available tools from runtime metadata; a model name does not identify the host. Reuse an existing binding. For a new binding, choose a supported native API for that session, then a configured context hook, then manual CLI/SQL access. Confirm the native endpoint and session ID with the host.
+At setup, confirm the host/vendor and available tools from runtime metadata; a model name does not identify the host. Reuse an existing binding. For a new binding, follow the [fallback order](scripts/docs/SERVICE_PROTOCOL.md). Confirm the native endpoint and session ID with the host.
 
 Native adapters deliver into an **existing recipient session**. Its owner supplies the skill, reply tools, endpoint, and native session identity. Attachment creates neither an agent nor additional permissions.
 
-| Host | Native or host-specific delivery | Without its messaging API | Setup |
-| --- | --- | --- | --- |
-| Claude Code | Existing session inbox socket; inbound policy controls handling | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](scripts/docs/SERVICE_PROTOCOL.md) |
-| Codex | Owning app-server and loaded thread; action feeds the current turn or starts one, passive injects | Raw CLI/manual inbox; generic hook if wired by the host | [Service protocol](scripts/docs/SERVICE_PROTOCOL.md) |
-| Grok Build | Leader socket and resident session; action prompts, passive waits | Supplied post-tool hooks or raw CLI/manual inbox | [Hook contracts](scripts/docs/HOST_HOOKS.md) |
-| Pi | Extension uses `pi.sendMessage` and durable session receipts | Raw CLI/manual inbox without the extension | [Service protocol](scripts/docs/SERVICE_PROTOCOL.md) |
-| OpenCode | Existing idle loopback session; action prompts, passive uses `noReply:true` | Raw CLI/manual inbox; generic hook if wired by the host | [OpenCode setup](#connect-a-native-recipient) |
-| Cursor | Supplied project post-tool hooks; no native messaging adapter | Raw CLI/manual inbox when hooks are unavailable | [Hook setup](scripts/docs/HOST_HOOKS.md); fixtures, no live Cursor validation |
-| Any other vendor or custom agent | No vendor-specific adapter required for the shared protocol | Raw CLI, host-wired context hook, or conforming SQLite client | [Database protocol](scripts/docs/DB.md) |
+Delivery per host is in the [multi-vendor table](#multi-vendor-messaging). Without its messaging API, a host falls back to the raw CLI/manual inbox, or a generic hook if the host wires one; Grok and Cursor use the supplied post-tool hooks.
 
-- Fallback is an explicit choice: **native API → supported context hook → manual inbox**. A transport error never silently switches paths.
-- A database write cannot wake an arbitrary process; hooks need a host event. Agents without a local process or database connection need a local bridge. Generic ACP support stays outside the dispatcher.
+| Host | Setup |
+| --- | --- |
+| Claude Code, Codex, Pi | [Service protocol](scripts/docs/SERVICE_PROTOCOL.md) |
+| Grok Build, Cursor | [Hook contracts](scripts/docs/HOST_HOOKS.md) |
+| OpenCode | [OpenCode setup](#connect-a-native-recipient) |
+| Any other vendor or custom agent | [Database protocol](scripts/docs/DB.md) |
+
+- Generic ACP support stays outside the dispatcher.
 - Use a deterministic bridge for transport; a second model adds no delivery guarantee. `run` creates a worker for assigned work, not a relay.
-- Managed Claude (Unix inbox socket, peer origin) and Codex ([app-server tool output](https://learn.chatgpt.com/docs/app-server)) forward mail at native between-tool boundaries, checking every 100 ms.
 - Not implemented here: Claude [Channels](https://code.claude.com/docs/en/channels), Cursor's Cloud Agents, SDK Bridge and ACP CLI.
 
 ### Connect a native recipient
@@ -118,9 +134,8 @@ Use the [raw setup above](#get-started) for the CLI path. SQL clients must keep 
 ## Coordination you can inspect
 
 - Messages, replies, identities, delivery attempts, and handling acknowledgements share the local database.
-- Leases expire when their owner stops maintaining presence. Plain heartbeats do not renew leases; managed hosts explicitly renew live owned leases. Lease rules: [DB.md](scripts/docs/DB.md#path-leases).
-- Path reservations are advisory. Optional [structured-edit guards](scripts/docs/HOST_LEASE_GUARDS.md) check live ownership for Claude, Pi, and OpenCode. Shell commands, custom tools, and unrelated processes stay outside that coverage.
-- Peer messages cannot grant permissions or expand your assigned task.
+- Leases expire when their owner stops maintaining presence. Lease rules: [DB.md](scripts/docs/DB.md#path-leases).
+- Path reservations are advisory. Optional [structured-edit guards](scripts/docs/HOST_LEASE_GUARDS.md) check live ownership for Claude, Pi, and OpenCode; custom tools and unrelated processes stay outside that coverage.
 - `health` gives compact, read-only delivery diagnostics. `entity list audit` shows recorded events.
 - Back up database snapshots and shared documents together; maintenance keeps message history and idempotency keys. See [operations, recovery and retention](scripts/docs/OPERATIONS.md).
 - Scope: cooperating agents under the same trusted OS user. Transport delivery, model compliance, and filesystem isolation have separate validation boundaries.

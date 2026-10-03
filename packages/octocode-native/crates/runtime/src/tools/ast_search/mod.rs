@@ -275,13 +275,13 @@ mod tests {
         // rejects them (reported as `invalidInput`).
         for row in [
             json!({"path":"."}),
-            json!({"operation":"symbols","goal": "test", "reasoning":"test","path":".","unknown":true}),
+            json!({"operation":"symbols","mainGoal": "test", "reasoning":"test","path":".","unknown":true}),
         ] {
             assert!(serde_json::from_value::<AstSearchQuery>(row).is_err());
         }
 
         let cancelled = execute_row(
-            json!({"operation":"symbols","goal": "test", "reasoning":"test","path":"."}),
+            json!({"operation":"symbols","mainGoal": "test", "reasoning":"test","path":"."}),
             &paths,
             &security,
             &Cancelled,
@@ -304,7 +304,7 @@ mod tests {
 
         let syntax = execute_row(
             json!({
-                "operation":"syntaxTree","goal": "test", "reasoning":"test",
+                "operation":"syntaxTree","mainGoal": "test", "reasoning":"test",
                 "path":source.to_string_lossy()
             }),
             &paths,
@@ -321,7 +321,7 @@ mod tests {
         assert!(root_node.get("endByte").is_none(), "{root_node}");
         let debug = execute_row(
             json!({
-                "operation":"syntaxTree","goal": "test", "reasoning":"test","debug":true,
+                "operation":"syntaxTree","mainGoal": "test", "reasoning":"test","debug":true,
                 "path":source.to_string_lossy()
             }),
             &paths,
@@ -333,12 +333,12 @@ mod tests {
         assert!(debug["nodes"][0]["endByte"].as_u64().is_some(), "{debug}");
 
         for retired in [
-            json!({"operation":"tree","goal": "test", "reasoning":"test","treeKind":"filesystem","path":root.path().to_string_lossy()}),
-            json!({"operation":"tree","goal": "test", "reasoning":"test","treeKind":"syntax","path":source.to_string_lossy()}),
-            json!({"operation":"files","goal": "test", "reasoning":"test","path":root.path().to_string_lossy()}),
-            json!({"operation":"syntaxTree","goal": "test", "reasoning":"test","path":source.to_string_lossy(),"entryType":"f"}),
-            json!({"operation":"syntaxTree","goal": "test", "reasoning":"test","path":source.to_string_lossy(),"sort":"size"}),
-            json!({"operation":"topology","goal": "test", "reasoning":"test","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
+            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","treeKind":"filesystem","path":root.path().to_string_lossy()}),
+            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","treeKind":"syntax","path":source.to_string_lossy()}),
+            json!({"operation":"files","mainGoal": "test", "reasoning":"test","path":root.path().to_string_lossy()}),
+            json!({"operation":"syntaxTree","mainGoal": "test", "reasoning":"test","path":source.to_string_lossy(),"entryType":"f"}),
+            json!({"operation":"syntaxTree","mainGoal": "test", "reasoning":"test","path":source.to_string_lossy(),"sort":"size"}),
+            json!({"operation":"topology","mainGoal": "test", "reasoning":"test","analysis":"dependencies","path":root.path().to_string_lossy(),"file":"fixture.ts"}),
         ] {
             assert!(
                 serde_json::from_value::<AstSearchQuery>(retired).is_err(),

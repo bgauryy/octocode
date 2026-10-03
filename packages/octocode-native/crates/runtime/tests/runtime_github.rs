@@ -217,7 +217,7 @@ async fn github_clone_is_cli_only_even_when_mcp_enables_clone() {
         .execute_mcp(
             "mcp-clone".into(),
             "ghCloneRepo".into(),
-            json!({"queries":[{"owner":"a","repo":"b","goal": "test", "reasoning":"check MCP gate"}]}),
+            json!({"queries":[{"owner":"a","repo":"b","mainGoal": "test", "reasoning":"check MCP gate"}]}),
         )
         .await
         .expect_err("MCP channel cannot clone through a CLI runtime");
@@ -265,7 +265,7 @@ async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
             "path": name,
             "branch": sha,
             "forceRefresh": true,
-            "goal": "test", "reasoning": format!("Read {name} through the GitHub bulk path."),
+            "mainGoal": "test", "reasoning": format!("Read {name} through the GitHub bulk path."),
             "debug": true
         })
     });
@@ -565,7 +565,7 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
     assert_eq!(data["sha"], sha, "{data}");
     assert!(data.get("ref").is_none(), "{data}");
     assert_eq!(
-        data["next"]["findPullRequest"]["query"]["keywords"],
+        data["hints"]["findPullRequest"]["query"]["keywords"],
         json!([sha]),
         "{data}"
     );
@@ -600,10 +600,10 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
     .await
     .expect("commit read");
     let data = row_data(&outcome);
-    let read = &data["next"]["readPullRequest"];
+    let read = &data["hints"]["readPullRequest"];
     assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
     assert_eq!(read["query"]["number"], 8506, "{data}");
-    assert!(data["next"].get("findPullRequest").is_none(), "{data}");
+    assert!(data["hints"].get("findPullRequest").is_none(), "{data}");
     assert!(
         !outcome
             .structured_content
@@ -847,7 +847,7 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
         "{pr}"
     );
     // The body rides the file-list read.
-    let get_body = &pr["next"]["getChangedFiles"]["query"];
+    let get_body = &pr["hints"]["getChangedFiles"]["query"];
     // Continuations omit defaulted fields; validation restores them on replay.
     assert!(get_body.get("pageSize").is_none(), "{get_body}");
     assert!(get_body.get("minify").is_none(), "{get_body}");
@@ -1107,7 +1107,7 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
             .contains("is a directory"),
         "{data}"
     );
-    assert_eq!(data["next"]["viewTree"]["query"]["path"], "src", "{data}");
+    assert_eq!(data["hints"]["viewTree"]["query"]["path"], "src", "{data}");
     runtime.close().await;
 }
 
@@ -1210,27 +1210,27 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
     assert_eq!(
-        data["next"]["readFile"]["query"]["path"], "tokio/src/lib.rs",
+        data["hints"]["readFile"]["query"]["path"], "tokio/src/lib.rs",
         "{data}"
     );
     assert_eq!(
-        data["next"]["readFile"]["query"]["branch"], "main",
+        data["hints"]["readFile"]["query"]["branch"], "main",
         "{data}"
     );
     assert_eq!(
-        data["next"]["viewTree"]["query"]["path"], "tokio/src",
+        data["hints"]["viewTree"]["query"]["path"], "tokio/src",
         "{data}"
     );
     let outcome = call(&runtime, "ghGetFileContent", read("tokio/src/nope.rs"))
         .await
         .expect("error row");
     let data = row_data(&outcome);
-    assert!(data["next"].get("readFile").is_none(), "{data}");
+    assert!(data["hints"].get("readFile").is_none(), "{data}");
     assert_eq!(
-        data["next"]["viewTree"]["query"]["path"], "tokio/src",
+        data["hints"]["viewTree"]["query"]["path"], "tokio/src",
         "{data}"
     );
-    assert_eq!(data["next"]["viewTree"]["confidence"], "exact", "{data}");
+    assert_eq!(data["hints"]["viewTree"]["confidence"], "exact", "{data}");
     runtime.close().await;
 }
 
@@ -1293,13 +1293,16 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
         );
         let data = row_data(&outcome);
         assert_eq!(data["errorCode"], "notFound", "{data}");
-        assert_eq!(data["next"]["viewTree"]["tool"], "ghStructure", "{data}");
-        assert_eq!(data["next"]["viewTree"]["query"]["path"], nearest, "{data}");
+        assert_eq!(data["hints"]["viewTree"]["tool"], "ghStructure", "{data}");
         assert_eq!(
-            data["next"]["viewTree"]["query"]["branch"], "main",
+            data["hints"]["viewTree"]["query"]["path"], nearest,
             "{data}"
         );
-        assert_eq!(data["next"]["viewTree"]["confidence"], "exact", "{data}");
+        assert_eq!(
+            data["hints"]["viewTree"]["query"]["branch"], "main",
+            "{data}"
+        );
+        assert_eq!(data["hints"]["viewTree"]["confidence"], "exact", "{data}");
         assert!(
             data["error"]
                 .as_str()
@@ -1437,7 +1440,7 @@ async fn anonymous_rate_limit_advises_authentication() {
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "rateLimited", "{data}");
     assert!(
-        data["hints"][0]
+        data["hints"]["text"][0]
             .as_str()
             .is_some_and(|hint| hint.contains("auth login")),
         "{data}"
@@ -1503,7 +1506,7 @@ fn all_hints(value: &serde_json::Value) -> Vec<String> {
         serde_json::Value::Object(map) => {
             for (key, child) in map {
                 if key == "hints"
-                    && let Some(hints) = child.as_array()
+                    && let Some(hints) = child.get("text").and_then(|text| text.as_array())
                 {
                     out.extend(hints.iter().filter_map(|h| h.as_str().map(str::to_owned)));
                 }
@@ -1587,7 +1590,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     let rendered = data.to_string();
     assert!(rendered.contains("private"), "{rendered}");
     assert!(!rendered.contains("exact case"), "{rendered}");
-    assert!(data.pointer("/next/viewTree").is_none(), "{rendered}");
+    assert!(data.pointer("/hints/viewTree").is_none(), "{rendered}");
     assert!(!rendered.contains("commits#get-a-commit"), "{rendered}");
     runtime.close().await;
 }
@@ -1620,7 +1623,7 @@ async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
     .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "error", "{data}");
-    let read = &data["next"]["readIssue"]["query"];
+    let read = &data["hints"]["readIssue"]["query"];
     assert_eq!(read["operation"], "issue", "{data}");
     assert_eq!(read["number"], 9, "{data}");
     assert!(
@@ -1847,7 +1850,7 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
         ]),
         "{data}"
     );
-    let read = &data["next"]["readFixPr"];
+    let read = &data["hints"]["readFixPr"];
     assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
     assert_eq!(read["query"]["operation"], "pullRequest", "{data}");
     assert_eq!(read["query"]["number"], 13825, "{data}");
@@ -1873,7 +1876,7 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     .expect("issue read");
     let data = row_data(&outcome);
     assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-    let find = &data["next"]["findFixPr"];
+    let find = &data["hints"]["findFixPr"];
     assert_eq!(find["tool"], "ghSearchHistory", "{data}");
     assert_eq!(find["query"]["keywords"], json!(["42"]), "{data}");
     runtime.close().await;
@@ -1947,7 +1950,7 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
             );
         } else {
             assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-            assert!(data["next"].get("readFixPr").is_none(), "{data}");
+            assert!(data["hints"].get("readFixPr").is_none(), "{data}");
         }
         match data["next"]["continueBody"]["query"].as_object() {
             Some(next) => query = serde_json::Value::Object(next.clone()),

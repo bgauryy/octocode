@@ -110,6 +110,18 @@ pub struct ResponsePagination {
     pub next: Option<ResponseContinuation>,
 }
 
+impl ResponsePagination {
+    /// Envelope pagination is next-call input only while something remains:
+    /// another page, a restart, or a changed snapshot. A finished response
+    /// carries none.
+    fn is_actionable(&self) -> bool {
+        self.has_more
+            || self.restart == Some(true)
+            || self.changed == Some(true)
+            || self.next.is_some()
+    }
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ResponseContinuation {
     pub tool: String,
@@ -179,12 +191,14 @@ impl ResponsePager {
             }
             pagination.next =
                 build_continuation(&input.tool, &input.query, &input.options, &pagination);
-            // pagination is a plain serializable struct
-            #[allow(clippy::expect_used)]
-            envelope.insert(
-                "responsePagination".into(),
-                serde_json::to_value(&pagination).expect("serializable pagination"),
-            );
+            if pagination.is_actionable() {
+                // pagination is a plain serializable struct
+                #[allow(clippy::expect_used)]
+                envelope.insert(
+                    "responsePagination".into(),
+                    serde_json::to_value(&pagination).expect("serializable pagination"),
+                );
+            }
             let text = Value::Object(envelope.clone()).to_string();
             return Ok(PreparedResponse {
                 content: vec![TextContent {
@@ -224,12 +238,14 @@ impl ResponsePager {
                 pagination.scope = "structuredContent".into();
                 pagination.next =
                     build_continuation(&input.tool, &input.query, &input.options, &pagination);
-                // pagination is a plain serializable struct
-                #[allow(clippy::expect_used)]
-                windowed.insert(
-                    "responsePagination".into(),
-                    serde_json::to_value(&pagination).expect("serializable pagination"),
-                );
+                if pagination.is_actionable() {
+                    // pagination is a plain serializable struct
+                    #[allow(clippy::expect_used)]
+                    windowed.insert(
+                        "responsePagination".into(),
+                        serde_json::to_value(&pagination).expect("serializable pagination"),
+                    );
+                }
             }
             return Ok(PreparedResponse {
                 content: vec![TextContent {
@@ -271,12 +287,14 @@ impl ResponsePager {
                 // which has one channel) must still see this page's window.
                 structured.insert("responseWindow".into(), json!(page.text));
             }
-            // pagination is a plain serializable struct
-            #[allow(clippy::expect_used)]
-            structured.insert(
-                "responsePagination".into(),
-                serde_json::to_value(&pagination).expect("serializable pagination"),
-            );
+            if pagination.is_actionable() {
+                // pagination is a plain serializable struct
+                #[allow(clippy::expect_used)]
+                structured.insert(
+                    "responsePagination".into(),
+                    serde_json::to_value(&pagination).expect("serializable pagination"),
+                );
+            }
         }
         Ok(PreparedResponse {
             content: vec![TextContent {
@@ -685,8 +703,12 @@ impl PartShare {
         }
     }
 
-    fn keeps(self, name: &str) -> bool {
-        let page = crate::runtime::response::is_page_continuation_name(name);
+    /// Whether this part keeps entry `name` of the row's `container`
+    /// (`next` or `hints`). Hint leads and text are never pages, so they
+    /// ride the first part.
+    fn keeps(self, container: &str, name: &str) -> bool {
+        let page =
+            container == PAGES_KEY && crate::runtime::response::is_page_continuation_name(name);
         match self {
             Self::Whole => true,
             Self::First => !page,
@@ -696,45 +718,53 @@ impl PartShare {
     }
 }
 
-/// The `next` objects a row carries under `data` and at its top level.
-fn row_nexts(row: &Value) -> impl Iterator<Item = &Map<String, Value>> {
-    [
-        row.get("data").and_then(|data| data.get("next")),
-        row.get("next"),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(Value::as_object)
+use crate::runtime::channels::{HINTS_KEY, PAGES_KEY};
+
+/// The `next` and `hints` objects a row carries under `data` and at its top
+/// level, with their container name.
+fn row_nexts(row: &Value) -> impl Iterator<Item = (&'static str, &Map<String, Value>)> {
+    [row.get("data"), Some(row)]
+        .into_iter()
+        .flatten()
+        .flat_map(|slot| {
+            [PAGES_KEY, HINTS_KEY].into_iter().filter_map(move |key| {
+                slot.get(key)
+                    .and_then(Value::as_object)
+                    .map(|map| (key, map))
+            })
+        })
 }
 
-/// Serialized `"next":…,` chars a row's `share` keeps of its continuations.
+/// Serialized `"next":…,`/`"hints":…,` chars a row's `share` keeps.
 fn row_next_chars(row: &Value, share: PartShare) -> usize {
     row_nexts(row)
-        .map(|next| {
-            let kept: Map<String, Value> = next
+        .map(|(container, entries)| {
+            let kept: Map<String, Value> = entries
                 .iter()
-                .filter(|(name, _)| share.keeps(name))
+                .filter(|(name, _)| share.keeps(container, name))
                 .map(|(name, call)| (name.clone(), call.clone()))
                 .collect();
             if kept.is_empty() {
                 0
             } else {
-                json_chars(&json!({"next": kept})) - 1
+                json_chars(&json!({ container: kept })) - 1
             }
         })
         .sum()
 }
 
-/// Keep only the continuations a row part rides (see [`PartShare`]).
+/// Keep only the continuations and hints a row part rides (see [`PartShare`]).
 fn keep_row_next(value: &mut Value, share: PartShare) {
     let retain = |slot: Option<&mut Map<String, Value>>| {
         let Some(slot) = slot else {
             return;
         };
-        if let Some(next) = slot.get_mut("next").and_then(Value::as_object_mut) {
-            next.retain(|name, _| share.keeps(name));
-            if next.is_empty() {
-                slot.remove("next");
+        for container in [PAGES_KEY, HINTS_KEY] {
+            if let Some(entries) = slot.get_mut(container).and_then(Value::as_object_mut) {
+                entries.retain(|name, _| share.keeps(container, name));
+                if entries.is_empty() {
+                    slot.remove(container);
+                }
             }
         }
     };
@@ -1131,7 +1161,7 @@ mod tests {
                 .prepare(
                     ResponseInput {
                         tool: "localFetch".into(),
-                        query: json!({"path":"a","goal": "test", "reasoning":"r","debug":false}),
+                        query: json!({"path":"a","mainGoal": "test", "reasoning":"r","debug":false}),
                         structured: envelope.clone(),
                         rendered_text: None,
                         is_error: false,
@@ -1144,20 +1174,21 @@ mod tests {
             // The windowed envelope stays schema-valid: results present.
             assert_eq!(out["results"], json!([]));
             let window = out["responseWindow"].as_str().expect("window");
-            let pagination = &out["responsePagination"];
-            assert_eq!(pagination["scope"], "structuredContent");
             // Window text carries no page header; content mirrors it.
             assert_eq!(prepared.content[0].text, window);
             joined.push_str(window);
+            // The final window carries no pagination: nothing remains.
+            let Some(pagination) = out.get("responsePagination") else {
+                break;
+            };
+            assert_eq!(pagination["scope"], "structuredContent");
+            assert_eq!(pagination["hasMore"], true, "{pagination}");
             snapshot = Some(
                 pagination["snapshot"]
                     .as_str()
                     .expect("snapshot")
                     .to_owned(),
             );
-            if pagination["hasMore"] != json!(true) {
-                break;
-            }
             // The continuation is executable and keeps the opt-in scope.
             let next = &pagination["next"]["query"];
             assert_eq!(next["responseScope"], "structured");
@@ -1180,7 +1211,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a","goal": "test", "reasoning":"r"}),
+                    query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
                     structured: json!({"results":[{"index":0,"data":{"content":"body"}}]}),
                     rendered_text: None,
                     is_error: false,
@@ -1205,7 +1236,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a","goal": "test", "reasoning":"r"}),
+                    query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
                     structured: envelope.clone(),
                     rendered_text: None,
                     is_error: false,
@@ -1226,7 +1257,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a","goal": "test", "reasoning":"r"}),
+                    query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
                     structured: envelope.clone(),
                     rendered_text: Some("body".into()),
                     is_error: false,
@@ -1239,9 +1270,14 @@ mod tests {
             )
             .expect("page");
         assert_eq!(prepared.structured_content["results"], envelope["results"]);
-        assert_eq!(
-            prepared.structured_content["responsePagination"]["hasMore"],
-            false
+        // A finished response carries no envelope pagination.
+        assert!(
+            prepared
+                .structured_content
+                .get("responsePagination")
+                .is_none(),
+            "{}",
+            prepared.structured_content
         );
     }
 
@@ -1259,7 +1295,7 @@ mod tests {
                 .prepare(
                     ResponseInput {
                         tool: "localFetch".into(),
-                        query: json!({"path":"a","goal": "test", "reasoning":"r"}),
+                        query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
                         structured: envelope.clone(),
                         rendered_text: Some(text.into()),
                         is_error: false,
@@ -1291,7 +1327,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a", "goal":"g", "reasoning":"r", "debug":true}),
+                    query: json!({"path":"a", "mainGoal":"g", "reasoning":"r", "debug":true}),
                     structured: json!({"results":[]}),
                     rendered_text: Some("line1\nline2\nline3".into()),
                     is_error: false,
@@ -1305,7 +1341,7 @@ mod tests {
         // continuation wraps in { queries: [q] } for backward compat
         assert_eq!(
             next["queries"][0],
-            json!({"path":"a", "goal":"g", "reasoning":"r", "debug":true})
+            json!({"path":"a", "mainGoal":"g", "reasoning":"r", "debug":true})
         );
         assert!(
             next["responseSnapshot"]
@@ -1319,8 +1355,8 @@ mod tests {
     fn bulk_continuations_preserve_queries_and_pass_output_contract() {
         let pager = ResponsePager::new(ResponsePagerConfig::default());
         let queries = json!([
-            {"path":"/repo/a.ts", "goal": "test", "reasoning":"read both", "debug":true, "fullContent":true},
-            {"path":"/repo/b.ts", "goal": "test", "reasoning":"read both", "debug":false, "startLine":2, "endLine":5}
+            {"path":"/repo/a.ts", "mainGoal": "test", "reasoning":"read both", "debug":true, "fullContent":true},
+            {"path":"/repo/b.ts", "mainGoal": "test", "reasoning":"read both", "debug":false, "startLine":2, "endLine":5}
         ]);
         for options in [
             options(8),

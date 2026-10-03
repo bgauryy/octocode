@@ -81,7 +81,7 @@ for (const tool of contract.tools) {
     moduleDir: relative(root, moduleDir),
     evidenceFiles: files.map(f => relative(root, f)),
     fields,
-    // Envelope fields (goal/reasoning/debug) are handled by the shared runtime, not tool modules.
+    // Envelope fields (mainGoal/reasoning/debug) are handled by the shared runtime, not tool modules.
     zeroHitFields: fields.filter(f => f.hits === 0 && !isEnvelope(f)).map(f => f.path),
     unclassifiedFields: fields.filter(f => !declared.has(f.path)).map(f => f.path),
     undescribedFields: fields.filter(f => f.descriptionChars === 0).map(f => f.path),

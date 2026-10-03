@@ -63,13 +63,12 @@ export async function startServer({ env = {}, cwd = ROOT, timeoutMs = Number(pro
   } catch (error) { clearTimeout(deadline); terminate(); throw error; }
   const log = [];
 
-  /** Call a tool with one query (or an array) plus optional top-level args. */
+  /** Call a tool with one query (or an array) plus optional top-level args. Briefs are optional, so none is added. */
   async function call(tool, queries, extra = {}, label = '') {
-    const list = (Array.isArray(queries) ? queries : [queries]).map(q => ({ goal: 'octocode-local-testing regression check', reasoning: 'octocode-local-testing', ...q }));
-    return raw(tool, { queries: list, ...extra }, label);
+    return raw(tool, { queries: Array.isArray(queries) ? queries : [queries], ...extra }, label);
   }
 
-  /** Call with arguments exactly as given (e.g. a pasted next.query). */
+  /** Call with arguments exactly as given (e.g. a pasted next.* or hints.* query). */
   async function raw(tool, args, label = '') {
     const started = Date.now();
     let response;
@@ -115,7 +114,7 @@ export function expandShared(sc) {
   return copy;
 }
 
-/** Explicit tool/query hints and the bare clasify self-continuation (under `hints` or the legacy `next` key). */
+/** Every executable continuation (`next.*` pages and `hints.*` leads, with its path) plus the bare clasify self-continuation. */
 export function nextHints(value, pathLabel = '') {
   const hints = [];
   const walk = (node, at) => {
@@ -300,7 +299,8 @@ export function sourceView(file) {
   const content = file?.content ?? '';
   const records = content.split('\n');
   const trailing = records.at(-1) === '' ? records.pop() : undefined;
-  const marker = /^\.\.\. \[lines? \d+(?:-\d+)? omitted\] \.\.\.$/;
+  // A gap marker, or one gap-run marker for single lines (ghGetFileContent).
+  const marker = /^\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) omitted\] \.\.\.$/;
   const numbered = records.length > 0 && records.some(l => /^\d+\t/.test(l)) && records.every(l => /^\d+\t/.test(l) || marker.test(l));
   if (!numbered) return { text: content, ranges: file?.sourceLineRanges ?? [], numbered: false };
   const ranges = [];

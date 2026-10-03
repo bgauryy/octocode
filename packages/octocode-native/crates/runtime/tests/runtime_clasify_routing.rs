@@ -95,7 +95,7 @@ async fn bare_identifier_locate_target_routes_to_local_search_without_provider_w
     let file = steps(&workspace);
     let runtime = runtime(&workspace, &server);
     let input = json!({
-        "reasoning":"Find the constant.","goal":"Where step_17 is defined.",
+        "reasoning":"Find the constant.","mainGoal":"Where step_17 is defined.",
         "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
             "path":file,"fullContent":true
         }}}],
@@ -113,16 +113,16 @@ async fn bare_identifier_locate_target_routes_to_local_search_without_provider_w
     assert_eq!(query["resources"], json!([]), "nothing was read: {query}");
     assert!(query.get("best").is_none(), "{query}");
     assert!(
-        query["hints"][0]
+        query["hints"]["text"][0]
             .as_str()
             .unwrap_or_default()
             .contains("step_17"),
         "{query}"
     );
-    let search = &query["next"]["localSearch"];
+    let search = &query["hints"]["localSearch"];
     assert_eq!(search["query"]["searchText"], "step_17", "{query}");
     assert_eq!(
-        search["query"]["goal"], "Where step_17 is defined.",
+        search["query"]["mainGoal"], "Where step_17 is defined.",
         "{query}"
     );
     assert_eq!(
@@ -155,7 +155,7 @@ async fn a_described_target_that_names_an_identifier_is_still_located() {
     let file = steps(&workspace);
     let runtime = runtime(&workspace, &server);
     let input = json!({
-        "reasoning":"Locate a step.","goal":"Where step_17 is defined.",
+        "reasoning":"Locate a step.","mainGoal":"Where step_17 is defined.",
         "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
             "path":file,"fullContent":true
         }}}],
@@ -180,7 +180,7 @@ async fn a_page_read_never_repeats_a_best_row_read() {
     let file = steps(&workspace);
     let runtime = runtime(&workspace, &server);
     let input = json!({
-        "reasoning":"Locate a step.","goal":"Which function returns one.",
+        "reasoning":"Locate a step.","mainGoal":"Which function returns one.",
         "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
             "path":file,"fullContent":true
         }}}],
@@ -195,7 +195,7 @@ async fn a_page_read_never_repeats_a_best_row_read() {
     let query = &output["queries"][0];
     assert!(query["best"]["t"].is_array(), "best: {query}");
     // The top best window's read is the query's next.read, emitted once.
-    let best_read = &query["next"]["read"];
+    let best_read = &query["hints"]["read"];
     assert!(best_read.is_object(), "{query}");
     assert_eq!(
         best_read["query"]["startLine"],
@@ -203,7 +203,7 @@ async fn a_page_read_never_repeats_a_best_row_read() {
     );
     for page in query["resources"][0]["pages"].as_array().unwrap() {
         assert_ne!(
-            page.pointer("/next/read"),
+            page.pointer("/hints/read"),
             Some(best_read),
             "duplicate read: {query}"
         );
@@ -238,14 +238,14 @@ async fn a_missing_file_resource_is_not_found_like_its_read() {
         .execute(
             "read-missing".into(),
             "localFetch".into(),
-            json!({"goal":"g","reasoning":"r","path":missing}),
+            json!({"mainGoal":"g","reasoning":"r","path":missing}),
         )
         .await
         .expect("localFetch");
     assert_eq!(direct.failure, Some(FailureKind::NotFound));
     let matrix = |resources: Value| {
         json!({
-            "reasoning":"Triage files.","goal":"Which files define steps.",
+            "reasoning":"Triage files.","mainGoal":"Which files define steps.",
             "resources":resources,
             "questions":[{"id":"q","type":"noul","instructions":"Does it define a step?"}]
         })
@@ -289,7 +289,7 @@ async fn a_disabled_context_tool_is_rejected_at_validation_naming_its_gate() {
     let file = steps(&workspace);
     let runtime = runtime(&workspace, &server);
     let input = json!({
-        "reasoning":"Rank dependents.","goal":"Which modules import steps.",
+        "reasoning":"Rank dependents.","mainGoal":"Which modules import steps.",
         "resources":[{"id":"deps","context":{"tool":"astTopology","query":{
             "analysis":"dependents","file":file
         }}}],

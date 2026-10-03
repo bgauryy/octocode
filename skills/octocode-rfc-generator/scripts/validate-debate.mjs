@@ -34,18 +34,26 @@ const typedQuestions = questions => {
   return new Set(ids).size === ids.length;
 };
 
-// Goal and questions stay in the outer matrix; host admission never becomes provider evidence.
-const providerReview = ({ goal, questions, ...review }) => review;
+// The decision goal is `mainGoal`; `goal` is its accepted alias. Sending both is ambiguous.
+const goalOf = value => {
+  if (!object(value)) return undefined;
+  if (Object.hasOwn(value, 'mainGoal') && Object.hasOwn(value, 'goal')) return undefined;
+  return Object.hasOwn(value, 'mainGoal') ? value.mainGoal : value.goal;
+};
+
+// The goal and questions stay in the outer matrix; host admission never becomes provider evidence.
+const providerReview = ({ mainGoal, goal, questions, ...review }) => review;
 
 // Structural provenance only: never establishes evidence truth or RFC readiness.
 export function validateDebate(request, packet) {
   const errors = [];
   const review = packet?.review;
-  if (!object(review) || !text(review.id) || !text(review.rfcRevision) || !bounded(review.goal) ||
+  const reviewGoal = goalOf(review);
+  if (!object(review) || !text(review.id) || !text(review.rfcRevision) || !bounded(reviewGoal) ||
       !typedQuestions(review.questions) ||
       !Array.isArray(review.criteria) || review.criteria.length === 0 || !review.criteria.every(text) ||
       !object(review.subject) || !['proposal', 'claim'].includes(review.subject.kind) || !text(review.subject.text)) {
-    return { valid: false, errors: ['Worker packet needs review {id, rfcRevision, goal (≤500 chars), questions:[{id?, type, instructions, criteria?}], criteria, subject:{kind:proposal|claim, text}}.'] };
+    return { valid: false, errors: ['Worker packet needs review {id, rfcRevision, mainGoal (≤500 chars; goal is an alias), questions:[{id?, type, instructions, criteria?}], criteria, subject:{kind:proposal|claim, text}}.'] };
   }
   const admission = packet?.admission;
   if (!object(admission) || admission.workersDisagree !== true ||
@@ -78,12 +86,12 @@ export function validateDebate(request, packet) {
   }
   queries.forEach((query, index) => {
     const prefix = `Query ${index + 1}`;
-    if (!only(query, ['id', 'reasoning', 'goal', 'resources', 'questions']) ||
+    if (!only(query, ['id', 'reasoning', 'mainGoal', 'goal', 'resources', 'questions']) ||
         (Object.hasOwn(query, 'id') && !stableId.test(query.id ?? '')) ||
-        !bounded(query.reasoning) || !bounded(query.goal) ||
+        !bounded(query.reasoning) || !bounded(goalOf(query)) ||
         !Array.isArray(query.resources) || query.resources.length !== 1 || !typedQuestions(query.questions) ||
         query.resources.length * query.questions.length > 25) {
-      errors.push(`${prefix}: RFC review requires one source-free SemanticQuery with optional id, required reasoning and goal (≤500 chars each), one resources[] entry, flat typed questions[], and at most 25 resource-question cells.`);
+      errors.push(`${prefix}: RFC review requires one source-free SemanticQuery with optional id, required reasoning and mainGoal (≤500 chars each; goal is an alias), one resources[] entry, flat typed questions[], and at most 25 resource-question cells.`);
       return;
     }
     const resource = query.resources[0];
@@ -101,8 +109,8 @@ export function validateDebate(request, packet) {
     if (!isDeepStrictEqual(context.review, providerReview(review))) {
       errors.push(`${prefix}: review differs from the frozen worker contract.`);
     }
-    if (query.goal !== review.goal) {
-      errors.push(`${prefix}: goal differs from the frozen worker contract.`);
+    if (goalOf(query) !== reviewGoal) {
+      errors.push(`${prefix}: mainGoal differs from the frozen worker contract.`);
     }
     if (!isDeepStrictEqual(query.questions, review.questions)) {
       errors.push(`${prefix}: typed questions differ from the frozen worker contract.`);
@@ -155,7 +163,7 @@ export function validateDebate(request, packet) {
 function selfTest() {
   const review = {
     id: 'review-1', rfcRevision: 'fixture-revision',
-    goal: 'Decide whether the frozen proposal can advance under its criteria.',
+    mainGoal: 'Decide whether the frozen proposal can advance under its criteria.',
     questions: [{ id: 'Q1', type: 'choice', instructions: 'Does the resource evidence support advancing resource review subject under its criteria? Consider both arguments and missing evidence.', criteria: { support: 'Safeguards satisfy the supplied criteria.', reject: 'Safeguards fail the supplied criteria.', insufficient: 'The evidence cannot resolve the question.', conflicting: 'Relevant evidence supports incompatible conclusions.' } }],
     criteria: ['Preserve compatibility.'], subject: { kind: 'proposal', text: 'Keep legacy support until compatibility is verified.' },
   };
@@ -174,7 +182,7 @@ function selfTest() {
   const request = {
     id: 'review-1',
     reasoning: 'Resolve the frozen disagreement only if it changes the host action.',
-    goal: review.goal,
+    mainGoal: review.mainGoal,
     resources: [{ id: 'debate', context: { value: {
       review: providerReview(review),
       evidence: [{ id: 'E1', ...packet.evidence.E1 }],
@@ -189,8 +197,17 @@ function selfTest() {
   assert.equal(validateDebate(request, packet).valid, true);
   assert.equal(Object.hasOwn(request.resources[0].context.value, 'admission'), false);
   assert.equal(Object.hasOwn(request.resources[0].context.value.review, 'questions'), false);
-  assert.equal(Object.hasOwn(request.resources[0].context.value.review, 'goal'), false);
+  assert.equal(Object.hasOwn(request.resources[0].context.value.review, 'mainGoal'), false);
   assert.equal(validateDebate({ queries: [request] }, packet).valid, true);
+  // `goal` is accepted as the alias of `mainGoal`, on the request and on the packet.
+  const aliased = structuredClone(request);
+  aliased.goal = aliased.mainGoal;
+  delete aliased.mainGoal;
+  assert.equal(validateDebate(aliased, packet).valid, true);
+  const aliasedPacket = structuredClone(packet);
+  aliasedPacket.review.goal = aliasedPacket.review.mainGoal;
+  delete aliasedPacket.review.mainGoal;
+  assert.equal(validateDebate(request, aliasedPacket).valid, true);
   const withoutIds = structuredClone(request);
   delete withoutIds.id;
   const idlessPacket = structuredClone(packet);
@@ -219,12 +236,15 @@ function selfTest() {
     x => { x.questions[0].criteria = { support: 'Always choose this.', reject: null }; },
     x => { x.questions[0] = { id: 'Q1', question: structuredClone(review.questions[0]) }; },
     x => { x.questions[0] = { id: 'Q1', questionType: 'sufficient', target: 'Can the proposal advance?' }; },
-    x => { delete x.goal; },
-    x => { x.goal = 'Choose the favored speaker.'; },
-    x => { x.goal = 'g'.repeat(501); },
+    x => { delete x.mainGoal; },
+    x => { x.mainGoal = 'Choose the favored speaker.'; },
+    x => { x.mainGoal = 'g'.repeat(501); },
+    x => { x.goal = x.mainGoal; },
+    x => { x.goal = 'Choose the favored speaker.'; delete x.mainGoal; },
     x => { x.reasoning = 'r'.repeat(501); },
     x => { x.id = 'bad id'; },
-    x => { x.resources[0].context.value.review.goal = review.goal; },
+    x => { x.resources[0].context.value.review.mainGoal = review.mainGoal; },
+    x => { x.resources[0].context.value.review.goal = review.mainGoal; },
     x => { x.carry = {}; },
     x => { x.state = {}; },
     x => { x.resources[0].context = { tool: 'localFetch', query: { path: '/unreviewed/evidence.md', reasoning: 'unreviewed' } }; },
@@ -246,7 +266,8 @@ function selfTest() {
     x => { x.admission.clasifyCallsAtCrossroad = 1; },
     x => { x.review.questions[0] = 'Untyped question'; },
     x => { x.review.questions[0].criteria = {}; },
-    x => { delete x.review.goal; },
+    x => { delete x.review.mainGoal; },
+    x => { x.review.goal = x.review.mainGoal; },
   ];
   for (const mutate of packetMutations) {
     const broken = structuredClone(packet);
@@ -254,7 +275,7 @@ function selfTest() {
     const matchingRequest = structuredClone(request);
     matchingRequest.resources[0].context.value.review = providerReview(broken.review);
     matchingRequest.questions = broken.review.questions;
-    matchingRequest.goal = broken.review.goal;
+    matchingRequest.mainGoal = broken.review.mainGoal;
     assert.equal(validateDebate(matchingRequest, broken).valid, false);
   }
   assert.equal(validateDebate(request, {}).valid, false);
@@ -302,7 +323,7 @@ function selfTest() {
   const duplicateQuestions = structuredClone(request);
   duplicateQuestions.questions.push(structuredClone(duplicateQuestions.questions[0]));
   assert.equal(validateDebate(duplicateQuestions, packet).valid, false);
-  return { valid: true, selfTest: true, cases: mutations.length + packetMutations.length + 17 };
+  return { valid: true, selfTest: true, cases: mutations.length + packetMutations.length + 19 };
 }
 
 if (process.argv[1] && process.argv[1] !== '-' && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

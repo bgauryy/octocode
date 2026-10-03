@@ -14,10 +14,10 @@ Load after fetch/crawl/extract or before searching saved output. Why: normalized
 ```
 
 ## Search order
-1. `AGENT_INDEX.json` (warnings / thinHints / `bridge-handoff.json`)
-2. `indexes/` + `graph/` candidates
+1. `AGENT_INDEX.json` (warnings / thinHints / `bridge-handoff.json`); stop on warnings unless partial evidence is acceptable
+2. `indexes/` (paginate only when the target is not on the first page) + `graph/` candidates
 3. If present, `cdp/` + `extracts/cdp-*.jsonl` before thin `text/*.clean.part-*.md`
-4. `corpus-run` / local search on reports, text, extracts, cdp, indexes, graph, snippets, sources
+4. `corpus-run` / local search on reports, text, extracts, cdp, indexes, graph, snippets, sources, after choosing candidate pages/links
 5. Exact file for citation; `raw/` only to audit extraction
 
 ## Bounded search
@@ -28,9 +28,6 @@ Successful output keeps `matches` and adds `isPartial`, `completeness` (`partial
 
 Pages preserve descending score order, including stable input order for ties. Keep the corpus unchanged while paging; after a fetch or corpus update, restart at offset 0. Each call reads the current corpus rather than persisting a snapshot.
 
-## Bridge
-`har-ingest --from-cdp-dir` → `corpus-run --roots cdp,extracts --regex` — cite `cdp/body-*.txt`, skip re-browser. Reverse: `--export-packet` → chrome `graph-actionability-check`.
-
-Stdout = session path + next targets, never scraped bodies. Concat parts: `corpus-run --concat-parts --write-full-clean`. Cite local path + `sources.jsonl` / `MAP.md` URL metadata.
+After a bridge, cite `cdp/body-*.txt`. Concat parts: `corpus-run --concat-parts --write-full-clean`.
 
 Next: for each file's field contract load `references/data-contract.md`; to navigate the graph load `references/website-analysis.md`; if the corpus is thin or blocked load `references/failure-recovery.md`.

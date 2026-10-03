@@ -105,7 +105,7 @@ mod tests {
                 "owner":"octocat",
                 "repo":"Hello-World",
                 "keywords":["hello"],
-                "goal": "test", "reasoning":"Reject a keyword search that would ignore its scope."
+                "mainGoal": "test", "reasoning":"Reject a keyword search that would ignore its scope."
             });
             query[field] = json!("somewhere");
             let error = validate("ghSearchHistory", json!({"queries":[query]}))

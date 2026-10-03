@@ -1,41 +1,29 @@
 # Doc and config hygiene
 
-Load when reviewing inline comments, docs, or config files for verbosity, dead prose, redundant keys, or misplaced settings.
+Load for comments, docs, or config files with verbose or dead prose, redundant keys, or misplaced settings.
 
-## Comments and JSDoc
-
-| Keep | Remove |
+| Keep comment | Remove |
 |---|---|
-| Non-obvious invariant or constraint | Syntax narration (what the next line does) |
-| External contract or spec reference | Commented-out dead code or keys with no explanation |
-| Known edge case with no obvious fix | TODO with no owner and no ticket |
-| License header | Block copied verbatim from elsewhere in the file |
-| Non-obvious parameter constraint; return invariant the type does not express | `@param x — the x value` (type restatement); `@returns the result` |
-| `@throws` with a named error class; `@see` with a live reference | Docs for removed params; `@deprecated` with no migration path |
+| Non-obvious invariant or constraint | Syntax narration |
+| External contract or spec reference | Unexplained commented-out code, keys, or old implementation blocks |
+| Known edge case with no obvious fix | TODO with no owner and no ticket, once obsolete or captured elsewhere (age proves nothing) |
+| License header | Block copied from elsewhere in the file |
+| Non-obvious parameter constraint; return invariant the type cannot express | `@param x — the x value`; `@returns the result` |
+| `@throws` with a named error class; `@see` with a live reference | Docs for removed params; `@deprecated` with no migration path, once caller updates are complete |
 
-If reading the code answers the question, cut the comment. Do not add a comment that explains a removed comment. Do not move junk prose into the docs folder.
+If the code answers the question, cut the comment. Do not comment on a removed comment. Do not move junk prose into docs.
 
-## Documentation files
+Docs: no padding. README = what + install/use + one example. ARCHITECTURE.md = layer map + data flow + key constraints. API reference = one subsystem's public surface.
 
-- One concept per file; ≤ 300 lines. Do not pad a short doc to look thorough.
-- README: what + install/use + one example; not an internal API reference.
-- ARCHITECTURE.md: layer map + data flow + key constraints; not tutorials.
-- API reference: one subsystem's public surface only.
-- Cross-link; never duplicate. Duplicated prose diverges.
+More config audit counts: `eslint.config.*` / `.eslintrc.*` 100; `vitest.config.*` / `jest.config.*` 80; CI/CD `*.yaml` 200 per job file; `.env.example` 50.
 
-## Config files
-
-A line count over the threshold is a signal to audit for redundancy, not a delete gate: `tsconfig.json` 60; `eslint.config.*` / `.eslintrc.*` 100; `package.json` (scripts + deps) 150; `vitest.config.*` / `jest.config.*` 80; CI/CD `*.yaml` per job file 200; `.env.example` 50.
-
-| Redundancy signal | Action |
+| Redundancy | Act |
 |---|---|
-| Same key in base config and extending config | Remove from the extending file; rely on inheritance |
+| Same key in base and extending config | Remove from the extending file |
 | `overrides` / `rules` restating a preset default | Delete |
-| Duplicate `scripts` with different names, same command | Keep the canonical name; delete the alias |
-| `paths` alias mirroring the real module path | Delete after confirming no import uses it |
+| Duplicate `scripts`, same command | Keep the canonical name |
+| `paths` alias mirroring the real path | Delete after no import uses it |
 
-Project-wide config lives at the repository root or a dedicated `config/` directory. Package-local config lives inside the package and must not reference paths outside it. Never store secrets in committed config; flag and stop if found.
+- Project-wide config lives at the root or in `config/`. Package-local config stays inside the package and never references outside paths.
 
-Consent gate: changes that affect runtime behavior (env vars, aliases, compiler flags) need explicit user consent before the edit. Prose-only removals (comments, dead keys) may proceed within an approved batch.
-
-Next: return to `references/cleanup-playbook.md` EXCISE.
+Next: run the batch with `references/cleanup-playbook.md`.

@@ -47,20 +47,30 @@ fn lean_row(row: &serde_json::Value) -> (u64, Option<u64>, &str) {
     (start.parse().expect("line"), end, value)
 }
 
-/// The declaration name of an outline row `"<line>[-<endLine>] <kind> <name>…"`.
+/// The declaration names of an outline row `"<ranges> <kind> <name>…"`,
+/// including grouped siblings (`; <range> <name>…`).
+fn outline_row_names(row: &serde_json::Value) -> Vec<&str> {
+    let text = row.as_str().expect("outline row");
+    text.split("; ")
+        .enumerate()
+        .map(|(index, item)| {
+            item.split_whitespace()
+                .nth(if index == 0 { 2 } else { 1 })
+                .expect("name")
+        })
+        .collect()
+}
+
+/// The first declaration name of an outline row.
 fn outline_name(row: &serde_json::Value) -> &str {
-    row.as_str()
-        .expect("outline row")
-        .split_whitespace()
-        .nth(2)
-        .expect("name")
+    outline_row_names(row)[0]
 }
 
 fn outline_names(rows: &serde_json::Value) -> Vec<&str> {
     rows.as_array()
         .expect("outline rows")
         .iter()
-        .map(outline_name)
+        .flat_map(outline_row_names)
         .collect()
 }
 
@@ -83,7 +93,7 @@ fn match_pagination_ceilings_preserve_rows_and_disclose_terminal_limits() {
     })
     .expect("policy");
     let security = ContentSecurity::new();
-    let base = json!({"operation":"match","path":root.0,"pattern":"console.log($A)","langType":"typescript","pageSize":1,"maxFiles":1500,"goal":"test","reasoning":"test"});
+    let base = json!({"operation":"match","path":root.0,"pattern":"console.log($A)","langType":"typescript","pageSize":1,"maxFiles":1500,"mainGoal":"test","reasoning":"test"});
     let first = execute_row(base.clone(), &paths, &security, &Active).expect("first page");
     let mut last = first["next"]["nextPage"]["query"].clone();
     last["page"] = json!(1000);
@@ -94,7 +104,7 @@ fn match_pagination_ceilings_preserve_rows_and_disclose_terminal_limits() {
 
     let file = root.0.join("rows.ts");
     std::fs::write(&file, "console.log(1);\n".repeat(1001)).expect("match rows");
-    let first_rows = execute_row(json!({"operation":"match","path":file,"pattern":"console.log($A)","langType":"typescript","maxMatchesPerFile":1,"goal":"test","reasoning":"test"}), &paths, &security, &Active).expect("first match page");
+    let first_rows = execute_row(json!({"operation":"match","path":file,"pattern":"console.log($A)","langType":"typescript","maxMatchesPerFile":1,"mainGoal":"test","reasoning":"test"}), &paths, &security, &Active).expect("first match page");
     let mut last_rows = first_rows["next"]["nextMatchPage"]["query"].clone();
     last_rows["matchPage"] = json!(1000);
     let row_page = execute_row(last_rows, &paths, &security, &Active).expect("match ceiling");
@@ -128,7 +138,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     .expect("policy");
     let security = ContentSecurity::new();
     let symbols = execute_row(
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":root.0}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0}),
         &paths,
         &security,
         &Active,
@@ -146,7 +156,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     std::fs::write(root.0.join("visible.ts"), "oldCall(visible);\n").expect("visible ast");
     let matches = execute_row(
         json!({
-            "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"typescript",
+            "operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"typescript",
             "pattern":"oldCall($A)","hidden":true
         }),
         &paths,
@@ -178,7 +188,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     let security = ContentSecurity::new();
 
     let missing = execute_row(
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"let $A = $B"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"let $A = $B"}),
         &paths,
         &security,
         &Active,
@@ -195,7 +205,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     // smart strictness, as astRewrite matches).
     for pattern in ["const $A = $B;", "const $A = $B"] {
         let found = execute_row(
-            json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":pattern}),
+            json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":pattern}),
             &paths,
             &security,
             &Active,
@@ -220,7 +230,7 @@ fn directory_prefilter_skips_are_aggregated_once() {
     let security = ContentSecurity::new();
     let result = execute_row(
         json!({
-            "operation":"match","goal":"test","reasoning":"test",
+            "operation":"match","mainGoal":"test","reasoning":"test",
             "path":root.0,
             "langType":"typescript",
             "pattern":"missingCall($A);"
@@ -268,7 +278,7 @@ fn cancellation_interrupts_descendant_traversal() {
     let security = ContentSecurity::new();
     let error = execute_row(
         json!({
-            "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust",
+            "operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust",
             "pattern":"source($A)"
         }),
         &paths,
@@ -299,7 +309,7 @@ fn match_directory_scan_truncation_is_surfaced_not_silent() {
     let security = ContentSecurity::new();
     let out = execute_row(
         json!({
-            "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust",
+            "operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust",
             "pattern":"pub fn source() {}","maxFiles":1
         }),
         &paths,
@@ -337,9 +347,9 @@ fn a_raisable_max_files_cut_offers_an_expanded_scan() {
         std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("source file");
     }
     let rows = [
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust",
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust",
             "pattern":"pub fn source() {}","maxFiles":1}),
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":root.0,"maxFiles":1}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"maxFiles":1}),
     ];
     for query in rows {
         let out = run(&root.0, query.clone()).expect("scan");
@@ -394,7 +404,7 @@ fn match_continuation_rejects_stale_snapshot() {
     }
     let (paths, security) = simple_policy(&root.0);
     let page1 = execute_row(
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2}),
         &paths,
         &security,
         &Active,
@@ -403,7 +413,7 @@ fn match_continuation_rejects_stale_snapshot() {
     let snapshot = page1["snapshot"].as_str().expect("snapshot").to_string();
     std::fs::write(root.0.join("e.rs"), "pub fn source() {}\n").expect("mutate corpus");
     let page2 = execute_row(
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2,"page":2,"snapshot":snapshot}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"pub fn source() {}","pageSize":2,"page":2,"snapshot":snapshot}),
         &paths,
         &security,
         &Active,
@@ -432,7 +442,7 @@ fn directory_pattern_that_compiles_in_no_file_is_an_error_not_empty() {
     }
     let error = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"fn ???"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"fn ???"}),
     )
     .expect_err("uncompilable pattern must fail loudly");
     assert_eq!(error.code, "structural.query.compileFailed");
@@ -444,7 +454,7 @@ fn match_pagination_limits_next_match_page_to_the_current_file_page() {
     std::fs::write(root.0.join("a.rs"), "fn a() { hit(1); }\n").expect("a");
     std::fs::write(root.0.join("b.rs"), "fn b() { hit(1); hit(2); hit(3); }\n").expect("b");
     let base = json!({
-        "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"hit($A)",
+        "operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust","pattern":"hit($A)",
         "pageSize":1,"maxMatchesPerFile":2
     });
     let page1 = run(&root.0, base.clone()).expect("page1");
@@ -491,7 +501,7 @@ fn single_file_with_unreturned_matches_is_not_complete() {
     std::fs::write(&source, "fn m() { hit(1); hit(2); hit(3); }\n").expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"hit($A)","maxMatchesPerFile":2}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"hit($A)","maxMatchesPerFile":2}),
     )
     .expect("match");
     assert_eq!(out["complete"], false, "{out}");
@@ -505,7 +515,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
     std::fs::write(root.0.join("b.py"), "oldCall(x)\n").expect("py");
     let unknown = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"klingon","pattern":"oldCall($A)"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"klingon","pattern":"oldCall($A)"}),
     )
     .expect_err("unknown langType");
     assert_eq!(unknown.code, "ast.language.unsupported");
@@ -513,7 +523,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
     let out = run(
         &root.0,
         json!({
-            "operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"typescript",
+            "operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"typescript",
             "include":["*.ts","*.py"],"pattern":"oldCall($A)"
         }),
     )
@@ -529,7 +539,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
 
     let mismatch = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0.join("b.py"),"langType":"typescript","pattern":"oldCall($A)"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("b.py"),"langType":"typescript","pattern":"oldCall($A)"}),
     )
     .expect_err("single file outside langType");
     assert_eq!(mismatch.code, "ast.language.mismatch");
@@ -537,7 +547,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
     std::fs::write(root.0.join("notes.txt"), "oldCall(x)\n").expect("txt");
     let unsupported = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0.join("notes.txt"),"pattern":"oldCall($A)"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("notes.txt"),"pattern":"oldCall($A)"}),
     )
     .expect("unsupported single file");
     assert_eq!(unsupported["complete"], false, "{unsupported}");
@@ -552,7 +562,7 @@ fn dot_prefixed_lang_type_selects_only_that_extension() {
 
     let exact = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":".ts","pattern":"oldCall($A)"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":".ts","pattern":"oldCall($A)"}),
     )
     .expect("exact extension");
     let files = exact["files"].as_array().expect("files");
@@ -565,7 +575,7 @@ fn dot_prefixed_lang_type_selects_only_that_extension() {
 
     let family = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"typescript","pattern":"oldCall($A)"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"typescript","pattern":"oldCall($A)"}),
     )
     .expect("language family");
     assert_eq!(
@@ -587,14 +597,14 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let selected = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":header,"langType":"cpp","rule":"kind: class_specifier"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":header,"langType":"cpp","rule":"kind: class_specifier"}),
     )
     .expect("explicit C++ match");
     assert_eq!(selected["stats"]["totalStructuralMatches"], 1, "{selected}");
 
     let selected_directory = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"cpp","include":["*.h"],"rule":"kind: class_specifier"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"cpp","include":["*.h"],"rule":"kind: class_specifier"}),
     )
     .expect("explicit C++ directory match");
     assert_eq!(
@@ -604,7 +614,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let selected_directory_default = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"cpp","rule":"kind: class_specifier"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"cpp","rule":"kind: class_specifier"}),
     )
     .expect("C++ directory includes ambiguous headers");
     assert_eq!(
@@ -614,13 +624,13 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let tree = run(
         &root.0,
-        json!({"operation":"syntaxTree","goal":"test","reasoning":"test","path":header,"langType":"cpp"}),
+        json!({"operation":"syntaxTree","mainGoal":"test","reasoning":"test","path":header,"langType":"cpp"}),
     )
     .expect("explicit C++ tree");
     assert_eq!(tree["isPartial"], false, "{tree}");
     let default_tree = run(
         &root.0,
-        json!({"operation":"syntaxTree","goal":"test","reasoning":"test","path":header}),
+        json!({"operation":"syntaxTree","mainGoal":"test","reasoning":"test","path":header}),
     )
     .expect(".h defaults to C");
     assert_eq!(default_tree["isPartial"], true, "{default_tree}");
@@ -633,7 +643,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let symbols = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":header,"langType":"cpp"}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":header,"langType":"cpp"}),
     )
     .expect("explicit C++ symbols");
     assert!(
@@ -645,7 +655,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
     std::fs::write(&wrong_file, "int value;\n").expect("C file");
     let mismatch = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":wrong_file,"langType":"cpp","rule":"kind: declaration"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":wrong_file,"langType":"cpp","rule":"kind: declaration"}),
     )
     .expect_err("C source is not an ambiguous header");
     assert_eq!(mismatch.code, "ast.language.mismatch");
@@ -662,7 +672,7 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
     )
     .expect("cpp header");
     std::fs::write(root.0.join("legacy/plain.h"), "struct Plain { int x; };\n").expect("c header");
-    let result = run(&root.0, json!({"operation":"symbols","goal":"test","reasoning":"test","path":root.0,"languageGlobs":{"cpp":["include/**/*.h"]},"pageSize":1})).expect("directory symbols");
+    let result = run(&root.0, json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"languageGlobs":{"cpp":["include/**/*.h"]},"pageSize":1})).expect("directory symbols");
     assert_eq!(result["filesScanned"], 2, "{result}");
     assert_eq!(
         result["next"]["nextPage"]["query"]["languageGlobs"]["cpp"][0],
@@ -688,7 +698,7 @@ fn match_content_length_bounds_each_match_value() {
         .join(", ");
     std::fs::write(&source, format!("fn m() {{ call({args}); }}\n")).expect("source");
     let value_len = |length: Option<u32>| {
-        let mut query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"call($$$A)"});
+        let mut query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"call($$$A)"});
         if let Some(length) = length {
             query["matchContentLength"] = json!(length);
         }
@@ -720,7 +730,7 @@ fn clipped_match_values_carry_one_continuation_to_the_whole_text() {
     // returns captures and whole values; a captureText cut needs only the
     // length.
     for (capture_text, key) in [(false, "expandCaptures"), (true, "expandValues")] {
-        let mut query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"call($$$A)"});
+        let mut query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"call($$$A)"});
         if capture_text {
             query["captureText"] = json!(true);
         }
@@ -746,7 +756,7 @@ fn clipped_match_values_carry_one_continuation_to_the_whole_text() {
     // Without captures to hide, a lean cut expands by length alone.
     let lean = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"fn n() { call(x); }","matchContentLength":8}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"fn n() { call(x); }","matchContentLength":8}),
     )
     .expect("lean cut");
     let next = &lean["next"]["expandValues"]["query"];
@@ -767,7 +777,7 @@ fn clipped_match_values_carry_one_continuation_to_the_whole_text() {
     std::fs::write(&block, format!("fn big() {{\n{body}\n}}\n")).expect("block");
     let out = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":block,"pattern":"fn $N() { $$$B }"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":block,"pattern":"fn $N() { $$$B }"}),
     )
     .expect("block match");
     assert!(out["next"].get("expandValues").is_none(), "{out}");
@@ -788,7 +798,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     std::fs::write(&source, "pub fn visible() {}\n").expect("source");
     let error = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"kinds":["functoin"]}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"kinds":["functoin"]}),
     )
     .expect_err("unknown kind");
     // An `.input.invalid` code is an input rejection: CLI exit 2 and a
@@ -802,7 +812,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     );
     let ok = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"kinds":["function"]}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"kinds":["function"]}),
     )
     .expect("known kind");
     assert_eq!(outline_name(&ok["declarations"][0]), "visible");
@@ -814,8 +824,8 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     )
     .expect("large");
     for query in [
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":large}),
-        json!({"operation":"syntaxTree","goal":"test","reasoning":"test","path":large}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":large}),
+        json!({"operation":"syntaxTree","mainGoal":"test","reasoning":"test","path":large}),
     ] {
         let out = run(&root.0, query).expect("limit row");
         assert_eq!(out["errorCode"], "ast.source.limit", "{out}");
@@ -834,7 +844,7 @@ fn single_file_symbols_are_compact_and_path_free() {
     .expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
     )
     .expect("symbols");
     let text = out.to_string();
@@ -880,7 +890,7 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
     .expect("source");
     let first = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":1}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":1}),
     )
     .expect("first");
     let next = first["next"]["nextPage"]["query"].clone();
@@ -911,10 +921,10 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
     assert_eq!(outline_name(&second["declarations"][0]), "six");
     let fresh = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":2}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":2}),
     )
     .expect("fresh");
-    assert_eq!(outline_name(&fresh["declarations"][1]), "six");
+    assert_eq!(outline_names(&fresh["declarations"])[1], "six");
     let forbidden = Fixture::new();
     assert!(
         run(&forbidden.0, next).is_err(),
@@ -933,28 +943,26 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
     .expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
     )
     .expect("symbols");
-    // `two` nests under the second `impl A`; the two `x` on one line differ
-    // only by column, so only they carry it.
+    // The two `impl A` blocks share one row listing both ranges, so `two`
+    // (line 6) sits in the second; the two `x` on one line differ only by
+    // column, so only they carry it.
     assert_eq!(
         out["declarations"],
         json!([
             "1 struct A",
-            "2-4 impl A",
-            "  3 function one",
-            "5-7 impl A",
-            "  6 function two",
-            "8 function x col 3",
-            "8 function x col 13"
+            "2-4,5-7 impl A",
+            "  3 function one; 6 two",
+            "8 function x col 3; 8 x col 13"
         ]),
         "{out}"
     );
     // A page that starts below the parent names it with its line.
     let second = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":4,"page":2,
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":4,"page":2,
             "snapshot":out_snapshot(&root.0, &source)}),
     )
     .expect("second page");
@@ -968,7 +976,7 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
 fn out_snapshot(root: &std::path::Path, source: &std::path::Path) -> serde_json::Value {
     let first = run(
         root,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"pageSize":4}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":4}),
     )
     .expect("first page");
     first["snapshot"].clone()
@@ -981,7 +989,7 @@ fn directory_symbols_keep_row_paths_without_static_notes() {
     std::fs::write(root.0.join("b.rs"), "fn b() {}\n").expect("b");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":root.0}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0}),
     )
     .expect("symbols");
     assert!(out.get("declarations").is_none(), "{out}");
@@ -1005,7 +1013,7 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     let root = Fixture::new();
     let source = root.0.join("calls.ts");
     std::fs::write(&source, "oldCall(one);\noldCall(\n  two\n);\n").expect("source");
-    let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"oldCall($A)"});
+    let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"oldCall($A)"});
     let out = run(&root.0, query.clone()).expect("match");
     let matches = out["files"][0]["matches"].as_array().expect("matches");
     // Lean rows: the line (a span adds its end line), TAB, the normalized
@@ -1064,7 +1072,7 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
     std::fs::write(&source, "oldCall(one);\n").expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"oldCall(one)"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"oldCall(one)"}),
     )
     .expect("match");
     assert_eq!(out["files"][0]["matches"][0], "1\toldCall(one)", "{out}");
@@ -1084,7 +1092,7 @@ fn list_captures_are_withheld_by_default_and_expand_on_request() {
         "fn a() -> u8 {\n    let x = 1;\n    let y = 2;\n    x + y\n}\n",
     )
     .expect("source");
-    let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,
+    let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
         "pattern":"fn $N() -> u8 { $$$B }"});
     let out = run(&root.0, query.clone()).expect("match");
     // A lean row: no capture dump, the header stands in for the body.
@@ -1114,7 +1122,7 @@ fn rust_item_pattern_without_visibility_notes_that_pub_items_are_excluded() {
     .expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
             "pattern":"fn $N() -> Result<$T, String> { $$$B }"}),
     )
     .expect("match");
@@ -1133,7 +1141,7 @@ fn rust_item_pattern_without_visibility_notes_that_pub_items_are_excluded() {
     // A pattern that already names the visibility gets no note.
     let out = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
             "pattern":"pub fn $N() -> Result<$T, String> { $$$B }"}),
     )
     .expect("match");
@@ -1147,7 +1155,7 @@ fn yaml_rule_compile_errors_get_a_rule_hint_not_a_pattern_hint() {
     std::fs::write(&source, "fn a() {}\n").expect("source");
     let error = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":source,
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
             "rule":"rule:\n  kindx: function_item\n"}),
     )
     .expect_err("invalid rule");
@@ -1170,7 +1178,7 @@ fn flow_js_symbols_list_hooks_and_mark_a_recovered_parse_partial() {
     .expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
     )
     .expect("symbols");
     let names = outline_names(&out["declarations"]);
@@ -1209,7 +1217,7 @@ fn single_file_match_keeps_redacted_rows_and_directory_positions() {
     let rows = |path: &std::path::Path| {
         let out = run(
             &root.0,
-            json!({"operation":"match","goal":"test","reasoning":"test","path":path,"langType":"typescript","pattern":"export const $N = $V"}),
+            json!({"operation":"match","mainGoal":"test","reasoning":"test","path":path,"langType":"typescript","pattern":"export const $N = $V"}),
         )
         .expect("match");
         let file = out["files"][0].clone();
@@ -1231,7 +1239,7 @@ fn invalid_pattern_is_an_error_even_when_every_file_is_prefiltered() {
     std::fs::write(root.0.join("a.ts"), "const value = 1;\n").expect("source");
     let error = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"typescript","pattern":"foo("}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"typescript","pattern":"foo("}),
     )
     .expect_err("an unparseable pattern must fail loudly");
     // The response stage attaches the repair hint for this code.
@@ -1250,7 +1258,7 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
         "pub fn load(\n    path: &str,\n) -> Result<u8, String> {\n    let raw = read(path)?;\n    parse(raw)\n}\n",
     )
     .expect("source");
-    let query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,
+    let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
         "rule":"rule:\n  kind: function_item\n"});
     let out = run(&root.0, query.clone()).expect("match");
     assert_eq!(
@@ -1280,7 +1288,7 @@ fn directory_match_infers_the_only_grammar_present() {
     std::fs::write(root.0.join("README.md"), "hit(3)\n").expect("doc");
     let out = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","pageSize":1}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","pageSize":1}),
     )
     .expect("langType inferred from the .rs files");
     assert_eq!(out["stats"]["totalStructuralMatches"], 2, "{out}");
@@ -1291,7 +1299,7 @@ fn directory_match_infers_the_only_grammar_present() {
     );
     let explicit = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","pageSize":1,"langType":"rust"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","pageSize":1,"langType":"rust"}),
     )
     .expect("explicit langType");
     assert_eq!(
@@ -1308,7 +1316,7 @@ fn directory_match_with_several_parsing_grammars_names_the_candidates() {
     std::fs::write(root.0.join("b.ts"), "hit(2);\n").expect("b");
     let error = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)"}),
     )
     .expect_err("two grammars parse the pattern");
     assert_eq!(error.code, "ast.language.required", "{error:?}");
@@ -1318,7 +1326,7 @@ fn directory_match_with_several_parsing_grammars_names_the_candidates() {
     // The named langType is the repair: it scans only that grammar's files.
     let out = run(
         &root.0,
-        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","langType":"rust"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","langType":"rust"}),
     )
     .expect("explicit langType");
     assert_eq!(out["stats"]["totalStructuralMatches"], 1, "{out}");
@@ -1335,7 +1343,7 @@ fn object_and_yaml_rules_match_identically() {
     )
     .expect("source");
     // A short value cut hides the capture, so the page offers expandCaptures.
-    let base = json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust","matchContentLength":12});
+    let base = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"langType":"rust","matchContentLength":12});
     let mut yaml = base.clone();
     yaml["rule"] = json!(
         "pattern: Pin::new_unchecked($A)\nnot:\n  inside:\n    kind: unsafe_block\n    stopBy: end"
@@ -1381,13 +1389,13 @@ fn symbols_name_list_returns_the_union_and_a_string_is_unchanged() {
     };
     let list = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"name":["complete","try_read_output"]}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"name":["complete","try_read_output"]}),
     )
     .expect("list");
     assert_eq!(names(&list), ["complete", "try_read_output"], "{list}");
     let single = run(
         &root.0,
-        json!({"operation":"symbols","goal":"test","reasoning":"test","path":source,"name":"complete"}),
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"name":"complete"}),
     )
     .expect("single");
     assert_eq!(names(&single), ["complete"], "{single}");

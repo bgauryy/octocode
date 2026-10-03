@@ -1,7 +1,9 @@
 //! `operation: "commit"` and `operation: "compare"`: commit metadata or a
 //! ref comparison, each with one page of changed files.
 use super::continuations::attach_diff_continuations;
-use super::files::{PathScope, attach_patch_cursor, in_path_scope, scope_files, shape_files};
+use super::files::{
+    PathScope, attach_patch_cursor, clamp_warning, in_path_scope, push_warning, scope_files, shape_files,
+};
 use super::util::{array, compare_identity, str_at, string, usize_at};
 use super::window::{
     MAX_FILE_BATCHES, WindowSpec, commit_file_items, commit_files_pagination, load_window_with,
@@ -104,6 +106,11 @@ pub(super) async fn commit<R: CredentialResolver>(
     attach_patch_cursor(&mut page, cursor);
     out["files"] = files;
     out["filesPagination"] = page;
+    if query.include_diff()
+        && let Some(warning) = clamp_warning(query)
+    {
+        push_warning(&mut out, warning);
+    }
     attach_diff_continuations(&mut out, query, ItemOperation::Commit, Some(&sha), false);
     Ok(out)
 }
@@ -187,6 +194,9 @@ pub(super) async fn compare<R: CredentialResolver>(
         attach_patch_cursor(&mut page, cursor);
         out["files"] = files;
         out["filesPagination"] = page;
+        if include_diff && let Some(warning) = clamp_warning(query) {
+            push_warning(&mut out, warning);
+        }
     }
     // Continuations read the same two commits.
     let pinned = query.with_compare_refs(

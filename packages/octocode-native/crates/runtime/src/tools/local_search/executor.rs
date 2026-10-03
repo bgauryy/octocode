@@ -218,6 +218,10 @@ pub fn execute_local_search(
     // produced it; the snapshot comparison below then proves it answers
     // this query.
     let policy_key = policy_identity(paths);
+    // An empty result re-walks with ignored and hidden entries included
+    // (files only, time-bounded) to say whether they hold the text.
+    let probe_options =
+        (query.no_ignore != Some(true) || query.hidden != Some(true)).then(|| options.clone());
     // Digests of a stored scan's matched files: every re-read below that
     // decides what the stored values may show must read these same bytes.
     let (mut parsed, stored_digests) = if let Some(snapshot) = query.snapshot()
@@ -708,7 +712,6 @@ pub fn execute_local_search(
                     total_pages: None,
                     total_matches: total,
                     has_more: true,
-                    next_match_page: None,
                     more_lines: Some(line_ranges(&later, MAX_MORE_LINE_RANGES)),
                     out_of_range: false,
                 })
@@ -721,7 +724,6 @@ pub fn execute_local_search(
                     total_pages: Some(total_pages),
                     total_matches: total,
                     has_more,
-                    next_match_page: (has_more && match_page < 1000).then_some(match_page + 1),
                     more_lines: (has_more && !later.is_empty())
                         .then(|| line_ranges(&later, MAX_MORE_LINE_RANGES)),
                     out_of_range,
@@ -899,15 +901,61 @@ pub fn execute_local_search(
             "The target file is binary from its leading bytes (a NUL in its header); it was not searched, and no text tool reads it.".into()
         })
     });
+    let mut hints = if empty {
+        if error_count > 0 {
+            vec![unreadable_hint(error_count)]
+        } else if let Some(hint) = skip_hint {
+            vec![hint]
+        } else if binary_cut {
+            vec![
+                "No matches in the searched text, but binary file(s) were searched only up to their first NUL byte; absence is not proven for them.".into(),
+                empty_hint(query),
+            ]
+        } else {
+            vec![empty_hint(query)]
+        }
+    } else {
+        vec![]
+    };
+    if let Some(requested) = query.context_lines_clamped_from() {
+        hints.push(format!(
+            "contextLines {requested} clamped to {MAX_CONTEXT_LINES}."
+        ));
+    }
+    // Leads go in after the status is settled: they are optional follow-ups
+    // and never stand in for a page.
+    if regex == LocalSearchQueryRegex::Rust
+        && let Some(reason) = regex_trap(&query.search_text)
+    {
+        hints.insert(
+            0,
+            format!(
+                "searchText is a regex: {reason}. hints.searchLiteral searches the literal text."
+            ),
+        );
+        if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+            map.insert("searchLiteral".into(), literal_lead(query));
+        }
+    }
+    if empty
+        && !coverage_gap
+        && !root.is_file()
+        && let Some(options) = probe_options
+        && let Some(found) = ignored_probe(options, query, paths, cancel)
+    {
+        hints.push(found.hint);
+        if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+            map.insert("includeIgnored".into(), found.lead);
+        }
+    }
     Ok(LocalSearchResult {
         status,
         stats,
         files,
         // File paging is only reported when it routes somewhere: more file pages,
-        // or a requested page past the end. Single-page totals live in `stats`,
-        // and match-row continuations carry the snapshot in `next.*.query`.
+        // or a requested page past the end. Single-page totals live in `stats`;
+        // the next page number and the snapshot live once, in `next.*.query`.
         pagination: (!empty && (total_pages > 1 || out_of_range)).then_some(FilePagination {
-            snapshot: snapshot.clone(),
             current_page: page,
             total_pages,
             files_per_page,
@@ -918,28 +966,9 @@ pub fn execute_local_search(
             ))
             .then_some(total_matches),
             has_more,
-            // Hard ceiling: never advertise a next page past page 1000. Beyond
-            // this, deep file pagination is refused by contract (matched in
-            // `build_next`) — narrow the search rather than paging indefinitely.
-            next_page: (page < total_pages && page < 1000).then_some(page + 1),
             out_of_range,
         }),
-        hints: if empty {
-            if error_count > 0 {
-                vec![unreadable_hint(error_count)]
-            } else if let Some(hint) = skip_hint {
-                vec![hint]
-            } else if binary_cut {
-                vec![
-                    "No matches in the searched text, but binary file(s) were searched only up to their first NUL byte; absence is not proven for them.".into(),
-                    empty_hint(query),
-                ]
-            } else {
-                vec![empty_hint(query)]
-            }
-        } else {
-            vec![]
-        },
+        hints,
         next,
         is_partial: coverage_gap || capped,
         terminal_limit,
@@ -980,7 +1009,6 @@ fn pagination_chars(file: &octocode_engine::types::RipgrepFile) -> usize {
         total_pages: None,
         total_matches: u32::try_from(total).unwrap_or(u32::MAX),
         has_more: true,
-        next_match_page: None,
         more_lines: Some(String::new()),
         out_of_range: false,
     };
@@ -1425,6 +1453,132 @@ fn empty_hint(query: &LocalSearchQuery) -> String {
         tips.push("regex:\"literal\" if searchText has metacharacters");
     }
     format!("No matches. Try {}.", tips.join(", "))
+}
+
+/// Why a default-mode pattern that reads as code acts as a regex: `()` is an
+/// empty group and an unescaped `.` before `(` matches any character, so
+/// `.unwrap()` matches more lines than the literal text. Escapes and
+/// character classes are skipped.
+pub(super) fn regex_trap(pattern: &str) -> Option<String> {
+    let bytes = pattern.as_bytes();
+    let (mut empty_group, mut dot_group, mut class) = (false, false, false);
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 1,
+            b'[' if !class => {
+                class = true;
+                // A `]` first in a class (after an optional `^`) is literal.
+                if bytes.get(index + 1) == Some(&b'^') {
+                    index += 1;
+                }
+                if bytes.get(index + 1) == Some(&b']') {
+                    index += 1;
+                }
+            }
+            b']' if class => class = false,
+            b'(' if !class && bytes.get(index + 1) == Some(&b')') => empty_group = true,
+            b'.' if !class && bytes.get(index + 1) == Some(&b'(') => dot_group = true,
+            _ => {}
+        }
+        index += 1;
+    }
+    match (empty_group, dot_group) {
+        (false, false) => None,
+        (true, false) => Some("`()` is an empty group".into()),
+        (false, true) => Some("an unescaped `.` matches any character".into()),
+        (true, true) => {
+            Some("`()` is an empty group and an unescaped `.` matches any character".into())
+        }
+    }
+}
+
+/// The same search with `regex:"literal"`, from its first page.
+fn literal_lead(query: &LocalSearchQuery) -> Value {
+    let mut literal = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
+    if let Some(fields) = literal.as_object_mut() {
+        fields.retain(|key, value| {
+            !value.is_null() && !matches!(key.as_str(), "page" | "matchPage" | "snapshot")
+        });
+        fields.insert("regex".into(), json!("literal"));
+    }
+    json!({"tool": ToolId::LocalSearch.as_str(), "query": literal})
+}
+
+/// Wall-clock bound of the ignored/hidden re-walk behind an empty result.
+const IGNORED_PROBE_MS: u64 = 400;
+/// Matching files named in the ignored/hidden hint.
+const IGNORED_PROBE_EXAMPLES: usize = 2;
+
+/// An empty result's matches among ignored or hidden entries.
+struct IgnoredMatches {
+    hint: String,
+    lead: Value,
+}
+
+/// Re-run an empty search with `noIgnore` and `hidden` (files only, within
+/// [`IGNORED_PROBE_MS`]). `Some` names how many files match there, with the
+/// lead that searches them; `None` when none matched in the time allowed.
+fn ignored_probe(
+    mut options: RipgrepSearchOptions,
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    cancel: &impl CancellationCheck,
+) -> Option<IgnoredMatches> {
+    options.no_ignore = Some(true);
+    options.hidden = Some(true);
+    options.files_only = Some(true);
+    options.files_without_match = Some(false);
+    options.count_lines_per_file = Some(false);
+    options.count_matches_per_file = Some(false);
+    options.only_matching = Some(false);
+    options.unique = Some(false);
+    options.count_unique = Some(false);
+    options.context_lines = Some(0);
+    options.sort = Some("path".into());
+    let started = std::time::Instant::now();
+    let deadline = std::time::Duration::from_millis(IGNORED_PROBE_MS);
+    let found = search_ripgrep_cancellable(options, Arc::new(PolicyFilter(paths.clone())), &|| {
+        cancel.check().is_err() || started.elapsed() > deadline
+    })
+    .ok()?;
+    if found.files.is_empty() {
+        return None;
+    }
+    let cut = found
+        .stats
+        .cap_reason
+        .as_deref()
+        .is_some_and(|reason| !reason.is_empty());
+    let examples = found
+        .files
+        .iter()
+        .take(IGNORED_PROBE_EXAMPLES)
+        .map(|file| paths.redact(&file.path))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let count = found.files.len();
+    let mut flags = Vec::new();
+    let mut lead = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
+    if let Some(fields) = lead.as_object_mut() {
+        fields.retain(|key, value| {
+            !value.is_null() && !matches!(key.as_str(), "page" | "matchPage" | "snapshot")
+        });
+        for flag in ["noIgnore", "hidden"] {
+            if fields.get(flag) != Some(&json!(true)) {
+                fields.insert(flag.into(), json!(true));
+                flags.push(format!("{flag}:true"));
+            }
+        }
+    }
+    Some(IgnoredMatches {
+        hint: format!(
+            "{}{count} file(s) under ignored or hidden paths match ({examples}); hints.includeIgnored adds {}.",
+            if cut { "At least " } else { "" },
+            flags.join(", ")
+        ),
+        lead: json!({"tool": ToolId::LocalSearch.as_str(), "query": lead}),
+    })
 }
 
 /// Remove `…` window markers and `...` truncation suffixes from a value line.
@@ -2204,9 +2358,9 @@ fn build_next(
 ) -> Option<Value> {
     let mut map = serde_json::Map::new();
     let base = normalized_query(q, streamed);
-    // Hard 1000-page ceiling (mirrors the pagination `next_page` guard above): a
-    // `nextPage` continuation is never emitted past page 1000, so file paging is
-    // bounded by contract. Callers must narrow the query to reach later results.
+    // Hard 1000-page ceiling: a `nextPage` continuation is never emitted past
+    // page 1000, so file paging is bounded by contract. Callers must narrow
+    // the query to reach later results.
     if page < total_pages && page < 1000 {
         let mut n = base.clone();
         n["page"] = json!(page + 1);
@@ -2493,7 +2647,7 @@ mod repair_tests {
     #[test]
     fn invalid_regex_repair_keeps_only_caller_fields() {
         let query: LocalSearchQuery = serde_json::from_value(json!({
-            "path":"/tmp","searchText":"(unclosed","goal": "test", "reasoning":"r","page":3,"pageSize":5
+            "path":"/tmp","searchText":"(unclosed","mainGoal": "test", "reasoning":"r","page":3,"pageSize":5
         }))
         .expect("query");
         let error = invalid_regex(&query, "unclosed group".into());
@@ -2511,7 +2665,7 @@ mod repair_tests {
     #[test]
     fn an_invalid_alternation_is_repaired_per_alternative_not_as_one_literal() {
         let query: LocalSearchQuery = serde_json::from_value(json!({
-            "path":"/tmp","goal":"g","reasoning":"r",
+            "path":"/tmp","mainGoal":"g","reasoning":"r",
             "searchText":"EndProcessProperty(|SetPropertyPresence(|PropertyPresence\\.None"
         }))
         .expect("query");
@@ -2532,7 +2686,7 @@ mod repair_tests {
             .expect("repair query is contract-valid");
         // A single anchor keeps the literal repair.
         let single: LocalSearchQuery = serde_json::from_value(json!({
-            "path":"/tmp","goal":"g","reasoning":"r","searchText":"call("
+            "path":"/tmp","mainGoal":"g","reasoning":"r","searchText":"call("
         }))
         .expect("query");
         let error = invalid_regex(&single, "unclosed group".into());
@@ -2545,7 +2699,7 @@ mod repair_tests {
     #[test]
     fn an_unclosed_group_of_bare_alternatives_is_closed_not_widened() {
         let query: LocalSearchQuery = serde_json::from_value(json!({
-            "path":"/tmp","goal":"g","reasoning":"r","searchText":"poll_(proceed|budget","regex":"rust"
+            "path":"/tmp","mainGoal":"g","reasoning":"r","searchText":"poll_(proceed|budget","regex":"rust"
         }))
         .expect("query");
         let error = invalid_regex(&query, "unclosed group".into());

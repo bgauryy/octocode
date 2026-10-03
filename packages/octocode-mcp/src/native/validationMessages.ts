@@ -468,10 +468,11 @@ export function formatIssues(
             });
             continue;
           }
-          // `goal`/`reasoning` beside `queries`: each row states its own.
+          // A brief (`mainGoal`, its legacy alias `goal`, or `reasoning`)
+          // beside `queries`: each row states its own.
           if (
             path.length === 0 &&
-            (key === 'goal' || key === 'reasoning') &&
+            (key === 'mainGoal' || key === 'goal' || key === 'reasoning') &&
             supplied !== null &&
             typeof supplied === 'object' &&
             Object.hasOwn(supplied, 'queries')

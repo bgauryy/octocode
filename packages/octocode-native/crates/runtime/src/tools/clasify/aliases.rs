@@ -227,7 +227,7 @@ mod tests {
     use super::*;
 
     fn matrix(resources: Value, questions: Value) -> Value {
-        json!({"goal":"g","reasoning":"r","resources":resources,"questions":questions})
+        json!({"mainGoal":"g","reasoning":"r","resources":resources,"questions":questions})
     }
 
     #[test]
@@ -299,7 +299,7 @@ mod tests {
             let mut nested = prepared[0].clone();
             canonicalize(&mut nested);
             let mut read = nested["resources"][0]["context"]["query"].clone();
-            read["goal"] = json!("g");
+            read["mainGoal"] = json!("g");
             read["reasoning"] = json!("r");
             crate::contracts::prepare_many_and_validate(
                 "localFetch",

@@ -374,7 +374,7 @@ fn execute_match_inner(
         .map(|f| (f.0.clone(), f.1.len()))
         .collect::<Vec<_>>();
     let snapshot = super::syntax::digest(&json!([
-        q.path(),
+        p.canonical.to_string_lossy(),
         q.pattern(),
         q.rule(),
         q.include(),
@@ -657,7 +657,6 @@ fn execute_match_inner(
         continuation_with(q, merged, &snapshot)
     };
     if more && page < 1_000 {
-        out["pagination"]["nextPage"] = json!(page + 1);
         // A new file page restarts per-file match pagination.
         out["next"] = json!({"nextPage":with(json!({"page":page + 1,"matchPage":1}))})
     }

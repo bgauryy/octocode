@@ -20,10 +20,9 @@ Pick by the job in front of you. Each row says when the skill applies and when a
 
 | Skill | Use it when | Use something else when |
 |---|---|---|
-| [octocode-brainstorming](octocode-brainstorming/) | An idea is still open and needs options, feasibility checks, or scope exploration before building | The decision is settled → implement it |
+| [octocode-brainstorming](octocode-brainstorming/) | An idea is still open and needs options, feasibility checks, or scope exploration before building; also an exploratory, out-of-the-box pass (18+ mode) | The decision is settled → implement it |
 | [octocode-architect](octocode-architect/) | An architecture decision or refactor needs evidence about boundaries, contracts, data and control flow, coupling, blast radius, cycles, or performance | You only need facts → octocode-research. Behavior-preserving cleanup → octocode-clean-agentic-code |
 | [octocode-rfc-generator](octocode-rfc-generator/) | A consequential change (architecture, migration, public contract, multi-phase work) needs a written, reviewed decision | The edit is trivial, or you're still ideating |
-| [octocode-exploratory-thinking](octocode-exploratory-thinking/) | You explicitly want an exploratory, out-of-the-box pass on a problem | Ordinary analysis |
 
 ### Code quality
 
@@ -37,7 +36,7 @@ Pick by the job in front of you. Each row says when the skill applies and when a
 | Skill | Use it when | Use something else when |
 |---|---|---|
 | [octocode-documentation](octocode-documentation/) | Creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs, runbooks, or stale docs | — |
-| [octocode-prompt-optimizer](octocode-prompt-optimizer/) | A prompt, agent contract, MCP instruction, tool or schema description, policy, or handoff must change agent behavior | Skill structure or triggers → octocode-skills |
+| [octocode-agentic-prompts](octocode-agentic-prompts/) | A prompt, agent contract, MCP instruction, tool or schema description, policy, or handoff must change agent behavior | Skill structure or triggers → octocode-skills |
 | [octocode-skills](octocode-skills/) | Finding, comparing, reviewing, creating, repairing, installing, syncing, or tuning the triggers of Agent Skills | — |
 
 ### Measurement and multi-agent work

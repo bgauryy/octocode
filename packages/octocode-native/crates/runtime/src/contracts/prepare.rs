@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn pure_clasify_preparation_preserves_exactly_the_supplied_values() {
-        let query = json!({"id":"decision","goal": "test", "reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"goal": "source data", "debug": true}}}], "questions":[{"id":"relevant",
+        let query = json!({"id":"decision","mainGoal": "test", "reasoning":"Decide the next evidence read.","resources":[{"id":"source","context": {"value": {"mainGoal": "source data", "debug": true}}}], "questions":[{"id":"relevant",
             "type": "noul", "instructions": "Assess supplied state"
         }]});
         for input in [
@@ -132,13 +132,13 @@ mod tests {
     fn defaults_debug_and_never_invents_goal_or_reasoning() {
         let prepared = prepare(
             "localFetch",
-            json!({"path":"/tmp/a", "goal":" "}),
+            json!({"path":"/tmp/a", "mainGoal":" "}),
             PrepareOptions {
                 source_label: "native CLI",
             },
         )
         .expect("valid input");
-        assert_eq!(prepared.query["goal"], " ");
+        assert_eq!(prepared.query["mainGoal"], " ");
         assert_eq!(prepared.query["debug"], false);
         assert!(prepared.query.get("reasoning").is_none());
     }

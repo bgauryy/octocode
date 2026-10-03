@@ -9,7 +9,7 @@ Each row states the finding and what it licenses here. Rates are priority signal
 | Finding | What it licenses |
 |---|---|
 | Concurrency bug density spans 7x across models, from 69 to 470 per million lines, and ranges from under 3% to nearly 50% of a model's bugs — [Sonar LLM Leaderboard](https://www.sonarsource.com/blog/gpt-5-5-biggest-blind-spot/) | Reviewing thread safety on every concurrent slice, and knowing the rate is model-dependent |
-| The three recurring shapes are unsafe lazy publication, locking on a value-based or interned object, and sleeping while holding a lock; all "compile and pass functional tests but break in production because their correctness depends on thread timing that no test framework controls" — same source | Detecting these structurally rather than by adding tests |
+| The three recurring thread-safety shapes all "compile and pass functional tests but break in production because their correctness depends on thread timing that no test framework controls" — same source | Detecting these structurally rather than by adding tests |
 | LLMs "consistently creating severe bugs like resource leaks and API contract violations" — [Sonar, 4,400+ Java tasks](https://www.sonarsource.com/company/press-releases/the-coding-personalities-of-leading-llms/) | Treating resource lifetime and contract compatibility as standing review items |
 | Over 90% of all issues found were code smells, for every model evaluated — same source | Expecting structural rather than functional defects as the dominant output |
 | A 6.3% pass-rate gain came with a 93% rise in high-severity bugs — same source | Not relaxing review when the model improves |

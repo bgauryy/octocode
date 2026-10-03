@@ -1,6 +1,6 @@
 # Ready checks (`scripts/cdp-checks/`)
 
-Load when running a check, reading its artifacts, or capturing HAR. Run through `cdp-sandbox.mjs … --port <n> --keep-tab`; one at a time per port. Artifacts: `.octocode/tmp/chrome-devtools/<timestamp>/`, printed as `[ARTIFACT]`.
+Load when running a check, reading its artifacts, or capturing HAR. Artifacts: `.octocode/tmp/chrome-devtools/<timestamp>/`, printed as `[ARTIFACT]`.
 
 | Check | Does | Knobs |
 |---|---|---|
@@ -37,6 +37,6 @@ node $S/cdp-checks/har-pager.mjs <run>/live-network.har --filter failures --form
 - Stdout stays at counts + `[ARTIFACT]`; summaries under 2 KB, pages of 10–50 rows. Never paste a whole HAR or judge from its first page.
 - `Network.getResponseBody` works after `loadingFinished` and only while the body is cached; an attached tab misses past bodies, so load the page inside the check (`BODY_URL`).
 - HAR covers HTTP(S) in all frames; WebSockets need the websocket intent.
-- Share only `har-redact` output. Scrape bridge into an existing scraping session: `har-ingest-to-scrape.mjs --session-dir <s> --from-cdp-dir <run>` (or `--har <file>`) → `corpus-run-local.mjs --artifact-dir <run> --regex <re>`; for thin pages, trust API bodies over rendered text.
+- Share only `har-redact` output. In a scraping bridge for thin pages, trust API bodies over rendered text.
 
 Next: no check fits → `script-patterns.md`; error or empty output → `recovery.md`.

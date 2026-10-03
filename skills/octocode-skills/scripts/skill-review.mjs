@@ -221,6 +221,19 @@ function checkSkill(dir) {
 
   if (!fm) error('frontmatter-missing', 'SKILL.md must start with YAML frontmatter.');
   if (fm && fm.name !== basename(dir)) error('name-mismatch', `frontmatter name (${fm.name}) must match folder (${basename(dir)}).`);
+  // Agent Skills spec: 1-64 chars of a-z, 0-9, and single hyphens, no leading or trailing hyphen.
+  if (fm?.name && (fm.name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(fm.name))) {
+    error('name-format', `name (${fm.name}) must be 1-64 chars of a-z, 0-9, and single hyphens, not at either end.`);
+  }
+  // Anthropic API and claude.ai uploads reject these; other hosts accept them, so warn only.
+  if (fm?.name && /anthropic|claude/i.test(fm.name)) warn('name-reserved', 'name contains the reserved word "anthropic" or "claude"; claude.ai and the Skills API reject it.');
+  if ([fm?.name, fm?.description].some((value) => value && /<\/?[A-Za-z][^>]*>/.test(value))) {
+    warn('frontmatter-xml', 'name and description must not contain XML tags; claude.ai and the Skills API reject them.');
+  }
+  // Agent Skills spec: compatibility is 1-500 chars when present.
+  if (fm?.compatibility !== undefined && (fm.compatibility.length === 0 || fm.compatibility.length > 500)) {
+    error('compatibility-length', 'compatibility must be 1-500 chars when present.');
+  }
   if (!fm?.description) error('description-missing', 'frontmatter description is required.');
   if (fm?.description && !/^Use when\b/i.test(fm.description.replace(/^>-\s*/, '').trim())) {
     warn('description-trigger', 'description should lead with “Use when …”.');
@@ -237,7 +250,10 @@ function checkSkill(dir) {
     ['lobby-routes-convention', /^routes:[ \t]*[^\n]*\b(use|load|run|read|when|before|after|for)\b[^\n]*$/mi,
       'declare when or why to use supporting files on a `routes:` line below the H1.'],
   ];
+  const hasMap = /```mermaid\b/.test(lobby);
   for (const [code, pattern, message] of conventions) {
+    // The skill map's trigger-labelled edges are the routes declaration; a routes: line would repeat it.
+    if (code === 'lobby-routes-convention' && hasMap) continue;
     if (!pattern.test(lobby)) error(code, message);
   }
 
@@ -446,6 +462,22 @@ Run the hook test and stop.
     if (!missingOutputFindings.some((finding) => finding.code === 'lobby-output-convention')) {
       throw new Error(`lobby-output-convention regression: ${JSON.stringify(missingOutputFindings)}`);
     }
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
+
+    const frontmatterCases = [
+      [validLobby.replace(/^name: hook-skill$/m, 'name: Hook--Skill'), 'name-format'],
+      [validLobby.replace(/^name: hook-skill$/m, `name: ${'a'.repeat(65)}`), 'name-format'],
+      [validLobby.replace(/^name: hook-skill$/m, 'name: claude-hook'), 'name-reserved'],
+      [validLobby.replace(/^description: .*$/m, 'description: "Use when testing <b>tags</b>."'), 'frontmatter-xml'],
+      [validLobby.replace(/^(description: .*)$/m, `$1\ncompatibility: ${'x'.repeat(501)}`), 'compatibility-length'],
+    ];
+    for (const [text, code] of frontmatterCases) {
+      writeFileSync(join(skillDir, 'SKILL.md'), text);
+      if (!checkSkill(skillDir).findings.some((f) => f.code === code)) throw new Error(`${code} regression`);
+    }
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^(description: .*)$/m, '$1\ncompatibility: Requires Node.js 20+'));
+    const validCompat = checkSkill(skillDir).findings;
+    if (validCompat.length) throw new Error(`compatibility false positive: ${JSON.stringify(validCompat)}`);
     writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
 
     writeFileSync(

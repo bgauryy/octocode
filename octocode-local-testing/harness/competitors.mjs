@@ -8,15 +8,16 @@
 //
 // Fairness (normalized, the default): a local task runs with the MCP workspace
 // and the shell cwd at its corpus repo root, so both sides print repo-relative
-// paths; queries carry short agent-sized briefs; a task's `unfiltered` shell
+// paths; research tasks carry a short agent-sized `mainGoal` brief and
+// single-call lookups none; a task's `unfiltered` shell
 // recipe (a first try without answer knowledge: no jq/--json field picks, no
 // pre-known line ranges) is reported next to the expert recipe.
 // Sensors per octocode response: nextShare / hintsShare (bytes under `next` /
 // `hints` over response bytes) and leadShare (lead continuations wherever they
 // live), lead entries per menu (cap 2; `next` pages are uncapped), and
 // never-trim (every truncation signal has an executable continuation or a
-// terminal-limit disclosure). Shape-agnostic: `next` = pages (today also
-// leads), `hints` = leads + text (today prose strings); see harness/sensors.mjs.
+// terminal-limit disclosure). Shape-agnostic: `next` = pages (it also held
+// leads in legacy streams), `hints` = leads + text; see harness/sensors.mjs.
 // RFC tool-quality-efficiency S1 sensors (harness/sensors.mjs):
 //   schema errors   MCP/CLI input-validation errors per task (target 0)
 //   verbose fields  default-output fields from harness/verbose-fields.json (report only)
@@ -34,7 +35,7 @@
 //        [--self-test]       run the sensor self-tests (no server)
 // Env:   OCTOCODE_COMPETITOR_CLASIFY=1   run the clasify tasks (paid provider calls)
 //        OCTOCODE_COMPETITOR_GITHUB=0    skip GitHub/network tasks
-//        OCTOCODE_COMPETITOR_NORMALIZE=0 legacy run: octocode-root workspace, question as goal
+//        OCTOCODE_COMPETITOR_NORMALIZE=0 legacy run: octocode-root workspace, question as mainGoal on every call
 //        OCTOCODE_COMPETITOR_STRICT_NEXT=1  fail a row with more than NEXT_ENTRY_CAP next entries
 //        OCTOCODE_COMPETITOR_BASH_TOOL_BYTES  Bash tool definition estimate (default 1200)
 //        OCTOCODE_COMPETITOR_REPLAY_MAX=3   continuations replayed verbatim per task (0 = off)
@@ -60,7 +61,7 @@ const CLI = path.join(ROOT, 'packages/octocode/out/octocode.js');
 const CT = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-competitors-'));
 const BASH_TOOL_DEF_BYTES = Number(process.env.OCTOCODE_COMPETITOR_BASH_TOOL_BYTES ?? 1200);
 const NORMALIZED = process.env.OCTOCODE_COMPETITOR_NORMALIZE !== '0';
-// Real agent briefs run about 14–32 chars (goal) and 11–25 (reasoning).
+// Real agent briefs run about 14–32 chars (mainGoal) and 11–25 (reasoning).
 const REASONING = NORMALIZED ? 'Need line-level evidence' : 'Answer the task question.';
 const NEXT_ENTRY_CAP = 2;
 const REPLAY_MAX = Number(process.env.OCTOCODE_COMPETITOR_REPLAY_MAX ?? 3);
@@ -204,15 +205,22 @@ function resolve(value, entries, ws = '') {
   return value;
 }
 
-/** Short agent-sized goal (F2): the task's `goal`, else its question. */
-const taskGoal = task => (NORMALIZED && task.goal) || task.question;
+/**
+ * The call brief (F2). Briefs are optional: a research task sends its short
+ * `mainGoal`, a single-call lookup or page walk sends none. Legacy runs brief
+ * every call with the question.
+ */
+const taskBrief = task => {
+  const mainGoal = NORMALIZED ? task.mainGoal : task.question;
+  return mainGoal ? { mainGoal, reasoning: REASONING } : {};
+};
 /** A continuation as call arguments: matrices and envelope continuations are whole calls. */
 const asCall = (hint, envelope) => (hint.query.queries || hint.tool === 'clasify' ? hint.query : { ...envelope, queries: [hint.query] });
 
 async function runOctocode(task, ws) {
   const ctx = { ws };
-  const goal = taskGoal(task);
-  const brief = q => ({ goal, reasoning: REASONING, ...q });
+  const taskBriefFields = taskBrief(task);
+  const brief = q => ({ ...taskBriefFields, ...q });
   const entries = [];
   const evidenceSteps = [];
   for (const step of task.octocode) {
@@ -227,7 +235,7 @@ async function runOctocode(task, ws) {
       entries.push(cli(ctx, step.cli, { queries: [brief(resolve(step.args, entries, ws))] }));
     } else if (step.follow) {
       const hint = entries.slice().reverse().flatMap(e => nextHints(e.sc)).find(h => h.path.endsWith(`.${step.follow}`));
-      if (!hint) throw new Error(`no next.${step.follow} to follow`);
+      if (!hint) throw new Error(`no next.${step.follow} or hints.${step.follow} to follow`);
       entries.push(await mcp(ctx, hint.tool, asCall(hint, {})));
     } else if (step.walk) {
       // Ordered outer → inner: a response reached through an inner
@@ -235,7 +243,7 @@ async function runOctocode(task, ws) {
       const order = step.walk;
       const seen = new Set();
       const queue = [];
-      // Page walkers read `next` only (leads live in `hints` under the new contract).
+      // Page walkers read `next` only (leads live in `hints`).
       const enqueue = (entry, minIndex) => {
         for (const h of nextHints(entry.sc).filter(x => /\.next(?:\.|$)/.test(x.path))) {
           const name = h.path.split('.').at(-1);
@@ -401,7 +409,7 @@ const isPaging = ({ name, hint }) => PAGING_NAME.test(name) || PAGING_KEYS.some(
 // A query that asked for a window (range, match, block, view) is partial by
 // request: its omission markers and isPartial flag are not truncation.
 const WINDOW_KEYS = ['matchString', 'ranges', 'startLine', 'endLine', 'block', 'symbol', 'view', 'charLength', 'charOffset', 'offset', 'chunkSize', 'fileFilter', 'matchContext', 'contextLines'];
-const OMISSION = /\.\.\. \[lines? \d+(?:-\d+)? omitted\] \.\.\.|\[\.\.\.\s*\d+ (?:more|omitted)[^\]]*\]/;
+const OMISSION = /\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) omitted\] \.\.\.|\[\.\.\.\s*\d+ (?:more|omitted)[^\]]*\]/;
 
 /** Truncation signals under one row: [{at, signal}], skipping continuation values. */
 function trimSignals(node, at, windowed, out = []) {
@@ -434,14 +442,14 @@ function responseSensors(entry) {
   if (!sc || typeof sc !== 'object') return out;
   out.nextBytes = nextBytes(sc);
   out.hintsBytes = hintsBytes(sc);
-  out.leadBytes = leadBytes(sc);
+  out.leadBytes = leadBytes(sc, entry.tool);
   const queries = Array.isArray(entry.args?.queries) ? entry.args.queries : [entry.args ?? {}];
   const envelopeNext = hintEntries(envelopeContainer(sc));
   // Tool rows; a clasify matrix reports per-query rows, else the whole response is one row.
   const rows = Array.isArray(sc.results) ? sc.results : Array.isArray(sc.queries) ? sc.queries : [sc];
   rows.forEach((row, i) => {
     out.nextEntriesMax = Math.max(out.nextEntriesMax, maxNextEntries(row));
-    out.leadEntriesMax = Math.max(out.leadEntriesMax, maxLeadEntries(row));
+    out.leadEntriesMax = Math.max(out.leadEntriesMax, maxLeadEntries(row, entry.tool));
     const inRow = allHintEntries(row);
     out.nextNames.push(...inRow.map(e => e.name));
     const query = queries[row?.index ?? i] ?? queries[0] ?? {};

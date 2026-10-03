@@ -69,16 +69,84 @@ fn omission_span(record: &str) -> Option<(u64, u64)> {
     }
 }
 
+/// `(gaps, start, end)` of a gap-run marker
+/// `... [N gaps in lines A-B omitted] ...`: N line-omission gaps, each
+/// between two numbered lines, all inside lines A-B.
+fn gap_run_span(record: &str) -> Option<(u64, u64, u64)> {
+    let inner = record
+        .trim_end_matches(['\n', '\r'])
+        .strip_prefix("... [")?
+        .strip_suffix(" omitted] ...")?;
+    let (gaps, span) = inner.split_once(" gaps in lines ")?;
+    let (start, end) = span.split_once('-')?;
+    Some((gaps.parse().ok()?, start.parse().ok()?, end.parse().ok()?))
+}
+
+/// Collapse each run of two or more line-omission markers that only single
+/// numbered lines separate into one gap-run marker at the run's first gap
+/// (`... [N gaps in lines A-B omitted] ...`). Every line keeps its number,
+/// so each gap is still exactly the span between two numbers.
+#[must_use]
+pub fn collapse_gap_runs(numbered: &str) -> String {
+    let records: Vec<&str> = numbered.split_inclusive('\n').collect();
+    let mut output = String::with_capacity(numbered.len());
+    let mut index = 0;
+    while index < records.len() {
+        let Some((start, mut end)) = omission_span(records[index]) else {
+            output.push_str(records[index]);
+            index += 1;
+            continue;
+        };
+        // Extend over `single line, marker` pairs.
+        let mut gaps = 1u64;
+        let mut cursor = index + 1;
+        while cursor + 1 < records.len()
+            && records[cursor].ends_with('\n')
+            && omission_span(records[cursor]).is_none()
+            && let Some((_, next_end)) = omission_span(records[cursor + 1])
+        {
+            end = next_end;
+            gaps += 1;
+            cursor += 2;
+        }
+        if gaps < 2 {
+            output.push_str(records[index]);
+            index += 1;
+            continue;
+        }
+        output.push_str(&format!(
+            "... [{gaps} gaps in lines {start}-{end} omitted] ...\n"
+        ));
+        for line in (index + 1..cursor).step_by(2) {
+            output.push_str(records[line]);
+        }
+        index = cursor;
+    }
+    output
+}
+
 /// Whether `content` is already in numbered form: consecutive `N\t` lines,
 /// with only line-omission markers between runs, each skipping exactly the
-/// lines it names.
+/// lines it names, or gap-run markers whose lines jump exactly N times
+/// inside the named span.
 #[must_use]
 pub fn is_numbered(content: &str) -> bool {
     let mut expected: Option<u64> = None;
     let mut numbered = 0usize;
+    // An open gap run: gaps left to see, and the last omitted line.
+    let mut run: Option<(u64, u64)> = None;
     for record in content.split_inclusive('\n') {
+        if run.is_none()
+            && let Some((gaps, start, end)) = gap_run_span(record)
+        {
+            if expected.is_some_and(|next| next != start) || end < start || gaps < 2 {
+                return false;
+            }
+            run = Some((gaps, end));
+            continue;
+        }
         if let Some((start, end)) = omission_span(record) {
-            if expected.is_some_and(|next| next != start) || end < start {
+            if run.is_some() || expected.is_some_and(|next| next != start) || end < start {
                 return false;
             }
             expected = Some(end + 1);
@@ -90,13 +158,27 @@ pub fn is_numbered(content: &str) -> bool {
         let Ok(line) = number.parse::<u64>() else {
             return false;
         };
-        if line == 0 || number.starts_with('0') || expected.is_some_and(|next| next != line) {
+        if line == 0 || number.starts_with('0') {
             return false;
+        }
+        match (expected, run) {
+            (Some(next), Some((gaps, end))) if line > next => {
+                // A jump is one gap of the run; the last one lands on end + 1.
+                if gaps == 0 || line - 1 > end {
+                    return false;
+                }
+                run = (gaps > 1).then_some((gaps - 1, end));
+                if run.is_none() && line != end + 1 {
+                    return false;
+                }
+            }
+            (Some(next), _) if next != line => return false,
+            _ => {}
         }
         expected = Some(line + 1);
         numbered += 1;
     }
-    numbered > 0
+    numbered > 0 && run.is_none()
 }
 
 fn ranges_of(value: &Value) -> Option<Vec<(u64, u64)>> {
@@ -197,7 +279,12 @@ pub fn number_read_rows(tool: ToolId, structured: &mut Value) {
                     .and_then(Value::as_array_mut)
             }) {
                 for file in file {
-                    number_file_row(file);
+                    if number_file_row(file)
+                        && let Some(content) = file.get("content").and_then(Value::as_str)
+                    {
+                        let collapsed = collapse_gap_runs(content);
+                        file["content"] = Value::String(collapsed);
+                    }
                 }
             }
         }
@@ -251,6 +338,50 @@ mod tests {
         assert!(!is_numbered("0\ta\n"));
         assert!(!is_numbered(""));
         assert!(!is_numbered("2\ta\n... [lines 4-8 omitted] ...\n9\tb\n"));
+    }
+
+    /// A grep map of single lines carries one gap-run marker, not one marker
+    /// per gap; every line keeps its number, so the omitted spans and the
+    /// returned lines round-trip exactly.
+    #[test]
+    fn single_line_windows_share_one_gap_marker_and_round_trip() {
+        let ranges = [(3, 3), (10, 10), (20, 20), (21, 23), (40, 40), (50, 50)];
+        let content = "c\n... [lines 4-9 omitted] ...\nj\n... [lines 11-19 omitted] ...\nt\nu\nv\nw\n... [lines 24-39 omitted] ...\nN\n... [lines 41-49 omitted] ...\nX\n";
+        let numbered = number_lines(content, &ranges).expect("numbered");
+        let collapsed = collapse_gap_runs(&numbered);
+        assert_eq!(
+            collapsed,
+            "3\tc\n... [2 gaps in lines 4-19 omitted] ...\n10\tj\n20\tt\n21\tu\n22\tv\n23\tw\n... [2 gaps in lines 24-49 omitted] ...\n40\tN\n50\tX\n"
+        );
+        assert!(collapsed.len() < numbered.len());
+        assert!(is_numbered(&collapsed));
+        // Round trip: the numbers restore every returned line and range.
+        let mut restored: Vec<(u64, u64)> = Vec::new();
+        for record in collapsed.lines() {
+            let Some((number, _)) = record.split_once(SEPARATOR) else {
+                continue;
+            };
+            let line: u64 = number.parse().expect("number");
+            match restored.last_mut() {
+                Some((_, end)) if *end + 1 == line => *end = line,
+                _ => restored.push((line, line)),
+            }
+        }
+        assert_eq!(restored, ranges);
+        // A lone gap keeps its own marker; nothing to collapse.
+        let lone =
+            number_lines("a\n... [lines 3-8 omitted] ...\nb\n", &[(2, 2), (9, 9)]).expect("lone");
+        assert_eq!(collapse_gap_runs(&lone), lone);
+        // A miscounted or misplaced run is not numbered content.
+        assert!(!is_numbered(
+            "3\tc\n... [3 gaps in lines 4-19 omitted] ...\n10\tj\n20\tt\n"
+        ));
+        assert!(!is_numbered(
+            "3\tc\n... [2 gaps in lines 5-19 omitted] ...\n10\tj\n20\tt\n"
+        ));
+        assert!(!is_numbered(
+            "3\tc\n... [2 gaps in lines 4-19 omitted] ...\n10\tj\n21\tt\n"
+        ));
     }
 
     #[test]

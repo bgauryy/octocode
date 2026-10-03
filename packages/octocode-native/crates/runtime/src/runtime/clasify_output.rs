@@ -170,7 +170,7 @@ pub(super) fn host_receipt(receipt: &mut Value, paths: &crate::policy::path::Pat
             relative(path);
         }
         // The capture brief; the response stage adds the matrix brief.
-        query.remove("goal");
+        query.remove("mainGoal");
         query.remove("reasoning");
         // The provider byte budget, unless an `offset` page is addressed in
         // chunk units.
@@ -600,7 +600,7 @@ mod tests {
             "scope":{"startLine":284,"endLine":484,"totalLines":484},
             "read":{"tool":"localFetch","confidence":"exact","query":{
                 "reasoning":"Read a bounded search candidate for classification.",
-                "goal":"throttle handling","path":"/ws/src/gate.rs",
+                "mainGoal":"throttle handling","path":"/ws/src/gate.rs",
                 "startLine":284,"endLine":485,"chunkType":"bytes","chunkSize":12000,
                 "minify":"none"
             }},
@@ -708,7 +708,7 @@ mod tests {
         let receipt = json!({"source":"tool","tool":"localFetch","resultHash":"x","coverage":"bounded",
         "scope":{"startLine":1,"endLine":9,"totalLines":9},
         "read":{"tool":"localFetch","confidence":"exact","query":{
-            "goal": "test", "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
+            "mainGoal": "test", "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
         }}});
         let rendered = resource(
             &json!("file"),
@@ -727,7 +727,7 @@ mod tests {
             json!({"resourceId":"file","coverage":"partial","pages":[{
                 "scope":{"startLine":1,"endLine":9,"totalLines":9},
                 "next":{"read":{"tool":"localFetch","confidence":"exact","query":{
-                    "goal": "test", "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
+                    "mainGoal": "test", "reasoning":"Verify evidence.","path":"/repo/a.rs","startLine":1,"endLine":9
                 }}},
                 "answers":{"retry":{"noul":0.9},"role":{"error":{"code":"timeout","message":"failed"}}}
             }]})

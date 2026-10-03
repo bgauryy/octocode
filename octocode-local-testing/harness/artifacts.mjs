@@ -1,5 +1,5 @@
 // artifactSearch fidelity: every registry answer is compared with that
-// registry's own public API (ground truth), and next.viewRepo must name and
+// registry's own public API (ground truth), and hints.viewRepo must name and
 // open the same repository.
 import { checks, rowData, startServer, writeResults } from './mcp-client.mjs';
 
@@ -49,23 +49,23 @@ for (const c of CASES) {
   const data = rowData(out);
   const artifact = data?.artifacts?.[0];
   const toolRepo = githubSlug(artifact?.repository ?? artifact?.homepage ?? artifact?.sourceUrl);
-  const viewHint = data?.next?.viewRepo;
+  const viewHint = data?.hints?.viewRepo;
   const view = viewHint?.query;
   const viewSlug = view ? `${view.owner}/${view.repo}`.toLowerCase() : null;
   table.push({ type: c.type, name: c.name, tool: artifact?.version, registry: truth.version, repo: toolRepo, truthRepo: truth.repo, viewRepo: viewSlug });
   check(`${c.type} ${c.name}: latest version equals the registry`, norm(artifact?.version) === norm(truth.version), `tool=${artifact?.version} registry=${truth.version}`);
   if (truth.repo) {
     check(`${c.type} ${c.name}: repository equals the registry's`, toolRepo === truth.repo, `tool=${toolRepo} registry=${truth.repo}`);
-    check(`${c.type} ${c.name}: next.viewRepo names that repository`, viewSlug === truth.repo, `viewRepo=${viewSlug}`);
+    check(`${c.type} ${c.name}: hints.viewRepo names that repository`, viewSlug === truth.repo, `viewRepo=${viewSlug}`);
   }
   if (view) {
     check(`${c.type}: repository provenance is explicit`, viewHint.source?.scope === 'defaultBranch' && viewHint.source?.verification === 'unverified', JSON.stringify(viewHint.source));
-    const release = data?.next?.viewReleaseSource;
+    const release = data?.hints?.viewReleaseSource;
     // npm provenance (an attestation bound to this tarball and repository) upgrades the release lead.
     if (release) check(`${c.type}: release lead states its verification`, release.source?.scope === 'release' && ['unverified', 'provenance'].includes(release.source?.verification), JSON.stringify(release.source));
     // Replay the continuation verbatim (tool + query, followUp included).
     const tree = await raw(viewHint.tool, viewHint.query);
-    check(`${c.type} ${c.name}: next.viewRepo opens the repository`, !tree.isError && (rowData(tree)?.structure ?? []).length > 0, tree.text.slice(0, 120));
+    check(`${c.type} ${c.name}: hints.viewRepo opens the repository`, !tree.isError && (rowData(tree)?.structure ?? []).length > 0, tree.text.slice(0, 120));
   }
 }
 console.table(table);

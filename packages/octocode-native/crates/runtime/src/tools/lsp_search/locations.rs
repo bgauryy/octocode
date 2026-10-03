@@ -268,7 +268,7 @@ pub(super) fn cap_declaration_content(location: &mut Value) -> Option<Value> {
     };
     let marker = match (rest, read.is_some()) {
         (Some((from, to)), true) => format!(
-            "… {omitted} more lines omitted (source lines {from}-{to}); next.readDeclaration reads them."
+            "… {omitted} more lines omitted (source lines {from}-{to}); hints.readDeclaration reads them."
         ),
         (Some((from, to)), false) => format!(
             "… {omitted} more lines omitted (source lines {from}-{to}); read them with localFetch startLine/endLine."
@@ -323,10 +323,29 @@ pub(super) fn compact_location(value: Value) -> Value {
 /// reported by the language server.
 pub(super) const RECOVERED_ALIAS: &str = "recoveredAlias";
 
+/// `content` with each source line prefixed by its one-based number and a
+/// tab (`<line>\t<text>`, as localFetch reads are numbered), from `start`. A
+/// trailing omission marker (see [`cap_declaration_content`]) stays
+/// unnumbered.
+fn number_content(content: &str, start: u64) -> String {
+    let mut out = String::with_capacity(content.len() + content.len() / 8);
+    let mut line = start;
+    for record in content.split_inclusive('\n') {
+        if !(record.starts_with("… ") && record.contains(" more lines omitted")) {
+            out.push_str(&line.to_string());
+            out.push(crate::runtime::numbered::SEPARATOR);
+            line += 1;
+        }
+        out.push_str(record);
+    }
+    out
+}
+
 /// Public location: one one-based `displayRange` (`startLine`,
 /// `startCharacter`, `endLine`) for the symbol itself instead of the raw
-/// zero-based LSP `range` plus a line-only copy. When `contextLines` widened
-/// `content`, `contentStartLine` says where that content begins.
+/// zero-based LSP `range` plus a line-only copy. `content` carries its own
+/// line numbers, from the widened window's first line when `contextLines`
+/// widened it.
 pub(super) fn public_location(internal: Value) -> Value {
     let Value::Object(mut internal) = internal else {
         return internal;
@@ -349,14 +368,21 @@ pub(super) fn public_location(internal: Value) -> Value {
         public.insert("displayRange".into(), display);
     }
     if let Some(content) = internal.shift_remove("content") {
-        public.insert("content".into(), content);
-        if let Some(content_start) = window
+        let start = window
             .as_ref()
             .and_then(|window| window.get("startLine"))
             .and_then(Value::as_u64)
-            .filter(|start| Some(*start) != symbol_start)
-        {
-            public.insert("contentStartLine".into(), json!(content_start));
+            .or(symbol_start);
+        match (content.as_str(), start) {
+            // An unreadable file's location carries the reason, not source.
+            (Some(text), Some(start))
+                if !text.is_empty() && !text.starts_with("[content unavailable") =>
+            {
+                public.insert("content".into(), json!(number_content(text, start)));
+            }
+            _ => {
+                public.insert("content".into(), content);
+            }
         }
     }
     public.append(&mut internal);

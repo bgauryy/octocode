@@ -1,8 +1,6 @@
 # Benchmarks and results
 
-Keep reusable benchmark definitions under `benchmarks/<name>/`. Use [document-answering](document-answering/README.md) for the public starter and [skill-smoke](skill-smoke/README.md) for this skill's maintenance fixtures.
-
-For an actual campaign, copy or author the definition in the controller's workspace. Store its run evidence under `<workspace>/.octocode/benchmarks/<name>/results/<run-id>/`; use the corresponding home directory when no workspace applies. Never write results into an installed skill.
+Keep reusable benchmark definitions under `benchmarks/<name>/`: [document-answering](document-answering/README.md) is the public starter; [skill-smoke](skill-smoke/README.md) holds this skill's maintenance fixtures. For a real campaign, copy or author the definition in the controller's workspace. Store run evidence under `<workspace>/.octocode/benchmarks/<name>/results/<run-id>/` (home directory when no workspace applies). Never write results into an installed skill.
 
 ```text
 benchmarks/<name>/                   # reusable definition
@@ -22,16 +20,15 @@ benchmarks/<name>/                   # reusable definition
     └── trace.jsonl                  # actions/tool results when available
 ```
 
-This is a default layout, not a required serialization format. Reuse equivalent native runner logs and link them from the summary instead of duplicating data. Omit unused folders and files. A deterministic check may need only its run record, results and summary. Store large artifacts once and reference them by identity/hash.
+The layout is a default, not a required format. Link equivalent native runner logs from the summary instead of copying them. Omit unused folders; a deterministic check may need only its run record, results, and summary. Store large artifacts once and reference them by hash.
 
 ## Run identity and lifecycle
-- Allocate a unique run directory for each execution (for example UTC timestamp plus a short random suffix). Refuse collisions; never overwrite a completed run or silently reuse its files.
-- Record the definition/subject/grader versions, task selection, model/runtime/tool settings, budget, sampling, environment and start/end status actually used. Include resource limits and calibration evidence when relevant. The benchmark README describes purpose; the run record captures execution settings.
-- Keep distinct trial IDs for task × comparison arm × repetition × attempt. Record repairs and retries without replacing the original attempt. Missing/failed/Unknown results remain visible.
-- Seal worker output before grading. If only the grader changes, save a new assessment/run with the parent run identity and reused output hashes; preserve old grades. Changing task inputs, context or environment requires new trials.
-- Separate worker access from controller storage. The worker gets only its selected question, production-equivalent instruction and permitted fixtures—not the benchmark folder, run results, evaluator material or other trials. Private final tests require protected storage, not just a folder named private.
+- Allocate a unique run directory per execution (for example a UTC timestamp plus a short random suffix). Refuse collisions; never overwrite or silently reuse a completed run.
+- Record the definition, subject, and grader versions, task selection, model, runtime, and tool settings, budget, sampling, environment, and start/end status actually used. Add resource limits and calibration evidence when relevant. The README describes purpose; the run record captures execution.
+- Give each task × arm × repetition × attempt its own trial ID. Record repairs and retries without replacing the original attempt.
+- Seal worker output before grading. A grader-only change saves a new assessment with the parent run identity and reused output hashes; keep old grades.
 
 ## Adapt to the benchmark
-Use only the pieces that affect execution or interpretation. Questions should contain legitimate requirements without solution hints; rubric questions and reference answers stay evaluator-only. Match task/reference records by ID and split related cases by family. Avoid labels in worker-visible IDs that reveal the desired outcome.
+Use only the pieces that affect execution or interpretation. Match task and reference records by ID. Keep worker-visible IDs free of labels that reveal the desired outcome.
 
-Put actual setup/run/analysis commands in each benchmark README when a runner exists. For an instruction/data starter, say that directly rather than shipping a null-filled manifest or fake commands. Live isolation belongs to `references/clean-lab.md`; grading and repair guidance remain in `references/llm-judge.md` and `references/failure-repair.md`.
+Put real setup, run, and analysis commands in each benchmark README when a runner exists. For an instruction/data starter, say so; ship no null-filled manifest or fake commands. Live isolation: `references/clean-lab.md`; grading and repair: `references/llm-judge.md` and `references/failure-repair.md`.

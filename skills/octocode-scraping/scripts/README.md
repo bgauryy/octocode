@@ -17,19 +17,8 @@ Schemas live in `schemas/graph.schema.json` and `schemas/provider.schema.json`. 
 
 ## Corpus search pagination
 
-`node scripts/corpus-find.mjs --session-dir <dir> --query <text> --limit 20` returns a ranked page. `--limit` is a positive safe integer (default 20); `--offset` is a non-negative safe integer (default 0). Partial output includes exact counts and `next.page` with an absolute executable `command` and raw `args`. Run that command with those arguments unchanged until `completeness` is `complete` and `next` is `null`. Evidence-file suggestions are separate in `suggestedFiles`. See `../references/session-corpus.md` for the output contract and corpus stability requirement.
-
-Classification admission belongs to the `octocode-research` clasify gate; admitted requests use [../references/clasify-screen.md](../references/clasify-screen.md). `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
+`corpus-find` pages are specified in `../references/session-corpus.md` § Bounded search. `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
 
 ## Focused regressions
 
-Run from the skill directory:
-
-```sh
-node --test scripts/tests/corpus-find.test.mjs
-node --test scripts/tests/fetch-session.test.mjs
-node --test scripts/tests/http-policy.test.mjs
-node --test scripts/tests/cdp-client.test.mjs
-```
-
-The corpus test executes limit-one continuations over seven fixed matches, checks their exact union, terminal states, and invalid arguments. The HTTP policy test covers robots precedence, bounded body reads, and one short `Retry-After`. The CDP test checks the generated default runner through navigation/body extraction and rejects failed stealth setup without starting a real browser. Live browser verification remains separate.
+The lobby names which test to run after each change. The corpus test executes limit-one continuations over seven fixed matches, checks their exact union, terminal states, and invalid arguments. The HTTP policy test covers robots precedence, bounded body reads, and one short `Retry-After`. The CDP test checks the generated default runner through navigation/body extraction and rejects failed stealth setup without starting a real browser. Live browser verification remains separate.

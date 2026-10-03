@@ -62,13 +62,13 @@
         "debug": [
           "consumed"
         ],
-        "goal": [
+        "id": [
+          "consumed"
+        ],
+        "mainGoal": [
           "consumed",
           "forwarded",
           "continuation"
-        ],
-        "id": [
-          "consumed"
         ],
         "questions": [
           "consumed"
@@ -227,9 +227,6 @@
         "forks": [
           "forwarded"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "goodFirstIssues": [
           "forwarded"
         ],
@@ -241,6 +238,9 @@
         ],
         "license": [
           "forwarded"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "match": [
           "forwarded"
@@ -307,14 +307,14 @@
         "filename": [
           "forwarded"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "keywords": [
           "forwarded"
         ],
         "language": [
           "forwarded"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "match": [
           "forwarded"
@@ -357,11 +357,11 @@
         "debug": [
           "workflow-metadata"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "include": [
           "forwarded"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "materialize": [
           "forwarded",
@@ -454,7 +454,7 @@
           "forwarded",
           "output-control"
         ],
-        "goal": [
+        "mainGoal": [
           "workflow-metadata"
         ],
         "matchString": [
@@ -559,9 +559,6 @@
         "draft": [
           "forwarded"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "head": [
           "forwarded"
         ],
@@ -570,6 +567,9 @@
         ],
         "label": [
           "forwarded"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "match": [
           "forwarded"
@@ -771,9 +771,6 @@
           "forwarded",
           "output-control"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "head": [
           "forwarded"
         ],
@@ -784,6 +781,9 @@
         "includeDiff": [
           "forwarded",
           "output-control"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "matchContext": [
           "forwarded",
@@ -866,11 +866,11 @@
         "debug": [
           "workflow-metadata"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "keywords": [
           "forwarded"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "packageName": [
           "forwarded"
@@ -914,7 +914,7 @@
         "forceRefresh": [
           "forwarded"
         ],
-        "goal": [
+        "mainGoal": [
           "workflow-metadata"
         ],
         "owner": [
@@ -967,9 +967,6 @@
         "excludeDir": [
           "consumed"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "hidden": [
           "consumed"
         ],
@@ -981,6 +978,9 @@
         ],
         "langType": [
           "consumed"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "matchContentLength": [
           "consumed",
@@ -1093,15 +1093,15 @@
         "extensions": [
           "consumed"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "hidden": [
           "consumed"
         ],
         "limit": [
           "consumed",
           "output-control"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "maxDepth": [
           "consumed"
@@ -1210,9 +1210,6 @@
         "excludeDir": [
           "consumed"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "hidden": [
           "consumed"
         ],
@@ -1228,6 +1225,9 @@
         "languageGlobs": [
           "validated",
           "consumed"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "matchContentLength": [
           "consumed",
@@ -1373,9 +1373,6 @@
         "file": [
           "consumed"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "includeTests": [
           "consumed"
         ],
@@ -1385,6 +1382,9 @@
         "limit": [
           "consumed",
           "output-control"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "maxFiles": [
           "consumed"
@@ -1450,14 +1450,14 @@
         "fix": [
           "consumed"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "include": [
           "consumed"
         ],
         "langType": [
           "consumed"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "maxFiles": [
           "consumed"
@@ -1552,7 +1552,7 @@
           "consumed",
           "output-control"
         ],
-        "goal": [
+        "mainGoal": [
           "workflow-metadata"
         ],
         "matchString": [
@@ -1635,9 +1635,6 @@
         "depth": [
           "consumed"
         ],
-        "goal": [
-          "workflow-metadata"
-        ],
         "groupByFile": [
           "consumed"
         ],
@@ -1646,6 +1643,9 @@
         ],
         "lineHint": [
           "consumed"
+        ],
+        "mainGoal": [
+          "workflow-metadata"
         ],
         "operation": [
           "consumed"

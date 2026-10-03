@@ -408,7 +408,7 @@ Text search, ordinary reads, GitHub/history tools, and artifact lookup remain la
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-**15 public skills** in [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
+**14 public skills** in [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills), bundled in the `octocode` package. Each is a lean `SKILL.md` that loads references only when needed. Start with ⭐ [Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) for evidence-first code work.
 
 Tested skills live in [`skills-beta/`](skills-beta/) and are not published. Skills for working on this repository live in [`skills-dev/`](skills-dev/).
 
@@ -430,8 +430,7 @@ npx octocode skill help
 ### Plan and architecture
 | Skill | Use when |
 |-------|----------|
-| [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Disciplined idea exploration before building: options, worth-building tests, prior-art maps. |
-| [**octocode-exploratory-thinking**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-exploratory-thinking) | Exploratory thinking and awareness shifts. Substance names are presences. 18+. |
+| [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Disciplined idea exploration before building: options, worth-building tests, prior-art maps. Exploratory mode: awareness shifts where substance names are presences (18+). |
 | [**octocode-rfc-generator**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-rfc-generator) | Evidence-backed RFCs, design docs, migration plans, option comparisons. |
 | [**octocode-documentation**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-documentation) | Writing or updating README, API docs, runbooks, AGENTS.md, ADRs. |
 
@@ -441,7 +440,7 @@ npx octocode skill help
 | [**octocode-roast**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-roast) | Blunt, evidence-backed code critique with severity ranking and repair paths. |
 | [**octocode-clean-agentic-code**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-clean-agentic-code) | Behavior-preserving cleanup: dead exports, shims, duplicate logic, stale prose/config/tests, and agent residue (AI slop). |
 | [**octocode-eval-benchmark**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-eval-benchmark) | Smart evals and honest benchmarks: goal→KPI contracts, graders, held-out suites, guardrails, and accept/revert loops. |
-| [**octocode-prompt-optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | Making prompts, tool schemas, and agent contracts clearer, safer, cheaper, measurable. |
+| [**octocode-agentic-prompts**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agentic-prompts) | Making prompts, tool schemas, and agent contracts clearer, safer, cheaper, measurable. |
 
 ### Agent orchestration
 | Skill | Use when |

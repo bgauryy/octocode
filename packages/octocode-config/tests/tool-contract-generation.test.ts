@@ -91,8 +91,10 @@ describe('generated tool types', () => {
   });
 
   it('types tool rows by name at compile time', () => {
-    const query: ToolQuery<'localFetch'> = { path: '/tmp/a.ts', goal: 'Read the file.', reasoning: 'Read the file' };
-    const input: ToolInput<'localFetch'> = { queries: [query] };
+    // Briefs are optional: a bare row and a briefed row both type-check.
+    const query: ToolQuery<'localFetch'> = { path: '/tmp/a.ts' };
+    const briefed: ToolQuery<'localFetch'> = { path: '/tmp/a.ts', mainGoal: 'Read the file.', reasoning: 'Read the file' };
+    const input: ToolInput<'localFetch'> = { queries: [query, briefed] };
     const output = { results: [] } satisfies Partial<ToolOutput<'localFetch'>>;
     expect(input.queries[0]?.path).toBe('/tmp/a.ts');
     expect(output.results).toEqual([]);

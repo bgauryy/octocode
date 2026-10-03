@@ -23,12 +23,8 @@ Load when the RFC needs evidence or a `RESOURCES.md`. This file owns the RFC evi
 ## Recovery
 | Situation | Move |
 |---|---|
-| Local search empty | Broaden, inspect structure, try symbol or AST variants |
-| GitHub search empty | Use repository structure, path search, known files, or clone |
 | No external prior art | Say so; rely on local constraints and open questions |
 | Evidence conflicts | Present the conflict and a decision rule |
-| Scope too broad | Split into RFCs or phases |
-| Another pass is unlikely to close the gap | Summarize what is known and ask for direction |
 
 ## `RESOURCES.md`
 Write it last. Use one table per section: Primary Sources, Local Code References, Prior Art and Related Systems, Internal Research Artifacts. Each row has `Resource | Link or path:line | Why it matters` (for prior art: the lesson, not only the name). Add `Open Research Leads` (lead, why it matters, what makes it decision-grade) and `Reproducible Search Prompts` (`{query}`, surface, purpose).

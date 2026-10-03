@@ -3,13 +3,10 @@
 Load when the target is clear; it runs the lobby flow phase by phase.
 
 ## 1. Target
-Use explicit files/directories/symbols/lines first, then an explicitly requested diff/branch scope; inspect the whole repository only when requested.
-Do not widen a provided target. Stop if it resolves to no files.
+Order: explicit files/directories/symbols/lines, then an explicitly requested diff/branch scope, then the whole repository on request.
 
 ## 2. Inspect
-Use `octocode-research` for structure, search, semantics, reachability, and affected scope; otherwise mark reduced coverage.
-Pattern matches are leads. Upgrade every cited finding with exact anchor, mechanism, impact, confidence, and repair move.
-Never reveal credential values or infer compromise from a literal alone.
+Cover structure, search, semantics, reachability, and affected scope.
 
 ## 3. Inventory
 Rank with `references/sin-catalog.md`. If the inventory obscures the decision, show the highest-value findings by impact and confidence and summarize the overflow.
@@ -31,8 +28,7 @@ Explain why it is risky, where contracts cross, and how the repair can be staged
 
 ## 5. Checkpoint
 Summarize important versus redundant findings, then stop.
-Load `redemption-flow.md` only when the user selects a repair path.
 
 Output order: top roast, important findings, autopsy, repair paths, fix checkpoint. Include redundant/low-value findings only when they help scope debt.
 
-Next: rank with `references/sin-catalog.md`; split a monorepo pass with `references/parallel-roasting.md`; on a selected repair load `references/redemption-flow.md`.
+Next: on a selected repair, load `references/redemption-flow.md`.

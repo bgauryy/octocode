@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn ast_matches_split_per_file_with_a_follow_up_read() {
         let source =
-            json!({"tool":"astSearch","query":{"operation":"match","path":"/repo","goal":"g"}});
+            json!({"tool":"astSearch","query":{"operation":"match","path":"/repo","mainGoal":"g"}});
         let state = wrap(json!({"files":[
             {"path":"a.rs","matches":[{"line":40}]},{"path":"/abs/c.rs","matches":[]}
         ]}));
@@ -475,7 +475,7 @@ mod tests {
         assert_eq!(read["query"]["startLine"], 1);
         assert_eq!(read["query"]["endLine"], 100);
         assert!(
-            read["query"].get("goal").is_none(),
+            read["query"].get("mainGoal").is_none(),
             "the matrix brief is added later"
         );
         assert!(

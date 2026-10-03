@@ -248,7 +248,7 @@ pub fn execute_symbols(
         }
     }
     let snapshot = super::syntax::digest(&json!([
-        q.path,
+        p.canonical.to_string_lossy(),
         q.lang_type,
         q.language_globs(),
         q.name,

@@ -342,19 +342,55 @@ pub(crate) async fn go(
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     if let Some(name) = query.package_name() {
         let path = coordinate_path(name);
-        let module_url = parse_url(&format!("https://pkg.go.dev/v1/module/{path}"))?;
+        let version = go_version(query.version())?;
+        let lookup = |kind: &str| {
+            endpoint(
+                &format!("https://pkg.go.dev/v1/{kind}/{path}"),
+                &[("version", version.clone())],
+            )
+        };
         let mut response = client
-            .json(ArtifactType::Go, module_url, true, None)
+            .json(ArtifactType::Go, lookup("module")?, true, None)
             .await?;
         let mut is_package = false;
         if response.is_none() {
-            let package_url = parse_url(&format!("https://pkg.go.dev/v1/package/{path}"))?;
             response = client
-                .json(ArtifactType::Go, package_url, true, None)
+                .json(ArtifactType::Go, lookup("package")?, true, None)
                 .await?;
             is_package = true;
         }
+        // A pinned lookup answers with that version or not at all.
+        let response = response.filter(|row| {
+            version
+                .as_deref()
+                .is_none_or(|version| row.get("version").and_then(Value::as_str) == Some(version))
+        });
         let Some(response) = response else {
+            // A pinned version the module does not publish is not an
+            // unknown module: name the nearest published versions.
+            if let Some(version) = version.as_deref() {
+                let versions_url = parse_url(&format!("https://pkg.go.dev/v1/versions/{path}"))?;
+                if let Some(listing) = client
+                    .json(ArtifactType::Go, versions_url, true, None)
+                    .await?
+                {
+                    let published = listing
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|item| string(item.get("version")))
+                        .map(|published| published.trim_start_matches('v').to_owned())
+                        .collect::<Vec<_>>();
+                    if !published.is_empty() {
+                        return Err(super::npm::version_not_found(
+                            name,
+                            version.trim_start_matches('v'),
+                            &published,
+                        ));
+                    }
+                }
+            }
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
         let row = object_for(&response, ArtifactType::Go)?;
@@ -420,6 +456,22 @@ pub(crate) async fn go(
         terminal_limit: None,
         registry: None,
     })
+}
+
+/// The pkg.go.dev `version` of a Go lookup: `None` for the latest release
+/// (no version, or `latest`), the `v`-prefixed exact version otherwise.
+/// Ranges and other tags need a module version list: not supported.
+fn go_version(requested: Option<&str>) -> Result<Option<String>, ArtifactError> {
+    match requested.map(VersionSpec::parse) {
+        None => Ok(None),
+        Some(VersionSpec::Tag(tag)) if tag == "latest" => Ok(None),
+        Some(VersionSpec::Exact(version)) => Ok(Some(format!("v{version}"))),
+        Some(VersionSpec::Tag(spec) | VersionSpec::Range(spec)) => Err(ArtifactError::new(
+            "unsupported_capability",
+            format!("Go lookups take an exact version or latest, not \"{spec}\"."),
+        )
+        .with_hint("Pass an exact module version, e.g. v1.2.3.")),
+    }
 }
 
 /// The VCS ref a Go module version names: a pseudo-version's commit, or the
@@ -1154,6 +1206,67 @@ mod tests {
             "{}",
             item.registry_url
         );
+    }
+
+    /// A pinned Go module version is looked up as that version, so its
+    /// release ref names the pinned tag, not the latest one; an unpublished
+    /// version names the nearest published ones, and ranges are refused.
+    #[tokio::test]
+    async fn go_pinned_versions_resolve_the_pinned_release() {
+        let module = "/v1/module/github.com/open-telemetry/opentelemetry-go";
+        let http = RouteHttp::new(vec![
+            (
+                "/v1/module/github.com/open-telemetry/opentelemetry-go?version=v0.71.0",
+                json!({"path":"github.com/open-telemetry/opentelemetry-go","version":"v0.71.0",
+                    "repoUrl":"https://github.com/open-telemetry/opentelemetry-go"}),
+            ),
+            (
+                module,
+                json!({"path":"github.com/open-telemetry/opentelemetry-go","version":"v0.72.0",
+                    "repoUrl":"https://github.com/open-telemetry/opentelemetry-go"}),
+            ),
+            (
+                "/v1/versions/github.com/open-telemetry/opentelemetry-go",
+                json!({"items":[{"version":"v0.72.0"},{"version":"v0.71.0"},{"version":"v0.70.0"}]}),
+            ),
+        ]);
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        let lookup = |version: Option<&str>| {
+            let mut fields =
+                json!({"type":"go","packageName":"github.com/open-telemetry/opentelemetry-go"});
+            if let Some(version) = version {
+                fields["version"] = json!(version);
+            }
+            artifact_query(fields, None)
+        };
+        let state = ArtifactProviderState::default();
+        for pinned in ["v0.71.0", "0.71.0"] {
+            let page = go(&lookup(Some(pinned)), &state, &client)
+                .await
+                .expect("pinned");
+            let item = &page.artifacts[0];
+            assert_eq!(item.version.as_deref(), Some("v0.71.0"));
+            assert_eq!(item.source_ref.as_deref(), Some("v0.71.0"));
+        }
+        let latest = go(&lookup(Some("latest")), &state, &client)
+            .await
+            .expect("latest");
+        assert_eq!(latest.artifacts[0].version.as_deref(), Some("v0.72.0"));
+        let missing = go(&lookup(Some("v0.69.9")), &state, &client)
+            .await
+            .expect_err("unpublished");
+        assert_eq!(missing.code, "versionNotFound");
+        assert!(missing.hints[0].contains("0.70.0"), "{missing:?}");
+        let range = go(&lookup(Some("^0.71")), &state, &client)
+            .await
+            .expect_err("range");
+        assert_eq!(range.code, "unsupported_capability");
     }
 
     #[tokio::test]

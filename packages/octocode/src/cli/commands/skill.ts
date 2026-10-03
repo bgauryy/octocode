@@ -74,6 +74,72 @@ ${bold('Examples')}
 `);
 }
 
+/** Flags each subcommand reads; any other skill flag is a usage error there. */
+const SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
+  list: ['json'],
+  info: ['json'],
+  check: ['platform', 'workspace', 'fix', 'dry-run', 'no-env', 'json'],
+  install: [
+    'add',
+    'platform',
+    'all',
+    'mode',
+    'force',
+    'upgrade',
+    'global',
+    'project-dir',
+    'workspace',
+    'path',
+    'dry-run',
+    'json',
+  ],
+  remove: ['all', 'platform', 'force', 'dry-run', 'json'],
+  help: [],
+};
+/** Flags every subcommand accepts. */
+const GLOBAL_FLAGS = ['help', 'json-errors', 'no-color', 'redact-emails'];
+
+function editDistance(left: string, right: string): number {
+  let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j++) {
+      current[j] = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + (left[i - 1] === right[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length]!;
+}
+
+/**
+ * The usage error for the first flag `command` does not read: a flag of
+ * another subcommand names where it applies; an unknown flag names the
+ * nearest flag `command` accepts.
+ */
+function unknownFlagError(
+  command: string,
+  options: ParsedArgs['options']
+): string | undefined {
+  const accepted = [...(SUBCOMMAND_FLAGS[command] ?? []), ...GLOBAL_FLAGS];
+  const flag = Object.keys(options).find(key => !accepted.includes(key));
+  if (flag === undefined) return undefined;
+  const owners = Object.entries(SUBCOMMAND_FLAGS)
+    .filter(([, flags]) => flags.includes(flag))
+    .map(([name]) => name);
+  if (owners.length > 0) {
+    return `Unknown option for skill ${command}: --${flag} (it applies to skill ${owners.join(', ')})`;
+  }
+  const nearest = accepted
+    .map(name => ({ name, distance: editDistance(flag, name) }))
+    .filter(({ distance }) => distance <= 2)
+    .sort((a, b) => a.distance - b.distance)[0];
+  return `Unknown option: --${flag}${nearest ? ` (did you mean --${nearest.name}?)` : ''}`;
+}
+
 function subcommand(args: ParsedArgs): string {
   const first = args.args[0];
   if (first && SUBCOMMANDS.has(first)) return first;
@@ -133,15 +199,12 @@ export const skillCommand: CLICommand = {
       else console.error(message);
       process.exitCode = EXIT.USAGE;
     };
-    const allowed = new Set([
-      ...(skillCommand.options ?? []).map(option => option.name),
-      'help',
-      'json-errors',
-      'no-color',
-      'redact-emails',
-    ]);
-    const unknown = Object.keys(args.options).find(key => !allowed.has(key));
-    if (unknown) return fail(`Unknown option: --${unknown}`);
+    const command = subcommand(args);
+    // An unknown subcommand is reported by name below, before its flags.
+    const flagError = SUBCOMMANDS.has(command)
+      ? unknownFlagError(command, args.options)
+      : undefined;
+    if (flagError) return fail(flagError);
     for (const option of skillCommand.options ?? []) {
       if (
         option.hasValue &&
@@ -161,7 +224,6 @@ export const skillCommand: CLICommand = {
       printBundledSkillHelp();
       return;
     }
-    const command = subcommand(args);
 
     switch (command) {
       case 'list':

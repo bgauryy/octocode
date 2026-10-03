@@ -80,8 +80,6 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
 
   it('executes a real tool call end-to-end with exit 0 and structured JSON', () => {
     const query = JSON.stringify({
-      goal: 'Find the native delegation entry point.',
-      reasoning: 'Launcher e2e: prove the delegation boundary executes tools.',
       path: resolve(__dirname, '..', '..', 'src'),
       searchText: 'delegateToNative',
       pageSize: 5,
@@ -100,15 +98,16 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
   });
 
   it('keeps the skill recursion guard intact in the packaged binary', () => {
-    // The guard only applies to subcommands the native binary DELEGATES to the
-    // npm CLI. list/install/remove/check/info are served natively (no delegation,
-    // no guard), so exercise a non-native subcommand that must delegate.
+    // The native binary forwards every `skill` subcommand to the npm CLI. With
+    // the delegation marker already set, the guard refuses to delegate again
+    // and names the npm launcher instead of recursing.
     const result = spawnSync(binary as string, ['skill', 'sync'], {
       encoding: 'utf8',
       env: { ...process.env, OCTOCODE_SKILL_DELEGATED: '1' },
       timeout: 30_000,
     });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('native binary, not the npm CLI');
+    expect(result.stderr).toMatch(/npm launcher owns `skill`/);
+    expect(result.stderr).toContain('octocode skill sync');
   });
 });

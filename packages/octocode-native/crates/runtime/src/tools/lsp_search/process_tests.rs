@@ -240,7 +240,7 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
         let path = root.join("a.ts").to_string_lossy().into_owned();
         let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
         let query = serde_json::from_value(json!({
-            "operation":"definition", "goal":"test", "reasoning":"test",
+            "operation":"definition", "mainGoal":"test", "reasoning":"test",
             "uri":uri, "position":{"line":0,"character":6}
         }))
         .expect("query");

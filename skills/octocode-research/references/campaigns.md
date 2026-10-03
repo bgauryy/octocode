@@ -4,14 +4,13 @@ Load when one query is not enough: repeated Act → Observe → Learn loops, bud
 
 ## Loop
 `frame one question → act (cheapest call that can change the answer) → observe status → learn → next call`
-- `empty` ran and matched nothing: change one variable. `error` is a broken call: fix it, never read it as absence.
-- Ledger: goal, anchors (paths, lines, ids, refs, `next.*`; never invented), two live hypotheses, tried shapes, cheapest disconfirming step.
-- Stop when the question is answered and the alternate killed, no cheap step can change the conclusion, a budget or prerequisite blocks, or iterations stop changing state. A stall switches surface or shape: local ↔ GitHub ↔ packages ↔ history, text ↔ AST ↔ LSP ↔ graph, broad ↔ narrow.
+- Ledger: goal, anchors (paths, lines, ids, refs, `next.*`/`hints.*`; never invented), two live hypotheses, tried shapes, cheapest disconfirming step.
+- Stop when the question is answered and the alternate killed, no cheap step can change the conclusion, a budget or prerequisite blocks, or iterations stop changing state.
 - Checkpoint every 3-5 decisive steps. Output: Answer, Evidence, decisive Loop trace, Verification, Open gaps.
 
 ## Campaign control
 - Open with corpus, question, mode, surfaces, budget, and stop test. Measure claims resolved, not calls made.
-- Check reach first: `scheme` (enabled tools), `auth status` (GitHub), `lsp-server status <file>` (semantics).
+- Check reach first (`octocode.md`).
 - Parallel workers fit independent directions or one claim down different lanes: tight brief, return `claim, evidence, verdict, confidence`; disagreement is evidence; re-check each worker's load-bearing anchor. Mechanics → `octocode-subagent`.
 
 ## Durable brief

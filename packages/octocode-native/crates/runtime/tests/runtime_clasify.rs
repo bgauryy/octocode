@@ -8,6 +8,15 @@ use support::Workspace;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
+/// No page and no lead: `next` is absent and `hints` holds at most prose.
+fn no_continuation(value: &serde_json::Value) -> bool {
+    value.get("next").is_none()
+        && value
+            .get("hints")
+            .and_then(serde_json::Value::as_object)
+            .is_none_or(|hints| hints.keys().all(|key| key == "text"))
+}
+
 // Match the production default for HTTP-backed provider fixtures. The shared
 // test workspace uses 5 seconds to keep unrelated timeout tests fast, which is
 // too narrow during a cold/full native build with several mock servers active.
@@ -76,7 +85,7 @@ fn query() -> serde_json::Value {
     json!({
         "id":"decision",
         "reasoning":"Choose the next inspection.",
-        "goal":"Decide the next read.",
+        "mainGoal":"Decide the next read.",
         "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
         "questions":[
             {"id":"relevant","type":"noul","instructions":"Is it relevant?"},
@@ -86,7 +95,7 @@ fn query() -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
+async fn clasify_sends_optional_briefs_on_the_provider_state() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -95,7 +104,9 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
             "answers":{"answer":{"type":"noul","noul":0.8}},
             "usage":{"input_tokens":2,"output_tokens":1}
         })))
-        .expect(1)
+        // The first call, then one state without reasoning and one without
+        // mainGoal; repeats of a state replay the judgment cache.
+        .expect(3)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -111,7 +122,7 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
     input["questions"] =
         json!([{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]);
     input["reasoning"] = json!("The next read depends on whether the file states the fact.");
-    input["goal"] = json!("Files that state whether the evidence is present.");
+    input["mainGoal"] = json!("Files that state whether the evidence is present.");
     let outcome = runtime
         .execute(
             "semantic-reasoning".into(),
@@ -138,29 +149,34 @@ async fn clasify_requires_goal_and_reasoning_on_the_provider_state() {
         body.contains("Files that state whether the evidence is present."),
         "goal must reach the provider state: {body}"
     );
-    for (field, invalid) in [
-        ("reasoning", serde_json::Value::Null),
+    // A blank or missing brief is dropped, not rejected; a non-string one
+    // is still invalid.
+    for (field, value) in [
         ("reasoning", json!("")),
         ("reasoning", json!("   ")),
-        ("goal", serde_json::Value::Null),
-        ("goal", json!("")),
-        ("goal", json!("   ")),
+        ("mainGoal", json!("")),
+        ("mainGoal", json!("   ")),
     ] {
-        let mut rejected = input.clone();
-        rejected[field] = invalid;
-        let error = runtime
-            .execute("semantic-reasoning".into(), "clasify".into(), rejected)
+        let mut blank = input.clone();
+        blank[field] = value;
+        runtime
+            .execute("semantic-reasoning".into(), "clasify".into(), blank)
             .await
-            .expect_err("blank or missing briefs are rejected");
-        assert_eq!(error.code, "invalidInput");
+            .expect("a blank brief is dropped");
     }
-    for field in ["reasoning", "goal"] {
+    for field in ["reasoning", "mainGoal"] {
         let mut missing = input.clone();
         missing.as_object_mut().unwrap().remove(field);
-        let error = runtime
+        runtime
             .execute("semantic-reasoning".into(), "clasify".into(), missing)
             .await
-            .expect_err("missing briefs are rejected");
+            .expect("a missing brief is accepted");
+        let mut invalid = input.clone();
+        invalid[field] = serde_json::Value::Null;
+        let error = runtime
+            .execute("semantic-reasoning".into(), "clasify".into(), invalid)
+            .await
+            .expect_err("a null brief is rejected");
         assert_eq!(error.code, "invalidInput");
     }
     runtime.close().await;
@@ -365,7 +381,7 @@ async fn independent_resource_assessments_are_dispatched_concurrently() {
     ]);
     let input = json!({
         "id":"concurrent-resources",
-        "reasoning":"Assess independent resources without serial provider latency.","goal":"Decide the next read.",
+        "reasoning":"Assess independent resources without serial provider latency.","mainGoal":"Decide the next read.",
         "resources":(0..4).map(|index| json!({
             "id":format!("resource-{index}"),
             "context":{"value":{"index":index}}
@@ -423,7 +439,7 @@ async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
     ]);
     let input = json!({
         "id":"bounded-resources",
-        "reasoning":"Assess many resources without exceeding provider concurrency.","goal":"Decide the next read.",
+        "reasoning":"Assess many resources without exceeding provider concurrency.","mainGoal":"Decide the next read.",
         "resources":(0..8).map(|index| json!({
             "id":format!("resource-{index}"),
             "context":{"value":{"index":index}}
@@ -492,7 +508,7 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
         .map(|index| {
             json!({
                 "id":format!("query-{index}"),
-                "reasoning":"Assess an independent matrix without serial provider latency.","goal":"Decide the next read.",
+                "reasoning":"Assess an independent matrix without serial provider latency.","mainGoal":"Decide the next read.",
                 "resources":[{"id":"resource","context":{"value":{"index":index}}}],
                 "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
             })
@@ -548,7 +564,7 @@ async fn oversized_first_page_is_not_classified_or_given_a_looping_continuation(
     ]);
     let input = json!({
         "id":"bounded",
-        "reasoning":"Bound the supplied resource.","goal":"Decide the next read.",
+        "reasoning":"Bound the supplied resource.","mainGoal":"Decide the next read.",
         "resources":[{"id":"large","maxChars":5,"context":{"value":{"text":"far too large"}}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
@@ -563,7 +579,7 @@ async fn oversized_first_page_is_not_classified_or_given_a_looping_continuation(
         "classificationContextTooLarge"
     );
     assert!(query["resources"][0]["pages"][0].get("answers").is_none());
-    assert!(query.get("next").is_none());
+    assert!(no_continuation(query));
     runtime.close().await;
 }
 
@@ -593,9 +609,9 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
     ]);
     let input = json!({
         "id":"recover-full-content",
-        "reasoning":"Recover the exact pages of an oversized whole-file request.","goal":"Decide the next read.",
+        "reasoning":"Recover the exact pages of an oversized whole-file request.","mainGoal":"Decide the next read.",
         "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
-            "path":file,"goal": "test", "reasoning":"Read the complete file.","fullContent":true
+            "path":file,"mainGoal": "test", "reasoning":"Read the complete file.","fullContent":true
         }}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
@@ -608,7 +624,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
         .await
         .unwrap();
     let query = &outcome.structured_content["queries"][0];
-    assert!(query.get("next").is_none(), "{query}");
+    assert!(no_continuation(query), "{query}");
     let cell = &query["resources"][0];
     assert_eq!(cell["coverage"], "complete", "{cell}");
     let pages = cell["pages"].as_array().unwrap();
@@ -652,8 +668,8 @@ async fn scout_expands_explicit_question_type_and_preserves_source_identity() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"novelty", "reasoning":"Decide whether this unread section adds evidence.","goal":"Decide the next read.",
-        "resources":[{"id":"hooks","context":{"tool":"localFetch","query":{"path":file,"goal": "test", "reasoning":"Screen the complete section."}}}],
+        "id":"novelty", "reasoning":"Decide whether this unread section adds evidence.","mainGoal":"Decide the next read.",
+        "resources":[{"id":"hooks","context":{"tool":"localFetch","query":{"path":file,"mainGoal": "test", "reasoning":"Screen the complete section."}}}],
         "questions":[{"id":"new","questionType":"addsEvidence","target":"Shutdown timing", "knownEvidence":["onClose runs after requests finish"]}]
     });
     let result = runtime
@@ -692,7 +708,7 @@ async fn search_rejects_removed_semantic_addon_without_calling_provider() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
     let error = runtime.execute("search".into(), "localSearch".into(), json!({
-        "path":workspace.workspace, "searchText":"hooks", "goal": "test", "reasoning":"Discover candidates.",
+        "path":workspace.workspace, "searchText":"hooks", "mainGoal": "test", "reasoning":"Discover candidates.",
         "semanticRerank":{"questions":[{"id":"q","question":"Relevant?"}]}
     })).await.expect_err("semantic checks require clasify");
     assert_eq!(error.code, "invalidInput");
@@ -724,9 +740,9 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
     ]);
     let input = json!({
         "id":"paged",
-        "reasoning":"Assess bounded pages.","goal":"Decide the next read.",
+        "reasoning":"Assess bounded pages.","mainGoal":"Decide the next read.",
         "resources":[{"id":"file","maxChars":5000,"context":{"tool":"localFetch","query":{
-            "path":file,"goal": "test", "reasoning":"Read the next exact line.","chunkSize":1,"fullContent":false
+            "path":file,"mainGoal": "test", "reasoning":"Read the next exact line.","chunkSize":1,"fullContent":false
         }}}],
         "questions":[{"id":"relevant","questionType":"contribution","target":"line content"}]
     });
@@ -805,9 +821,9 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
     ]);
     let input = json!({
         "id":"over-budget",
-        "reasoning":"Assess no more than the resource payload budget.","goal":"Decide the next read.",
+        "reasoning":"Assess no more than the resource payload budget.","mainGoal":"Decide the next read.",
         "resources":[{"id":"file","maxChars":80_000,"context":{"tool":"localFetch","query":{
-            "path":file,"goal": "test", "reasoning":"Read the complete file.","fullContent":true
+            "path":file,"mainGoal": "test", "reasoning":"Read the complete file.","fullContent":true
         }}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
     });
@@ -828,7 +844,7 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
         .await
         .expect("next.clasify must execute unchanged");
     let resumed_query = &resumed.structured_content["queries"][0];
-    assert!(resumed_query.get("next").is_none(), "{resumed_query}");
+    assert!(no_continuation(resumed_query), "{resumed_query}");
     assert_eq!(resumed_query["resources"][0]["coverage"], "complete");
     runtime.close().await;
 }
@@ -839,7 +855,7 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
     let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", "secret".into())]);
     let input = json!({
         "id": "bad-inner-query",
-        "reasoning": "Test that an invalid inner path surfaces its field name.","goal":"Decide the next read.",
+        "reasoning": "Test that an invalid inner path surfaces its field name.","mainGoal":"Decide the next read.",
         "resources": [{
             "id": "r1",
             "context": {
@@ -894,9 +910,9 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
     ]);
     let input = json!({
         "id":"search-page",
-        "reasoning":"Judge one search page.","goal":"Decide the next read.",
+        "reasoning":"Judge one search page.","mainGoal":"Decide the next read.",
         "resources":[{"id":"hits","context":{"tool":"localSearch","query":{
-            "path":root,"searchText":"needle","goal": "test", "reasoning":"Find hits.",
+            "path":root,"searchText":"needle","mainGoal": "test", "reasoning":"Find hits.",
             "resultView":"paginated","pageSize":2
         }}}],
         "questions":[{"id":"relevant","type":"noul","instructions":"Relevant?"}]
@@ -983,7 +999,7 @@ async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
     ]);
     let input = json!({
         "id":"walk",
-        "reasoning":"Judge the hits page by page.","goal":"Decide the next read.",
+        "reasoning":"Judge the hits page by page.","mainGoal":"Decide the next read.",
         "resources":[{"id":"hits","context":{"tool":"localSearch","query":{
             "path":root,"searchText":"needle","resultView":"paginated","pageSize":2
         }}}],
@@ -996,7 +1012,7 @@ async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
     octocode_native::contracts::validate_output("clasify", &first.structured_content)
         .expect("first page output contract");
     let next = first.structured_content["queries"][0]["next"]["clasify"].clone();
-    assert_eq!(next["goal"], "Decide the next read.", "{next}");
+    assert_eq!(next["mainGoal"], "Decide the next read.", "{next}");
     assert_eq!(next["questions"][0]["id"], "relevant", "{next}");
     assert_eq!(
         next["resources"][0]["context"]["query"]["page"], 2,
@@ -1081,7 +1097,7 @@ async fn file_chunk_scout_judges_every_hit_cluster_of_a_clipped_file() {
     ]);
     let input = json!({
         "id":"clusters",
-        "reasoning":"Judge every hit cluster.","goal":"Find the deciding line.",
+        "reasoning":"Judge every hit cluster.","mainGoal":"Find the deciding line.",
         "resources":[{"id":"hits","context":{
             "tool":"localSearch","candidateEvidence":"fileChunks","query":{
                 "path":root,"searchText":"needle"
@@ -1168,7 +1184,7 @@ async fn file_chunk_scout_judges_near_clusters_of_one_file_in_one_call() {
         ]);
         let input = json!({
             "id":"near",
-            "reasoning":"Judge near hit clusters.","goal":"Find the deciding line.",
+            "reasoning":"Judge near hit clusters.","mainGoal":"Find the deciding line.",
             "resources":[{"id":"hits","context":{
                 "tool":"localSearch","candidateEvidence":"fileChunks","query":{
                     "path":root,"searchText":"needle"
@@ -1248,10 +1264,10 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     ]);
     let input = json!({
         "id":"hydrated-search",
-        "reasoning":"Judge source around each search hit.","goal":"Decide the next read.",
+        "reasoning":"Judge source around each search hit.","mainGoal":"Decide the next read.",
         "resources":[{"id":"hits","context":{
             "tool":"localSearch","candidateEvidence":"fileChunks","query":{
-                "path":root,"searchText":"needle","goal": "test", "reasoning":"Find candidates.",
+                "path":root,"searchText":"needle","mainGoal": "test", "reasoning":"Find candidates.",
                 "resultView":"paginated","pageSize":20
             }
         },"maxChars":20_000}],
@@ -1267,8 +1283,8 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     let pages = query["resources"][0]["pages"].as_array().unwrap();
     assert_eq!(pages.len(), 5, "{query}");
     for page in pages {
-        assert_eq!(page["next"]["read"]["tool"], "localFetch", "{page}");
-        assert_eq!(page["next"]["read"]["confidence"], "exact", "{page}");
+        assert_eq!(page["hints"]["read"]["tool"], "localFetch", "{page}");
+        assert_eq!(page["hints"]["read"]["confidence"], "exact", "{page}");
         // Workspace-relative, like every local tool's rows.
         assert!(
             page["source"]["path"]
@@ -1278,7 +1294,7 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
         );
         assert!(page.get("limitations").is_none(), "stated once: {page}");
     }
-    let read = &pages[0]["next"]["read"];
+    let read = &pages[0]["hints"]["read"];
     let fetched = runtime
         .execute(
             "hydrated-read".into(),
@@ -1349,7 +1365,7 @@ async fn expanded_cells_fail_before_any_provider_request() {
     let resource = |id: &str, root: &str| {
         json!({
             "id":id,"context":{"tool":"localSearch","candidateEvidence":"search","query":{
-                "path":workspace.workspace.join(root),"searchText":"needle","goal": "test", "reasoning":"Find candidates.",
+                "path":workspace.workspace.join(root),"searchText":"needle","mainGoal": "test", "reasoning":"Find candidates.",
                 "pageSize":5
             }}
         })
@@ -1371,7 +1387,7 @@ async fn expanded_cells_fail_before_any_provider_request() {
             "expanded-cells".into(),
             "clasify".into(),
             verbose(json!({
-                "id":"expanded-cells","reasoning":"Exercise the runtime expansion gate.","goal":"Decide the next read.",
+                "id":"expanded-cells","reasoning":"Exercise the runtime expansion gate.","mainGoal":"Decide the next read.",
                 "resources":[resource("a","a"),resource("b","b")],"questions":questions
             })),
         )
@@ -1416,8 +1432,8 @@ async fn empty_file_is_reported_without_a_provider_call() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"empty","reasoning":"Screen an empty artifact.","goal":"Decide the next read.",
-        "resources":[{"id":"e","context":{"tool":"localFetch","query":{"path":file,"goal": "test", "reasoning":"Read it."}}}],
+        "id":"empty","reasoning":"Screen an empty artifact.","mainGoal":"Decide the next read.",
+        "resources":[{"id":"e","context":{"tool":"localFetch","query":{"path":file,"mainGoal": "test", "reasoning":"Read it."}}}],
         "questions":[{"id":"q","type":"noul","instructions":"Relevant?"}]
     });
     let outcome = runtime
@@ -1454,10 +1470,10 @@ async fn empty_search_page_is_not_sent_to_the_provider() {
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
     ]);
     let input = json!({
-        "id":"empty-search","reasoning":"Screen a search page.","goal":"Decide the next read.",
+        "id":"empty-search","reasoning":"Screen a search page.","mainGoal":"Decide the next read.",
         "resources":[{"id":"e","context":{"tool":"localSearch","query":{
             "path":file,"searchText":"UNLIKELY_OCTOCODE_SENTINEL_673829",
-            "goal": "test", "reasoning":"Find matching source."
+            "mainGoal": "test", "reasoning":"Find matching source."
         }}}],
         "questions":[{"id":"q","type":"noul","instructions":"Does this page show a match?"}]
     });
@@ -1507,9 +1523,9 @@ async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"disjoint","reasoning":"Find relevant match windows.","goal":"Decide the next read.",
+        "id":"disjoint","reasoning":"Find relevant match windows.","mainGoal":"Decide the next read.",
         "resources":[{"id":"f","context":{"tool":"localFetch","query":{
-            "path":file,"goal": "test", "reasoning":"Read matching windows.",
+            "path":file,"mainGoal": "test", "reasoning":"Read matching windows.",
             "matchString":"MARKER","contextLines":45,"chunkSize":50000
         }}}],
         "questions":[{"id":"q","type":"noul","instructions":"Does this content show MARKER?"}]
@@ -1556,9 +1572,9 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"pure-scout","reasoning":"Screen the document.","goal":"Decide the next read.",
+        "id":"pure-scout","reasoning":"Screen the document.","mainGoal":"Decide the next read.",
         "resources":[{"id":"f","context":{"tool":"localFetch","query":{
-            "path":file,"goal": "test", "reasoning":"Read the source."
+            "path":file,"mainGoal": "test", "reasoning":"Read the source."
         }}}],
         "questions":[
             {"id":"shutdown","type":"noul","instructions":"Could this document contain shutdown guidance?"},
@@ -1660,9 +1676,9 @@ async fn snippet_continuations_visit_every_file_and_match_page_before_completing
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let mut input = json!({
-        "id":"matrix-1","reasoning":"Cover every file and match page.","goal":"Decide the next read.",
+        "id":"matrix-1","reasoning":"Cover every file and match page.","mainGoal":"Decide the next read.",
         "resources":[{"id":"files","context":{"tool":"localSearch","query":{
-            "goal": "test", "reasoning":"Page snippets.","path":root,"searchText":"marker",
+            "mainGoal": "test", "reasoning":"Page snippets.","path":root,"searchText":"marker",
             "pageSize":1,"maxMatchesPerFile":1,"sort":"path"
         }}}],
         "questions":[{"id":"needle","type":"noul","instructions":"Does the evidence contain secret needle?"}]
@@ -1721,7 +1737,7 @@ async fn clasify_locate_preflight_returns_a_typed_error_without_capture_or_provi
     ]);
     let input = json!({
         "reasoning":"Reject locate on a search resource.",
-        "goal":"Files that state the validation rules.",
+        "mainGoal":"Files that state the validation rules.",
         "resources":[
             {"id":"unread","context":{"tool":"localFetch","query":{"path":"/does-not-exist"}}},
             {"id":"search","context":{"tool":"ghSearchCode","query":{"owner":"nonexistent"}}}
@@ -1823,7 +1839,7 @@ async fn identical_pages_in_one_call_share_a_single_provider_request() {
     let evidence = json!({"value":"The dedupe sentinel 4411 is stated here."});
     let matrix = |id: &str| {
         json!({
-            "id":id,"reasoning":"Screen duplicated evidence.","goal":"Decide the next read.",
+            "id":id,"reasoning":"Screen duplicated evidence.","mainGoal":"Decide the next read.",
             "resources":[{"id":"a","context":evidence},{"id":"b","context":evidence}],
             "questions":[{"id":"q","type":"noul","instructions":"Is sentinel 4411 stated?"}]
         })
@@ -1870,7 +1886,7 @@ async fn judgment_cache_ignores_correlation_ids_but_not_question_text() {
     ]);
     let input = |question_id: &str, instructions: &str| {
         json!({
-            "id":"ids","reasoning":"Cache key probe.","goal":"Decide the next read.",
+            "id":"ids","reasoning":"Cache key probe.","mainGoal":"Decide the next read.",
             "resources":[{"id":"v","context":{"value":"Cache id sentinel 7719."}}],
             "questions":[{"id":question_id,"type":"noul","instructions":instructions}]
         })
@@ -1935,7 +1951,7 @@ async fn prefilter_window_is_centered_on_the_hit_not_aligned_to_a_bucket() {
             "prefilter".into(),
             "clasify".into(),
             verbose(json!({
-                "id":"pf","reasoning":"Judge only the hit window.","goal":"Find the retry floor.",
+                "id":"pf","reasoning":"Judge only the hit window.","mainGoal":"Find the retry floor.",
                 "resources":[{"id":"f","prefilter":["RETRY_FLOOR_MS"],
                     "context":{"tool":"localFetch","query":{"path":file}}}],
                 "questions":[{"id":"q","type":"noul","instructions":"Is the retry floor defined?"}]
@@ -2014,7 +2030,7 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
             resource["maxChars"] = json!(max_chars);
         }
         json!({
-            "id":"walk","reasoning":"Judge every hit window.","goal":"Find the needle.",
+            "id":"walk","reasoning":"Judge every hit window.","mainGoal":"Find the needle.",
             "resources":[resource],
             "questions":[{"id":"q","type":"noul","instructions":"Is a needle defined?"}]
         })
@@ -2119,7 +2135,7 @@ async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated()
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "id":"partial","reasoning":"Partial answers stay unresolved.","goal":"Decide the next read.",
+        "id":"partial","reasoning":"Partial answers stay unresolved.","mainGoal":"Decide the next read.",
         "resources":[
             {"id":"gone","context":{"tool":"localFetch","query":{"path":missing}}},
             {"id":"v","context":{"value":"Partial cache sentinel 5521."}}
@@ -2199,7 +2215,7 @@ async fn gh_search_code_resource_is_judged_without_a_context_contract_violation(
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "reasoning":"Judge the code-search hits.","goal":"Where the semaphore is acquired.",
+        "reasoning":"Judge the code-search hits.","mainGoal":"Where the semaphore is acquired.",
         "resources":[{"id":"hits","context":{"tool":"ghSearchCode","query":{
             "owner":"o","repo":"r","keywords":["semaphore"]
         }}}],
@@ -2312,7 +2328,7 @@ async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "reasoning":"Locate the first step.","goal":"Where step one is defined.",
+        "reasoning":"Locate the first step.","mainGoal":"Where step one is defined.",
         "resources":[{"id":"gh","context":{"tool":"ghGetFileContent","query":{
             "owner":"o","repo":"r","path":"src/steps.rs","branch":"main","fullContent":true
         }}}],
@@ -2330,7 +2346,7 @@ async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
         .unwrap_or_else(|| panic!("best rows: {output}"));
     assert!(!rows.is_empty(), "{output}");
     for row in rows {
-        let read = &row["next"]["read"];
+        let read = &row["hints"]["read"];
         assert_eq!(read["tool"], "ghGetFileContent", "{row}");
         let query = &read["query"];
         assert_eq!(query["owner"], "o", "{row}");
@@ -2343,7 +2359,7 @@ async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
     }
     assert_eq!(rows[0]["startLine"], 1, "{output}");
     // A finished walk has no carry; nothing private leaks.
-    assert!(output["queries"][0].get("next").is_none(), "{output}");
+    assert!(no_continuation(&output["queries"][0]), "{output}");
     assert!(!output.to_string().contains("fileRead"), "{output}");
     runtime.close().await;
 }
@@ -2370,7 +2386,7 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
     let input = json!({
-        "reasoning":"Locate a step.","goal":"Where step_17 is defined.",
+        "reasoning":"Locate a step.","mainGoal":"Where step_17 is defined.",
         "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
             "path":file,"fullContent":true
         }}}],
@@ -2385,13 +2401,13 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
         .expect("literal search continuation output contract");
     let query = &output["queries"][0];
     assert!(
-        query["hints"][0]
+        query["hints"]["text"][0]
             .as_str()
             .unwrap_or_default()
             .contains("step_17"),
         "{query}"
     );
-    let search = &query["next"]["localSearch"];
+    let search = &query["hints"]["localSearch"];
     assert_eq!(search["tool"], "localSearch", "{query}");
     assert_eq!(search["query"]["path"], file.as_str(), "{search}");
     assert_eq!(search["query"]["searchText"], "step_17", "{search}");
@@ -2443,7 +2459,7 @@ async fn symbols_scout_judges_each_file_once_across_outline_pages() {
     ]);
     let mut input = json!({
         "id":"outline",
-        "reasoning":"Pick a file.","goal":"Which file declares the handler.",
+        "reasoning":"Pick a file.","mainGoal":"Which file declares the handler.",
         "resources":[{"id":"ast","context":{"tool":"astSearch","query":{
             "path":root,"operation":"symbols","pageSize":2
         }}}],
@@ -2469,7 +2485,7 @@ async fn symbols_scout_judges_each_file_once_across_outline_pages() {
                 .as_str()
                 .unwrap_or_default()
                 .to_owned();
-            let lines = page["next"]["read"]["query"]["endLine"]
+            let lines = page["hints"]["read"]["query"]["endLine"]
                 .as_u64()
                 .unwrap_or(0) as usize;
             judged.push((path, lines));
@@ -2513,7 +2529,7 @@ async fn unified_and_nested_matrices_reach_the_provider_identically() {
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
-    let brief = json!({"id":"m","goal":"Decide whether the trace states the fact.","reasoning":"The next read depends on it."});
+    let brief = json!({"id":"m","mainGoal":"Decide whether the trace states the fact.","reasoning":"The next read depends on it."});
     let mut nested = brief.clone();
     nested["resources"] = json!([{"id":"src","context":{"tool":"localFetch","query":{"path":file,"fullContent":true}}}]);
     nested["questions"] = json!([
@@ -2547,9 +2563,9 @@ async fn unified_and_nested_matrices_reach_the_provider_identically() {
             // carries the read of exactly the judged lines.
             json!({"resourceId":"src","path":"trace.txt","totalLines":1,
                 "pages":[{"lines":[1,1],"answers":{"present":0.8,"kind":"runtime"},
-                    "next":{"read":{"tool":"localFetch","confidence":"exact","query":{
+                    "hints":{"read":{"tool":"localFetch","confidence":"exact","query":{
                         "path":"trace.txt","startLine":1,"endLine":1,
-                        "goal":"Decide whether the trace states the fact.",
+                        "mainGoal":"Decide whether the trace states the fact.",
                         "reasoning":"The next read depends on it."}}}}]}),
             "{}",
             outcome.structured_content
@@ -2631,7 +2647,7 @@ async fn search_candidates_above_max_chars_never_reach_the_provider() {
     let root = write_hit_files(&workspace, 1, 120);
     let runtime = provider_runtime(&workspace, &server);
     let input = json!({
-        "id":"capped","reasoning":"Bound candidate evidence.","goal":"Decide the next read.",
+        "id":"capped","reasoning":"Bound candidate evidence.","mainGoal":"Decide the next read.",
         "resources":[{"id":"hits","maxChars":1,"context":{"tool":"localSearch","query":{
             "path":root,"searchText":"needle","sort":"path","pageSize":3,"reasoning":"Find hits."
         }}}],
@@ -2652,11 +2668,11 @@ async fn search_candidates_above_max_chars_never_reach_the_provider() {
             "{page}"
         );
         assert_eq!(
-            page["next"]["read"]["tool"], "localFetch",
+            page["hints"]["read"]["tool"], "localFetch",
             "an unjudged candidate keeps its read: {page}"
         );
     }
-    assert!(query.get("next").is_none(), "{query}");
+    assert!(no_continuation(query), "{query}");
     assert_eq!(query["usage"]["calls"], 0, "{query}");
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("capped search output contract");
@@ -2676,7 +2692,7 @@ async fn search_candidates_past_the_remaining_budget_resume_without_skips() {
     let root = write_hit_files(&workspace, 3, 190);
     let runtime = provider_runtime(&workspace, &server);
     let mut input = json!({
-        "id":"budget","reasoning":"Bound candidate evidence.","goal":"Decide the next read.",
+        "id":"budget","reasoning":"Bound candidate evidence.","mainGoal":"Decide the next read.",
         "resources":[{"id":"hits","maxChars":1100,"context":{"tool":"localSearch","query":{
             "path":root,"searchText":"needle","sort":"path","pageSize":3,"reasoning":"Find hits."
         }}}],
@@ -2743,7 +2759,7 @@ async fn list_items_above_max_chars_never_reach_the_provider() {
     let root = root.parent().unwrap().to_string_lossy().into_owned();
     let runtime = provider_runtime(&workspace, &server);
     let input = json!({
-        "id":"outline","reasoning":"Pick a file.","goal":"Which file declares the handler.",
+        "id":"outline","reasoning":"Pick a file.","mainGoal":"Which file declares the handler.",
         "resources":[{"id":"ast","maxChars":1,"context":{"tool":"astSearch","query":{
             "path":root,"operation":"symbols"
         }}}],
@@ -2761,7 +2777,7 @@ async fn list_items_above_max_chars_never_reach_the_provider() {
             page["error"]["code"], "classificationContextTooLarge",
             "{page}"
         );
-        assert!(page["next"]["read"].is_object(), "{page}");
+        assert!(page["hints"]["read"].is_object(), "{page}");
     }
     runtime.close().await;
 }
@@ -2793,7 +2809,7 @@ async fn hydrated_candidates_share_one_max_chars_budget() {
     let runtime = provider_runtime(&workspace, &server);
     let max_chars = 900;
     let input = json!({
-        "id":"hydrated","reasoning":"Bound hydrated evidence.","goal":"Decide the next read.",
+        "id":"hydrated","reasoning":"Bound hydrated evidence.","mainGoal":"Decide the next read.",
         "resources":[{"id":"hits","maxChars":max_chars,"context":{"tool":"localSearch","query":{
             "path":root,"searchText":"needle","sort":"path","reasoning":"Find hits."
         },"candidateEvidence":"fileChunks"}}],
@@ -2850,7 +2866,7 @@ async fn a_hydrated_window_cut_by_its_budget_still_contains_its_hit() {
     let runtime = provider_runtime(&workspace, &server);
     let max_chars = 3000;
     let input = json!({
-        "id":"cut","reasoning":"Judge the hit region.","goal":"Decide the next read.",
+        "id":"cut","reasoning":"Judge the hit region.","mainGoal":"Decide the next read.",
         "resources":[{"id":"hits","maxChars":max_chars,"context":{"tool":"localSearch","query":{
             "path":root,"searchText":"needle DECIDING","reasoning":"Find hits."
         },"candidateEvidence":"fileChunks"}}],
@@ -2899,7 +2915,7 @@ async fn sufficient_unread_file_evidence_returns_a_bounded_verification_read() {
     );
     let runtime = provider_runtime(&workspace, &server);
     let input = json!({
-        "id":"threshold","reasoning":"Answer from the deciding source.","goal":"Find the handoff threshold.",
+        "id":"threshold","reasoning":"Answer from the deciding source.","mainGoal":"Find the handoff threshold.",
         "resources":[{"id":"threshold","tool":"localFetch","query":{"path":file,"startLine":2,"endLine":3}}],
         "questions":[{"id":"sufficient","type":"sufficient","ask":"How many files trigger the handoff?"}]
     });
@@ -2910,7 +2926,7 @@ async fn sufficient_unread_file_evidence_returns_a_bounded_verification_read() {
     let resource = &outcome.structured_content["queries"][0]["resources"][0];
     let page = &resource["pages"][0];
     assert_eq!(page["answers"]["sufficient"], 0.95, "{resource}");
-    let read = &page["next"]["read"];
+    let read = &page["hints"]["read"];
     assert_eq!(read["tool"], "localFetch", "{resource}");
     assert_eq!(read["query"]["path"], "policy.rs", "{read}");
     assert_eq!(read["query"]["startLine"], 2, "{read}");
@@ -2920,7 +2936,7 @@ async fn sufficient_unread_file_evidence_returns_a_bounded_verification_read() {
 
     // Supplied evidence is already held: no read is invented for it.
     let held = json!({
-        "id":"held","reasoning":"Judge held evidence.","goal":"Find the handoff threshold.",
+        "id":"held","reasoning":"Judge held evidence.","mainGoal":"Find the handoff threshold.",
         "resources":[{"id":"held","value":"const WIDE_RESULT_FILES: usize = 8;"}],
         "questions":[{"id":"sufficient","type":"sufficient","ask":"How many files trigger the handoff?"}]
     });
@@ -2947,7 +2963,7 @@ async fn confident_negative_file_pages_add_no_read() {
     let file = workspace.write("other.rs", "const OTHER: usize = 3;\n");
     let runtime = provider_runtime(&workspace, &server);
     let input = json!({
-        "id":"negative","reasoning":"Answer from the deciding source.","goal":"Find the handoff threshold.",
+        "id":"negative","reasoning":"Answer from the deciding source.","mainGoal":"Find the handoff threshold.",
         "resources":[{"id":"other","tool":"localFetch","query":{"path":file}}],
         "questions":[{"id":"sufficient","type":"sufficient","ask":"How many files trigger the handoff?"}]
     });
@@ -2988,7 +3004,7 @@ async fn an_oversized_next_page_shrinks_and_the_replay_advances() {
     let file = workspace.write("uneven.txt", uneven_lines());
     let runtime = provider_runtime(&workspace, &server);
     let mut input = json!({
-        "id":"walk","reasoning":"Walk the file in bounded pages.","goal":"Decide the next read.",
+        "id":"walk","reasoning":"Walk the file in bounded pages.","mainGoal":"Decide the next read.",
         "debug":true,
         "resources":[{"id":"doc","maxChars":400,"tool":"localFetch","query":{
             "path":file,"chunkType":"lines","chunkSize":8
@@ -3044,7 +3060,7 @@ async fn an_oversized_whole_file_read_shrinks_into_line_chunks() {
     let file = workspace.write("uneven.txt", uneven_lines());
     let runtime = provider_runtime(&workspace, &server);
     let mut input = json!({
-        "id":"whole","reasoning":"Judge the whole file in bounded pages.","goal":"Decide the next read.",
+        "id":"whole","reasoning":"Judge the whole file in bounded pages.","mainGoal":"Decide the next read.",
         "debug":true,
         "resources":[{"id":"doc","maxChars":400,"tool":"localFetch","query":{"path":file}}],
         "questions":[{"id":"q","type":"yesno","ask":"Is the marker stated?"}]
@@ -3101,7 +3117,7 @@ async fn a_line_larger_than_the_whole_budget_is_terminal_not_a_repeating_continu
     );
     let runtime = provider_runtime(&workspace, &server);
     let input = json!({
-        "id":"wide","reasoning":"Walk the file in bounded pages.","goal":"Decide the next read.",
+        "id":"wide","reasoning":"Walk the file in bounded pages.","mainGoal":"Decide the next read.",
         "resources":[{"id":"doc","maxChars":100,"tool":"localFetch","query":{
             "path":file,"chunkType":"lines","chunkSize":1
         }}],
@@ -3120,7 +3136,7 @@ async fn a_line_larger_than_the_whole_budget_is_terminal_not_a_repeating_continu
         "{query}"
     );
     assert!(
-        query.get("next").is_none(),
+        no_continuation(query),
         "no continuation may replay the same oversized page: {query}"
     );
     runtime.close().await;
@@ -3137,7 +3153,7 @@ async fn a_changed_source_is_rejected_on_replay_instead_of_mixing_versions() {
     let file = workspace.write("doc.txt", uneven_lines());
     let runtime = provider_runtime(&workspace, &server);
     let input = json!({
-        "id":"versions","reasoning":"Walk the file in bounded pages.","goal":"Decide the next read.",
+        "id":"versions","reasoning":"Walk the file in bounded pages.","mainGoal":"Decide the next read.",
         "resources":[{"id":"doc","maxChars":200,"tool":"localFetch","query":{
             "path":file,"chunkType":"lines","chunkSize":8
         }}],
@@ -3165,4 +3181,277 @@ async fn a_changed_source_is_rejected_on_replay_instead_of_mixing_versions() {
         "no page of the new version is judged"
     );
     runtime.close().await;
+}
+
+/// Locate provider stub: the choice question puts `top` on the first
+/// passage ID it was offered; the existence question answers `exists`.
+#[derive(Clone)]
+struct LocateTopPassage {
+    top: f64,
+    exists: f64,
+}
+
+impl Respond for LocateTopPassage {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        fn passage_ids(value: &serde_json::Value, ids: &mut Vec<String>) {
+            match value {
+                serde_json::Value::Object(map) => {
+                    for (key, value) in map {
+                        if key.len() == 4 && key.starts_with('P') && !ids.contains(key) {
+                            ids.push(key.clone());
+                        }
+                        passage_ids(value, ids);
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    items.iter().for_each(|item| passage_ids(item, ids));
+                }
+                _ => {}
+            }
+        }
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        let mut ids = Vec::new();
+        passage_ids(&body, &mut ids);
+        ids.sort();
+        let rest = if ids.len() > 1 {
+            (1.0 - self.top) / (ids.len() - 1) as f64
+        } else {
+            0.0
+        };
+        let probabilities = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.clone(), json!(if index == 0 { self.top } else { rest })))
+            .collect::<serde_json::Map<_, _>>();
+        ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{
+                "answer_0":{"type":"choice","choice":ids.first(),"confidence":self.top,
+                    "probabilities":probabilities},
+                "answer_1":{"type":"noul","noul":self.exists}
+            },
+            "usage":{"input_tokens":5,"output_tokens":2}
+        }))
+    }
+}
+
+/// Every continuation in a clasify output: `(where, tool, query)` for each
+/// `next.*` page and `hints.*` lead. Prose `hints.text` is not a call.
+fn clasify_continuations(
+    value: &serde_json::Value,
+    at: &str,
+    out: &mut Vec<(String, String, serde_json::Value)>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map {
+                let here = format!("{at}.{key}");
+                if key != "next" && key != "hints" {
+                    clasify_continuations(child, &here, out);
+                    continue;
+                }
+                for (name, entry) in child.as_object().into_iter().flatten() {
+                    let path = format!("{here}.{name}");
+                    if name == "text" {
+                        continue;
+                    }
+                    if let (Some(tool), Some(query)) = (entry["tool"].as_str(), entry.get("query"))
+                    {
+                        out.push((path, tool.to_owned(), query.clone()));
+                    } else if name == "clasify" {
+                        out.push((path, "clasify".to_owned(), entry.clone()));
+                    } else {
+                        panic!("{path} is neither a call nor a clasify walk: {entry}");
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                clasify_continuations(item, &format!("{at}[{index}]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Runs every continuation of `output` exactly as emitted and returns the
+/// next walk step, if any. A caller that sent no brief gets none back.
+async fn replay_every_continuation(
+    runtime: &octocode_native::runtime::ToolRuntime,
+    output: &serde_json::Value,
+    briefed: bool,
+    kinds: &mut std::collections::BTreeSet<String>,
+) -> Option<serde_json::Value> {
+    let mut found = Vec::new();
+    clasify_continuations(output, "", &mut found);
+    let mut walk = None;
+    for (at, tool, query) in found {
+        let text = query.to_string();
+        if !briefed {
+            assert!(
+                !text.contains("\"mainGoal\"") && !text.contains("\"reasoning\""),
+                "{at} carries a brief the caller did not send: {text}"
+            );
+        }
+        let kind = at
+            .rsplit_once('.')
+            .map_or(at.as_str(), |(scope, name)| {
+                if scope.contains("best") || scope.contains("pages") {
+                    "row-or-page"
+                } else {
+                    name
+                }
+            })
+            .to_owned();
+        kinds.insert(format!("{kind}:{tool}"));
+        let outcome = runtime
+            .execute(format!("replay{at}"), tool.clone(), query.clone())
+            .await
+            .unwrap_or_else(|error| panic!("{at} does not run verbatim: {error:?}: {text}"));
+        let content = outcome.structured_content.to_string();
+        assert!(
+            outcome.failure.is_none() && !outcome.all_failed && !content.contains("\"errorCode\""),
+            "{at} failed on replay: {content}"
+        );
+        if at.ends_with("next.clasify") {
+            walk = Some(query);
+        }
+    }
+    walk
+}
+
+/// A located window with p ≥ 0.95 on a walk that is still open is offered as
+/// a read first; the walk stays in `next.clasify`. Every clasify
+/// continuation kind (the walk, the top read, row and page reads, the
+/// literal search, chunk-page verification reads) runs exactly as emitted,
+/// with and without the caller's brief.
+#[tokio::test]
+async fn every_clasify_continuation_kind_replays_verbatim() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(LocateTopPassage {
+            top: 0.99,
+            exists: 0.95,
+        })
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let source = (1..=4000_u64)
+        .map(|line| format!("const walk_filler_{line} = {line}; // ordinary line\n"))
+        .collect::<String>();
+    let file = workspace.write("walk.js", source);
+    let file = file.to_string_lossy().into_owned();
+    let runtime = provider_runtime(&workspace, &server);
+    let mut kinds = std::collections::BTreeSet::new();
+    for (debug, briefed, ask) in [
+        (false, false, "Where the walk sets its filler value"),
+        (true, false, "Where walk_filler_7 is set"),
+        (false, true, "Where walk_filler_7 is set"),
+    ] {
+        let mut input = json!({
+            "resources":[{"id":"f","maxChars":20000,"tool":"localFetch","query":{"path":file}}],
+            "questions":[{"id":"t","type":"locate","ask":ask}]
+        });
+        if debug {
+            input["debug"] = json!(true);
+        }
+        if briefed {
+            input["mainGoal"] = json!("Find where the walk sets its value.");
+            input["reasoning"] = json!("Read the deciding line.");
+        }
+        let mut calls = 0;
+        loop {
+            calls += 1;
+            assert!(calls <= 12, "the walk must terminate");
+            let outcome = runtime
+                .execute(format!("walk-{calls}"), "clasify".into(), input.clone())
+                .await
+                .unwrap();
+            let output = &outcome.structured_content;
+            octocode_native::contracts::validate_output("clasify", output)
+                .expect("clasify output contract");
+            let query = &output["queries"][0];
+            if calls == 1 {
+                assert!(
+                    query["next"]["clasify"].is_object(),
+                    "the walk is open: {query}"
+                );
+                let tip = query["hints"]["text"][0].as_str().unwrap_or_default();
+                assert!(
+                    tip.contains("p=0.99") && tip.contains("hints.read"),
+                    "{query}"
+                );
+                assert!(tip.contains("next.clasify"), "{tip}");
+                if !debug {
+                    assert_eq!(query["hints"]["read"]["tool"], "localFetch", "{query}");
+                }
+                let keys: Vec<&String> = query.as_object().unwrap().keys().collect();
+                let position = |key: &str| keys.iter().position(|name| *name == key);
+                assert!(
+                    position("hints") < position("next"),
+                    "the read comes before the walk: {keys:?}"
+                );
+            }
+            match replay_every_continuation(&runtime, output, briefed, &mut kinds).await {
+                Some(next) => input = next,
+                None => break,
+            }
+        }
+        assert!(calls >= 2, "{ask}: the file spans several calls");
+    }
+
+    // Chunk pages of a yes/no screen offer verification reads of exactly
+    // their judged lines.
+    let chunk_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(noul_response(0.6))
+        .mount(&chunk_server)
+        .await;
+    let chunked = workspace.write("uneven.txt", uneven_lines());
+    let chunk_runtime = provider_runtime(&workspace, &chunk_server);
+    let mut input = json!({
+        "resources":[{"id":"doc","maxChars":400,"tool":"localFetch","query":{
+            "path":chunked,"chunkType":"lines","chunkSize":8
+        }}],
+        "questions":[{"id":"q","type":"yesno","ask":"Is the marker stated?"}]
+    });
+    let mut chunk_kinds = std::collections::BTreeSet::new();
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        assert!(calls <= 10, "the walk must terminate");
+        let outcome = chunk_runtime
+            .execute(format!("chunk-{calls}"), "clasify".into(), input.clone())
+            .await
+            .unwrap();
+        match replay_every_continuation(
+            &chunk_runtime,
+            &outcome.structured_content,
+            false,
+            &mut chunk_kinds,
+        )
+        .await
+        {
+            Some(next) => input = next,
+            None => break,
+        }
+    }
+    for kind in ["clasify:clasify", "row-or-page:localFetch"] {
+        assert!(
+            chunk_kinds.contains(kind),
+            "chunk walk: {kind} not exercised: {chunk_kinds:?}"
+        );
+    }
+    for kind in [
+        "clasify:clasify",
+        "read:localFetch",
+        "row-or-page:localFetch",
+        "localSearch:localSearch",
+    ] {
+        assert!(kinds.contains(kind), "{kind} not exercised: {kinds:?}");
+    }
+    runtime.close().await;
+    chunk_runtime.close().await;
 }

@@ -1,12 +1,6 @@
 # Octocode Research
 
-Investigate local code, external repositories, packages, docs, history, failures, and reviews with exact evidence before you assert a claim or make a change.
-
-**Use when** you need callers, imports, affected scope, safe-delete proof, a root cause, upstream/package/PR evidence, or evidence before and after an edit; or when asked to "research this" / "use octocode".
-
-**Not for** a trivial edit with known impact, documentation work (`octocode-documentation`), skill structure (`octocode-skills`), or open ideation (`octocode-brainstorming`).
-
-Search hits are leads until exact bytes confirm them. Empty results describe only the searched lane. The flow lives in `SKILL.md`.
+Investigate code, repositories, packages, docs, history, failures, and reviews with exact evidence before a claim or a change. Agent rules live in `SKILL.md`.
 
 ```bash
 npx -y octocode skill install octocode-research
@@ -25,12 +19,5 @@ Installed tool schemas control accepted fields. Re-verify sources when behavior 
 | Semantics | [LSP 3.17](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) |
 | Skill structure | [Agent Skills specification](https://agentskills.io/specification) |
 
-Exact source plus matching tests establish implementation claims. Official docs establish API contracts. A README or issue alone never establishes runtime behavior.
-
 ## Maintain this skill
-`GOAL + failing check → BASELINE → smallest coherent change → MEASURE → ACCEPT | REVERT`. Run before and after:
-```bash
-node scripts/check-description.mjs
-node scripts/check-guidance.mjs --self-test --examples
-```
-Then run the `octocode-skills` folder review with zero errors. Never edit a check to match the text. These are offline contract checks. Effectiveness claims need real tasks with graded outcomes (`octocode-eval-benchmark`).
+`GOAL + failing check → BASELINE → smallest coherent change → MEASURE → ACCEPT | REVERT`. Run the checks named at the end of `SKILL.md` before and after, then the `octocode-skills` folder review with zero errors. Never edit a check to match the text. These are offline contract checks. Effectiveness claims need real tasks with graded outcomes (`octocode-eval-benchmark`).

@@ -1,10 +1,10 @@
-# Run Ledger, Hooks, and evaluation
+# Run ledger and hooks
 
 Load for substantial, multi-surface, multi-turn, subagent, saved-brief, or high-confidence work. Quick answers do not need the harness.
 
 ## Run Ledger
 
-Start only when local writes are acceptable. Default storage is `.octocode/brainstorming/runs/`; tests can set `OCTOCODE_BRAINSTORM_RUN_DIR`.
+Start only when local writes are acceptable. Tests can set `OCTOCODE_BRAINSTORM_RUN_DIR`.
 
 ```bash
 node <skill_dir>/scripts/brainstorm-run.mjs start --idea "<idea>" --mode Validate --surface-plan '{"local":"active","web":"active"}'
@@ -13,7 +13,7 @@ node <skill_dir>/scripts/brainstorm-run.mjs finish --run-id <id> --verdict worth
 ```
 
 Checkpoint when the surface plan, decisive evidence, confidence, or final synthesis changes. Record both sides of material conflicts and the final concession.
-Capture at most one reusable lesson from the surviving verdict in the host task context. Never create one memory entry per checkpoint.
+Never create one memory entry per checkpoint.
 
 ## Hook Entrypoint
 
@@ -28,19 +28,13 @@ Capture at most one reusable lesson from the surviving verdict in the host task 
 
 Hooks stay fast, deterministic, workspace-scoped, and fail-open except the deliberate Stop reminder. They never search, call models, or inspect secrets.
 
-## Eval Harness
+## Self-test
 
 ```bash
 node <skill_dir>/scripts/brainstorm-run.mjs --self-test
 ```
 
-The evaluator checks observable structure and failure modes, not whether market, or technical judgment is true.
-Cited `file:line` references are always checked locally (no flag, no network — fabricated paths or stale line numbers fail `cited file:line references resolve`).
-Cited URLs are only checked live with `--verify-links` (network required, opt-in so default/CI runs stay offline) and only a definitive 404 fails `cited links are reachable (verified)` — timeouts, 403s, 5xx, and hosts that reject `HEAD` are `unverified`, not `dead`.
-
-**Contract: the deterministic score is the gate; `--agentic` is monitoring, not a gate.** `required`/`forbidden`/`binaryQuestions`/citation-count/Sources-section checks decide pass/fail (`affectsScore: false` on the agentic layer is deliberate — a flaky LLM judge must never fail CI).
-Advisory-only protects the gate from judge inconsistency, but it does **not** protect against self-preference bias.
-If the same model family both writes the brainstorming answer and grades it through `--agentic`, use a **different judge model/provider** whenever that advisory pass is informing a decision — not for a curiosity-only check.
+It creates the run directory and prints it.
 
 ## User Communication
 

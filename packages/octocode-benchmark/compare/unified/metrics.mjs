@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Read-only metrics over a recorded run (RFC tool-quality-efficiency S1):
 //   - page-hint follow rate per worker: of the page continuations offered in
-//     tool results (`next` entries named nextPage / next* / continue* / restart /
-//     searchUnpatchedFile / binarySkipped, plus responsePagination.next), the
-//     share a later call of the same session followed;
+//     tool results (`next` entries core classifies as pages, plus
+//     responsePagination.next), the share a later call of the same session
+//     followed;
 //   - weighted tokens and Q/$ under the frozen tariff (lib.mjs TARIFF), warm
 //     and cold cache, checked against the recorded cost;
 //   - input-validation (schema) errors per worker.
@@ -13,11 +13,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { continuationChannel } from '@octocodeai/config/schema';
 import { RESULTS_DIR, TARIFF, parseArgs, readJson, weightedUsage } from './lib.mjs';
 
-// `next` holds page continuations; leads move to `hints`. Today's `next` also
-// carries leads, so pages are selected by name in either shape.
-const PAGE_NAME = /^(?:next(?:[A-Z]\w*)?|continue\w*|restart|searchUnpatchedFile|binarySkipped)$/;
+// `next` holds page continuations and `hints` holds leads. Legacy streams
+// also carried leads in `next`, so pages are selected by core's channel rule
+// in either shape.
 const BRIEF_KEYS = new Set(['goal', 'mainGoal', 'reasoning', 'debug']);
 const PAGING_KEY = /page|offset|cursor|after|resume/i;
 const IDENTITY_KEYS = ['path', 'uri', 'owner', 'repo', 'number', 'symbolName', 'sha', 'ref'];
@@ -25,15 +26,16 @@ const isHint = v => !!v && typeof v === 'object' && !Array.isArray(v) && typeof 
 const canonical = v => (Array.isArray(v) ? `[${v.map(canonical).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}` : JSON.stringify(v));
 const withoutBriefs = q => Object.fromEntries(Object.entries(q ?? {}).filter(([k]) => !BRIEF_KEYS.has(k)));
 
-/** Page continuations in one parsed tool result: [{name, tool, query}]. */
-export function pageHints(value) {
+/** Page continuations in one parsed tool result of `tool`: [{name, tool, query}]. */
+export function pageHints(value, tool = Array.isArray(value?.queries) ? 'clasify' : '') {
+  const isPage = name => continuationChannel(tool, name) === 'page';
   const out = [];
   const walk = node => {
     if (!node || typeof node !== 'object') return;
     for (const [key, child] of Object.entries(node)) {
       if (key === 'next' && child && typeof child === 'object') {
         if (isHint(child)) out.push({ name: 'next', ...child });
-        else if (!Array.isArray(child)) for (const [name, h] of Object.entries(child)) if (isHint(h) && PAGE_NAME.test(name)) out.push({ name, ...h });
+        else if (!Array.isArray(child)) for (const [name, h] of Object.entries(child)) if (isHint(h) && isPage(name)) out.push({ name, ...h });
       } else walk(child);
     }
   };
@@ -66,10 +68,16 @@ export function followRate(streamText) {
   const events = String(streamText).split('\n').filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   const calls = [];
   const offered = new Map();
+  const toolOf = new Map();
   let schemaErrors = 0;
   for (const e of events) {
     if (e.type === 'assistant' && !e.parent_tool_use_id) {
-      for (const c of e.message?.content ?? []) if (c.type === 'tool_use') calls.push({ at: calls.length, tool: String(c.name).split('__').at(-1), input: c.input ?? {} });
+      for (const c of e.message?.content ?? []) {
+        if (c.type !== 'tool_use') continue;
+        const tool = String(c.name).split('__').at(-1);
+        toolOf.set(c.id, tool);
+        calls.push({ at: calls.length, tool, input: c.input ?? {} });
+      }
     } else if (e.type === 'user') {
       for (const c of e.message?.content ?? []) {
         if (c.type !== 'tool_result') continue;
@@ -77,7 +85,7 @@ export function followRate(streamText) {
         for (const text of texts) {
           if (/^Input validation error|Invalid arguments for tool|MCP error -32602/.test(text)) schemaErrors += 1;
           let parsed; try { parsed = JSON.parse(text); } catch { continue; }
-          for (const h of pageHints(parsed)) {
+          for (const h of pageHints(parsed, toolOf.get(c.tool_use_id))) {
             const key = `${h.tool}:${canonical(withoutBriefs(h.query))}`;
             if (!offered.has(key)) offered.set(key, { ...h, after: calls.length });
           }
@@ -112,6 +120,8 @@ function selfTest() {
   assert(f.verbatim === 1 && f.followed === 2, 'page 2 verbatim (brief differs), page 3 re-typed without snapshot is followed loosely, envelope not followed');
   assert(f.schemaErrors === 1, 'schema error counted');
   assert(pageHints({ hints: { readFixPr: lead }, next: { continuePatch: page } }).length === 1, 'hints leads are not page hints');
+  assert(pageHints({ queries: [{ next: { clasify: { tool: 'clasify', query: {} }, read: lead } }] }).length === 1, 'clasify walk is a page, its read a lead (legacy shape)');
+  assert(pageHints({ results: [{ data: { next: { clasify: { tool: 'clasify', query: {} } } } }] }, 'localSearch').length === 0, 'a clasify handoff on another tool is a lead (legacy shape)');
   console.log('metrics self-test: ok');
 }
 

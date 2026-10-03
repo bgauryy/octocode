@@ -48,14 +48,18 @@ pub(super) fn resolve_anchor(
         let source = source
             .ok_or_else(|| "symbolName anchors require a readable source file in uri".to_owned())?;
         let resolved = resolve_symbol(path, source, name, query.line_hint(), query.order_hint())?;
+        // The receipt adds what the request did not say: the column, and the
+        // line only when the symbol sat off its `lineHint`. The name is the
+        // request's own `symbolName`.
         let mut symbol = json!({
-            "name": name,
             "uri": canonical_uri,
-            "foundAtLine": resolved.found_at_line,
             "foundAtCharacter": resolved.position.character + 1
         });
         if let Some(order_hint) = query.order_hint() {
             symbol["orderHint"] = json!(order_hint);
+        }
+        if resolved.line_offset != 0 || query.line_hint() != Some(resolved.found_at_line) {
+            symbol["foundAtLine"] = json!(resolved.found_at_line);
         }
         if resolved.line_offset != 0 {
             symbol["lineDeviation"] = json!(resolved.line_offset.unsigned_abs());

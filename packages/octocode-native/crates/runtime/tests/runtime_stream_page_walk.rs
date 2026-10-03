@@ -49,7 +49,7 @@ fn search_fixture(workspace: &Workspace, files: usize) -> (String, usize) {
 }
 
 fn search(root: &str, goal: &str) -> Value {
-    json!({"path": root, "searchText": "needle", "goal": goal,
+    json!({"path": root, "searchText": "needle", "mainGoal": goal,
         "reasoning": "Walk every hit through row continuations."})
 }
 
@@ -209,7 +209,7 @@ async fn a_default_structure_listing_walk_fits_the_window_and_lists_every_file_o
     let runtime = workspace.runtime(&[("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", WINDOW.to_string())]);
     for (mcp, detail) in [(false, "basic"), (true, "basic"), (false, "full")] {
         let first = json!({"operation": "files", "path": root, "pathPattern": "**/*.rs",
-            "detail": detail, "goal": "List every file.", "reasoning": "Walk the listing."});
+            "detail": detail, "mainGoal": "List every file.", "reasoning": "Walk the listing."});
         let (seen, calls) = walk_row_continuations(
             &runtime,
             mcp,
@@ -229,7 +229,7 @@ async fn a_default_structure_listing_walk_fits_the_window_and_lists_every_file_o
         assert!(calls > 1, "{detail}: the fixture spans several pages");
     }
     let first = json!({"operation": "tree", "path": root, "maxDepth": 2,
-        "goal": "Outline the tree.", "reasoning": "Walk the outline."});
+        "mainGoal": "Outline the tree.", "reasoning": "Walk the outline."});
     let (seen, _) = walk_row_continuations(
         &runtime,
         false,

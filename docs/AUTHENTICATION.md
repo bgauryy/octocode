@@ -120,7 +120,7 @@ npx octocode auth login --hostname github.mycompany.com
 | `OCTOCODE_CLASSIFICATION_TYPE` | Vendor; only `jev` today |
 
 - The key follows the same source order as GitHub tokens: process env → workspace `.env` → home `.env` → `.octocoderc` (`classification.api`). It never appears in resolved configuration output.
-- **No key:** MCP does not register `clasify`, its instructions never mention it, and no tool returns a `next.clasify` step. The CLI still lists it in `octocode scheme` with `availability.enabled: false` and `envVar`, and a direct call fails with `missingConfiguration` (exit 5).
+- **No key:** MCP does not register `clasify`, its instructions never mention it, and no tool returns a `hints.clasify` lead. The CLI still lists it in `octocode scheme` with `availability.enabled: false` and `envVar`, and a direct call fails with `missingConfiguration` (exit 5).
 - **Kill switch:** a present-but-blank `OCTOCODE_CLASSIFICATION_API=` in the process environment disables classification for that process, even if a `.env` file has a key.
 - Get a key from the [provider docs](https://docs.typesafe.ai/introduction). What is sent is in [SECURITY.md](SECURITY.md#classification-egress); usage in [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 

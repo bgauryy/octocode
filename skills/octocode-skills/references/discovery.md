@@ -1,27 +1,10 @@
 # Discovery
 
-Load when you discover skill candidates, shop beyond raw GitHub, parse a marketplace manifest, or pick an installer CLI. Why: set depth and angles first; the right registry answers faster.
-
-## Depth
-
-| Request | Depth |
-|---|---|
-| Quick | enough to recommend one best candidate with caveats |
-| Research | compare broadly; stop when more search does not change the pick |
-| Install | inspect source, support files, destinations, conflicts before approval |
-| Improve, rate, review, create | inspect the target, local examples, and `references/skill-anatomy.md` first |
-
-With weak results, broaden while another source or query could resolve the gap. Stop when more search is unlikely to change the decision.
+Load when you discover skill candidates, shop beyond raw GitHub, parse a marketplace manifest, or pick an installer CLI. Why: the right registry and angles answer faster.
 
 ## Surfaces
 
-Start with the source most likely to answer. Add independent sources to compare or close a gap; batch reads and dedupe by `(owner/repo, skill name)`. Cross-check at least two surfaces. Confirm a real `SKILL.md` through Octocode before you recommend.
-
-1. Octocode/GitHub through `octocode-research`.
-2. skills.sh API (install-ranked, below).
-3. Web search: topic + "agent skill" or "SKILL.md".
-
-For local or org-private scope, use Octocode only.
+Batch reads. For web search, query the topic plus "agent skill" or "SKILL.md".
 
 Angles: name (exact, hyphenated, aliases) · subject · workflow verbs · ecosystem (agent, IDE, language, MCP) · safety (gate, verify, scripts).
 
@@ -30,21 +13,19 @@ curl 'https://www.skills.sh/api/search?q={{SEARCH_KEY}}&limit=100' --compressed 
   -H 'User-Agent: Mozilla/5.0'
 ```
 
-Fetch each fitting candidate's `SKILL.md` through Octocode. If the API is down, use another surface and report the gap (`references/recovery.md`).
-
 Sparse results: seed from `topic:agent-skills` and `anthropics/skills`, `vercel-labs/skills`, `obra/superpowers`, `microsoft/skills`, `trailofbits/skills`.
 
 | Goal | Surface |
 |---|---|
 | Keyword or topic search | skills.sh `/api/search?q=` ∥ GitHub ∥ web search |
-| Published or battle-tested? | `https://www.skills.sh/<owner>/<repo>/<skill>`; 404 → source repository, lower confidence |
+| Published or battle-tested? | `https://www.skills.sh/<owner>/<repo>/<skill>` |
 | Claude Code plugin | `claude-plugins.dev` (auto-index, REST) |
 | Curated multi-agent browse | `agentskills.io` (`/clients`, `llms.txt`), `agentskills.me` |
 | Capability tag search | `aiskillstore.io/v1/agent/search?capability=`; new skills: `aiskillstore.io/feed/new-skills.json` |
 | Microsoft / Azure | `microsoft.github.io/skills` + `llms-full.txt` |
 | Claude marketplace dirs | `claudemarketplaces.com`, `mcpmarket.com/tools/skills` |
 
-Aggregators carry moderate confidence: verify each entry. LobeHub is discovery-only (prompt-install risk).
+Aggregators carry moderate confidence: verify each entry.
 
 ## Manifests
 
@@ -55,8 +36,6 @@ Aggregators carry moderate confidence: verify each entry. LobeHub is discovery-o
 | YAML frontmatter | inside `SKILL.md`: `name`, `description`, optional fields |
 
 ## Installer CLIs
-
-Safety-scan the source before any install (`references/install.md`).
 
 | CLI | Pattern |
 |---|---|

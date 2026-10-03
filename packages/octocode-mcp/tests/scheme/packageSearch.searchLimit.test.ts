@@ -6,7 +6,7 @@ const REASONING = 'exercise artifact schema';
 
 function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
   const parsed = ArtifactSearchBulkQueryLocalSchema.parse({
-    queries: [{ goal: GOAL, reasoning: REASONING, ...query }],
+    queries: [{ mainGoal: GOAL, reasoning: REASONING, ...query }],
   });
   return parsed.queries[0] as Record<string, unknown>;
 }
@@ -14,7 +14,7 @@ function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
 describe('artifactSearch schema', () => {
   it('keeps exact package lookup unpaginated', () => {
     expect(parsedQuery({ type: 'npm', packageName: 'lodash' })).toEqual({
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: REASONING,
       debug: false,
       type: 'npm',

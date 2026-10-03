@@ -11,7 +11,7 @@ octocode-mcp-vscode ───┘          ├──▶ embedded contract from @o
                                   └──▶ configuration resolved in Rust, same rules as @octocodeai/config
 ```
 
-`octocode-native` is the one owner of public tool validation, providers, security, batching, pagination, response shaping, and cancellation. Interfaces register, delegate, or render. There is no TypeScript tool fallback.
+`octocode-native` is the one owner of public tool validation, providers, security, batching, pagination, response shaping, and cancellation. Interfaces register, delegate, render, or offer interactive selection. There is no TypeScript tool fallback.
 
 ## Packages
 
@@ -53,14 +53,12 @@ Other folders:
 3. **Output** lands in `packages/octocode-config/contract/` and `src/contracts/toolTypes.generated.ts`. It is committed and never hand-edited. `check:tool-contract` fails when it is stale.
 4. **Rebuild native** (`yarn workspace @octocodeai/octocode-native build:dev`). `crates/runtime/build.rs` embeds `contract/` in place and fails on a fingerprint mismatch.
 
-Until native is rebuilt, the MCP server refuses to start and CLI `scheme` refuses to describe tools. `OCTOCODE_ALLOW_CONTRACT_DRIFT=1` downgrades that to a warning outside production. Fix drift by regenerating, not by overriding.
-
-Never hand-write a tool wire type (TS interface, Zod copy, or serde query/result struct). Release gate: `yarn workspace @octocodeai/config check:core-contract-sync:published` (publish core first).
+Until native is rebuilt, the MCP server refuses to start and CLI `scheme` refuses to describe tools. `OCTOCODE_ALLOW_CONTRACT_DRIFT=1` downgrades that to a warning outside production. Release order: [RELEASE.md](RELEASE.md).
 
 ### Adding a tool field
 
 1. Add it in core and regenerate as above.
-2. Declare the field or discriminator value in `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`. Implement it in the native tool.
+2. Declare and implement it per the `field-effect-coverage.json` rule in [SKILL.md](../SKILL.md#hard-rules).
 3. A public limit change trips the `public_response_and_tree_limits_are_pinned` test by design. Update it deliberately.
 4. Check the result against [TOOL_QUALITY.md](TOOL_QUALITY.md), then update `<repo>/docs/OCTOCODE_TOOLS.md`.
 
@@ -72,7 +70,6 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 - `yarn workspace @octocodeai/octocode-native build:all`: release native binaries for all platforms (clears old binaries first). Root `yarn build:native:all` runs it.
 - `yarn contracts:regen`: regenerate the tool contract from core.
-- One package: `yarn workspace <npm name> <script>`.
 
 | Package | Test | Lint / format |
 |---|---|---|
@@ -80,8 +77,6 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 | config | `test`, `check:tool-contract`, `check:config-contract` | `lint` |
 | mcp | `test`, `test:contracts` | `lint`, `format:check` |
 | octocode, vscode, skill-installer, benchmark | `test` | `lint` |
-
-After any package change, rebuild and run the real CLI or MCP path: `node packages/octocode/out/octocode.js <tool> '<json>'`.
 
 ## Development environment variables
 
@@ -97,10 +92,6 @@ These are not user settings and are not read from `.octocoderc`. User settings a
 
 ## Ownership rules
 
-- Public tool behavior lives only in `octocode-native` Rust.
-- Interfaces may register, delegate, render, or offer interactive selection. They never implement tools or hand-write tool guidance.
 - `crates/engine` and the `./engine` subpath expose primitives, not tool policy.
-- Public contracts come from `@octocodeai/octocode-core`, through `@octocodeai/config`.
-- Configuration comes from `@octocodeai/config` (Node) and its generated contract (Rust). Never reimplement home resolution or `.env` parsing.
 - Skill filesystem behavior comes from `@octocodeai/octocode-skill-installer`.
 - Each doc topic has one owner; see `<repo>/docs/README.md`. Per-package invariants are in each package `ARCHITECTURE.md`.

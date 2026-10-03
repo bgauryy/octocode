@@ -184,7 +184,7 @@ pub fn execute_files(
     // with `structure.snapshot.changed` when the corpus or query drifted
     // between pages, or a different response window would cut other pages.
     let identity = json!([
-        q.path,
+        validated.canonical.to_string_lossy(),
         q.max_depth(),
         q.min_depth(),
         q.names(),
@@ -267,7 +267,6 @@ pub fn execute_files(
         out["status"] = json!("empty")
     }
     if has_more && !terminal {
-        out["pagination"]["nextPage"] = json!(page + 1);
         out["next"]["nextPage"] = super::continuation(q, json!({"page":page+1,"snapshot":snapshot}))
     }
     if can_expand {
@@ -325,7 +324,7 @@ pub fn execute_files(
         ignored,
         json!({"noIgnore":true,"page":1}),
         format!(
-            "The walk pruned {ignored} .gitignore'd entries; whether they match these filters is unproven. next.includeIgnored retries with noIgnore:true."
+            "The walk pruned {ignored} .gitignore'd entries; whether they match these filters is unproven. hints.includeIgnored retries with noIgnore:true."
         ),
     );
     Ok(out)

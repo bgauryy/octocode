@@ -1,4 +1,4 @@
-// Requires a configured classification provider. Verifies bare next.clasify and deciding reads.
+// Requires a configured classification provider. Verifies the bare next.clasify walk and hints.read deciding reads.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, startServer, nextHints, writeResults } from './mcp-client.mjs';
@@ -19,7 +19,7 @@ try {
   let e = await c.raw('clasify', {
     queries: [
       {
-        goal: 'Locate the rule that limits retry attempts.',
+        mainGoal: 'Locate the rule that limits retry attempts.',
         reasoning:
           'Read deciding source after the semantic scout identifies it.',
         resources: [
@@ -39,7 +39,7 @@ try {
   });
   for (let i = 0; i < 10; i++) {
     pages.push(e);
-    for (const h of nextHints(e.sc).filter(x => x.path.endsWith('.read')))
+    for (const h of nextHints(e.sc).filter(x => x.path.endsWith('.hints.read')))
       reads.push(await c.raw(h.tool, h.query));
     const h = nextHints(e.sc).find(
       x => x.tool === 'clasify' && x.path.endsWith('.clasify')

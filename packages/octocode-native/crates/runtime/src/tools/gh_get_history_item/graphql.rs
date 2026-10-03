@@ -424,7 +424,7 @@ mod tests {
     #[test]
     fn outgoing_documents_validate_against_the_github_schema() {
         let every: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"test","reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true,"reviews":true,
                 "comments":{"discussion":true},"commits":{}}
         }))
@@ -469,18 +469,18 @@ mod tests {
     #[test]
     fn graphql_fast_path_requires_two_flags_first_pages_and_no_patches() {
         let bare: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1
         }))
         .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&bare));
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true}
         }))
         .expect("GitHub history test data should be valid");
         assert!(super::graphql_complete_collection_eligible(&query));
         let file_page: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true},"filePage":2
         }))
         .expect("GitHub history test data should be valid");
@@ -488,21 +488,21 @@ mod tests {
         // Legacy provider cursors are not part of the wire contract.
         assert!(
             HistoryItemRequest::from_row(json!({
-                "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+                "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
                 "content":{"body":true,"comments":{"discussion":true}},
                 "collectionPages":{"discussion":2}
             }))
             .is_err()
         );
         let paged: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"comments":{"discussion":true}},
             "commentPage":2
         }))
         .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&paged));
         let patches: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true,"patches":{"mode":"all"}}
         }))
         .expect("GitHub history test data should be valid");

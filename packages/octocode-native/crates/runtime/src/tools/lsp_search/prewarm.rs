@@ -57,6 +57,44 @@ pub fn anchor_file(query: &Value, data: &Value) -> Option<PathBuf> {
         .find(|path| path.is_absolute() && path.is_file())
 }
 
+/// Whether a response that points at `lspSearch` may warm that call's
+/// server: on unless `OCTOCODE_LSP_PREWARM` is explicitly off
+/// (`0`/`false`/`no`/`off`).
+#[must_use]
+pub fn targeted_enabled(value: Option<&str>) -> bool {
+    !value.is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no" | "off"
+        )
+    })
+}
+
+/// The anchor file of the first `lspSearch` call a tool row offers (a lead
+/// or page `{tool, query}` anywhere in `data`), when it names an absolute
+/// file path or `file://` uri of an existing file.
+#[must_use]
+pub fn lead_file(data: &Value) -> Option<PathBuf> {
+    fn find(value: &Value, depth: usize) -> Option<PathBuf> {
+        if depth > 8 {
+            return None;
+        }
+        match value {
+            Value::Object(map) => {
+                if map.get("tool").and_then(Value::as_str) == Some("lspSearch") {
+                    let uri = map.get("query")?.get("uri")?.as_str()?;
+                    let path = PathBuf::from(uri.strip_prefix("file://").unwrap_or(uri));
+                    return (path.is_absolute() && path.is_file()).then_some(path);
+                }
+                map.values().find_map(|child| find(child, depth + 1))
+            }
+            Value::Array(items) => items.iter().find_map(|item| find(item, depth + 1)),
+            _ => None,
+        }
+    }
+    find(data, 0)
+}
+
 /// Keys started (or starting) by this process.
 fn started() -> &'static Mutex<HashSet<String>> {
     static STARTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -145,7 +183,7 @@ pub fn schedule(
 
 #[cfg(test)]
 mod tests {
-    use super::{anchor_file, enabled};
+    use super::{anchor_file, enabled, lead_file, targeted_enabled};
     use serde_json::json;
 
     #[test]
@@ -180,6 +218,31 @@ mod tests {
             ),
             None
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn targeted_prewarm_is_on_unless_explicitly_off() {
+        assert!(targeted_enabled(None));
+        assert!(targeted_enabled(Some("1")));
+        for off in ["0", "false", "NO", " off "] {
+            assert!(!targeted_enabled(Some(off)), "{off}");
+        }
+    }
+
+    #[test]
+    fn a_lead_naming_lsp_search_points_at_its_anchor_file() {
+        let dir = std::env::temp_dir().join(format!("octocode-prewarm-lead-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let file = dir.join("a.ts");
+        std::fs::write(&file, "export const a = 1;\n").expect("file");
+        let uri = format!("file://{}", file.display());
+        let data = json!({"results":[{"file":"a.ts"}],"next":{"verifyReferences":{"tool":"lspSearch","query":{"uri":uri,"symbolName":"a","lineHint":1}}}});
+        assert_eq!(lead_file(&data), Some(file.clone()));
+        let other = json!({"next":{"read":{"tool":"localFetch","query":{"path":file}}}});
+        assert_eq!(lead_file(&other), None);
+        let relative = json!({"hints":{"refs":{"tool":"lspSearch","query":{"uri":"a.ts"}}}});
+        assert_eq!(lead_file(&relative), None);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

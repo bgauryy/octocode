@@ -84,7 +84,7 @@ const cases = [
     required: [/matchString[^\n]*list/, /ranges/, /block:true/, /contextLines[^\n]*clamps/, /full-content-size-limit/],
     forbidden: [/100-line chunks/] },
   { name: 'clasify reference carries no measured residue', file: 'references/clasify.md',
-    required: [/best[^\n]*absent[^\n]*carry/, /next\.read/, /legacy input only/],
+    required: [/best[^\n]*absent[^\n]*carry/, /hints\.read/, /legacy input only/],
     forbidden: [/\d(?:\.\d+)?×/, /0\.\d+[–-]0\.\d+/, /[Mm]easured/] },
   { name: 'one owner for adaptive routing', file: 'references/algorithm.md',
     required: [/surface[^\n]*task/i, /skip[^\n]*(?:irrelevant|redundant|known)/i],

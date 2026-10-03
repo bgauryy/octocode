@@ -1,6 +1,6 @@
 # Sin catalog
 
-Load when building or ranking the inventory. Severity follows demonstrated impact, not how funny a pattern looks.
+Load when building or ranking the inventory.
 
 ## Tiers
 | Tier | Examples |
@@ -33,6 +33,6 @@ For each candidate ask:
 4. How confident is the claim?
 5. What is the smallest repair?
 
-Pattern-only evidence is a lead. Drop unsupported exploit, latency, or outage claims or mark them weak; never infer exploitability from syntax alone. Demote taste-only evidence to Slop or Misdemeanor.
+Drop unsupported exploit, latency, or outage claims or mark them weak; never infer exploitability from syntax alone. Demote taste-only evidence to Slop or Misdemeanor.
 
 Next: return to `references/roast-playbook.md` § 4 Autopsy.

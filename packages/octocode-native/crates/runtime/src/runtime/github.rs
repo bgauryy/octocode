@@ -725,14 +725,14 @@ fn apply_path_recovery(data: &mut Value, query: &Value, found: PathRecovery) {
         data["hints"] = json!(["Only the path's case differs; run the readFile continuation."]);
     } else {
         data["hints"] = json!([
-            "The rest of the path does not exist; next.viewTree lists the nearest existing directory."
+            "The rest of the path does not exist; hints.viewTree lists the nearest existing directory."
         ]);
     }
 }
 
 /// A ghStructure listing of a missing path names the path and, like
 /// ghGetFileContent's recovery, lists the nearest existing directory
-/// (case-corrected) with `next.viewTree`; without a located directory it
+/// (case-corrected) with `hints.viewTree`; without a located directory it
 /// falls back to the parent at low confidence.
 fn structure_path_error(
     error: ProviderError,
@@ -752,11 +752,11 @@ fn structure_path_error(
                 found.directory.clone()
             };
             let hint = if found.file.is_some() {
-                "The path names a file (its case differs); read it with ghGetFileContent, or list its directory with next.viewTree."
+                "The path names a file (its case differs); read it with ghGetFileContent, or list its directory with hints.viewTree."
             } else if found.directory.eq_ignore_ascii_case(requested) {
                 "Only the path's case differs; run the viewTree continuation."
             } else {
-                "The rest of the path does not exist; next.viewTree lists the nearest existing directory."
+                "The rest of the path does not exist; hints.viewTree lists the nearest existing directory."
             };
             (directory, "exact", hint)
         }
@@ -769,7 +769,7 @@ fn structure_path_error(
             (
                 parent,
                 "low",
-                "Check the path's exact case (no leading slash) and the branch; list the parent directory with next.viewTree.",
+                "Check the path's exact case (no leading slash) and the branch; list the parent directory with hints.viewTree.",
             )
         }
     };
@@ -856,7 +856,7 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
             .filter(|path| !path.is_empty())
             .unwrap_or_else(|| ".".into());
         (
-            vec!["Check the path's exact case (no leading slash) and the branch; list the parent directory with next.viewTree.".into()],
+            vec!["Check the path's exact case (no leading slash) and the branch; list the parent directory with hints.viewTree.".into()],
             Some(json!({ "viewTree": tree_recovery(owner, repo, &parent, query) })),
         )
     } else if error.kind == ProviderErrorKind::Authentication {
@@ -1171,7 +1171,7 @@ mod tests {
     #[test]
     fn clone_git_failures_are_classified_by_the_metadata_answer() {
         let query: gh_clone_repo::GhCloneRepoQuery = serde_json::from_value(
-            json!({"owner":"ghost","repo":"nope","goal":"g","reasoning":"r"}),
+            json!({"owner":"ghost","repo":"nope","mainGoal":"g","reasoning":"r"}),
         )
         .expect("query");
         let git = || gh_clone_repo::CloneError {

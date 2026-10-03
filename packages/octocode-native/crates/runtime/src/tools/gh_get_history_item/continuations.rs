@@ -57,6 +57,47 @@ fn continuation(q: Value) -> Value {
     json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":q,"confidence":"exact"})
 }
 
+/// The largest response page a call may ask for (`responseCharLength`).
+fn max_response_page() -> Option<usize> {
+    crate::contracts::tool_contract(ToolId::GhGetHistoryItem)
+        .ok()?
+        .pointer("/inputSchema/properties/responseCharLength/maximum")?
+        .as_u64()
+        .and_then(|max| usize::try_from(max).ok())
+}
+
+/// The response page a patch-walk hop asks for: the caller's explicit page,
+/// else the largest page when the configured one is smaller. Following the
+/// walk shows intent to read on, so each hop carries the largest patch window
+/// one response holds. `None` keeps a plain row: the configured page already
+/// is the largest.
+fn walk_page(q: &HistoryItemRequest) -> Option<usize> {
+    if q.response_page.is_some() {
+        return q.response_page;
+    }
+    let max = max_response_page()?;
+    q.auto_page_chars.filter(|page| *page < max).map(|_| max)
+}
+
+/// A patch-walk continuation: the row alone, or a one-row call that carries
+/// the response page its window needs ([`walk_page`]). Both run unchanged.
+/// A `charLength` the hop's page cannot hold leaves the row: the hop then
+/// takes the largest window that page holds, without a clamp tip per hop.
+fn walk_continuation(mut q: Value, query: &HistoryItemRequest) -> Value {
+    let page = walk_page(query);
+    if let Some(budget) = page
+        .or(query.auto_page_chars)
+        .map(super::files::page_patch_budget)
+        && query.char_length().is_some_and(|length| length >= budget)
+    {
+        remove_key(&mut q, "charLength");
+    }
+    match page {
+        Some(page) => continuation(json!({"queries":[q],"responseCharLength":page})),
+        None => continuation(q),
+    }
+}
+
 /// A first-page menu read in the flat spelling.
 fn menu_read(mut q: Value) -> Value {
     flatten_selectors(&mut q);
@@ -171,10 +212,14 @@ pub(super) fn is_small_pr(
     ) && changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES)
 }
 
+/// Leads one menu offers at most; other surfaces stay reachable through
+/// `include`.
+pub(super) const MENU_CAP: usize = 2;
+
 /// Per-row menu of first-page fetches for content the call did not request:
-/// at most three entries (`getChangedFiles`, `reviewPatches`,
-/// `getDiscussion`; an inventory read may add `getAllPatches`). A merged
-/// row already shows `mergeCommitSha`, so no merge-commit read is offered.
+/// at most [`MENU_CAP`] entries, in priority order (files or patches, then
+/// the body, then the discussion). A merged row already shows
+/// `mergeCommitSha`, so no merge-commit read is offered.
 ///
 /// `raw` is the provider PR object; `review` is the inventory's
 /// [`super::files::review_selection`] (empty before files were read). An
@@ -261,7 +306,7 @@ pub(super) fn pr_next_menu(
     if !discussion.is_empty() {
         next.insert("getDiscussion".into(), call(Value::Object(discussion)));
     }
-    Value::Object(next)
+    Value::Object(next.into_iter().take(MENU_CAP).collect())
 }
 
 /// Longest added-line prefix `next.readAtMerge` anchors its read on.
@@ -430,7 +475,12 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
         if axis == "comments" {
             remove_key(&mut nq, "commentBodyOffset");
         }
-        next.insert(name.into(), continuation(nq));
+        let entry = if axis == "patches" {
+            walk_continuation(nq, q)
+        } else {
+            continuation(nq)
+        };
+        next.insert(name.into(), entry);
     }
     if partial {
         out["isPartial"] = json!(true);
@@ -786,10 +836,12 @@ pub(super) fn attach_diff_continuations(
     if let Some(offset) = out.pointer("/filesPagination/nextPatchCharOffset").cloned() {
         let mut nq = base;
         nq["charOffset"] = offset;
-        next.insert(
-            "continuePatch".into(),
-            make(nq, "Continue the current patch window."),
-        );
+        let walk = if with_why {
+            make(nq, "Continue the current patch window.")
+        } else {
+            walk_continuation(nq, q)
+        };
+        next.insert("continuePatch".into(), walk);
     }
     // Commit → pull request: a squash-merge headline names its PR
     // (`… (#8506)`); otherwise issue search matches PRs by commit SHA.
@@ -845,7 +897,7 @@ mod tests {
     #[test]
     fn commit_continue_patch_copies_the_page_stream_cursor() {
         let query = HistoryItemRequest::from_row(json!({
-            "operation":"commit","goal":"test","reasoning":"test","owner":"a","repo":"b",
+            "operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
             "ref":"abc","includeDiff":true,"charLength":10
         }))
         .expect("commit query");
@@ -863,7 +915,7 @@ mod tests {
     #[test]
     fn selected_patch_continuation_stops_after_every_requested_path_is_returned() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/lib.rs"]}}
         }))
         .expect("selected patch query");
@@ -894,7 +946,7 @@ mod tests {
     #[test]
     fn selected_patch_continuation_carries_only_unresolved_paths() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","files":["src/a.rs","src/b.rs"]}}
         }))
         .expect("selected patch query");
@@ -924,7 +976,7 @@ mod tests {
     #[test]
     fn selected_patch_continuation_filters_resolved_range_selectors() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"selected","ranges":[
                 {"file":"src/a.rs","additions":[1]},
                 {"file":"src/b.rs","deletions":[2]}
@@ -957,7 +1009,7 @@ mod tests {
     #[test]
     fn match_string_views_offer_the_whole_patches_they_narrowed() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"all"}},"matchString":"needle","charOffset":10,"filePage":2
         }))
         .expect("match query");
@@ -980,7 +1032,7 @@ mod tests {
         // An explicit matchContext still clips long lines: the whole patch
         // stays reachable.
         let explicit: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"all"}},"matchString":"needle","matchContext":0
         }))
         .expect("match query");
@@ -1003,7 +1055,7 @@ mod tests {
     #[test]
     fn minified_patch_views_offer_the_untrimmed_patches() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
             "include":["patches"],"charOffset":40
         }))
         .expect("pr query");
@@ -1029,7 +1081,7 @@ mod tests {
     #[test]
     fn raw_body_read_targets_the_minified_surfaces_on_the_same_page() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
             "content":{"body":true,"comments":{"discussion":true},"patches":{"mode":"all"}},
             "commentPage":2,"commentBodyOffset":30,"charOffset":10
         }))
@@ -1056,7 +1108,7 @@ mod tests {
     #[test]
     fn reshaped_files_past_one_selection_continue_in_numbered_reads() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
             "include":["patches"]
         }))
         .expect("pr query");
@@ -1086,7 +1138,7 @@ mod tests {
     #[test]
     fn many_narrowed_files_widen_context_beside_full_patches() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
             "matchString":"miri"
         }))
         .expect("match query");
@@ -1113,7 +1165,7 @@ mod tests {
     #[test]
     fn merged_pull_requests_offer_no_merge_commit_read_beside_the_shown_sha() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","number":5
         }))
         .expect("pr query");
         for raw in [
@@ -1132,7 +1184,7 @@ mod tests {
     #[test]
     fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"cli","repo":"cli","number":14429
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"cli","repo":"cli","number":14429
         }))
         .expect("pr query");
         let merged = json!({"merged_at":"2026-09-11T15:55:40Z","merge_commit_sha":"8fcd6a6"});
@@ -1181,7 +1233,7 @@ mod tests {
     #[test]
     fn pr_next_menu_carries_required_defaults_and_drops_cursors() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true},"charOffset":100,"commentPage":2,
             "reasoning":"r"
         }))
@@ -1189,17 +1241,17 @@ mod tests {
         let content_value = query.content_value();
         let content = content_value.as_ref().and_then(Value::as_object);
         let menu = pr_next_menu(&query, content, "none", &["src/a.rs".into()], &json!({}));
-        let reviews = &menu["getDiscussion"]["query"];
+        let reviews = &menu["getChangedFiles"]["query"];
         // pageSize has no contract default; an omitted one stays omitted.
         assert!(reviews.get("pageSize").is_none(), "{reviews}");
         assert_eq!(reviews["minify"], "standard");
         // Menu reads use the flat spelling.
-        assert_eq!(reviews["include"], json!(["comments", "reviews"]));
+        assert_eq!(reviews["include"], json!(["files"]));
         assert!(reviews.get("content").is_none(), "{reviews}");
         for key in ["charOffset", "commentPage"] {
             assert!(reviews.get(key).is_none(), "{key} leaked: {reviews}");
         }
-        assert_eq!(reviews["goal"], "test");
+        assert_eq!(reviews["mainGoal"], "test");
         assert_eq!(reviews["reasoning"], "r");
         assert!(menu.get("getBody").is_none());
     }
@@ -1207,7 +1259,7 @@ mod tests {
     #[test]
     fn pr_next_menu_omits_entries_the_row_already_answers() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
         }))
         .expect("query");
         let names = |menu: &Value| {
@@ -1247,12 +1299,12 @@ mod tests {
         );
     }
 
-    /// A summary menu holds at most three entries; an inventory read
-    /// turns its review pick into `reviewPatches` over several files.
+    /// A menu holds at most [`MENU_CAP`] entries; an inventory read turns its
+    /// review pick into `reviewPatches` over several files.
     #[test]
-    fn summary_menu_is_three_entries_and_inventory_reviews_many_files() {
+    fn menus_hold_at_most_two_entries_and_inventory_reviews_many_files() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
         }))
         .expect("query");
         let merged = json!({"body":"x".repeat(900),"changed_files":656,"additions":282_700,
@@ -1278,6 +1330,10 @@ mod tests {
         );
         assert_eq!(menu["reviewPatches"]["confidence"], "high");
         assert!(menu.get("getAllPatches").is_some(), "{menu}");
+        // The discussion read is the third candidate: it stays reachable
+        // through `include`, not the menu.
+        assert_eq!(menu.as_object().map(Map::len), Some(MENU_CAP), "{menu}");
+        assert!(menu.get("getDiscussion").is_none(), "{menu}");
         // A pick covering every changed file is the every-patch read.
         let two = json!({"body":"","changed_files":2,"additions":900,"deletions":10});
         let menu = pr_next_menu(&query, content.as_object(), "none", &review, &two);
@@ -1297,7 +1353,7 @@ mod tests {
         // charOffset is one shared field: continuing the body must not skew
         // review bodies or patches by the body offset (and vice versa).
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
+            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
             "content":{"body":true,"reviews":true,"patches":{"mode":"all"},"comments":{"discussion":true}},
             "charOffset":0
         }))

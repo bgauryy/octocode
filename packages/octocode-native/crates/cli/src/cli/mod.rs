@@ -618,7 +618,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             Some(AuthCommand::Logout) => system::logout(runtime),
         },
         Command::Graph { command } => graph::graph(runtime, command),
-        Command::Skill { args } => skill::skill(runtime, &args),
+        Command::Skill { args } => skill::skill(&args),
         Command::Install {
             ide,
             force,

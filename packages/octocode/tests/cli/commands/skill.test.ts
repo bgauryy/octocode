@@ -67,6 +67,28 @@ describe('skill command', () => {
       message: 'Unknown option: --bogus',
     },
     {
+      args: ['list'],
+      options: { all: true },
+      message:
+        'Unknown option for skill list: --all (it applies to skill install, remove)',
+    },
+    {
+      args: ['install'],
+      options: { platfrom: 'claude' },
+      message: 'Unknown option: --platfrom (did you mean --platform?)',
+    },
+    {
+      args: ['check'],
+      options: { dryrun: true },
+      message: 'Unknown option: --dryrun (did you mean --dry-run?)',
+    },
+    {
+      args: ['info'],
+      options: { fix: true },
+      message:
+        'Unknown option for skill info: --fix (it applies to skill check)',
+    },
+    {
       args: ['install'],
       options: { mode: 'invalid' },
       message: '--mode expects copy|symlink|auto.',

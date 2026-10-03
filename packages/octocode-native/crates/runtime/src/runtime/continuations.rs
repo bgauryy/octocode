@@ -9,8 +9,12 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value};
 
+use super::channels::{HINTS_KEY, PAGES_KEY};
 use crate::contracts::validate_query;
 use crate::tools::id::ToolId;
+
+/// The optional per-row brief a continuation inherits from its source row.
+pub const BRIEF_FIELDS: [&str; 2] = ["mainGoal", "reasoning"];
 
 /// Compacts every `{tool, query}` continuation nested in `value`.
 pub fn compact_continuations(value: &mut Value) {
@@ -26,11 +30,12 @@ pub fn compact_input(tool: &str, input: &mut Value) {
 
 type Memo = HashMap<(String, String), Value>;
 
-/// Gives every runtime-emitted `next` continuation the brief (`goal`,
-/// `reasoning`) of the input query that produced its row, so each
-/// continuation is a complete query under the contract, which requires the
-/// brief. `row_queries[i]` is the input query of result row `i` (`None` for a
-/// rejected row). A brief a continuation already carries is kept.
+/// Gives every runtime-emitted continuation the brief (`mainGoal`,
+/// `reasoning`) of the input query that produced its row, but only the
+/// fields that query sent: a caller who sent no brief gets hint queries
+/// without one. `row_queries[i]` is the input query of result row `i`
+/// (`None` for a rejected row). A brief a continuation already carries is
+/// kept.
 pub fn inherit_briefs(structured: &mut Value, row_queries: &[Option<&Value>]) {
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
         return;
@@ -67,19 +72,19 @@ pub fn inherit_clasify_briefs(structured: &mut Value, input: &Value) {
             // next.clasify reads inherit the matrix brief when replayed, so
             // their nested queries do not repeat it.
             let resume = row
-                .get_mut("next")
+                .get_mut(PAGES_KEY)
                 .and_then(Value::as_object_mut)
                 .and_then(|next| next.remove("clasify"));
             brief_walk(row, &brief_of(query));
             if let Some(resume) = resume {
-                row["next"]["clasify"] = resume;
+                row[PAGES_KEY]["clasify"] = resume;
             }
         }
     }
 }
 
 fn brief_of(query: &Value) -> Map<String, Value> {
-    ["goal", "reasoning"]
+    BRIEF_FIELDS
         .into_iter()
         .filter_map(|field| {
             query
@@ -149,7 +154,7 @@ fn filter_walk(value: &mut Value, current_tool: &str, is_available: &impl Fn(&st
             .iter_mut()
             .for_each(|item| filter_walk(item, current_tool, is_available)),
         Value::Object(map) => map.retain(|key, child| {
-            if key == "next" {
+            if key == PAGES_KEY || key == HINTS_KEY {
                 filter_next(child, current_tool, is_available)
             } else {
                 filter_walk(child, current_tool, is_available);
@@ -178,15 +183,15 @@ fn filter_next(next: &mut Value, current_tool: &str, is_available: &impl Fn(&str
     true
 }
 
-/// Continuations live only under `next` keys (`data.next.*`,
-/// `responsePagination.next`, nested `next`); a `{tool, query}` shape
-/// anywhere else is tool data and stays untouched.
+/// Continuations live only under `next` and `hints` keys (`data.next.*`,
+/// `data.hints.*`, `responsePagination.next`, nested ones); a `{tool,
+/// query}` shape anywhere else is tool data and stays untouched.
 fn walk(value: &mut Value, memo: &mut Memo) {
     match value {
         Value::Array(items) => items.iter_mut().for_each(|item| walk(item, memo)),
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
-                if key == "next" {
+                if key == PAGES_KEY || key == HINTS_KEY {
                     compact_next(child, memo);
                 }
                 walk(child, memo);
@@ -278,16 +283,7 @@ fn compact_query(tool: &str, query: &mut Value, memo: &mut Memo) {
         *query = compact.clone();
         return;
     }
-    // A continuation may be compacted before it inherits its brief; validate
-    // it with a placeholder brief, which is never emitted.
-    let placeholder: Vec<&str> = ["goal", "reasoning"]
-        .into_iter()
-        .filter(|field| !object.contains_key(*field))
-        .collect();
     let mut compact: Map<String, Value> = object.clone();
-    for field in &placeholder {
-        compact.insert((*field).to_owned(), Value::String("-".to_owned()));
-    }
     let Ok(full) = validate_query(tool, Value::Object(compact.clone())) else {
         return;
     };
@@ -317,12 +313,12 @@ mod tests {
 
     #[test]
     fn continuations_inherit_the_brief_of_their_input_query() {
-        let first = json!({"goal":"Find a.","reasoning":"First."});
-        let second = json!({"goal":"Find b.","reasoning":"Second."});
+        let first = json!({"mainGoal":"Find a.","reasoning":"First."});
+        let second = json!({"mainGoal":"Find b.","reasoning":"Second."});
         let mut out = json!({"results":[
             {"index":0,"data":{"next":{
                 "viewRepo":{"tool":"ghStructure","query":{"owner":"o","repo":"r"}},
-                "clasify":{"tool":"clasify","query":{"goal":"Locate.","reasoning":"Unread.","resources":[],"questions":[]}}
+                "clasify":{"tool":"clasify","query":{"mainGoal":"Locate.","reasoning":"Unread.","resources":[],"questions":[]}}
             }}},
             {"index":1,"data":{"items":[{"next":{"tool":"localFetch","query":{"queries":[{"path":"/a"}]}}}]}}
         ]});
@@ -330,31 +326,31 @@ mod tests {
         let view = &out["results"][0]["data"]["next"]["viewRepo"]["query"];
         assert_eq!(
             view,
-            &json!({"owner":"o","repo":"r","goal":"Find a.","reasoning":"First."})
+            &json!({"owner":"o","repo":"r","mainGoal":"Find a.","reasoning":"First."})
         );
         let clasify = &out["results"][0]["data"]["next"]["clasify"]["query"];
-        assert_eq!(clasify["goal"], "Locate.", "an existing brief is kept");
+        assert_eq!(clasify["mainGoal"], "Locate.", "an existing brief is kept");
         assert_eq!(
             out["results"][1]["data"]["items"][0]["next"]["query"]["queries"][0],
-            json!({"path":"/a","goal":"Find b.","reasoning":"Second."})
+            json!({"path":"/a","mainGoal":"Find b.","reasoning":"Second."})
         );
     }
 
     #[test]
     fn clasify_page_reads_inherit_their_matrix_brief_by_query_id() {
-        let input = json!({"queries":[{"id":"m1","goal":"G1","reasoning":"R1"},{"id":"m2","goal":"G2","reasoning":"R2"}]});
+        let input = json!({"queries":[{"id":"m1","mainGoal":"G1","reasoning":"R1"},{"id":"m2","mainGoal":"G2","reasoning":"R2"}]});
         let mut out = json!({"queries":[{"queryId":"m2","resources":[{"pages":[{"next":{"read":{"tool":"localFetch","query":{"path":"/a"}}}}]}]}]});
         inherit_clasify_briefs(&mut out, &input);
         assert_eq!(
             out["queries"][0]["resources"][0]["pages"][0]["next"]["read"]["query"],
-            json!({"path":"/a","goal":"G2","reasoning":"R2"})
+            json!({"path":"/a","mainGoal":"G2","reasoning":"R2"})
         );
     }
 
     #[test]
     fn drops_only_fields_validation_restores() {
         let mut out = json!({"results":[{"data":{"next":{"nextPage":{"tool":"localSearch","confidence":"exact","query":{
-            "searchText":"foo","path":"/tmp","goal":"Find foo.","reasoning":"r","debug":false,"caseMode":"smart",
+            "searchText":"foo","path":"/tmp","mainGoal":"Find foo.","reasoning":"r","debug":false,"caseMode":"smart",
             "matchContentLength":200,"page":2,"contextLines":0,"regex":"rust"
         }}}}}]});
         compact_continuations(&mut out);
@@ -363,7 +359,7 @@ mod tests {
         // contextLines), so validation cannot restore it and it is kept.
         assert_eq!(
             query,
-            &json!({"searchText":"foo","path":"/tmp","goal":"Find foo.","reasoning":"r","matchContentLength":200,"page":2,"contextLines":0})
+            &json!({"searchText":"foo","path":"/tmp","mainGoal":"Find foo.","reasoning":"r","matchContentLength":200,"page":2,"contextLines":0})
         );
         let full = validate_query("localSearch", query.clone()).expect("valid");
         assert_eq!(full["matchContentLength"], 200);
@@ -371,7 +367,7 @@ mod tests {
 
     #[test]
     fn leaves_tool_query_shaped_data_outside_next_untouched() {
-        let data = json!({"tool":"localSearch","query":{"searchText":"a","path":"/tmp","goal":"Find a.","reasoning":"r","debug":false}});
+        let data = json!({"tool":"localSearch","query":{"searchText":"a","path":"/tmp","mainGoal":"Find a.","reasoning":"r","debug":false}});
         let mut out =
             json!({"results":[{"data":{"content":data.clone(),"next":{"nextPage":data.clone()}}}]});
         compact_continuations(&mut out);
@@ -385,12 +381,12 @@ mod tests {
 
     #[test]
     fn compacts_each_row_of_a_batch_envelope_and_leaves_invalid_queries() {
-        let mut input = json!({"queries":[{"searchText":"a","path":"/tmp","goal":"Find a.","reasoning":"r","debug":false}],
+        let mut input = json!({"queries":[{"searchText":"a","path":"/tmp","mainGoal":"Find a.","reasoning":"r","debug":false}],
             "responseCharOffset":10});
         compact_input("localSearch", &mut input);
         assert_eq!(
             input["queries"][0],
-            json!({"searchText":"a","path":"/tmp","goal":"Find a.","reasoning":"r"})
+            json!({"searchText":"a","path":"/tmp","mainGoal":"Find a.","reasoning":"r"})
         );
         assert_eq!(input["responseCharOffset"], 10);
         let mut invalid = json!({"tool":"localSearch","query":{"debug":false}});
@@ -400,7 +396,7 @@ mod tests {
 
     #[test]
     fn filters_unavailable_cross_tool_actions_without_touching_pagination_or_query_data() {
-        let query = json!({"goal": "test", "reasoning":"continue", "next":{"readFile":{"tool":"localFetch","query":{"path":"/tmp/a"}}}});
+        let query = json!({"mainGoal": "test", "reasoning":"continue", "next":{"readFile":{"tool":"localFetch","query":{"path":"/tmp/a"}}}});
         let mut out = json!({"results":[{"data":{
             "next":{
                 "nextPage":{"tool":"ghSearchCode","query":query.clone()},
@@ -429,7 +425,7 @@ mod tests {
     fn removes_empty_next_map_but_keeps_opaque_query_payload() {
         let mut out = json!({"results":[{"data":{
             "next":{"viewRepo":{"tool":"ghStructure","query":{"next":{"nested":{"tool":"localFetch","query":{}}}}}},
-            "context":{"next":{"nested":{"tool":"ghSearchCode","query":{"goal": "test", "reasoning":"r"}}}}
+            "context":{"next":{"nested":{"tool":"ghSearchCode","query":{"mainGoal": "test", "reasoning":"r"}}}}
         }}]});
         filter_unavailable_cross_tool_next(&mut out, "artifactSearch", |_| false);
         assert!(out["results"][0]["data"].get("next").is_none());

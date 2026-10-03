@@ -1,26 +1,6 @@
 # Octocode RFC Generator
 
-Turn a consequential technical choice into an evidence-backed RFC, design document, migration plan, architecture proposal, or measurable implementation contract.
-
-## Use when
-
-- An architecture, migration, public-contract, or multi-phase change needs a reviewed decision before work begins.
-- The right outcome requires evidence, stakeholder input, prerequisites, defined acceptance, and a rollback plan.
-- A complex plan needs separation between the decision (RFC) and the execution (PLAN).
-
-## Not for
-
-- Open-ended ideation before a decision is formed → `octocode-brainstorming`
-- Trivial edits or single-file changes → make the change directly
-- Implementation of an already-settled decision → use `octocode-architect` or a plain plan
-
-## Workflow
-
-```text
-UNDERSTAND → RESEARCH → PREREQUISITES → CLOSE BLOCKERS → DECIDE → DEFINE ACCEPTANCE → PLAN → VALIDATE → DELIVER → VIEW (`scripts/render-rfc.mjs` opens the set as one HTML page)
-```
-
-Use `RFC.md` for a consequential decision and standalone `PLAN.md` for execution of a settled decision. Add `PREREQUISITES.md`, `IMPLEMENTATION.md`, or `KPI.md` only when they have a separate lifecycle. RFCs draw structure as Mermaid diagrams (`references/rfc-diagrams.md`) and keep prose for rationale and evidence.
+Turn a consequential technical choice into an evidence-backed RFC, design document, migration plan, architecture proposal, or measurable implementation contract. Agent rules live in `SKILL.md`.
 
 ## Install
 
@@ -30,11 +10,8 @@ npx -y octocode skill install octocode-rfc-generator
 
 ## Maintainer verification
 
-```bash
-node scripts/validate-rfc.mjs <file-or-folder>
-node scripts/validate-rfc.mjs --self-test
-node scripts/validate-debate.mjs --self-test
-node scripts/validate-review-cost.mjs --self-test
-```
+Run each script's `--self-test` (scripts are listed in `SKILL.md` § Scripts), then the `octocode-skills` review against this folder.
 
-Then run the `octocode-skills` review against this folder.
+## Sources
+
+Attributions, not runtime dependencies: `octocode-research` (clasify gate: admission, one call per crossroad, credentials), `octocode-subagent` (worker packets, barriers, parent verification), `octocode-eval-benchmark` (frozen baselines, held-out outcomes, whole-workflow cost), and the [Jev documentation index](https://docs.typesafe.ai/llms.txt) for provider semantics. Native Octocode owns transport, paging, and typed validation.

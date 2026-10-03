@@ -8,7 +8,7 @@ Load when you add a crate to a workspace, map a Node monorepo habit to Cargo, wr
 | `package.json` · `private: true` | `Cargo.toml` · `publish = false` |
 | `workspaces: ["packages/*"]` | root `[workspace] members = ["crates/*"]` (virtual manifest, no `[package]`) |
 | `"dep": "workspace:*"` | `[workspace.dependencies] my-core = { path = "crates/my-core" }` → member `my-core.workspace = true` |
-| `exports` / `index.ts` barrel | `lib.rs` + `pub use`; everything else `pub(crate)` |
+| `exports` / `index.ts` barrel | `lib.rs` + `pub use` |
 | `devDependencies` · `optionalDependencies` | `[dev-dependencies]` · `optional = true` + `[features]` |
 | `engines.node` | `rust-version` (MSRV) |
 | `package-lock.json` · `npm ci` | `Cargo.lock` · `cargo build --locked` |
@@ -28,7 +28,7 @@ xtask/                # dev automation in Rust (codegen, release checks), publis
 ```
 - Flat `crates/*`; folder name == crate name (kebab in Cargo, snake in `use`). Do not nest crates.
 - The virtual root sets `resolver = "3"` explicitly (edition 2024; `"2"` on 2021): it has no edition to infer from.
-- One `Cargo.lock`, one `target/`; profiles take effect only at the root.
+- One `Cargo.lock`, one `target/`.
 - Add one: `cargo new --lib crates/app-fs` (auto-joins `members`), `cargo add -p app-cli --path crates/app-fs`, then move the dep into `[workspace.dependencies]`.
 
 ## Root manifest
@@ -59,14 +59,11 @@ Members: `edition.workspace = true`, `serde = { workspace = true }`, `tokio = { 
 - A `rust-toolchain.toml` channel above the `rust-version` floor is normal: toolchain = what CI builds with; MSRV = the compatibility promise (enforce with `clippy::incompatible_msrv` or `cargo msrv verify`).
 
 ## Split mechanics and hygiene
-- **Dependencies point inward, no cycles.** Cargo forbids crate cycles; a would-be cycle means a missing lower crate or a trait the upper layer implements.
 - **Crates are not free**: each adds a link/metadata step and blocks cross-crate inlining without `#[inline]`/LTO. Tens of meaningful crates beat hundreds of 50-line ones; a file-sized concern stays a module.
-- **Features unify across a combined build**: one member enabling `tokio/full` turns it on for all. Check with `cargo hack check --each-feature -p <crate>`; `cargo-hakari` stops rebuild churn when members differ.
+- **Features unify across a combined build**: one member enabling `tokio/full` turns it on for all; `cargo-hakari` stops rebuild churn when members differ.
 - Heavy deps: `default-features = false` + only what you use (smaller graph, faster builds, less attack surface).
-- Test fixtures/helpers go in a `publish = false` `*-test-support` crate, used only as a dev-dependency.
 - Publishing: internal path deps also need `version = "x.y"`; publish leaves first (release-plz orders it).
 - Commit `Cargo.lock` for apps and libraries (current Cargo guidance); CI builds with `--locked`; never hand-edit it.
-- Audit gate: `references/safety-and-ffi.md`.
 
 ## Verify
 `cargo check --workspace --all-targets` · `cargo tree -p <crate> -e normal` (heavy dep dropped?) · `cargo tree -d` (duplicates) · `cargo build --timings` (critical path shorter?) · `cargo machete` (stale deps).

@@ -1,13 +1,13 @@
 ---
 name: octocode-context-audit
-description: "Use when agent sessions feel bloated, slow, or confused, or before adding instructions, skills, or MCP servers: measures what the harness loads every session (AGENTS.md/CLAUDE.md, memory index, skill descriptions, MCP instructions and tool schemas), probes configured MCP servers live, mines Claude Code transcripts for tool/skill usage and error rates, and flags oversize, broken, duplicate, unused, or bypassed surfaces. Not for rewriting prompt text → octocode-prompt-optimizer."
+description: "Use when agent sessions feel bloated, slow, or confused, or before adding instructions, skills, or MCP servers: measures what the harness loads every session (AGENTS.md/CLAUDE.md, memory index, skill descriptions, MCP instructions and tool schemas), probes configured MCP servers live, mines Claude Code transcripts for tool/skill usage and error rates, and flags oversize, broken, duplicate, unused, or bypassed surfaces. Not for rewriting prompt text → octocode-agentic-prompts."
 ---
 # Context audit
 
 tools: `node` (zero dependencies)
-related-skill: `octocode-prompt-optimizer`
+related-skill: `octocode-agentic-prompts`
 output: `<workspace>/.octocode/context-audit/` (`context-audit.json`, `context-audit.html`)
-routes: run the script when you audit; use `octocode-skills` for skill fixes.
+routes: use `octocode-skills` for skill fixes.
 
 Every session pays for its always-loaded context before the first task token. This skill measures that cost, compares it with real use, and ranks what to cut.
 
@@ -32,8 +32,7 @@ node <skill>/scripts/context-audit.mjs --workspace <repo> [--days 30] [--all-pro
 Budgets are review points (≈ 4 chars per token), not failures. Cursor/other-client servers are measured but not judged by Claude transcripts.
 
 ## Act on the report
-1. Fix `high` first: a server that cannot start, always-loaded instructions far over budget, or a server nobody calls.
+1. `high` covers a server that cannot start, always-loaded instructions far over budget, and a server nobody calls.
 2. Move reference detail out of always-loaded files into linked docs or skills; keep rules the agent must follow every turn.
 3. Remove broken skill links and duplicate installs; keep one canonical source.
-4. For unused or error-prone tools, check routing text and schemas with `octocode-prompt-optimizer` before deleting — zero calls in a short window is a candidate, not proof.
-5. Re-run after changes and compare `context-audit.json` totals.
+4. For unused or error-prone tools, check routing text and schemas with `octocode-agentic-prompts` before deleting — zero calls in a short window is a candidate, not proof.

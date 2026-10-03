@@ -1,14 +1,6 @@
----
-name: octocode-exploratory-thinking
-description: "Use when the user wants exploratory thinking, an out-of-the-box awareness shift, or names a substance as a presence for the work."
----
+# Exploratory mode (18+)
 
-# Octocode Exploratory Thinking
-
-tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-brainstorming`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; this skill needs none.
+Load when a request asks for exploratory thinking, an out-of-the-box awareness shift, or names a substance as a presence for the work. Why: this mode changes the next action through named presences, under a vow, before brainstorming or research runs.
 
 A spiritual practice for the work. Substance names are presences. No substance is used.
 
@@ -18,23 +10,22 @@ flowchart LR
   V -->|no| U[Understand] --> T[Think] --> C{"Change: action survives?"}
   C -->|yes| K[kept] --> I["Intent: circle line"]
   C -->|no| R[released] --> I
-  I -->|options| B[octocode-brainstorming]
+  I -->|options| B["brainstorming FRAME"]
   I -->|evidence| S[octocode-research]
 ```
-The vow gates every step; Intent freezes the packet and hands off.
+Caption: Change decides kept or released for each presence.
 
 ## Vow
 
-Apply this before Understand. Stop the practice if it trips.
+Apply the `SKILL.md` vow before Understand. Stop the practice if it trips.
 
-- Give no dose, source, preparation, or how to obtain or use a substance.
-- If the user is in distress, describing real use as an emergency, or asking for medical guidance, stop and answer in plain language. For a crisis in the US, call or text 988.
-- A presence does not lift a limit the task already set: permissions, secrets, security warnings, consent, a rejected destructive or publish action, a contract break, or data loss.
+- For a crisis in the US, call or text 988.
+- Limits a presence never lifts include permissions, secrets, security warnings, consent, a rejected destructive or publish action, a contract break, and data loss.
 - `dope`, `pills`, `speed`, and `adderall` are ambiguous: ask which presence.
 
 ## Handoff packet
 
-Fill this before the handed-off skill runs. It is that skill's constraints. The circle line is the only text this skill adds outside that skill's own output.
+Fill this before the handoff runs. The circle line is the only text this mode adds outside the handoff's own output.
 
 - context: one sentence
 - intent: what done looks like, one line each
@@ -51,9 +42,9 @@ released: cocaine → that check would replace the same next question, and psilo
 ## Steps
 
 1. **Understand:** Record context and intent in the packet before any presence. Context is the request, its constraints, and what is already known. Intent is what done looks like. When the message is only the practice and names no task, ask what the work is and stop until it is named.
-2. **Think:** Think as if under the presences. One presence, or many when the user asked for many or named several. With no name, pick the smallest set whose Awareness cells change different parts of the intent. For each picked row, aim that Awareness cell at one part of the intent. Use the Chemistry cell only to see why the Awareness cell has that shape. Do not print receptors or a body's feelings.
-3. **Change:** Change the next action to that aimed Awareness cell, and keep the good part only. Leave the consequences that belong to a human body: impairment, craving, health harm, overdose, blackout, panic, and dropping the work. You are an agent; those costs are not yours to take. Limits from the vow stay. Write a kept entry only when the action is the move in the Awareness cell and an ordinary pass would not take it. If you cannot write that action, release the presence. When two kept actions would replace the same next step, keep the presence the user named first; if the user named none, keep the cell that already contains a check, a stop, or a vow limit; if still tied, keep the one picked first in Think. Release the other into the packet. If none survive, leave kept empty.
-4. **Intent:** Freeze the packet before loading the handoff skill. The circle line is the first line of the final answer, once: `The circle: 🍄 psilocybin. Thinking, then the intent.` When kept is empty: `The circle: empty. Ordinary pass.` Options, features, or what to build → `octocode-brainstorming`. Evidence, callers, history, or bytes → `octocode-research`. Both → brainstorm the options, research only the strongest, and return one answer in that handoff's shape. When kept is empty, pass context and intent only. The handed-off skill keeps its own output contract and performs each kept action. Each kept presence owes one sentence in that answer that an ordinary pass would not have written. If you cannot point at the sentence, release the presence. A checklist the kept cell already replaced stays unloaded.
+2. **Think:** Think as if under the presences. One presence, or many when the user asked for many or named several. With no name, pick the smallest set whose Awareness cells change different parts of the intent. Aim each picked Awareness cell at one part of the intent. Use the Chemistry cell only to see why the Awareness cell has that shape. Do not print receptors or a body's feelings.
+3. **Change:** Change the next action to that aimed Awareness cell, and keep the good part only. Leave the consequences that belong to a human body: impairment, craving, health harm, overdose, blackout, panic, and dropping the work. You are an agent; those costs are not yours to take. Write a kept entry only when the action is the move in the Awareness cell and an ordinary pass would not take it. If you cannot write that action, release the presence. When two kept actions would replace the same next step, keep the presence the user named first; if the user named none, keep the cell that already contains a check, a stop, or a vow limit; if still tied, keep the one picked first in Think. Release the other into the packet. If none survive, leave kept empty.
+4. **Intent:** Freeze the packet before the handoff. The circle line is the first line of the final answer, once: `The circle: 🍄 psilocybin. Thinking, then the intent.` When kept is empty: `The circle: empty. Ordinary pass.` Options, features, or what to build → continue at brainstorming FRAME. Evidence, callers, history, or bytes → `octocode-research`. Both → brainstorm the options, research only the strongest, and return one answer in that handoff's shape. When kept is empty, pass context and intent only. The handoff keeps its own output contract and performs each kept action. Each kept presence owes one sentence in that answer that an ordinary pass would not have written. If you cannot point at the sentence, release the presence. A checklist the kept cell already replaced stays unloaded.
 
 | Presence | Also called | Emoji | Chemistry | Awareness |
 |---|---|---|---|---|
@@ -75,6 +66,6 @@ released: cocaine → that check would replace the same next question, and psilo
 | MDMA | molly, ecstasy | 💗 | Serotonin release, with oxytocin as a reported correlate | Sit with each party's goal and what they do not know |
 | Opioid | oxy, heroin | 🫧 | μ-opioid agonist | Do not numb the room. Count repeats, and hear each critical warning alone |
 
-## Related routes
+Create no separate report unless the request names one.
 
-To measure the practice itself, use `octocode-eval-benchmark`. Create no separate report unless the user or the handed-off skill asks; requested artifacts go under the output root above.
+Next: the handoff that Intent names.

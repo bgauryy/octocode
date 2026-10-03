@@ -18,7 +18,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 |---|---|
 | [OCTOCODE_RESEARCH_MANIFEST.md](OCTOCODE_RESEARCH_MANIFEST.md) | Choosing and combining tools for local, remote and history research; evidence boundaries |
 | [OCTOCODE_TOOLS.md](OCTOCODE_TOOLS.md) | Every tool's fields, defaults, limits, results and continuations |
-| [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request/result envelope and how evidence and `next.*` continuations carry between tools |
+| [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request/result envelope and how evidence, `next.*` pages, and `hints.*` leads carry between tools |
 | [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | `clasify`: modes, presets, limits, cache, search handoff and outputs |
 | [CONFIGURATION.md](CONFIGURATION.md) | Config files, precedence, storage and caches, feature gates, troubleshooting |
 | [generated/CONFIG_SETTINGS.md](generated/CONFIG_SETTINGS.md) | Generated table of every setting, env var, default and range |

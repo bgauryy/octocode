@@ -33,8 +33,7 @@ when the issue set changes; never ask a model to poll. No scheduler is installed
 
 ## Recovery
 
-Heartbeat every 15 s; presence expires at 60 s. Plain heartbeats do not renew leases;
-managed MCP, `run` and Pi do ([host setup](HOST_SETUP.md)). Guarded edits stop on
+Presence and lease renewal: [host setup](HOST_SETUP.md). Guarded edits stop on
 expired identity, missing coverage or failed renewal ([guards](HOST_LEASE_GUARDS.md)).
 Before restoring, stop delivery owners and confirm no process uses the DB. Rehearse
 recovery at a new path; never overwrite a live store.

@@ -1399,7 +1399,7 @@ fn admit_scope(
         ),
     );
     // Response shaping keeps one concise hint per row.
-    error.hints = vec!["Run next.narrowScope, pick another listed root, or set maxFiles (next.expandScan) to opt in.".into()];
+    error.hints = vec!["Run hints.narrowScope, pick another listed root, or set maxFiles (next.expandScan) to opt in.".into()];
     let continuation = |path: String, max_files: Option<u32>| {
         let mut query = serde_json::to_value(q).unwrap_or_default();
         if let Some(object) = query.as_object_mut() {
@@ -1408,10 +1408,6 @@ fn admit_scope(
             if let Some(max_files) = max_files {
                 object.insert("maxFiles".into(), serde_json::json!(max_files));
             }
-            object.insert(
-                "reasoning".into(),
-                serde_json::json!("Rerun topology within an admitted scan scope."),
-            );
         }
         query
     };
@@ -1483,7 +1479,7 @@ mod tests {
                 .unwrap();
             let security = crate::security::ContentSecurity::new();
             let query: super::AstTopologyQuery = serde_json::from_value(serde_json::json!({
-                "goal": "test", "reasoning": "sanity", "analysis": "cycles", "path": root, "maxFiles": 20000
+                "mainGoal": "test", "reasoning": "sanity", "analysis": "cycles", "path": root, "maxFiles": 20000
             }))
             .unwrap();
             let started = std::time::Instant::now();
@@ -1833,7 +1829,7 @@ mod tests {
         })
         .unwrap();
         let query: super::AstTopologyQuery = serde_json::from_value(serde_json::json!({
-            "goal": "test", "reasoning": "test", "analysis": "cycles", "path": root
+            "mainGoal": "test", "reasoning": "test", "analysis": "cycles", "path": root
         }))
         .unwrap();
         super::build_graph_with(

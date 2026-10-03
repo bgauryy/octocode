@@ -9,7 +9,7 @@ use super::{
     ExecutionContext, ExecutionError,
     clasify_locate::{
         LocateRead, bare_identifier, bare_target_hint, drop_redundant_page_reads, literal_search,
-        literal_target_hint, rank_locate, readable_best, with_row_reads,
+        literal_target_hint, rank_locate, read_first_hint, readable_best, with_row_reads,
     },
     clasify_output::{self, PageOutcome},
     dispatch::{self, DomainResult},
@@ -800,14 +800,14 @@ fn candidate_read(source: &Value, candidate: &Value, max_bytes: usize) -> Option
 /// required goal is the decision the search was opened for.
 fn inherit_search_goal(read: &mut Value, source: &Value) {
     if read
-        .pointer("/query/goal")
+        .pointer("/query/mainGoal")
         .and_then(Value::as_str)
         .is_none_or(|text| text.trim().is_empty())
         && let Some(goal) = source
-            .pointer("/query/goal")
+            .pointer("/query/mainGoal")
             .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
     {
-        read["query"]["goal"] = goal.clone();
+        read["query"]["mainGoal"] = goal.clone();
     }
 }
 
@@ -917,7 +917,7 @@ fn host_read(source: &Value, candidate: &Value) -> Option<Value> {
     query.remove("chunkType");
     query.remove("chunkSize");
     // The matrix brief is copied on by the response stage.
-    query.remove("goal");
+    query.remove("mainGoal");
     query.remove("reasoning");
     read["confidence"] = json!("high");
     Some(read)
@@ -1080,7 +1080,7 @@ fn hydrate_candidate(
                         format!(
                             "The sanitized candidate chunk is {evidence_chars} characters; the limit is {MAX_HYDRATED_CHARS}."
                         ),
-                        "Use next.read to select a smaller exact region.",
+                        "Use hints.read to select a smaller exact region.",
                     ),
                     context,
                 }
@@ -1328,7 +1328,7 @@ fn hydrate_candidates(
                         error: ClassificationError::new(
                             "classificationBudgetSpent",
                             "This hit window was not judged: the call's page budget was spent on denser clusters.",
-                            "Run its next.read, or narrow the search to classify it.",
+                            "Run its hints.read, or narrow the search to classify it.",
                         ),
                         context,
                     }],
@@ -2136,7 +2136,7 @@ fn read_brief(resource: &Value, goal: &str, reasoning: &str) -> Option<Value> {
     let mut query = context.get("query")?.as_object()?.clone();
     query.retain(|key, value| match key.as_str() {
         "snapshot" | "cursor" | "diagnosticSnapshot" => false,
-        "goal" => value
+        "mainGoal" => value
             .as_str()
             .is_some_and(|text| text.trim() != goal.trim()),
         "reasoning" => value
@@ -2147,14 +2147,17 @@ fn read_brief(resource: &Value, goal: &str, reasoning: &str) -> Option<Value> {
     Some(json!({"tool":tool,"query":query}))
 }
 
-fn copy_goal(next: &mut Value, query: &Value) {
-    if let Some(goal) = query.get("goal").filter(|value| value.is_string()) {
-        next["goal"] = goal.clone();
+/// The walk carries only the brief fields the caller sent.
+fn copy_brief(next: &mut Value, query: &Value) {
+    for field in ["mainGoal", "reasoning"] {
+        if let Some(value) = query.get(field).filter(|value| value.is_string()) {
+            next[field] = value.clone();
+        }
     }
 }
 
 /// A delegated read belongs to the same decision as the matrix. Fill a blank
-/// brief from the matrix so the tool call stays valid without a second essay.
+/// brief from the matrix brief, when the matrix has one.
 fn inherit_call_brief(resource: &mut Value, goal: &str, reasoning: &str) {
     let Some(query) = resource
         .pointer_mut("/context/query")
@@ -2175,7 +2178,7 @@ fn inherit_call_brief(resource: &mut Value, goal: &str, reasoning: &str) {
             query.insert(field.into(), Value::String(value.to_owned()));
         }
     };
-    fill(query, "goal", goal);
+    fill(query, "mainGoal", goal);
     fill(query, "reasoning", reasoning);
 }
 
@@ -2352,7 +2355,7 @@ fn execute_query_verbose(
         tokio::sync::mpsc::unbounded_channel::<(usize, Result<Capture, ExecutionError>)>();
     let candidate_limit = (MAX_EXPANDED_CELLS / questions.len().max(1)).max(1);
     let goal = query
-        .get("goal")
+        .get("mainGoal")
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
         .unwrap_or_default();
@@ -2617,15 +2620,25 @@ fn execute_query_verbose(
         // Public rows gain an exact read; `carry` keeps the copyable rows.
         .map(|visible| with_row_reads(visible, &locate_reads));
     drop_redundant_page_reads(&mut rendered, visible.as_ref());
+    let read_first = visible
+        .as_ref()
+        .filter(|_| walk_open)
+        .and_then(|visible| read_first_hint(visible, &locate_ids));
     if let Some(visible) = visible {
         output["best"] = visible;
     }
-    let hints = locate_targets
-        .iter()
-        .filter_map(|(_, target)| literal_target_hint(target))
+    let hints = read_first
+        .into_iter()
+        .chain(
+            locate_targets
+                .iter()
+                .filter_map(|(_, target)| literal_target_hint(target)),
+        )
         .collect::<Vec<_>>();
     if !hints.is_empty() {
-        output["hints"] = json!(hints);
+        // Already in its public shape, so the tips keep their place ahead of
+        // the walk.
+        output[super::channels::HINTS_KEY] = json!({(super::channels::HINT_TEXT_KEY): hints});
     }
     let literal = literal_search(locate_targets.iter().map(|(_, target)| *target), resources);
     output["resources"] = Value::Array(rendered);
@@ -2642,14 +2655,13 @@ fn execute_query_verbose(
             .collect::<Vec<_>>();
         output["next"] = json!({(ToolId::Clasify.as_str()):{
             "id":query["id"],
-            "reasoning":query["reasoning"],
             "resources":continuation_resources,
             "questions":public_questions
         }});
         if let Some(best) = best {
             output["next"][ToolId::Clasify.as_str()]["carry"] = best;
         }
-        copy_goal(&mut output["next"][ToolId::Clasify.as_str()], query);
+        copy_brief(&mut output["next"][ToolId::Clasify.as_str()], query);
         // A debug walk stays one, as every other tool's continuation keeps
         // `debug`: the receipt shape does not change mid-walk.
         if query.get("debug").and_then(Value::as_bool) == Some(true) {
@@ -2958,7 +2970,7 @@ mod tests {
     fn flat_questions_and_omitted_ids_are_normalized_for_internal_execution() {
         let mut queries = vec![
             json!({
-                "goal": "test", "reasoning":"Locate facts",
+                "mainGoal": "test", "reasoning":"Locate facts",
                 "resources":[
                     {"context":{"value":"a"}},
                     {"id":"resource-1","context":{"value":"b"}}
@@ -2970,7 +2982,7 @@ mod tests {
             }),
             json!({
                 "id":"matrix-1",
-                "goal": "test", "reasoning":"Judge state",
+                "mainGoal": "test", "reasoning":"Judge state",
                 "resources":[{"context":{"value":"c"}}],
                 "questions":[{"type":"noul","instructions":"third"}]
             }),
@@ -3379,13 +3391,12 @@ mod tests {
 
     #[test]
     fn list_tools_bound_their_first_page_to_the_cell_budget() {
-        let repos =
-            json!({"tool":"ghSearchRepo","query":{"goal":"g","reasoning":"r","keywords":["x"]}});
+        let repos = json!({"tool":"ghSearchRepo","query":{"mainGoal":"g","reasoning":"r","keywords":["x"]}});
         let bounded = bounded_search_source(&repos, 6).expect("first page");
         assert_eq!(bounded["query"]["pageSize"], 6);
         assert_eq!(bounded["query"]["page"], 1);
         let packages = json!({"tool":"artifactSearch","query":{
-            "goal":"g","reasoning":"r","type":"npm","keywords":["x"],"cursor":"c","pageSize":20
+            "mainGoal":"g","reasoning":"r","type":"npm","keywords":["x"],"cursor":"c","pageSize":20
         }});
         let bounded = bounded_search_source(&packages, 5).expect("cursor page");
         assert_eq!(bounded["query"]["pageSize"], 5);
@@ -3408,14 +3419,14 @@ mod tests {
     #[test]
     fn candidate_page_bound_preserves_the_original_search_offset() {
         let first = json!({"tool":"localSearch","query":{
-            "goal": "test", "reasoning":"find","path":"/repo","searchText":"x","pageSize":20
+            "mainGoal": "test", "reasoning":"find","path":"/repo","searchText":"x","pageSize":20
         }});
         let bounded = bounded_search_source(&first, 5).expect("first page");
         assert_eq!(bounded["query"]["page"], 1);
         assert_eq!(bounded["query"]["pageSize"], 5);
 
         let aligned = json!({"tool":"ghSearchCode","query":{
-            "goal": "test", "reasoning":"find","owner":"o","keywords":["x"],
+            "mainGoal": "test", "reasoning":"find","owner":"o","keywords":["x"],
             "page":2,"pageSize":20
         }});
         let bounded = bounded_search_source(&aligned, 5).expect("aligned offset");
@@ -3423,7 +3434,7 @@ mod tests {
         assert_eq!(bounded["query"]["pageSize"], 5);
 
         let unaligned = json!({"tool":"localSearch","query":{
-            "goal": "test", "reasoning":"find","path":"/repo","searchText":"x","page":2,"pageSize":6
+            "mainGoal": "test", "reasoning":"find","path":"/repo","searchText":"x","page":2,"pageSize":6
         }});
         let bounded = bounded_search_source(&unaligned, 5).expect("aligned smaller page");
         assert_eq!(bounded["query"]["page"], 3);
@@ -3437,7 +3448,7 @@ mod tests {
 
     #[test]
     fn concise_search_candidates_keep_per_file_identity_and_executable_reads() {
-        let source = json!({"tool":"ghSearchCode", "query":{"goal":"find evidence"}});
+        let source = json!({"tool":"ghSearchCode", "query":{"mainGoal":"find evidence"}});
         let state = json!({"results":[{"data":{"files":["o/r:src/a.rs", "o/r:src/b.rs", "o/r:src/a.rs"]}}]});
         let candidates = search_candidate_states(&source, &state).expect("concise candidates");
         assert_eq!(candidates.len(), 2);
@@ -3488,7 +3499,7 @@ mod tests {
     fn provider_state_names_the_read_that_produced_the_evidence() {
         let resource = json!({"id":"hits","context":{"tool":"localSearch","query":{
             "path":"/repo","searchText":"Retry-After","snapshot":"opaque",
-            "goal":"Find retries.","reasoning":"Only snippets name the retry file."
+            "mainGoal":"Find retries.","reasoning":"Only snippets name the retry file."
         }}});
         let read = read_brief(&resource, "Find retries.", "Screen first.").expect("tool read");
         assert_eq!(
@@ -3541,17 +3552,20 @@ mod tests {
             );
         }
         let mut next = json!({});
-        copy_goal(
+        copy_brief(
             &mut next,
-            &json!({"goal":"Searching for retry handling. Need files that decide a retry."}),
+            &json!({"mainGoal":"Searching for retry handling. Need files that decide a retry.",
+                "reasoning":"Read the deciding file."}),
         );
         assert_eq!(
-            next["goal"],
-            "Searching for retry handling. Need files that decide a retry."
+            next,
+            json!({"mainGoal":"Searching for retry handling. Need files that decide a retry.",
+                "reasoning":"Read the deciding file."})
         );
+        // No brief sent, none carried: a null brief fails the output contract.
         let mut blank = json!({});
-        copy_goal(&mut blank, &json!({}));
-        assert!(blank.get("goal").is_none());
+        copy_brief(&mut blank, &json!({"reasoning":null}));
+        assert_eq!(blank, json!({}));
     }
 
     #[test]

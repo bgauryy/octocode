@@ -87,7 +87,7 @@ for (const t of TARGETS) {
       const d = await call('astSearch', { operation: 'symbols', path: at, name: target.name, ...(t.langType ? { langType: t.langType } : {}) });
       if (declarations(d).filter(o => o.name === target.name && Math.abs(o.line - (l.displayRange?.startLine ?? 0)) <= 1).length) confirmed = true;
     }
-    const explained = /compile_commands/.test(JSON.stringify(rowData(def)?.hints ?? []));
+    const explained = /compile_commands/.test(JSON.stringify(rowData(def)?.hints?.text ?? []));
     check(`${t.lang}: symbols anchor → lspSearch definition lands on an astSearch-confirmed declaration`, lands || confirmed || explained, JSON.stringify(rowData(def)?.payload?.locations?.[0]?.displayRange ?? rowData(def)?.hints ?? ''));
     const refs = await hop('prove: references', 'lspSearch', { uri: file, symbolName: target.name, lineHint: target.line, operation: 'references', pageSize: 25 });
     const refFiles = new Set(lspLocations(refs).map(l => sourcePath(refs, l, file)));

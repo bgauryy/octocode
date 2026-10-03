@@ -47,6 +47,9 @@ pub(super) fn finish(
         allow_auto_paging,
         source_digest,
     } = input;
+    // Pages stay in `next`; leads and prose tips move to `hints` before the
+    // public contract sees the rows.
+    super::channels::split_hints(&mut structured, tool);
     // Validate the complete, sanitized rows before deriving text, error state,
     // or a pagination snapshot from them.
     match isolate_output_rows(tool.as_str(), &mut structured) {
@@ -120,6 +123,7 @@ pub(super) fn finish_receipts(
     // Page reads are continuations like any other: they carry the brief of
     // the matrix that produced them.
     super::continuations::inherit_clasify_briefs(&mut structured, &response_query);
+    super::channels::split_hints(&mut structured, ToolId::Clasify);
     // Page reads and nested read contexts replay through validation too; emit
     // only fields that change the replay (no `debug:false`, default views).
     super::continuations::compact_continuations(&mut structured);
@@ -266,7 +270,7 @@ mod tests {
             StageInput {
                 tool: ToolId::from_name(tool).expect("known tool"),
                 structured,
-                response_query: json!({"path":"/tmp/a.txt","goal": "test", "reasoning":"r"}),
+                response_query: json!({"path":"/tmp/a.txt","mainGoal": "test", "reasoning":"r"}),
                 options: ResponsePageOptions::default(),
                 mcp,
                 failure: None,
@@ -284,7 +288,7 @@ mod tests {
     fn fetch_row(index: usize) -> Value {
         json!({"index":index,"data":{"path":"a.txt","content":"one\n","totalLines":1,
             "next":{"continue":{"tool":"localFetch","confidence":"exact",
-                "query":{"path":"/tmp/a.txt","goal": "test", "reasoning":"r","debug":false,"offset":1}}}}})
+                "query":{"path":"/tmp/a.txt","mainGoal": "test", "reasoning":"r","debug":false,"offset":1}}}}})
     }
 
     #[test]
@@ -404,7 +408,7 @@ mod tests {
                 StageInput {
                     tool: ToolId::GhGetFileContent,
                     structured: rows,
-                    response_query: json!({"queries":[{"owner":"o","repo":"r","path":"a.txt","goal":"g","reasoning":"r"}]}),
+                    response_query: json!({"queries":[{"owner":"o","repo":"r","path":"a.txt","mainGoal":"g","reasoning":"r"}]}),
                     options: ResponsePageOptions {
                         response_char_length: Some(300),
                         ..Default::default()
@@ -431,8 +435,8 @@ mod tests {
     fn clasify_receipts_compact_nested_queries_to_replay_equivalent_fields() {
         let receipt = json!({"queries":[{"queryId":"q","resources":[{"resourceId":"r","coverage":"complete",
             "pages":[{"answers":{"a":{"noul":0.5}}}]}],
-            "next":{"clasify":{"id":"q","goal": "test", "reasoning":"r","resources":[{"id":"r","context":{"tool":"localFetch",
-                "query":{"path":"/tmp/a.txt","goal": "test", "reasoning":"r","debug":false}}}],
+            "next":{"clasify":{"id":"q","mainGoal": "test", "reasoning":"r","resources":[{"id":"r","context":{"tool":"localFetch",
+                "query":{"path":"/tmp/a.txt","mainGoal": "test", "reasoning":"r","debug":false}}}],
                 "questions":[{"id":"a","type":"noul","instructions":"Does it?"}]}}}]});
         let outcome = finish_receipts(
             super::super::clasify_batch::Receipts {

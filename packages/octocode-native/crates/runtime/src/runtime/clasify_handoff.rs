@@ -59,17 +59,14 @@ pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Valu
             continue;
         };
         if !search {
-            let offer = large_read_handoff(tool, query, data);
-            if let Some(offer) = offer
-                && data
-                    .get("next")
-                    .is_none_or(|next| next.get(ToolId::Clasify.as_str()).is_none())
+            if let Some((name, lead)) = large_read_lead(tool, query, data)
+                && data.get("next").is_none_or(|next| next.get(name).is_none())
                 && let Some(next) = data
                     .entry("next")
                     .or_insert_with(|| json!({}))
                     .as_object_mut()
             {
-                next.insert(ToolId::Clasify.as_str().into(), offer);
+                next.insert(name.into(), lead);
             }
             continue;
         }
@@ -89,18 +86,21 @@ pub(super) fn attach(structured: &mut Value, tool: &str, queries: &[Option<&Valu
 /// clasify locate instead of the next page (the read returned only its head).
 const LARGE_READ_LINES: u64 = crate::tools::local_fetch::LARGE_READ_LINES as u64;
 
-/// Goal identifiers a large-read locate prefilters on, at most.
-const MAX_GOAL_PREFILTER: usize = 3;
-
-/// `next.clasify` for one file-read row (`localFetch` / `ghGetFileContent`):
-/// a read of a file of at least [`LARGE_READ_LINES`] lines that stopped
-/// before its end (more pages, or a partial row) and has no `matchString`.
-/// The read's goal becomes the locate target; the matrix uses the unified
-/// input shape and reads the whole file. Reads that select a range, a match,
-/// or a transformed view are already targeted and get nothing. The caller
-/// (the file-read tool's `next` builder) inserts the returned continuation;
-/// the cross-tool `next` filter drops it when clasify is unavailable.
-fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value> {
+/// The lead for one file-read row (`localFetch` / `ghGetFileContent`): a
+/// read of a file of at least [`LARGE_READ_LINES`] lines that stopped before
+/// its end (more pages, or a partial row) and has no `matchString`, whose
+/// `mainGoal` asks where something is. A goal naming an identifier is a
+/// literal lookup: a local read gets `localSearch` for it (exact and cheaper
+/// than locate), a remote read nothing. Any other locate goal gets
+/// `clasify`, which reads the whole file with the goal as its target. Reads
+/// that select a range, a match, or a transformed view are already targeted
+/// and get nothing. The cross-tool filter drops the lead when its tool is
+/// unavailable.
+fn large_read_lead(
+    tool: &str,
+    query: &Value,
+    data: &Map<String, Value>,
+) -> Option<(&'static str, Value)> {
     if !crate::tools::clasify::is_file_read_tool(tool) {
         return None;
     }
@@ -128,22 +128,30 @@ fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> O
         return None;
     }
     let goal_chars =
-        crate::contracts::query_schema_number(ToolId::Clasify, None, "goal", "maxLength")
+        crate::contracts::query_schema_number(ToolId::Clasify, None, "mainGoal", "maxLength")
             .and_then(|length| usize::try_from(length).ok())
             .unwrap_or(usize::MAX);
     let goal: String = query
-        .get("goal")?
+        .get("mainGoal")?
         .as_str()?
         .chars()
         .take(goal_chars)
         .collect();
-    // A bare identifier is a literal lookup: clasify would route it straight
-    // back to localSearch without a read, so offering it only adds a turn.
-    if goal.trim().is_empty()
-        || super::clasify_locate::bare_identifier(&goal).is_some()
-        || generic_read_goal(&goal)
-    {
+    let path = query.get("path")?.as_str()?;
+    let literal_lead = |identifier: &str| {
+        (tool == ToolId::LocalFetch.as_str())
+            .then(|| super::clasify_locate::literal_file_search(path, identifier))
+            .flatten()
+            .map(|search| (ToolId::LocalSearch.as_str(), search))
+    };
+    if let Some(identifier) = super::clasify_locate::bare_identifier(&goal) {
+        return literal_lead(identifier);
+    }
+    if goal.trim().is_empty() || generic_read_goal(&goal) || !locate_goal(&goal) {
         return None;
+    }
+    if let Some(identifier) = super::clasify_locate::literal_target(&goal) {
+        return literal_lead(identifier);
     }
     let mut read = Map::new();
     for key in ["path", "owner", "repo", "branch"] {
@@ -151,23 +159,51 @@ fn large_read_handoff(tool: &str, query: &Value, data: &Map<String, Value>) -> O
             read.insert(key.into(), value.clone());
         }
     }
-    read.get("path")?;
-    let mut resource = json!({"id": "file", "tool": tool, "query": Value::Object(read)});
-    // Identifiers the goal names pick the hit windows to judge.
-    let literals = super::clasify_locate::goal_literals(&goal, MAX_GOAL_PREFILTER);
-    if !literals.is_empty() {
-        resource["prefilter"] = json!(literals);
+    let resource = json!({"id": "file", "tool": tool, "query": Value::Object(read)});
+    // The handoff carries only the brief the caller sent.
+    let mut matrix = json!({
+        "mainGoal": goal,
+        "resources": [resource],
+        "questions": [{"id": "target", "type": "locate", "ask": goal}],
+    });
+    if let Some(reasoning) = query.get("reasoning").filter(|value| value.is_string()) {
+        matrix["reasoning"] = reasoning.clone();
     }
-    Some(json!({
-        "tool": ToolId::Clasify.as_str(),
-        "confidence": "medium",
-        "query": {
-            "goal": goal,
-            "reasoning": "Locate the deciding lines of this large file before reading more pages.",
-            "resources": [resource],
-            "questions": [{"id": "target", "type": "locate", "ask": goal}],
-        },
-    }))
+    Some((
+        ToolId::Clasify.as_str(),
+        json!({
+            "tool": ToolId::Clasify.as_str(),
+            "confidence": "medium",
+            "query": matrix,
+        }),
+    ))
+}
+
+/// Words that ask where something is.
+const LOCATE_WORDS: &[&str] = &[
+    "where", "which", "find", "finds", "locate", "locates", "identify", "pinpoint",
+];
+/// Openers of a question about the file's behavior.
+const QUESTION_OPENERS: &[&str] = &[
+    "how", "why", "when", "what", "who", "whether", "does", "do", "is", "are", "can",
+];
+
+/// Whether a read goal asks where something is ("where the timer fires",
+/// "find the retry floor", "How does X avoid Y?"), not to understand,
+/// review, or check the file: a locate over a non-locate goal has no target.
+fn locate_goal(goal: &str) -> bool {
+    let words: Vec<String> = goal
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    goal.trim_end().ends_with('?')
+        || words
+            .first()
+            .is_some_and(|word| QUESTION_OPENERS.contains(&word.as_str()))
+        || words
+            .iter()
+            .any(|word| LOCATE_WORDS.contains(&word.as_str()))
 }
 
 /// Words that describe reading itself, not what to find in the file.
@@ -328,11 +364,11 @@ fn request(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value
     }
     // The search brief becomes the matrix goal, cut to clasify's goal bound.
     let goal_chars =
-        crate::contracts::query_schema_number(ToolId::Clasify, None, "goal", "maxLength")
+        crate::contracts::query_schema_number(ToolId::Clasify, None, "mainGoal", "maxLength")
             .and_then(|length| usize::try_from(length).ok())
             .unwrap_or(usize::MAX);
     let goal: String = query
-        .get("goal")?
+        .get("mainGoal")?
         .as_str()?
         .chars()
         .take(goal_chars)
@@ -341,12 +377,7 @@ fn request(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value
     if files.len() < WIDE_RESULT_FILES || !semantic_search(tool, query) {
         return None;
     }
-    let reasoning = query
-        .get("reasoning")
-        .and_then(Value::as_str)
-        .unwrap_or("Screen search candidates before reading.");
-    let mut search = query.clone();
-    search["reasoning"] = json!(reasoning);
+    let search = query.clone();
     let metadata_only = query.get("resultView").and_then(Value::as_str) == Some("files")
         || query.get("concise") == Some(&Value::Bool(true))
         || query.get("match").and_then(Value::as_str) == Some("path");
@@ -367,37 +398,55 @@ fn request(tool: &str, query: &Value, data: &Map<String, Value>) -> Option<Value
         resource["candidateEvidence"] =
             json!(crate::tools::clasify::CandidateEvidence::FileChunks.to_string());
     }
-    Some(json!({
-        "goal": goal,
-        "reasoning": reasoning,
+    // The handoff carries only the brief the caller sent.
+    let mut matrix = json!({
+        "mainGoal": goal,
         "resources": [resource],
         "questions": [
             relevance,
             {"id": "sufficient", "type": "sufficient", "ask": goal},
         ],
-    }))
+    });
+    if let Some(reasoning) = query.get("reasoning").filter(|value| value.is_string()) {
+        matrix["reasoning"] = reasoning.clone();
+    }
+    Some(matrix)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The clasify offer of a large read, if that is the lead it gets.
+    fn locate_offer(tool: &str, query: &Value, data: &Value) -> Option<Value> {
+        large_read_lead(tool, query, data.as_object().expect("data"))
+            .filter(|(name, _)| *name == ToolId::Clasify.as_str())
+            .map(|(_, offer)| offer)
+    }
+
     #[test]
     fn a_paged_read_of_a_large_file_without_match_string_offers_locate() {
         let query =
-            json!({"path":"src/server.c","goal":"find the housekeeping timer","reasoning":"r"});
+            json!({"path":"src/server.c","mainGoal":"find the housekeeping timer","reasoning":"r"});
         let paged = json!({"totalLines":8615,"pagination":{"chunkType":"bytes","offset":0,"chunkSize":20000,"hasMore":true}});
-        let offer =
-            large_read_handoff("localFetch", &query, paged.as_object().unwrap()).expect("offer");
+        let offer = locate_offer("localFetch", &query, &paged).expect("offer");
         assert_eq!(
             offer["query"],
             json!({
-                "goal":"find the housekeeping timer",
-                "reasoning":"Locate the deciding lines of this large file before reading more pages.",
+                "mainGoal":"find the housekeeping timer",
+                "reasoning":"r",
                 "resources":[{"id":"file","tool":"localFetch","query":{"path":"src/server.c"}}],
                 "questions":[{"id":"target","type":"locate","ask":"find the housekeeping timer"}]
             })
         );
+        // The handoff carries only the brief the caller sent; no mainGoal,
+        // no handoff.
+        let goal_only = json!({"path":"src/server.c","mainGoal":"find the housekeeping timer"});
+        let offer_without_reasoning =
+            locate_offer("localFetch", &goal_only, &paged).expect("offer");
+        assert!(offer_without_reasoning["query"].get("reasoning").is_none());
+        let bare = json!({"path":"src/server.c","reasoning":"r"});
+        assert!(large_read_lead("localFetch", &bare, paged.as_object().unwrap()).is_none());
         let prepared = crate::contracts::prepare_many_and_validate(
             "clasify",
             offer["query"].clone(),
@@ -410,26 +459,10 @@ mod tests {
             nested["resources"][0]["context"]["query"]["fullContent"],
             true
         );
-        // A goal that names identifiers narrows the locate to their hit
-        // windows (no hits falls back to the whole file).
-        let named = json!({"path":"src/builder.rs","goal":"why does worker_threads reject 0 in Builder::new or maxThreads","reasoning":"r"});
-        let offer =
-            large_read_handoff("localFetch", &named, paged.as_object().unwrap()).expect("offer");
-        assert_eq!(
-            offer["query"]["resources"][0]["prefilter"],
-            json!(["worker_threads", "Builder::new", "maxThreads"])
-        );
-        crate::contracts::prepare_many_and_validate(
-            "clasify",
-            offer["query"].clone(),
-            crate::contracts::PrepareOptions::default(),
-        )
-        .expect("the prefiltered offer validates");
-        let gh = json!({"owner":"o","repo":"r","path":"a.go","branch":"main","goal":"g","reasoning":"r"});
+        let gh = json!({"owner":"o","repo":"r","path":"a.go","branch":"main",
+            "mainGoal":"where the cache is flushed","reasoning":"r"});
         let partial = json!({"totalLines":2000,"isPartial":true});
-        assert!(
-            large_read_handoff("ghGetFileContent", &gh, partial.as_object().unwrap()).is_some()
-        );
+        assert!(locate_offer("ghGetFileContent", &gh, &partial).is_some());
         // Small, complete, targeted, transformed, or non-file reads get nothing.
         for (tool, query, data) in [
             (
@@ -444,45 +477,79 @@ mod tests {
             ),
             (
                 "localFetch",
-                json!({"path":"a","goal":"g","matchString":"cron"}),
+                json!({"path":"a","mainGoal":"find g","matchString":"cron"}),
                 paged.clone(),
             ),
             (
                 "localFetch",
-                json!({"path":"a","goal":"g","startLine":1,"endLine":50}),
+                json!({"path":"a","mainGoal":"find g","startLine":1,"endLine":50}),
                 paged.clone(),
             ),
             (
                 "localFetch",
-                json!({"path":"a","goal":"g","ranges":["1-50","900-950"]}),
+                json!({"path":"a","mainGoal":"find g","ranges":["1-50","900-950"]}),
                 paged.clone(),
             ),
             (
                 "localFetch",
-                json!({"path":"a","goal":"g","minify":"symbols"}),
+                json!({"path":"a","mainGoal":"find g","minify":"symbols"}),
                 paged.clone(),
             ),
             ("localSearch", query.clone(), paged.clone()),
-            (
-                "localFetch",
-                json!({"path":"a","goal":"MAX_CALL_CAPTURES"}),
-                paged.clone(),
-            ),
-            (
-                "ghGetFileContent",
-                json!({"owner":"o","repo":"r","path":"a.go","goal":"`newElementWith()`"}),
-                partial.clone(),
-            ),
         ] {
             assert!(
-                large_read_handoff(tool, &query, data.as_object().unwrap()).is_none(),
+                large_read_lead(tool, &query, data.as_object().unwrap()).is_none(),
                 "{query}"
             );
         }
     }
 
+    /// A goal that names an identifier is a literal lookup: localSearch finds
+    /// it exactly, so the read offers that search instead of a locate. A
+    /// remote read has no literal-search lead and gets nothing.
     #[test]
-    fn a_generic_read_goal_gets_no_large_read_locate() {
+    fn an_identifier_goal_offers_a_literal_search_instead_of_locate() {
+        let paged = json!({"totalLines":3137,"pagination":{"hasMore":true}});
+        for (goal, literal) in [
+            ("find bulk_update", "bulk_update"),
+            ("Where bulk_update refuses pk changes", "bulk_update"),
+            (
+                "why does worker_threads reject 0 in Builder::new or maxThreads",
+                "worker_threads",
+            ),
+            ("MAX_CALL_CAPTURES", "MAX_CALL_CAPTURES"),
+            ("where is `newElementWith()` defined", "newElementWith"),
+        ] {
+            let query = json!({"path":"django/db/models/query.py","mainGoal":goal,"reasoning":"r"});
+            let (name, lead) =
+                large_read_lead("localFetch", &query, paged.as_object().unwrap()).expect(goal);
+            assert_eq!(name, ToolId::LocalSearch.as_str(), "{goal}");
+            assert_eq!(lead["tool"], "localSearch", "{goal}");
+            assert_eq!(lead["query"]["path"], "django/db/models/query.py", "{lead}");
+            assert_eq!(lead["query"]["searchText"], literal, "{lead}");
+            crate::contracts::prepare_many_and_validate(
+                "localSearch",
+                lead["query"].clone(),
+                crate::contracts::PrepareOptions::default(),
+            )
+            .expect("the literal search validates");
+            let remote = json!({"owner":"o","repo":"r","path":"query.py","mainGoal":goal});
+            assert!(
+                large_read_lead(
+                    "ghGetFileContent",
+                    &remote,
+                    json!({"totalLines":3137,"isPartial":true})
+                        .as_object()
+                        .unwrap()
+                )
+                .is_none(),
+                "{goal}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_goal_that_locates_nothing_gets_no_large_read_lead() {
         let paged = json!({"totalLines":8615,"pagination":{"hasMore":true}});
         for goal in [
             "read key sections",
@@ -490,21 +557,30 @@ mod tests {
             "read the rest of this file",
             "lookup: subset of the main sections",
             "understand this code",
+            "Review file",
+            "octocode-local-testing regression check",
+            "Understand QuerySet",
+            "understand the eviction policy",
+            "read key sections on retries",
+            "g",
         ] {
-            let query = json!({"path":"src/server.c","goal":goal,"reasoning":"r"});
+            let query = json!({"path":"src/server.c","mainGoal":goal,"reasoning":"r"});
             assert!(
-                large_read_handoff("localFetch", &query, paged.as_object().unwrap()).is_none(),
+                large_read_lead("localFetch", &query, paged.as_object().unwrap()).is_none(),
                 "{goal}"
             );
         }
-        // A goal with one content term still names a target to locate.
+        // A goal that asks where something is gets a locate.
         for goal in [
-            "understand the eviction policy",
-            "read key sections on retries",
+            "where the eviction policy runs",
+            "find the retry backoff",
+            "Locate where objects are batched when saving many rows",
+            "How does the scheduler avoid starving remote tasks?",
+            "Which branch rejects an empty header",
         ] {
-            let query = json!({"path":"src/server.c","goal":goal,"reasoning":"r"});
+            let query = json!({"path":"src/server.c","mainGoal":goal,"reasoning":"r"});
             assert!(
-                large_read_handoff("localFetch", &query, paged.as_object().unwrap()).is_some(),
+                locate_offer("localFetch", &query, &paged).is_some(),
                 "{goal}"
             );
         }
@@ -530,7 +606,7 @@ mod tests {
     fn wide_local_search_screens_all_candidates_without_hydrating_top_files() {
         let mut out = local_rows(9);
         let search = json!({
-            "goal":"find retry", "reasoning":"Find production retry policy, including exceptions.",
+            "mainGoal":"find retry", "reasoning":"Find production retry policy, including exceptions.",
             "path":"/repo", "searchText":"retry delay", "page":2,
             "pageSize":9, "include":["src/**"], "snapshot":"search-snapshot"
         });
@@ -596,14 +672,14 @@ mod tests {
     #[test]
     fn literal_searches_do_not_hand_off() {
         for query in [
-            json!({"goal":"who uses it","searchText":"newElementWith","regex":"literal"}),
-            json!({"goal":"who uses it","searchText":"spawn_blocking","resultView":"files"}),
-            json!({"goal":"who uses it","searchText":"get object","wholeWord":true}),
-            json!({"goal":"who uses it","searchText":"retry"}),
-            json!({"goal":"who uses it","searchText":"\"retry delay\""}),
-            json!({"goal":"who uses it","searchText":"retry|backoff"}),
-            json!({"goal":"who uses it","searchText":"src/retry.rs"}),
-            json!({"goal":"how is the limit enforced","searchText":"sample.?limit"}),
+            json!({"mainGoal":"who uses it","searchText":"newElementWith","regex":"literal"}),
+            json!({"mainGoal":"who uses it","searchText":"spawn_blocking","resultView":"files"}),
+            json!({"mainGoal":"who uses it","searchText":"get object","wholeWord":true}),
+            json!({"mainGoal":"who uses it","searchText":"retry"}),
+            json!({"mainGoal":"who uses it","searchText":"\"retry delay\""}),
+            json!({"mainGoal":"who uses it","searchText":"retry|backoff"}),
+            json!({"mainGoal":"who uses it","searchText":"src/retry.rs"}),
+            json!({"mainGoal":"how is the limit enforced","searchText":"sample.?limit"}),
         ] {
             let mut wide = local_rows(12);
             run(&mut wide, "localSearch", std::slice::from_ref(&query));
@@ -624,7 +700,7 @@ mod tests {
             run(
                 &mut wide,
                 "ghSearchCode",
-                &[json!({"goal":"who uses it","owner":"o","keywords":keywords})],
+                &[json!({"mainGoal":"who uses it","owner":"o","keywords":keywords})],
             );
             assert!(handoff(&wide).is_none(), "{keywords}");
         }
@@ -646,15 +722,15 @@ mod tests {
         for (tool, query) in [
             (
                 "localSearch",
-                json!({"goal":"find retry", "searchText":"retry delay", "resultView":"files"}),
+                json!({"mainGoal":"find retry", "searchText":"retry delay", "resultView":"files"}),
             ),
             (
                 "ghSearchCode",
-                json!({"goal":"find retry", "keywords":["retry", "delay"], "concise":true}),
+                json!({"mainGoal":"find retry", "keywords":["retry", "delay"], "concise":true}),
             ),
             (
                 "ghSearchCode",
-                json!({"goal":"find retry", "keywords":["retry", "delay"], "match":"path"}),
+                json!({"mainGoal":"find retry", "keywords":["retry", "delay"], "match":"path"}),
             ),
         ] {
             let mut out = local_rows(9);
@@ -682,7 +758,7 @@ mod tests {
         run(
             &mut local,
             "localSearch",
-            &[json!({"goal":"how retries back off","searchText":"retry delay"})],
+            &[json!({"mainGoal":"how retries back off","searchText":"retry delay"})],
         );
         let files: Vec<Value> = (0..8)
             .map(|n| json!({"owner":"o","repo":"r","path":format!("a{n}.rs")}))
@@ -691,7 +767,7 @@ mod tests {
         run(
             &mut github,
             "ghSearchCode",
-            &[json!({"goal":"how sync retries","owner":"o","keywords":["sync","retry"]})],
+            &[json!({"mainGoal":"how sync retries","owner":"o","keywords":["sync","retry"]})],
         );
         for output in [&local, &github] {
             let query = handoff(output).expect("handoff")["query"].clone();
@@ -728,19 +804,19 @@ mod tests {
         run(
             &mut narrow,
             "localSearch",
-            &[json!({"goal":"g","searchText":"retry delay"})],
+            &[json!({"mainGoal":"g","searchText":"retry delay"})],
         );
         assert!(handoff(&narrow).is_none());
         let mut exact = local_rows(WIDE_RESULT_FILES);
         run(
             &mut exact,
             "localSearch",
-            &[json!({"goal":"g","searchText":"retry delay"})],
+            &[json!({"mainGoal":"g","searchText":"retry delay"})],
         );
         assert!(handoff(&exact).is_some(), "the threshold is inclusive");
         for query in [
-            json!({"goal":"g","searchText":"retry delay","resultView":"filesWithout"}),
-            json!({"goal":"g","searchText":"retry delay","invertMatch":true}),
+            json!({"mainGoal":"g","searchText":"retry delay","resultView":"filesWithout"}),
+            json!({"mainGoal":"g","searchText":"retry delay","invertMatch":true}),
         ] {
             let mut wide = local_rows(12);
             run(&mut wide, "localSearch", &[query]);
@@ -755,7 +831,7 @@ mod tests {
             .collect();
         let strings: Vec<Value> = (0..8).map(|n| json!(format!("o/r:b{n}.rs"))).collect();
         let search = json!({
-            "goal":"find retry policy", "reasoning":"Screen candidates before reading.",
+            "mainGoal":"find retry policy", "reasoning":"Screen candidates before reading.",
             "owner":"o", "repo":"r", "keywords":["retry", "backoff"]
         });
         for files in [objects, strings] {
@@ -775,9 +851,9 @@ mod tests {
     fn rows_after_a_rejected_query_keep_their_own_query() {
         // Inputs: 0 ok, 1 rejected, 2 ok, 3 ok. Output rows keep those positions.
         let queries = [
-            json!({"goal":"goal-0","searchText":"retry a"}),
-            json!({"goal":"goal-2","searchText":"retry b"}),
-            json!({"goal":"goal-3","searchText":"retry c"}),
+            json!({"mainGoal":"goal-0","searchText":"retry a"}),
+            json!({"mainGoal":"goal-2","searchText":"retry b"}),
+            json!({"mainGoal":"goal-3","searchText":"retry c"}),
         ];
         let mut out = json!({"base":"/repo","results":[
             {"index":0,"data":{"files": local_rows(9)["results"][0]["data"]["files"].clone()}},
@@ -789,8 +865,9 @@ mod tests {
         assert_eq!(by_row.len(), 4);
         assert!(by_row[1].is_none());
         attach(&mut out, "localSearch", &by_row);
-        let goal =
-            |row: usize| out["results"][row]["data"]["next"]["clasify"]["query"]["goal"].clone();
+        let goal = |row: usize| {
+            out["results"][row]["data"]["next"]["clasify"]["query"]["mainGoal"].clone()
+        };
         assert_eq!(goal(0), "goal-0");
         assert!(out["results"][1]["data"].get("next").is_none());
         assert_eq!(goal(2), "goal-2");
@@ -803,7 +880,7 @@ mod tests {
         run(
             &mut local,
             "localSearch",
-            &[json!({"goal":"find retry","searchText":"retry delay"})],
+            &[json!({"mainGoal":"find retry","searchText":"retry delay"})],
         );
         let files: Vec<Value> = (0..8)
             .map(|n| json!({"owner":"o","repo":"r","path":format!("a{n}.rs")}))
@@ -812,7 +889,7 @@ mod tests {
         run(
             &mut github,
             "ghSearchCode",
-            &[json!({"goal":"find sync","keywords":["sync","retry"]})],
+            &[json!({"mainGoal":"find sync","keywords":["sync","retry"]})],
         );
         for (tool, output) in [("localSearch", &local), ("ghSearchCode", &github)] {
             assert!(handoff(output).is_some(), "{tool} produced a handoff");

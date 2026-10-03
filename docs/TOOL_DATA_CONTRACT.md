@@ -37,17 +37,15 @@ and include those contracts in drift detection. Responses still carry matching
 
 ## Requests and result rows
 
-Each call uses one tool and an outer `queries` array of 1–5 queries (`clasify` also accepts one matrix directly). Independent queries can batch; a query that needs a prior result must wait for that result. Each new query carries its own required `goal` and `reasoning` (at most 500 characters each); they state the decision and do not supply missing runtime fields.
+Each call uses one tool and an outer `queries` array of 1–5 queries (`clasify` also accepts one matrix directly). Independent queries can batch; a query that needs a prior result must wait for that result. `mainGoal` and `reasoning` are optional (at most 500 characters each). Set them only in multi-call research on an unknown, where `mainGoal` is the research question and `reasoning` says why this call advances it; omit them on simple lookups, reads, and listings. They state the decision and do not supply missing runtime fields. The legacy name `goal` is still accepted for one release and maps to `mainGoal`; a blank brief is dropped.
 
-For example, this is a `localFetch` request. Substitute an observed path and line range:
+For example, this is a `localFetch` request; a single read needs no brief. Substitute an observed path and line range:
 
 <!-- tool: localFetch -->
 ```json
 {
   "queries": [
     {
-      "goal": "Read the parser range needed for the claim",
-      "reasoning": "Read the exact parser range needed for the current claim.",
       "path": "/ABS/repo/src/parser.ts",
       "startLine": 20,
       "endLine": 40,
@@ -76,7 +74,7 @@ Hosts show agents the structured JSON, so source evidence carries its own line n
 ```
 
 - Each returned line is `<line>` + TAB + the source text. The prefix is not part of the source: strip everything up to the first TAB before copying text into an edit or a `matchString`.
-- Line-omission markers between non-adjacent windows (`... [lines A-B omitted] ...`) stay unnumbered.
+- Line-omission markers between non-adjacent windows (`... [lines A-B omitted] ...`) stay unnumbered. In `ghGetFileContent` rows, two or more gaps that only single lines separate share one marker at the first gap, `... [N gaps in lines A-B omitted] ...`; each gap is the span between two consecutive numbers.
 - The numbers state the returned source lines, so `sourceLineRanges` is omitted from a numbered row (and a numbered `localFetch` row omits `startLine`, `endLine`, and `returnedLines`); `matchedLines` is omitted when every returned line matched (a grep-style map).
 - Size counts (`returnedChars`, and the debug-only `sourceBytes`/`returnedBytes`) measure the source text, not the line-number prefixes.
 - Views whose lines are not source lines stay verbatim and keep `sourceLineRanges` when they have one: `minify:"standard"`/`"symbols"` views (`contentView`), byte windows (`contextBytes`, long minified lines) and `chunkType:"bytes"` pages, whose offsets count the returned text, and content whose lines no longer map one-to-one onto the source range.
@@ -85,8 +83,8 @@ Hosts show agents the structured JSON, so source evidence carries its own line n
 
 ### Search result shapes
 
-- `localSearch` without `pageSize` or `maxMatchesPerFile` pages by response size: a result within one page of about 24 KB is shown whole, with no paging metadata or continuation; a larger one opens with up to 10 rows from each of its first 20 files, and `next.nextPage` walks the rest in pages of about 24 KB (a file's remaining rows follow on later pages, and its per-file `pagination.moreLines` names them). Either field set restores the file-page × match-page grid with `next.nextMatchPage`. A complete result over at most three files carries `next.read`: a `localFetch` `matchString` read (±6 lines) of the top file's hits. An invalid regex alternation (`a(|b`) gets a `next.repair` that escapes each broken alternative and keeps regex mode; a single invalid anchor still gets the literal repair.
-- `ghSearchCode` reads the top 5 files of a repo-scoped `match:"file"` page through the contents cache (core API quota, no extra code-search calls). Each resolved row has `lines` (every keyword line, up to 20, with `hitCount` when there are more) in place of index fragments; `data.commitSha` names the commit read. `owner`/`repo` are named once on `data` for a repo-scoped page. A row whose blob had no keyword line or could not be read keeps its fragments and sets `lineResolved:false`. With `branch`, lines are read at that ref (`data.ref`), `data.indexRef:"defaultBranch"` labels the candidates and unresolved fragments as default-branch index output, and a path absent at the ref is `atRef:false` without default-branch text. Fragment `matchIndices` appear only with `debug:true`. `next.readTopMatch` reads the first resolved file by line range at `data.commitSha`; an unresolved top file's fragment read is pinned to that commit, and one absent at the requested ref offers no read.
+- `localSearch` without `pageSize` or `maxMatchesPerFile` pages by response size: a result within one page of about 24 KB is shown whole, with no paging metadata or continuation; a larger one opens with up to 10 rows from each of its first 20 files, and `next.nextPage` walks the rest in pages of about 24 KB (a file's remaining rows follow on later pages, and its per-file `pagination.moreLines` names them). Either field set restores the file-page × match-page grid with `next.nextMatchPage`. A complete result over at most three files carries `hints.read`: a `localFetch` `matchString` read (±6 lines) of the top file's hits. An invalid regex alternation (`a(|b`) gets a `hints.repair` that escapes each broken alternative and keeps regex mode; a single invalid anchor still gets the literal repair.
+- `ghSearchCode` reads the top 5 files of a repo-scoped `match:"file"` page through the contents cache (core API quota, no extra code-search calls). Each resolved row has `lines` (every keyword line, up to 20, with `hitCount` when there are more) in place of index fragments; `data.commitSha` names the commit read. `owner`/`repo` are named once on `data` for a repo-scoped page. A row whose blob had no keyword line or could not be read keeps its fragments and sets `lineResolved:false`. With `branch`, lines are read at that ref (`data.ref`), `data.indexRef:"defaultBranch"` labels the candidates and unresolved fragments as default-branch index output, and a path absent at the ref is `atRef:false` without default-branch text. Fragment `matchIndices` appear only with `debug:true`. `hints.readTopMatch` reads the first resolved file by line range at `data.commitSha`; an unresolved top file's fragment read is pinned to that commit, and one absent at the requested ref offers no read.
 - Local symbol and structural rows are compact strings that lead with their line. An `astSearch` symbols row is an outline line `"<line>[-<endLine>] <kind> <name>"` with optional ` +` (exported), ` as a,b`, ` doc`/` doc@N`, ` from@N`, ` col N` and ` (in Parent@L)` suffixes, indented two spaces per nesting level; a default `match` row is `"<line>[-<endLine>]\t<value>"` (whitespace-normalized match text, not a source line), while `captureText:true` rows stay objects with `column` and `metavarRanges`. `lspSearch` `references` and depth-1 `callers` group rows per file under `payload.byFile`: `refs: ["<line>[-<end>]:<col> <text>"]` and `calls: ["<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>"]` (call sites, then the calling declaration). Harness and clasify readers parse these through one accessor each (`octocode-local-testing/harness/mcp-client.mjs`, `clasify_items.rs`); object rows of the earlier shape are still read.
 - `structureSearch` pages by response size when `pageSize` is omitted (about 24 KB of rows per page), so a moderate listing is one page. `files` rows group consecutive entries by directory, `{"dir":"<dir>","files":["<name>[/][ (<fields>)]"]}`: `/` marks a directory (`./` is `dir` itself) and the fields are the size in bytes (every non-directory), `symlink`, `lineCount=N` and `modifiedMs=N`; the last ` (` of an entry ending in `)` opens them. A page that continues a group repeats its `dir`, and the groups keep the sort order. Object rows of the earlier `{path, size}` shape are still read (`octocode-local-testing/harness/mcp-client.mjs` `structureFiles`). `files` sorts by path by default (walk order, like `git ls-files`) and stops walking once `limit` is filled; such a cut reports `truncated`, `partialReasons:["limit"]`, `atLeast` (a lower bound, not a total) and `next.expandLimit`. Other sorts walk the whole scope and report `totalAvailable`.
 
@@ -97,7 +95,7 @@ Hosts show agents the structured JSON, so source evidence carries its own line n
 | `results[].cache` | Debug only. `1` indicates a cached primary response. It does not establish current source freshness. |
 | `results[].meta.evidence` | `kind` and `confidence` describe evidence provenance and strength. They do not promise complete coverage. |
 | `results[].meta.diagnostics` | Optional diagnostic codes, hints, and partial state. |
-| `results[].data` | Operation-specific payload, pagination, coverage, errors, hints, and `next` calls. Empty and error rows carry one concise recovery hint (at most 120 characters). |
+| `results[].data` | Operation-specific payload, pagination, coverage, errors, `next` pages, and `hints`. Empty and error rows carry one concise recovery tip in `hints.text` (at most 120 characters). |
 | `base`, `shared` | Presentation compression metadata described below. |
 | `responsePagination` | Optional pagination of the whole response, independent of row-level result pages. |
 
@@ -114,7 +112,7 @@ Rows carry the answer and what the next call needs. With `debug: true` a query a
 - pagination of a finished single page, and on GitHub search pages the fields `next.nextPage` already carries (`perPage`, the next page number, `currentPage: 1`);
 - `confidence: "exact"` on GitHub and registry continuations: a continuation without `confidence` is an exact replay, and `high`/`medium`/`low` mark a judgment (registry leads state theirs as `source.verification`).
 
-These are never dropped: open pagination (`hasMore`, or a page after the first), every `next` continuation (continuations carry their own `snapshot`), warnings and errors, scan scope on an empty search, and confidence signals such as topology `completeness` and `confidence`. Error rows are always complete. The runtime owns this projection (`minimize_row`); each tool declares its debug-only fields.
+These are never dropped: open pagination (`hasMore`, or a page after the first), every `next` page and `hints` lead (continuations carry their own `snapshot`), warnings and errors, scan scope on an empty search, and confidence signals such as topology `completeness` and `confidence`. Error rows are always complete. The runtime owns this projection (`minimize_row`); each tool declares its debug-only fields.
 
 An outer `isError:false` does not establish that every row succeeded. Never infer success, absence, or completeness from a missing field. `answerReady` and `complete` are not universal members of `meta.evidence`; inspect the actual operation's pagination, coverage, truncation, and terminal-limit fields.
 
@@ -135,22 +133,25 @@ For LSP, a tool name is insufficient evidence of semantic resolution: native doc
 
 ## Executable continuations
 
-Copy the returned target and query. Follow every independent partial surface relevant to the claim, including nested captures, diagnostics, history collections, and content windows.
+Follow-up calls come in two channels. The page/lead rule lives in core `continuationChannels.ts` and is exported as `CONTINUATION_CHANNELS` from `@octocodeai/config/schema`.
+- **`next`** holds pages and coverage continuations: `nextPage` and other `next*` pages, `continue*`, `expand*`, `restart`, `retry`, `searchUnpatchedFile`, `binarySkipped`, clasify's own `next.clasify` walk, and `responsePagination.next`. The response is incomplete without them; follow every one that is relevant to the claim, including nested captures, diagnostics, history collections, and content windows.
+- **`hints`** holds optional agent guidance in one object: `hints.text` is the list of prose tips, and every other entry is a ready-to-run lead `{tool, query}` such as `hints.readTopMatch`, `hints.readFixPr`, `hints.viewRepo`, `hints.readFile`, `hints.textSearch`, `hints.narrowScope`, or a `hints.clasify` handoff. Run a lead when it serves the claim; skipping it never leaves the result incomplete.
 
 | Returned location | Query shape | How to call it |
 |---|---|---|
-| `results[].data.next.<name>` | Normally one tool query. | Call the named tool with `{ "queries": [next.query] }`. Check the returned shape rather than guessing from the next-call name. |
+| `results[].data.next.<name>` | Normally one tool query. | Call the named tool with `{ "queries": [next.query] }`. Check the returned shape rather than guessing from the call name. |
+| `results[].data.hints.<name>` | One tool query, like a page. | Call the named tool with `{ "queries": [hints.<name>.query] }` when the lead is useful. |
 | `responsePagination.next` | A complete outer request, including its own `queries`. | Pass `next.query` as the tool arguments. Do not wrap that envelope inside another `queries` array. |
 
-PR menus are exact reads: `reviewPatches` names its files (a ranking guess, `confidence: "high"`), and a literal search of every patch needs the caller's literal, so it is never offered as a placeholder. Issue reads add `closedBy` (`{number, state, mergedAt?}`, merged first, at most 25; more set `isPartial`, `terminalLimit`, and `partialReasons:["closingReferenceLimit"]`) and `next.readFixPr` (with every patch when the fix is small, otherwise its body and file inventory); `ghSearchHistory`'s `next.readPr` carries `candidates` (up to three numbers, the target first).
+PR menus are exact reads: `reviewPatches` names its files (a ranking guess, `confidence: "high"`), and a literal search of every patch needs the caller's literal, so it is never offered as a placeholder. Issue reads add `closedBy` (`{number, state, mergedAt?}`, merged first, at most 25; more set `isPartial`, `terminalLimit`, and `partialReasons:["closingReferenceLimit"]`) and `hints.readFixPr` (with every patch when the fix is small, otherwise its body and file inventory); `ghSearchHistory`'s `hints.readPr` targets one row, and any other row's number reads the same way.
 
-Every `next.*` query is complete under the contract: it carries the `goal` and `reasoning` of the query that produced it, plus any page, snapshot, or offset fields the published schemas leave out. Run it unchanged. A query you write yourself needs its own `goal` and `reasoning`; the contract rejects a query without them, whoever wrote it.
+Every `next.*` and `hints.*` query is complete under the contract: it carries any page, snapshot, or offset fields the published schemas leave out, and the `mainGoal` and `reasoning` of the query that produced it only when that query sent them. Run it unchanged. A query you write yourself adds a brief only when it is part of multi-call research.
 
-The CLI accepts the returned query or envelope through `<next.tool> '<next.query JSON>'`. A numeric cursor alone is not a complete continuation. Preserve the returned operation, scope, revision, filters, bounds, and unrelated pagination axes.
+The CLI accepts the returned query or envelope through `<tool> '<query JSON>'`, for a `next` page and a `hints` lead alike. A numeric cursor alone is not a complete continuation. Preserve the returned operation, scope, revision, filters, bounds, and unrelated pagination axes.
 
 | Pagination layer | Typical controls | Identity and stopping rule |
 |---|---|---|
-| Collection | `page`, `pageSize`, `matchPage`, or operation-specific cursors | Follow the emitted next call until that collection is complete. Mutable provider searches do not all offer snapshot isolation. |
+| Collection | `page`, `pageSize`, `matchPage`, or operation-specific cursors | Follow the emitted `next` page until that collection is complete. Mutable provider searches do not all offer snapshot isolation. |
 | Selected content | File readers: `chunkType`/`offset`/`chunkSize`; history text: `charOffset`/`charLength` | Use returned offsets and selectors. Do not recompute them from displayed text or byte lengths. |
 | Snapshot-aware operation | An operation's `snapshot` token, where supported | Preserve it in that operation's continuation. On a changed-result restart, discard its prior pages and rerun the returned restart query. |
 | Whole-response text | Outer `responseCharOffset`, `responseCharLength`, `responseSnapshot`, `responseScope` | Preserve the response token. `responsePagination.restart:true` requires discarding the prior text pages and executing its offset-zero continuation. |
@@ -163,7 +164,7 @@ A typed terminal limit reports a boundary that cannot be paged further. Narrow t
 
 ## Paths, shared fields, and anchors
 
-Some local result metadata replaces absolute `path`/`uri` values with a relative `path` plus top-level `base`. Reconstruct a local absolute path from those fields before a manually constructed follow-up. A `structureSearch` `files` group `dir` resolves against `base` the same way; join `dir`, `/` and the entry name (without its ` (<fields>)` suffix) for the entry's path. Do not apply `base` to GitHub repository-relative paths or URLs. Returned `next` and clone `location` objects retain callable paths; prefer those continuations over manual reconstruction.
+Some local result metadata replaces absolute `path`/`uri` values with a relative `path` plus top-level `base`. Reconstruct a local absolute path from those fields before a manually constructed follow-up. A `structureSearch` `files` group `dir` resolves against `base` the same way; join `dir`, `/` and the entry name (without its ` (<fields>)` suffix) for the entry's path. An `astTopology` row groups its files under the scanned directory: join `base`, the row `path`, and each `file`. Do not apply `base` to GitHub repository-relative paths or URLs. Returned `next` and `hints` calls and clone `location` objects retain callable paths (local ones relative to the workspace root, as `base` names it); prefer those continuations over manual reconstruction.
 
 `shared` contains identical scalar fields removed from object entries in arrays directly inside row `data` payloads. Apply shared defaults to those entries when consuming the compressed representation. Do not merge them indiscriminately into every nested object. Identity, path (including a listing `dir`), anchor, kind, and reason fields remain per-entry. Source text, snippets, and capture strings are evidence, not path metadata; do not rewrite them using `base`.
 
@@ -192,8 +193,8 @@ Document LSP operations use `uri` without symbol anchors. `workspaceSymbol` requ
 | `artifactSearch` | Repository search or clone | Verify repository host, owner/name, and any package subdirectory before constructing a repository query. A repository link is metadata, not source content. |
 | `ghCloneRepo` | Local tools | `data.location.localPath` and checkout metadata. Completeness is relative to the selected sparse scope. Cached working-tree contents are not reverified merely because HEAD has a SHA. |
 | `localSearch`, `structureSearch`, `astSearch`, or `astTopology` | `localFetch` | Observed path (joined with `base`) and source line. |
-| `localSearch` / `ghSearchCode` (wide page) | `clasify` | The emitted `next.clasify`, run unchanged; present only while `clasify` is available. See [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md). |
+| `localSearch` / `ghSearchCode` (wide page) | `clasify` | The emitted `hints.clasify` lead, run unchanged; present only while `clasify` is available and the query set `mainGoal`. See [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md). |
 | `localFetch` | `lspSearch` | Exact path, symbol and actual source line, or an observed UTF-16 position. |
-| `lspSearch` | Exact read or lexical/structural recovery | Returned source locations (`uri` + one-based `displayRange`) or an emitted recovery call (`next.readFile`, `next.textSearch`, `next.retry`); retain provider and completeness qualifications. |
+| `lspSearch` | Exact read or lexical/structural recovery | Returned source locations (`uri` + one-based `displayRange`) or an emitted recovery call (the `hints.readFile` or `hints.textSearch` lead, or the `next.retry` page); retain provider and completeness qualifications. |
 
-Check these handoffs through the public interface, not only by asserting that a `next` object exists. The [quality and acceptance guide](../skills-dev/octocode-dev/docs/TOOL_QUALITY.md) separates schema checks, executed continuations, fixture coverage, and live-provider evidence. Distinguishable tools and task-based evaluations are also central to [Anthropic's tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents).
+Check these handoffs through the public interface, not only by asserting that a `next` or `hints` object exists. The [quality and acceptance guide](../skills-dev/octocode-dev/docs/TOOL_QUALITY.md) separates schema checks, executed continuations, fixture coverage, and live-provider evidence. Distinguishable tools and task-based evaluations are also central to [Anthropic's tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents).

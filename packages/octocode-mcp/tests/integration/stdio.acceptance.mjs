@@ -38,7 +38,7 @@ const acceptanceEnv = {
   OCTOCODE_BETA: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
-const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES, getDirectToolDefinitionsWithAddons, isCliOnlyTool } = await import('@octocodeai/config/schema');
+const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES, continuationChannel, getDirectToolDefinitionsWithAddons, isCliOnlyTool } = await import('@octocodeai/config/schema');
 const { publishedInputSchema } = await import('@octocodeai/config/mcp');
 const canonicalTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
 // Mutating tools run only from the CLI; MCP never lists or executes them.
@@ -82,26 +82,22 @@ const check = async (name, fn) => {
     receipt.checks.push({ name, status: 'failed', error: error.message });
   }
 };
-// Every tool query requires `goal` and `reasoning`; fixtures state only what
-// they exercise, so default both here. Explicit values always win.
-const TRACE = 'Exercise the built MCP surface in stdio acceptance.';
-const withTrace = queries =>
-  queries.map(query =>
-    query && typeof query === 'object' && !Array.isArray(query)
-      ? { goal: TRACE, reasoning: TRACE, ...query }
-      : query
-  );
-const invoke = async (name, rawArgs) => {
-  const args = Array.isArray(rawArgs?.queries)
-    ? { ...rawArgs, queries: withTrace(rawArgs.queries) }
-    : name === TOOL_NAMES.CLASIFY && rawArgs?.resources && rawArgs?.questions
-      ? withTrace([rawArgs])[0]
-      : rawArgs;
+// Briefs (`mainGoal`, `reasoning`) are optional, so fixtures send only what
+// they exercise: a call without a brief is the common, single-lookup shape.
+const invoke = async (name, args) => {
   const startedAt = performance.now();
   const response = await client.callTool({ name, arguments: args });
   const durationMs = Number((performance.now() - startedAt).toFixed(2));
   const responseBytes = Buffer.byteLength(JSON.stringify(response));
   receipt.calls.push({ name, arguments: args, durationMs, responseBytes, response });
+  // Output channels: `next` holds pages only; `hints` holds prose `text`
+  // (recovery rows only) and lead calls. Each entry is a runnable call.
+  const runnable = (kind, call) => {
+    assert.ok(!['fetch', 'getLines', 'readSite', 'viewTree', 'viewStructure', 'cloneRepo', 'searchRepositoryCode', 'lspDefinition', 'lspReferences'].includes(kind), `${name}: unsolicited ${kind}`);
+    assert.ok(expectedTools.includes(call?.tool), `${name}: continuation ${kind} has no runnable tool`);
+    assert.ok(call?.query && typeof call.query === 'object', `${name}: continuation ${kind} has no executable query`);
+    receipt.guidance.continuations += 1;
+  };
   for (const row of response.structuredContent?.results ?? []) {
     const recovery = row.status === 'empty' || row.status === 'error';
     let hintCount = 0;
@@ -110,25 +106,31 @@ const invoke = async (name, rawArgs) => {
       for (const [key, child] of Object.entries(value)) {
         if (['query', 'content', 'body', 'patch', 'text', 'value', 'matches'].includes(key)) continue;
         if (key === 'hints') {
-          assert.ok(recovery, `${name}: hints on a successful result`);
-          hintCount += child.length;
-          assert.ok(child.every(hint => hint.length <= 160), `${name}: long hint`);
-          receipt.guidance.recoveryHints += child.length;
+          assert.ok(child && typeof child === 'object' && !Array.isArray(child), `${name}: hints is not an object`);
+          const { text = [], ...leads } = child;
+          assert.ok(Array.isArray(text), `${name}: hints.text is not a list`);
+          if (text.length) assert.ok(recovery, `${name}: hints.text on a successful result`);
+          hintCount += text.length;
+          assert.ok(text.every(hint => hint.length <= 160), `${name}: long hint`);
+          receipt.guidance.recoveryHints += text.length;
           receipt.guidance.maxHintChars = Math.max(
             receipt.guidance.maxHintChars,
-            ...child.map(hint => hint.length)
+            ...text.map(hint => hint.length)
           );
-        }
-        if (key === 'next') {
-          for (const [nextKey, call] of Object.entries(child)) {
-            assert.ok(!['fetch', 'getLines', 'readSite', 'viewTree', 'viewStructure', 'cloneRepo', 'searchRepositoryCode', 'lspDefinition', 'lspReferences'].includes(nextKey), `${name}: unsolicited ${nextKey}`);
-            assert.ok(expectedTools.includes(call?.tool), `${name}: continuation ${nextKey} has no runnable tool`);
-            assert.ok(call?.query && typeof call.query === 'object', `${name}: continuation ${nextKey} has no executable query`);
+          for (const [kind, call] of Object.entries(leads)) {
+            assert.equal(continuationChannel(name, kind), 'lead', `${name}: hints.${kind} is a page`);
+            runnable(kind, call);
             if (!recovery) assert.equal(call.why, undefined, `${name}: success continuation prose`);
-            receipt.guidance.continuations += 1;
           }
         }
-        inspect(child);
+        if (key === 'next') {
+          for (const [kind, call] of Object.entries(child)) {
+            assert.equal(continuationChannel(name, kind), 'page', `${name}: next.${kind} is a lead`);
+            runnable(kind, call);
+            if (!recovery) assert.equal(call.why, undefined, `${name}: success continuation prose`);
+          }
+        }
+        if (key !== 'hints' && key !== 'next') inspect(child);
       }
     };
     inspect(row);
@@ -184,7 +186,7 @@ const executeCliTool = (name, queries) => {
   const startedAt = performance.now();
   const child = spawnSync(
     values.node,
-    [path.resolve(values.cli), name, JSON.stringify({ queries: withTrace(queries) })],
+    [path.resolve(values.cli), name, JSON.stringify({ queries })],
     { encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024, cwd: acceptanceCwd, env: acceptanceEnv }
   );
   const durationMs = Number((performance.now() - startedAt).toFixed(2));
@@ -444,8 +446,22 @@ try {
       resultView: 'files',
     });
     assert.equal(data.stats.totalOccurrences, 0);
-    assert.equal(data.hints?.length, 1);
-    assert.match(data.hints[0], /try|shorter|case|regex/i);
+    assert.equal(data.hints?.text?.length, 1);
+    assert.match(data.hints.text[0], /try|shorter|case|regex/i);
+  });
+  await check('a page carries a brief only when the caller sent one', async () => {
+    const search = brief => call('localSearch', { path: fixture, searchText: 'add', pageSize: 1, ...brief });
+    const bare = await search({});
+    assert.ok(bare.next?.nextPage, 'no nextPage on a multi-file search');
+    for (const field of ['mainGoal', 'goal', 'reasoning']) assert.equal(bare.next.nextPage.query[field], undefined, field);
+    const brief = { mainGoal: 'Trace the add helper.', reasoning: 'Find every caller.' };
+    const briefed = await search(brief);
+    assert.equal(briefed.next?.nextPage?.query.mainGoal, brief.mainGoal);
+    assert.equal(briefed.next.nextPage.query.reasoning, brief.reasoning);
+    // The legacy `goal` is accepted as an alias of mainGoal.
+    const legacy = await search({ goal: brief.mainGoal });
+    assert.equal(legacy.next?.nextPage?.query.mainGoal, brief.mainGoal);
+    assert.equal(legacy.next.nextPage.query.goal, undefined);
   });
   await check('local file discovery positive', async () => {
     const data = await call('structureSearch', {
@@ -485,11 +501,12 @@ try {
       const preview = executeCliTool('astRewrite', [rule]).results[0].data;
       assert.equal(preview.mode, 'preview');
       assert.equal(preview.totalMatches, 2);
-      // Apply is the preview's next.apply replayed verbatim: it carries the
-      // snapshot (not echoed in minimal output) and the expected hashes.
-      assert.equal(preview.next?.apply?.tool, 'astRewrite');
-      assert.equal(preview.next.apply.query.apply, true);
-      const applied = executeCliTool('astRewrite', [preview.next.apply.query]).results[0].data;
+      // Apply is the preview's hints.apply lead replayed verbatim: it carries
+      // the snapshot (not echoed in minimal output) and the expected hashes.
+      assert.equal(preview.next, undefined);
+      assert.equal(preview.hints?.apply?.tool, 'astRewrite');
+      assert.equal(preview.hints.apply.query.apply, true);
+      const applied = executeCliTool('astRewrite', [preview.hints.apply.query]).results[0].data;
       assert.equal(applied.mode, 'apply');
       assert.equal(applied.transaction.committed, true);
       assert.equal(await readFile(file, 'utf8'), 'newCall(1);\nnewCall(2);\n');

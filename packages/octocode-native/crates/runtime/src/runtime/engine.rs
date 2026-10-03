@@ -191,10 +191,9 @@ fn rejected_row(
         "errorCode": "invalidInput",
         "hints": formatted["details"],
     });
-    (
-        index,
-        super::response::result_row(tool, index, &raw, data, Some("error")),
-    )
+    let mut row = super::response::result_row(tool, index, &raw, data, Some("error"));
+    super::verbose::prune_row(&mut row, tool, &raw);
+    (index, row)
 }
 
 fn invalid_input_error(
@@ -1108,6 +1107,7 @@ impl ToolRuntime {
                         row["cache"] = json!(1);
                     }
                     response::apply_hint_policy(&mut row, id, query);
+                    super::verbose::prune_row(&mut row, id, query);
                     response::minimize_row(&mut row, id, query);
                     rows.push(row);
                 }

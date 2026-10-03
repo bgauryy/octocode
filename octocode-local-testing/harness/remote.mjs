@@ -1,5 +1,5 @@
 // Remote surfaces: GitHub discovery/read/history, package search, clasify.
-// Each result must answer, and every next.* it offers (one level) must execute.
+// Each result must answer, and every next.* page and hints.* lead it offers (one level) must execute.
 import { checks, collect, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('remote');
@@ -15,15 +15,15 @@ async function followAll(entry, label) {
     if (h.path.endsWith('.viewReleaseSource') && out.rowErrors) {
       const unavailable = collect(out.sc, o => o.errorCode === 'notFound').length > 0;
       check(`${label}: unavailable release lead has explicit provenance`, unavailable && h.source?.scope === 'release' && h.source?.verification === 'unverified', JSON.stringify(h.source));
-      const fallback = nextHints(entry.sc).find(x => x.path.endsWith('.viewRepo'));
+      const fallback = nextHints(entry.sc).find(x => x.path.endsWith('.hints.viewRepo'));
       check(`${label}: release recovery preserves default-branch provenance`, fallback?.source?.scope === 'defaultBranch' && fallback?.source?.verification === 'unverified');
       if (fallback) {
         const recovered = await raw(fallback.tool, fallback.query);
-        check(`${label}: unavailable release lead recovers through next.viewRepo`, !recovered.isError && !recovered.rowErrors && (rowData(recovered)?.structure ?? []).length > 0, recovered.text.slice(0, 100));
+        check(`${label}: unavailable release lead recovers through hints.viewRepo`, !recovered.isError && !recovered.rowErrors && (rowData(recovered)?.structure ?? []).length > 0, recovered.text.slice(0, 100));
       }
       continue;
     }
-    check(`${label}: next${h.path.replace(/^\.results\.\d+\.data/, '')} executes`, !/Input validation error/.test(out.text) && !out.isError && !out.rowErrors, out.text.slice(0, 100).replace(/\s+/g, ' '));
+    check(`${label}: ${h.path.replace(/^\.results\.\d+\.data\./, '')} executes`, !/Input validation error/.test(out.text) && !out.isError && !out.rowErrors, out.text.slice(0, 100).replace(/\s+/g, ' '));
   }
   return hints.length;
 }
@@ -34,11 +34,11 @@ await followAll(repos, 'ghSearchRepo');
 
 const code = await call('ghSearchCode', { owner: OWNER, repo: REPO, keywords: ['createTypeChecker'], pageSize: 5 });
 check('ghSearchCode answers with paths', !code.isError && collect(rowData(code), o => typeof o.path === 'string').length > 0, code.text.slice(0, 120));
-const readTop = nextHints(code.sc).find(h => h.path.endsWith('.readTopMatch'));
-check('ghSearchCode offers next.readTopMatch', !!readTop);
+const readTop = nextHints(code.sc).find(h => h.path.endsWith('.hints.readTopMatch'));
+check('ghSearchCode offers hints.readTopMatch', !!readTop);
 if (readTop) {
   const top = await raw(readTop.tool, readTop.query);
-  check('next.readTopMatch reads the matching source', /createTypeChecker/.test(top.text), top.text.slice(0, 120));
+  check('hints.readTopMatch reads the matching source', /createTypeChecker/.test(top.text), top.text.slice(0, 120));
 }
 
 const tree = await call('ghStructure', { owner: OWNER, repo: REPO, maxDepth: 1, pageSize: 50 });
@@ -76,7 +76,7 @@ check('artifactSearch keyword discovery', !discover.isError && !discover.rowErro
 
 const judged = await raw('clasify', {
   queries: [{
-    goal: 'Judge supplied code',
+    mainGoal: 'Judge supplied code',
     reasoning: 'held-state judgment smoke',
     resources: [{ id: 'r1', context: { value: 'export function add(a, b) { return a + b; }' } }],
     questions: [{ id: 'q1', type: 'noul', instructions: 'Does this code define a function named add?' }],

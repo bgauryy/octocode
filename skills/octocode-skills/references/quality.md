@@ -1,6 +1,6 @@
 # Quality and output
 
-Load when you judge, rank, or present skill candidates, gate next steps, or deep-dive a candidate. Why: content fit decides and adoption signals only break ties; present consistent cards and real branches, not raw dumps.
+Load when you judge, rank, or present skill candidates, or deep-dive a candidate. Why: consistent dimensions and cards make candidates comparable.
 
 Read enough `SKILL.md` to understand behavior. For strong, risky, or ambiguous candidates, read the full `SKILL.md` plus the scripts, templates, install docs, and references that affect execution.
 
@@ -30,13 +30,9 @@ Labels: `High` = direct match, clear trigger, executable workflow, useful gates,
 | Registry fields | aiskillstore `match_reasons`, `downloads_7d`, `days_since_update` |
 | Overlap and demand | `aiskillstore.io/v1/agent/skills/{id}/similar`; `aiskillstore.io/v1/demand/most-wanted` (adapt vs create) |
 
-Never recommend the top install blindly.
-
 ## Present
 
-Lead with the recommendation in one sentence. Group only when useful: Best matches / Useful alternatives / Explore if….
-
-Few results → compact cards. Many → list names/sources; detail only the strongest. Never paste raw search dumps.
+Group only when useful: Best matches / Useful alternatives / Explore if…. With many results, list names and sources; detail only the strongest.
 
 ```text
 Name:            <skill> — fit: High | Medium | Low
@@ -48,15 +44,8 @@ Why it matches:  <tie to request>
 Caveat:          <real risk, or "None obvious">
 ```
 
-## Next step
-
-```text
-Recommended: <skill> from <source>
-Next: install | adapt locally | compare | inspect further | stop
-```
-
 ## Deep-dive
 
-Fetch full `SKILL.md` plus behavior-affecting refs, then summarize trigger, workflow, support files, gates, strengths, gaps, and adaptation ideas. Offer only relevant next actions.
+Summarize trigger, workflow, support files, gates, strengths, gaps, and adaptation ideas. Offer only relevant next actions.
 
-Next: when installing load `references/install.md`; when adapting load `references/skill-authoring.md` (§ Create a local skill); if evidence is thin or a surface fails load `references/recovery.md`.
+Next: when installing or adapting load `references/install.md`; if evidence is thin or a surface fails load `references/recovery.md`.

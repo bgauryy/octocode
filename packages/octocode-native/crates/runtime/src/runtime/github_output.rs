@@ -18,30 +18,14 @@ pub(super) fn compact(tool: ToolId, data: &mut Value, query: &Value) {
         return;
     };
     slim_pagination(fields);
-    if tool == ToolId::GhGetFileContent {
-        // UTF-16 counts complement the byte counts `debug` adds; the file
-        // class restates the path's extension.
-        for file in fields
-            .get_mut("files")
-            .and_then(Value::as_array_mut)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_object_mut)
-        {
-            for key in ["sourceChars", "returnedChars", "fileType"] {
-                file.remove(key);
-            }
-        }
-    }
     if tool == ToolId::GhSearchHistory
         && fields.get("path").is_some()
         && fields.get("path") == query.get("path")
     {
         fields.remove("path");
     }
+    // The resolved branch is next-call input when the caller named none.
     if tool == ToolId::GhStructure {
-        // The rows are the listing; totals across pages ride `pagination`.
-        fields.remove("summary");
         if fields.get("resolvedBranch").is_some()
             && fields.get("resolvedBranch") == query.get("branch")
         {
@@ -183,6 +167,13 @@ mod tests {
         );
     }
 
+    /// Row data after the verbose stage (a default, non-debug row).
+    fn pruned(tool: ToolId, data: &Value) -> Value {
+        let mut row = json!({"index":0,"data":data});
+        super::super::verbose::prune_row(&mut row, tool, &json!({}));
+        row["data"].take()
+    }
+
     #[test]
     fn tree_listings_do_not_restate_the_ref_or_count_their_rows() {
         let listing = json!({
@@ -190,7 +181,8 @@ mod tests {
             "summary": {"totalFiles":1,"totalFolders":0,"pattern":"**/a.rs"},
             "resolvedBranch": "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c"
         });
-        let mut pinned = listing.clone();
+        // `summary` is verbose (core field class); the verbose stage drops it.
+        let mut pinned = pruned(ToolId::GhStructure, &listing);
         compact(
             ToolId::GhStructure,
             &mut pinned,
@@ -218,8 +210,9 @@ mod tests {
             &json!({"path":"fastapi/routing.py"}),
         );
         assert_eq!(history, json!({"type":"file","commits":[]}));
-        let mut file = json!({"files":[{"path":"a.rs","content":"1\tx\n","totalLines":9,
+        let file = json!({"files":[{"path":"a.rs","content":"1\tx\n","totalLines":9,
             "sourceChars":40,"fileType":"code"}]});
+        let mut file = pruned(ToolId::GhGetFileContent, &file);
         compact(ToolId::GhGetFileContent, &mut file, &json!({}));
         assert_eq!(
             file,

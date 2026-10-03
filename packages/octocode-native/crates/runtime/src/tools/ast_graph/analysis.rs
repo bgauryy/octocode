@@ -50,12 +50,13 @@ pub(crate) fn analyze(
         }
     };
     warnings.extend(extra_warnings);
-    // The resolved root list is page-invariant: emit it with the first result
-    // page only; later pages keep `entrypointsResolvedCount`.
+    // The resolved root and dynamic-only lists are page-invariant: emit them
+    // with the first result page only; later pages keep the counts.
     if q.page() > 1
         && let Some(obj) = summary.as_object_mut()
     {
         obj.remove("entrypointsResolved");
+        obj.remove("dynamicOnlyFiles");
     }
     // Import-resolution health drives whether an edge-derived answer can be
     // trusted. Compute it before shaping the summary/confidence so an incomplete
@@ -476,7 +477,9 @@ fn dead_code(
     let static_live = reachable(&b.nodes, &roots, true);
     let dynamic = live.difference(&static_live).cloned().collect::<Vec<_>>();
     if !dynamic.is_empty() {
-        warnings.push(format!("{} file(s) reachable only through a dynamic import() — lower confidence than static analysis, verify with lspSearch before treating as proof: {}",dynamic.len(),dynamic.join(", ")))
+        // The count is the disclosure; `summary.dynamicOnlyFiles` names each
+        // file once.
+        warnings.push(format!("{} file(s) reachable only through a dynamic import() (summary.dynamicOnlyFiles) — lower confidence than static analysis, verify with lspSearch before treating as proof.",dynamic.len()))
     }
     let rootset = roots.iter().cloned().collect::<BTreeSet<_>>();
     let public = rootset
@@ -595,7 +598,13 @@ fn dead_code(
     let ccount = clusters.len();
     (
         rows,
-        json!({"entrypointsResolved":roots,"entrypointsResolvedCount":roots.len(),"deadClusters":clusters,"deadClusterCount":ccount,"deadExportCount":count}),
+        {
+            let mut summary = json!({"entrypointsResolved":roots,"entrypointsResolvedCount":roots.len(),"deadClusters":clusters,"deadClusterCount":ccount,"deadExportCount":count});
+            if !dynamic.is_empty() {
+                summary["dynamicOnlyFiles"] = json!(dynamic);
+            }
+            summary
+        },
         warnings,
         low_entries || b.truncated || b.files_skipped > 0 || !b.diagnostics.is_empty(),
     )
@@ -1630,8 +1639,8 @@ fn suffix_candidate<'a>(file: &str, nodes: &'a BTreeMap<String, Node>) -> Option
         .find(|key| key.ends_with(&suffix) || file.ends_with(&format!("/{key}")))
 }
 
-/// The missing-file error, with an executable `next.retry` on the suffix
-/// candidate when one exists.
+/// The missing-file error, with an executable `hints.retrySuffixMatch` on
+/// the suffix candidate when one exists (another query: a lead, not a page).
 fn missing_file_error(
     q: &AstTopologyQuery,
     file: &str,
@@ -1641,7 +1650,7 @@ fn missing_file_error(
     if let Some(candidate) = suffix_candidate(file, nodes) {
         let mut query = clean_query(q);
         query["file"] = json!(candidate);
-        error.next = Some(Box::new(json!({"retry": {
+        error.next = Some(Box::new(json!({"retrySuffixMatch": {
             "tool": ToolId::AstTopology.as_str(),
             "query": query,
             "why": "Retry with the scanned file that shares this path suffix.",
@@ -1919,7 +1928,7 @@ mod tests {
     #[test]
     fn diagnostic_continuation_stays_on_ast_topology() {
         let query: AstTopologyQuery = serde_json::from_value(json!({
-            "goal": "test", "reasoning":"test",
+            "mainGoal": "test", "reasoning":"test",
             "analysis":"dependencies",
             "path":".",
             "file":"src/index.ts",
@@ -2031,7 +2040,7 @@ mod tests {
         );
 
         let query: AstTopologyQuery = serde_json::from_value(json!({
-            "goal": "test", "reasoning":"test",
+            "mainGoal": "test", "reasoning":"test",
             "analysis":"dependencies",
             "path":"packages/pkg",
             "file":"lib/src/index.ts"
@@ -2039,9 +2048,15 @@ mod tests {
         .expect("graph query");
         let error = missing_file_error(&query, "lib/src/index.ts", &nodes);
         let next = error.next.expect("repair continuation");
-        assert_eq!(next["retry"]["tool"], "astTopology", "{next}");
-        assert_eq!(next["retry"]["query"]["file"], "src/index.ts", "{next}");
-        assert_eq!(next["retry"]["query"]["path"], "packages/pkg", "{next}");
+        assert_eq!(next["retrySuffixMatch"]["tool"], "astTopology", "{next}");
+        assert_eq!(
+            next["retrySuffixMatch"]["query"]["file"], "src/index.ts",
+            "{next}"
+        );
+        assert_eq!(
+            next["retrySuffixMatch"]["query"]["path"], "packages/pkg",
+            "{next}"
+        );
     }
 
     #[test]

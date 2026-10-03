@@ -2,7 +2,7 @@
 
 Load when locating any layer of a tool before auditing or editing it. A fix in the wrong layer drifts from the source of truth.
 
-Paths are relative to the monorepo root; `CORE` = `../octocode-mcp-host/packages/octocode-core`.
+Unprefixed paths are relative to the monorepo root.
 
 ## Layers per tool
 
@@ -21,7 +21,7 @@ Paths are relative to the monorepo root; `CORE` = `../octocode-mcp-host/packages
 | Providers / API | `crates/runtime/src/providers/{github,artifact,classification}/`, `runtime/github.rs` | Request count, auth, errors |
 | Engine primitives | `packages/octocode-native/crates/engine/` | ripgrep, AST, LSP, minify, secrets |
 | Caching | `runtime/github_cache.rs`, `src/cache/`, `tools/gh_clone_repo/cache.rs`, `tests/tool_cache_contracts.rs` | Keys, TTL, invalidation |
-| Output shaping | `src/response/mod.rs`, `runtime/{response,response_stage,render,continuations,cursor}.rs`, `tools/result.rs` | Rows, evidence, `next.*`, compact CLI |
+| Output shaping | `src/response/mod.rs`, `runtime/{response,response_stage,render,continuations,channels,cursor}.rs`, `tools/result.rs` | Rows, evidence, `next.*` pages vs `hints.*` leads (`channels.rs`), compact CLI |
 | Security | `src/security/{content,walk,registry}.rs`, `src/policy/` | Redaction, path sandbox |
 | MCP registration | `packages/octocode-mcp/src/native/index.ts` (instructions), `src/public.ts` | Thin forward, no logic |
 | CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`, `commands/scheme.ts`; native CLI `crates/cli/src/cli/` | Rendering, flags |
@@ -39,7 +39,6 @@ Paths are relative to the monorepo root; `CORE` = `../octocode-mcp-host/packages
 ## Live views
 
 ```bash
-OCTO='node packages/octocode/out/octocode.js'
 $OCTO scheme --compact                 # catalog + availability
 $OCTO scheme <tool> --view query       # full public query schema
 $OCTO scheme <tool> --compact          # what agents see compactly

@@ -65,13 +65,13 @@ pub async fn execute_artifact(
     if query.version().is_some()
         && !matches!(
             query.artifact_type(),
-            ArtifactType::Npm | ArtifactType::Pypi | ArtifactType::Crates
+            ArtifactType::Npm | ArtifactType::Pypi | ArtifactType::Crates | ArtifactType::Go
         )
     {
         return Err(ArtifactError::new(
             "unsupported_capability",
             format!(
-                "version is supported for npm, pypi, and crates; {} lookups return the latest release.",
+                "version is supported for npm, pypi, crates, and go; {} lookups return the latest release.",
                 query.artifact_type().as_str()
             ),
         )

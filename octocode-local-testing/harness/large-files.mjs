@@ -144,7 +144,7 @@ for (const [label, query] of [
   const sym = await call('astSearch', { operation: 'symbols', path: TARGETS.checkerTs }, {}, 'symbols checker');
   bounded(sym, 'astSearch symbols checker.ts');
   const d = rowData(sym);
-  check('astSearch symbols 3MB checker.ts: answers or refuses with a repair', !sym.isError && (d?.declarations?.length > 0 || nextHints(sym.sc).length > 0 || (d?.hints?.length ?? 0) > 0), `${d?.errorCode ?? ''} decls=${d?.declarations?.length} hints=${JSON.stringify(d?.hints ?? []).slice(0, 120)}`);
+  check('astSearch symbols 3MB checker.ts: answers or refuses with a repair', !sym.isError && (d?.declarations?.length > 0 || nextHints(sym.sc).length > 0 || (d?.hints?.text?.length ?? 0) > 0), `${d?.errorCode ?? ''} decls=${d?.declarations?.length} hints=${JSON.stringify(d?.hints ?? {}).slice(0, 120)}`);
 }
 {
   const first = await call('astSearch', { operation: 'symbols', path: manyFns, pageSize: 100 }, {}, 'symbols manyFns');
@@ -203,7 +203,7 @@ for (const [label, query] of [
 
 // ── whole-response pagination: reassemble a big bulk response exactly ──────
 {
-  const args = { queries: [{ goal: 'Verify response pagination over real AST evidence', reasoning: 'Read a large declaration page', operation: 'symbols', path: manyFns, pageSize: 1000 }] };
+  const args = { queries: [{ operation: 'symbols', path: manyFns, pageSize: 1000 }] };
   const full = await raw('astSearch', { ...args, responseCharLength: 50000 }, 'response full');
   const firstPage = await raw('astSearch', { ...args, responseCharLength: 4000 }, 'response page 1');
   let text = firstPage.text.replace(/^# Response page[^\n]*\n/, '');

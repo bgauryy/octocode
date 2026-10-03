@@ -112,7 +112,7 @@ pub fn widen_matches(
         return windows;
     };
     let mut oversized = 0;
-    let mut unenclosed = Vec::new();
+    let mut unenclosed = 0;
     let widened = hits
         .iter()
         .zip(windows)
@@ -124,20 +124,20 @@ pub fn widen_matches(
                 window
             }
             None => {
-                unenclosed.push(hit.to_string());
+                unenclosed += 1;
                 window
             }
         })
         .collect();
-    if !unenclosed.is_empty() {
+    // `matchedLines` names every hit; the warning carries the count.
+    if unenclosed > 0 {
         warnings.push(format!(
-            "block: no declaration encloses line {}; returned the match context window instead. Read on with startLine/endLine.",
-            unenclosed.join(", ")
+            "block: {unenclosed} match(es) sit outside any declaration; those keep their match context window. Read on with startLine/endLine."
         ));
     }
     if oversized > 0 {
         warnings.push(format!(
-            "block: {oversized} match(es) sit in declarations over {BLOCK_MAX_LINES} lines; those keep their context window, and next.readBlock reads the rest of each declaration."
+            "block: {oversized} match(es) sit in declarations over {BLOCK_MAX_LINES} lines; those keep their context window, and hints.readBlock reads the rest of each declaration."
         ));
     }
     widened
@@ -268,7 +268,7 @@ mod tests {
         );
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(
-            warnings[0].starts_with("block: no declaration encloses line 1;"),
+            warnings[0].starts_with("block: 1 match(es) sit outside any declaration;"),
             "{warnings:?}"
         );
     }

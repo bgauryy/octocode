@@ -273,6 +273,7 @@ fn render_file_list(mut response: Value, format: TextFormat) -> String {
                     "commitSha",
                     "pagination",
                     "next",
+                    "hints",
                     "isPartial",
                     "startLine",
                     "endLine",
@@ -307,6 +308,7 @@ fn render_file_list(mut response: Value, format: TextFormat) -> String {
                         "partialReasons",
                         "commitSha",
                         "next",
+                        "hints",
                         "isPartial",
                     ],
                 );
@@ -513,13 +515,13 @@ fn render_outline(mut response: Value, format: TextFormat) -> String {
 }
 
 /// Move changed-file rows with a non-empty `patch` (`changedFiles`, `files`)
-/// out of the YAML in document order; `next.*` continuation queries stay.
+/// out of the YAML in document order; `next.*`/`hints.*` queries stay.
 fn take_patches(value: &mut Value, label: &str, out: &mut Vec<(String, String)>) {
     match value {
         Value::Object(map) => {
             let mut emptied = Vec::new();
             for (key, child) in map.iter_mut() {
-                if key == "next" {
+                if key == "next" || key == "hints" {
                     continue;
                 }
                 if matches!(key.as_str(), "changedFiles" | "files")
@@ -796,6 +798,7 @@ fn order_read_metadata(data: &mut Value) {
         "partialReasons",
         "terminalLimit",
         "next",
+        "hints",
         "contentView",
         "sourceLineRanges",
         "totalLines",

@@ -161,7 +161,7 @@ pub(super) enum Command {
     },
     /// Inspect configuration or edit global .env keys. Values are never printed.
     Config {
-        /// Test whether a specific configuration key is set (prints set/unset, never the value).
+        /// Test whether a specific configuration key is set (prints set/unset, never the value). Exit 0 means set; exit 1 means unset.
         #[arg(long, value_name = "KEY", conflicts_with_all = ["add", "remove"])]
         check: Option<String>,
         /// Add or replace a global .env key: --add KEY VALUE (or --add KEY --value-stdin).
@@ -191,15 +191,15 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: super::graph::GraphCommand,
     },
-    /// Manage bundled Octocode skills — `list`, `install`, `remove`, `check`, or `info`.
+    /// Manage bundled Octocode skills (`list`, `install`, `remove`, `check`, `info`); runs the npm launcher's `octocode skill`.
     Skill {
-        /// Arguments forwarded verbatim to `octocode skill` (e.g. `list`, `check --fix`, `info octocode-research`).
+        /// Arguments forwarded verbatim to the npm launcher's `octocode skill` (e.g. `list --json`, `check --fix`, `info octocode-research`).
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
     /// Install the Octocode MCP server into an IDE (Cursor, Windsurf, Claude Desktop, …).
     Install {
-        /// Target IDE: `cursor`, `windsurf`, `claude`, `vscode`, `zed`, or another supported editor.
+        /// Target IDE: `cursor`, `windsurf`, `claude` (= `claude-desktop`), `vscode` (= `vscode-cline`), `zed`, or another id from `--list`.
         #[arg(long)]
         ide: Option<String>,
         /// Overwrite an existing MCP server entry.
@@ -242,10 +242,10 @@ pub(super) enum Command {
         #[arg(value_parser = ["status", "clear"])]
         action: String,
     },
-    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`).
+    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `remove`, `clean`, `status`, `which`).
     #[command(name = "lsp-server", hide = true)]
     LspServer {
-        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, `clean`, `status [file]`, or `which [file]`.
+        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>` (alias `remove`), `clean`, `status [file]`, or `which [file]`.
         #[arg(value_parser = ["list", "install", "uninstall", "remove", "clean", "status", "which"])]
         action: String,
         /// Server names for install/uninstall (e.g. `rust-analyzer`, `clangd`).

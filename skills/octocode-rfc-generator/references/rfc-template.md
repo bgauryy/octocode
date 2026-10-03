@@ -1,6 +1,6 @@
 # RFC.md template — decision body
 
-Load when writing `RFC.md`. This reviewer-facing document owns goals, scope, and decision; freeze it when accepted. Implementation goes in `IMPLEMENTATION.md`, metrics in `KPI.md`, sources in `RESOURCES.md` (`references/research-playbook.md`), and a live-code audit directly after the header (`references/workflow.md` § Audit).
+Load when writing `RFC.md`. Freeze it when accepted. Implementation goes in `IMPLEMENTATION.md`, metrics in `KPI.md`, and a live-code audit directly after the header (`references/workflow.md` § Audit).
 
 ```markdown
 # RFC: {Title}
@@ -32,19 +32,19 @@ List cost, complexity, operations, performance, learning, migration, blast radiu
 
 ## Rationale and Alternatives
 Comparison outcome: unresolved | final
-Render the comparison as a table plus a `quadrantChart`/`radar-beta` or a decision `flowchart` when trade-offs span two or more criteria. During investigation compare conditional tradeoffs, including do-nothing when viable, and name reversal conditions and deciding checks. Do not select an overall winner while blockers remain. After blockers close, explain why the recommended design wins on the owner criteria.
+Render the comparison as a table plus a `quadrantChart`/`radar-beta` or a decision `flowchart` when trade-offs span two or more criteria. After blockers close, explain why the recommended design wins on the owner criteria.
 
 ## Prior Art
-State decision-relevant lessons from local systems, ecosystem implementations, standards, or research. Put the inventory in `RESOURCES.md`.
+State decision-relevant lessons from local systems, ecosystem implementations, standards, or research.
 
 ## Unresolved Questions
-Decision blockers: open | none | resolved. Select the truthful value. While any remain, keep `Status: Draft` and `Recommendation: none`; compare options provisionally and list each blocker with owner, evidence gap and next check. Close every blocker before a final recommendation or readiness claim.
+Decision blockers: open | none | resolved. Select the truthful value. While any remain, keep `Status: Draft` and `Recommendation: none`, and list each blocker with owner, evidence gap and next check.
 Q1: {open decision blocker, if any} — owner / evidence gap / next check
 - [ ] {non-blocking execution question} — impact / owner / next proof or deferral trigger
-Carry execution questions into `IMPLEMENTATION.md`; resolve them with evidence or defer them explicitly before Ready for Review.
+Carry execution questions into `IMPLEMENTATION.md`.
 
 ## Future Possibilities
 Optional extensions that remain outside this decision.
 ```
 
-Gate: diagrams follow `references/rfc-diagrams.md`; exact citations support non-obvious claims; Drafts expose blockers, final recommendations resolve them; goals and scope appear only here. Next: existing code → `references/rfc-prerequisites.md`; settled decision → acceptance via `references/rfc-kpi.md` when warranted, then `references/rfc-implementation.md`.
+Next: existing code → `references/rfc-prerequisites.md`; settled decision → acceptance via `references/rfc-kpi.md` when warranted, then `references/rfc-implementation.md`.

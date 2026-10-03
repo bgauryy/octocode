@@ -97,7 +97,7 @@ mod tests {
             json!({"queries":[{
                 "owner":"octocode",
                 "repo":"octocode",
-                "goal": "test", "reasoning":"Reject a repo-wide wildcard."
+                "mainGoal": "test", "reasoning":"Reject a repo-wide wildcard."
             }]}),
         )
         .expect_err("owner/repo alone is not a runnable code search");
@@ -114,7 +114,7 @@ mod tests {
                 "owner":"octocode",
                 "repo":"octocode",
                 "path":"src",
-                "goal": "test", "reasoning":"Run a path-bounded code search."
+                "mainGoal": "test", "reasoning":"Run a path-bounded code search."
             }]}),
         )
         .expect("path is an explicit code-search narrowing filter");
@@ -126,7 +126,7 @@ mod tests {
             "ghSearchCode",
             json!({"queries":[{
                 "keywords":["isEmptyArray"],
-                "goal": "test", "reasoning":"A keyword-only code search must not run globally."
+                "mainGoal": "test", "reasoning":"A keyword-only code search must not run globally."
             }]}),
         )
         .expect_err("code search without an owner is a global wildcard");
@@ -144,7 +144,7 @@ mod tests {
             json!({"queries":[{
                 "owner":"sindresorhus",
                 "keywords":["isEmptyArray"],
-                "goal": "test", "reasoning":"Owner-scoped code search is allowed."
+                "mainGoal": "test", "reasoning":"Owner-scoped code search is allowed."
             }]}),
         )
         .expect("owner-scoped code search is runnable");

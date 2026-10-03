@@ -42,7 +42,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
           operation: 'matches',
           path: '.',
           pattern: 'x',
-          goal: 'g',
+          mainGoal: 'g',
           reasoning: 'r',
         },
       ],
@@ -60,7 +60,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
       uri: 'a.ts',
       symbolName: 'x',
       lineHint: 1,
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: 'r',
     });
     expect(message).toMatch(
@@ -74,7 +74,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
     const message = await sdkMessage('localSearch', {
       path: '.',
       searchText: 'a',
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: 'r',
       serchText2: 1,
     });
@@ -87,7 +87,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
   it('names a missing required field plainly', async () => {
     const message = await sdkMessage('localSearch', {
       path: '.',
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: 'r',
     });
     expect(message).toBe(
@@ -98,7 +98,7 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
   it('reports the missing field of the selected union branch', async () => {
     const message = await sdkMessage('astSearch', {
       operation: 'symbols',
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: 'r',
     });
     expect(message).toBe('queries.0.path: Missing required field: path');
@@ -112,13 +112,13 @@ describe('MCP validation messages are actionable (CLI parity)', () => {
     const result = await schema['~standard'].validate({
       path: '.',
       searchText: 'a',
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: 'r',
     });
     expect(result.issues).toBeUndefined();
     expect(result.value).toMatchObject({
       queries: [
-        { path: '.', searchText: 'a', goal: 'test goal', reasoning: 'r' },
+        { path: '.', searchText: 'a', mainGoal: 'test goal', reasoning: 'r' },
       ],
     });
   });
@@ -129,7 +129,7 @@ describe('discriminated unions', () => {
     const message = await sdkMessage('ghSearchHistory', {
       operation: 'comit',
       keywords: ['a'],
-      goal: 'test goal',
+      mainGoal: 'test goal',
       reasoning: 'r',
     });
     expect(message).toBe(
@@ -142,7 +142,7 @@ describe('a field sent with the wrong operation names its operation (CLI parity)
   const row = (extra: Record<string, unknown>) => ({
     owner: 'cli',
     repo: 'cli',
-    goal: 'g',
+    mainGoal: 'g',
     reasoning: 'r',
     ...extra,
   });
@@ -199,7 +199,7 @@ describe('ghGetHistoryItem mixed batch (09-24 opaque failure regression)', () =>
     repo: 'vitest',
     number: 2008,
     charLength: 50,
-    goal: 'test goal',
+    mainGoal: 'test goal',
     reasoning: 'ok',
     ...extra,
   });
@@ -228,7 +228,7 @@ describe('batch and brief placement slips from recorded sessions (CLI parity)', 
     const message = await sdkMessage('localFetch', {
       queries: Array.from({ length: 7 }, () => ({
         path: 'package.json',
-        goal: 'g',
+        mainGoal: 'g',
         reasoning: 'r',
       })),
     });
@@ -241,12 +241,36 @@ describe('batch and brief placement slips from recorded sessions (CLI parity)', 
     const message = await sdkMessage('ghSearchCode', {
       goal: 'g',
       queries: [
-        { owner: 'o', repo: 'r', keywords: ['k'], goal: 'g', reasoning: 'r' },
+        {
+          owner: 'o',
+          repo: 'r',
+          keywords: ['k'],
+          mainGoal: 'g',
+          reasoning: 'r',
+        },
       ],
     });
     expect(message).toContain(
       "Move 'goal' into each queries[] row: a top-level goal is not inherited."
     );
+  });
+
+  it('moves a top-level mainGoal into each queries row', async () => {
+    const message = await sdkMessage('localSearch', {
+      mainGoal: 'g',
+      queries: [{ path: '.', searchText: 'x' }],
+    });
+    expect(message).toContain(
+      "Move 'mainGoal' into each queries[] row: a top-level mainGoal is not inherited."
+    );
+  });
+
+  it('accepts a row without a brief', async () => {
+    expect(
+      await sdkMessage('localSearch', {
+        queries: [{ path: '.', searchText: 'x' }],
+      })
+    ).toBeUndefined();
   });
 });
 
@@ -255,7 +279,7 @@ describe('shape slips found in agent transcripts', () => {
     context: Record<string, unknown>,
     question: Record<string, unknown> = { type: 'noul', instructions: 'x' }
   ) => ({
-    goal: 'g',
+    mainGoal: 'g',
     reasoning: 'r',
     resources: [{ id: 'a', context }],
     questions: [question],
@@ -265,7 +289,7 @@ describe('shape slips found in agent transcripts', () => {
     const message = await sdkMessage('localSearch', {
       queries: [
         {
-          goal: 'g',
+          mainGoal: 'g',
           reasoning: 'r',
           path: '.',
           searchText: 'x',
@@ -282,7 +306,7 @@ describe('shape slips found in agent transcripts', () => {
     const message = await sdkMessage('localSearch', {
       queries: [
         {
-          goal: 'g',
+          mainGoal: 'g',
           reasoning: 'r',
           path: '.',
           searchText: 'x',
@@ -297,7 +321,7 @@ describe('shape slips found in agent transcripts', () => {
 
   it('never suggests wrapping a string into a list of objects', async () => {
     const message = await sdkMessage('clasify', {
-      goal: 'g',
+      mainGoal: 'g',
       reasoning: 'r',
       resources: 'a',
       questions: [{ type: 'noul', instructions: 'x' }],
@@ -335,14 +359,14 @@ describe('shape slips found in agent transcripts', () => {
   it('asks for one shape when a clasify batch also carries matrix fields', async () => {
     const message = await sdkMessage('clasify', {
       queries: [clasify({ value: 'x' })],
-      goal: 'x',
+      mainGoal: 'x',
     });
     expect(message).toContain(
-      "Remove 'goal' from the request: it applies only with reasoning and resources and questions"
+      "Remove 'mainGoal' from the request: it applies only with resources and questions"
     );
     expect(message).toContain('send one shape');
     // Never name the rejected field as valid in the same breath.
-    expect(message).not.toMatch(/Valid fields: .*\bgoal\b/);
+    expect(message).not.toMatch(/Valid fields: .*\bmainGoal\b/);
     expect(message).toContain('Valid fields: queries');
   });
 
@@ -400,7 +424,7 @@ describe('shape slips found in agent transcripts', () => {
 describe('missing discriminators and hidden fields', () => {
   it('names a missing operation with every variant', async () => {
     const message = await sdkMessage('astSearch', {
-      queries: [{ goal: 'g', reasoning: 'r', path: '.', pattern: 'x' }],
+      queries: [{ mainGoal: 'g', reasoning: 'r', path: '.', pattern: 'x' }],
     });
     expect(message).toBe(
       'queries.0.operation: Missing required field: operation (one of: match, syntaxTree, symbols)'
@@ -410,7 +434,7 @@ describe('missing discriminators and hidden fields', () => {
   it('names a missing discriminated-union operation the same way', async () => {
     const message = await sdkMessage('ghGetHistoryItem', {
       queries: [
-        { goal: 'g', reasoning: 'r', owner: 'a', repo: 'b', number: 1 },
+        { mainGoal: 'g', reasoning: 'r', owner: 'a', repo: 'b', number: 1 },
       ],
     });
     expect(message).toBe(
@@ -421,7 +445,13 @@ describe('missing discriminators and hidden fields', () => {
   it('lists canonical fields the published view hides, never continuation-only ones', async () => {
     const message = await sdkMessage('localSearch', {
       queries: [
-        { goal: 'g', reasoning: 'r', path: '.', searchText: 'x', madeUp: 1 },
+        {
+          mainGoal: 'g',
+          reasoning: 'r',
+          path: '.',
+          searchText: 'x',
+          madeUp: 1,
+        },
       ],
     });
     expect(message).toMatch(/Valid fields: .*\bmaxMatchesPerFile\b/);
@@ -433,7 +463,7 @@ describe('missing discriminators and hidden fields', () => {
     const lsp = await sdkMessage('lspSearch', {
       queries: [
         {
-          goal: 'g',
+          mainGoal: 'g',
           reasoning: 'r',
           operation: 'callers',
           uri: 'a.ts',
@@ -450,7 +480,7 @@ describe('missing discriminators and hidden fields', () => {
     const message = await sdkMessage('ghGetHistoryItem', {
       queries: [
         {
-          goal: 'g',
+          mainGoal: 'g',
           reasoning: 'r',
           operation: 'pullRequest',
           owner: 'a',

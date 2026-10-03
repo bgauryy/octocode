@@ -8,12 +8,9 @@ description: "Use when consequential architecture, migration, public-contract, o
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load a reference or run a script only when it changes the next action; otherwise keep the rule here.
 
 Produce evidence-backed decisions and plans that builders and reviewers can execute.
-RFCs go to `<output>/rfc/`; scratch goes to `<output>/tmp/octocode-rfc-generator/`. Chat-only proposals stay in chat. Approved source edits keep their named paths.
-
-Flow: `UNDERSTAND → RESEARCH / PROVISIONAL COMPARISON → PREREQUISITES → CLOSE DECISION BLOCKERS → DECIDE/CONFIRM → DEFINE ACCEPTANCE → PLAN → VALIDATE → DELIVER → VIEW`
+When the task authorizes saving, RFC sets go to `<output>/rfc/{name}/`; scratch goes to `<output>/tmp/octocode-rfc-generator/`. Chat-only proposals stay in chat. Approved source edits keep their named paths.
 
 ```mermaid
 flowchart LR
@@ -27,27 +24,26 @@ flowchart LR
     PL --> V[Validate]
     V --> DL[Deliver]
     DL --> VW[View in browser]
-    U -. "select mode, artifact set, ledger, gates, audit, delivery order" .-> W1["workflow.md"]
-    R -. "plan evidence after octocode-research; record RESOURCES.md" .-> W2["research-playbook.md"]
-    P -. "existing code has readiness work" .-> W3["rfc-prerequisites.md"]
-    B -. "discover blocker questions, track closure" .-> W4["rfc-completeness.md"]
-    D -. "draft provisional alternatives or confirm a decision" .-> W5["rfc-template.md"]
-    A -. "acceptance or KPI targets need their own lifecycle" .-> W6["rfc-kpi.md"]
-    PL -. "build PLAN.md or IMPLEMENTATION.md" .-> W7["rfc-implementation.md"]
-    PL -. "a section explains a flow, structure, comparison, proportion, lifecycle, or schedule" .-> W8["rfc-diagrams.md"]
-    V -. "admitted classification request only: two-worker review" .-> W9["jev-review.md"]
-    V -. "before a provider-judged debate: dispatch and receipts" .-> W10["jev-debate.md"]
-    V -. "clasify setup, request shape, results" .-> W11["jev-api.md"]
-    V -. "after multi-agent review, or comparing Jev-backed review" .-> W12["review-cost.md"]
+    U -. "before drafting: select mode, artifact set, ledger, gates, audit, delivery order" .-> W1["references/workflow.md"]
+    R -. "for evidence planning after octocode-research; record RESOURCES.md" .-> W2["references/research-playbook.md"]
+    P -. "when existing code has readiness work" .-> W3["references/rfc-prerequisites.md"]
+    B -. "for blocker questions, track closure" .-> W4["references/rfc-completeness.md"]
+    D -. "when drafting provisional alternatives or confirm a decision" .-> W5["references/rfc-template.md"]
+    A -. "when acceptance or KPI targets need their own lifecycle" .-> W6["references/rfc-kpi.md"]
+    PL -. "when building PLAN.md or IMPLEMENTATION.md" .-> W7["references/rfc-implementation.md"]
+    PL -. "when a section explains a flow, structure, comparison, proportion, lifecycle, or schedule" .-> W8["references/rfc-diagrams.md"]
+    V -. "when classification is admitted: two-worker review" .-> W9["references/jev-review.md"]
+    V -. "before a provider-judged debate: dispatch and receipts" .-> W10["references/jev-debate.md"]
+    V -. "for clasify setup, request shape, results" .-> W11["references/jev-api.md"]
+    V -. "after multi-agent review, or comparing Jev-backed review" .-> W12["references/review-cost.md"]
 ```
 
-Read it as: no winner and no recommendation until every decision blocker closes with evidence; each dotted edge names the trigger that loads that `references/` page.
-To reassess an existing RFC, use the audit route in `references/workflow.md`. Audit against live code, not prior checkboxes.
+Read it as: the `no` branch returns to research.
+To reassess an existing RFC, use the audit route in `references/workflow.md`.
 
 ## Lobby rules
-- Skip RFC mode for trivial edits. Ask one focused question only when uncertainty changes shape, owner, scope, or decision criteria.
 - Compare the viable alternatives. Include the status quo when it is a real option. Skip options that cannot satisfy the decision.
-- Base recommendations on verifiable facts. Cite exact anchors and the commands or checks that ran.
+- Base recommendations on verifiable facts; `octocode-research` owns citation and evidence rules.
 - `RFC.md` owns goals, scope, and a consequential decision. Standalone `PLAN.md` owns its plan context. Linked artifacts reference that primary document and do not restate it.
 - During research, compare options provisionally to expose assumptions, counterevidence, and deciding checks. Keep reversal conditions beside each comparison. Eliminate an option only with evidence that it violates a fixed constraint.
 - Do not select an overall winner or make a final recommendation until decision-blocking questions close with evidence. Mark other uncertainty with confidence, impact, owner, and a proof trigger or a deferral trigger.
@@ -55,17 +51,14 @@ To reassess an existing RFC, use the audit route in `references/workflow.md`. Au
 - Define acceptance before implementation steps. Order steps by dependency, not estimates. Link every step to acceptance and verification.
 - Reassessing `.octocode/rfc/` requires fresh reads of live code and a dated audit result. The audit block is the only append-only exception to an accepted RFC's freeze. Write it only with source-edit authority; otherwise return it in chat.
 - Never assert RFC status from memory or from another RFC's claims.
-- Stop when: the work is a trivial edit; a brainstorming handoff is not RFC-ready; uncertainty changes artifact shape, owner, scope, or tradeoff priority; another research pass is unlikely to close a blocker; independent decisions need separate RFCs; or a requested action lacks authority. Continue independent authorized work while a specific question stays open.
+- Stop (and ask one focused question when an answer unblocks the work) when: the work is a trivial edit; a brainstorming handoff is not RFC-ready; uncertainty changes artifact shape, owner, scope, or tradeoff priority; another research pass is unlikely to close a blocker; independent decisions need separate RFCs; or a requested action lacks authority. Continue independent authorized work while a specific question stays open.
 
 ## Artifacts
 - Consequential decision: start with `RFC.md`. Its execution plan is `IMPLEMENTATION.md`.
 - Settled decision that needs only execution planning: use standalone `PLAN.md`. Do not invent alternatives.
 - Add `PREREQUISITES.md`, `KPI.md`, or `RESOURCES.md` only when readiness, measurement, or source volume needs its own lifecycle.
-- When the task authorizes saving, put the set under `<output>/rfc/{name}/`.
 
-## Pages
-Load on the map trigger: `references/workflow.md` · `references/research-playbook.md` · `references/rfc-prerequisites.md` · `references/rfc-completeness.md` · `references/rfc-template.md` · `references/rfc-kpi.md` · `references/rfc-implementation.md` · `references/rfc-diagrams.md` · `references/jev-review.md` · `references/jev-debate.md` · `references/jev-api.md` · `references/review-cost.md`.
-
+## Classification
 Use ordinary evidence review by default. The `octocode-research` clasify gate owns classification admission. No RFC debate recipe overrides its benefit gate. A judgment never closes a blocker by itself.
 
 ## Related skills and authority

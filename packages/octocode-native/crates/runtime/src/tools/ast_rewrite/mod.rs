@@ -389,22 +389,22 @@ impl RewriteError {
 fn recovery_hint(code: &str) -> Option<&'static str> {
     Some(match code {
         "ast.rewrite.snapshot_required" | "ast.rewrite.expected_hashes_required" => {
-            "Run the complete preview's next.apply unchanged; it carries snapshot and expectedHashes."
+            "Run the complete preview's hints.apply unchanged; it carries snapshot and expectedHashes."
         }
         "ast.rewrite.expected_hash_invalid" => {
-            "Copy expectedHashes from next.apply (paged previews: files[].path → beforeHash), or run next.apply unchanged."
+            "Copy expectedHashes from hints.apply (paged previews: files[].path → beforeHash), or run hints.apply unchanged."
         }
         "ast.rewrite.expected_hash_set_mismatch" | "ast.rewrite.expected_hash_missing" => {
-            "expectedHashes must list exactly the preview's affected files; run the complete preview's next.apply unchanged."
+            "expectedHashes must list exactly the preview's affected files; run the complete preview's hints.apply unchanged."
         }
         "ast.rewrite.hash_mismatch" => {
-            "A file changed since preview; follow next.restart, then apply with the new preview's next.apply."
+            "A file changed since preview; follow next.restart, then apply with the new preview's hints.apply."
         }
         "ast.rewrite.source_mismatch" => {
             "Match bytes or the generated replacement disagree with the verified source; preview again with the same query."
         }
         "ast.rewrite.snapshot_changed" => {
-            "Discard earlier preview pages; follow next.restart and page the new preview to its next.apply."
+            "Discard earlier preview pages; follow next.restart and page the new preview to its hints.apply."
         }
         "ast.rewrite.overlap" => {
             "Innermost first: rule {pattern:P, not:{has:{pattern:P with new $VARS, stopBy:\"end\"}}}; apply, repeat. Or narrow path."
@@ -1740,7 +1740,7 @@ mod tests {
         options: &AstRewriteRuntimeOptions,
     ) -> Value {
         let mut query = query;
-        for field in ["goal", "reasoning"] {
+        for field in ["mainGoal", "reasoning"] {
             if query[field].is_null() {
                 query[field] = Value::from("test");
             }
@@ -1917,7 +1917,7 @@ mod tests {
 
     fn query(root: &Path) -> Value {
         json!({
-            "path":root,"langType":"typescript","ruleKind":"pattern","goal": "test", "reasoning":"test",
+            "path":root,"langType":"typescript","ruleKind":"pattern","mainGoal": "test", "reasoning":"test",
             "pattern":"oldCall($A)","rewrite":"newCall($A)","pageSize":1
         })
     }
@@ -2194,7 +2194,7 @@ mod tests {
         apply["selectedMatchIds"] = json!([preview["matches"][0]["id"]]);
         let path = preview["files"][0]["path"].as_str().expect("path");
         let absolute = root.join(path);
-        // A complete preview states each file hash once, in next.apply.
+        // A complete preview states each file hash once, in hints.apply.
         assert!(preview["files"][0].get("beforeHash").is_none(), "{preview}");
         apply["expectedHashes"] = json!({
             absolute.to_string_lossy():
@@ -2447,7 +2447,7 @@ mod tests {
     fn yaml_rule_and_inferred_language_preview_like_the_explicit_object_rule() {
         let (root, policy, security) = fixture();
         let explicit = rewrite_row(
-            json!({"path":root,"langType":"typescript","ruleKind":"rule","goal":"test","reasoning":"test",
+            json!({"path":root,"langType":"typescript","ruleKind":"rule","mainGoal":"test","reasoning":"test",
                 "rule":{"pattern":"oldCall($A)"},"fix":"newCall($A)","pageSize":10}),
             &policy,
             &security,
@@ -2455,8 +2455,8 @@ mod tests {
             &Default::default(),
         );
         for row in [
-            json!({"path":root,"goal":"test","reasoning":"test","rule":"pattern: oldCall($A)","fix":"newCall($A)","pageSize":10}),
-            json!({"path":root,"goal":"test","reasoning":"test",
+            json!({"path":root,"mainGoal":"test","reasoning":"test","rule":"pattern: oldCall($A)","fix":"newCall($A)","pageSize":10}),
+            json!({"path":root,"mainGoal":"test","reasoning":"test",
                 "rule":"id: rename\nlanguage: typescript\nrule:\n  pattern: oldCall($A)\n","fix":"newCall($A)","pageSize":10}),
         ] {
             let inferred = rewrite_row(row, &policy, &security, &Active, &Default::default());
@@ -2472,7 +2472,7 @@ mod tests {
             );
         }
         let foreign = serde_json::from_value::<RewriteRequest>(
-            json!({"path":root,"goal":"test","reasoning":"test","rule":"rule:\n  pattern: oldCall($A)\nfix: x\n","fix":"newCall($A)"}),
+            json!({"path":root,"mainGoal":"test","reasoning":"test","rule":"rule:\n  pattern: oldCall($A)\nfix: x\n","fix":"newCall($A)"}),
         )
         .expect_err("a rule-file fix inside the rule string is not read");
         assert!(
@@ -2487,7 +2487,7 @@ mod tests {
         let (root, policy, security) = fixture();
         fs::write(root.join("b.rs"), "fn b() { oldCall(3); }\n").expect("rust file");
         let mixed = rewrite_row(
-            json!({"path":root,"goal":"test","reasoning":"test","pattern":"oldCall($A)","rewrite":"newCall($A)"}),
+            json!({"path":root,"mainGoal":"test","reasoning":"test","pattern":"oldCall($A)","rewrite":"newCall($A)"}),
             &policy,
             &security,
             &Active,
@@ -2605,7 +2605,7 @@ mod tests {
                 "path":root,
                 "langType":"typescript",
                 "ruleKind":"rule",
-                "goal": "test", "reasoning":"test",
+                "mainGoal": "test", "reasoning":"test",
                 "rule":{"pattern":"oldCall($A)"},
                 "fix":"newCall($A)",
                 "pageSize":100,

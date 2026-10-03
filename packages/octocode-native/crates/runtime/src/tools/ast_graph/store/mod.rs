@@ -249,8 +249,6 @@ pub fn ingest(
         return GraphOutput::ok(receipt);
     }
     let mut request = json!({
-        "goal": "Publish a dependency graph snapshot.",
-        "reasoning": "graph ingest",
         "analysis": "cycles",
         "path": options.path.to_string_lossy(),
         "maxFiles": max_files,

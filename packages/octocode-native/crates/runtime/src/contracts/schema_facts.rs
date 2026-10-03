@@ -232,7 +232,7 @@ mod tests {
             (ToolId::AstTopology, None, "diagnosticPageSize", "maximum"),
             (ToolId::StructureSearch, None, "limit", "maximum"),
             (ToolId::StructureSearch, None, "pageSize", "maximum"),
-            (ToolId::Clasify, None, "goal", "maxLength"),
+            (ToolId::Clasify, None, "mainGoal", "maxLength"),
         ];
         for (tool, operation, field, keyword) in facts {
             assert!(
