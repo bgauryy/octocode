@@ -346,9 +346,10 @@ fn cache_hit(
     if is_commit(identity.branch) && commit_sha != identity.branch.to_ascii_lowercase() {
         return Ok(None);
     }
-    // A modified cache no longer holds the fetched revision: re-clone it.
-    if !git::is_clean(context, clone_dir).unwrap_or(false) {
-        return Ok(None);
+    // A modified cache no longer holds the fetched revision. Do not replace
+    // the caller's bytes or report them as a verified cache hit.
+    if !git::is_clean(context, clone_dir)? {
+        return Err(dirty_checkout(clone_dir));
     }
     context
         .path_policy
@@ -376,13 +377,7 @@ fn fresh_clone(
     locked_dir: Option<&Path>,
 ) -> Result<CloneResult, CloneError> {
     cache::cleanup_stale_artifacts(&context.config.cache_home);
-    cache::evict(
-        &context.config.cache_home,
-        context.config.cache_ttl,
-        context.config.max_cache_size_bytes,
-        context.config.max_clone_count,
-        None,
-    );
+    cache::evict(context, None);
     let stage_key = match locked_dir {
         Some(dir) => dir.to_path_buf(),
         None => target("HEAD")?,
@@ -443,7 +438,26 @@ fn fresh_clone(
             &commit_sha,
             context.config.cache_ttl,
         );
+        // Repository evidence must never be overwritten by our bookkeeping.
+        // This also rejects a directory or symlink at the reserved filename.
+        match std::fs::symlink_metadata(stage.join(cache::META_FILE)) {
+            Ok(_) => {
+                return Err(cache::metadata_conflict(&meta));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(CloneError::new(
+                    "clone.cache.unavailable",
+                    format!("Could not inspect clone metadata destination: {error}"),
+                ));
+            }
+        }
         cache::write_meta(&stage, &meta)?;
+        // The target lock also covers this final check. forceRefresh bypasses
+        // cache_hit, and user writes may arrive while the stage is fetched.
+        if clone_dir.exists() && !git::checkout_status(context, &clone_dir)?.safe_to_replace {
+            return Err(dirty_checkout(&clone_dir));
+        }
         cache::promote(&context.config.cache_home, &stage, &clone_dir)?;
         if branch.is_none() {
             cache::write_default_branch_alias(
@@ -482,14 +496,20 @@ fn fresh_clone(
         result.location.cached = false;
         result
     })?;
-    cache::evict(
-        &context.config.cache_home,
-        context.config.cache_ttl,
-        context.config.max_cache_size_bytes,
-        context.config.max_clone_count,
-        Some(&clone_dir),
-    );
+    cache::evict(context, Some(&clone_dir));
     Ok(result)
+}
+
+fn dirty_checkout(path: &Path) -> CloneError {
+    CloneError {
+        hints: vec![
+            "Preserve your changes outside this managed checkout, then restore it to a clean state before retrying. forceRefresh does not discard local files.".into(),
+        ],
+        ..CloneError::new(
+            "clone.cache.dirty",
+            format!("Clone checkout '{}' contains local files or changes; it was preserved without replacement.", path.display()),
+        )
+    }
 }
 
 fn discard_stage(context: &CloneContext<'_>, stage: &Path) {

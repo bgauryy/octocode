@@ -1,8 +1,8 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
 use super::continuations::{
-    INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation, pr_next_menu,
-    promote_pr_continuations,
+    INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation, attach_raw_body_read,
+    pr_next_menu, promote_pr_continuations,
 };
 use super::files::{FileFilter, InventoryFilter, file_page_size, patch_selection, shape_pr_files};
 use super::graphql::{
@@ -13,7 +13,7 @@ use super::graphql::{
 use super::pr_sections::{shape_pr_comments, shape_pr_commits, shape_pr_reviews};
 use super::util::{
     body_matches, content_flag, history_body_view, is_bot, map_comments, needle, nonzero,
-    paginate_text, str_at, string,
+    paginate_text, str_at, string, view_dropped_text,
 };
 use super::window::{
     Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, PROVIDER_BATCH,
@@ -322,8 +322,14 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         row["sanitizationWarnings"] = json!(sanitization_warnings);
     }
     let mut content_pagination = Map::new();
+    // Surfaces whose minified view dropped text (`next.readRawBody`).
+    let mut minified = Vec::new();
     if wants.body {
-        let body = history_body_view(raw.get("body").and_then(Value::as_str).unwrap_or(""), query);
+        let raw_body = raw.get("body").and_then(Value::as_str).unwrap_or("");
+        let body = history_body_view(raw_body, query);
+        if view_dropped_text(raw_body, &body) {
+            minified.push("body");
+        }
         let (text, pagination) = paginate_text(&body, query.char_offset(), query.char_length());
         row["body"] = json!(text);
         content_pagination.insert("body".into(), pagination);
@@ -370,17 +376,24 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             );
         }
     }
-    if let Some(state) = comments_state {
-        shape_pr_comments(&mut row, &mut content_pagination, comments, state, query);
+    if let Some(state) = comments_state
+        && shape_pr_comments(&mut row, &mut content_pagination, comments, state, query)
+    {
+        minified.push("comments");
     }
-    if let Some(loaded) = reviews_loaded {
-        shape_pr_reviews(
+    if let Some(loaded) = reviews_loaded
+        && shape_pr_reviews(
             &mut row,
             &mut content_pagination,
             loaded.items,
             loaded.state,
             query,
-        );
+        )
+    {
+        minified.push("reviews");
+    }
+    if !minified.is_empty() {
+        row["bodyView"] = json!("minified");
     }
     if let Some(loaded) = commits_loaded {
         shape_pr_commits(
@@ -402,7 +415,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         && query.file_filter().is_none()
     {
         // An unfiltered inventory's own next steps: the review pick (and
-        // every patch on a small PR) and the merge commit. A
+        // every patch on a small PR). A
         // filtered inventory or a patch read is a targeted answer and keeps
         // only its continuations.
         let all_patches = raw
@@ -412,8 +425,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         let mut menu = pr_next_menu(query, content, patch_mode, &review, &raw);
         if let Some(menu) = menu.as_object_mut() {
             menu.retain(|name, _| {
-                matches!(name.as_str(), "reviewPatches" | "getMergeCommit")
-                    || (all_patches && name == "getAllPatches")
+                name == "reviewPatches" || (all_patches && name == "getAllPatches")
             });
         }
         if menu.as_object().is_some_and(|menu| !menu.is_empty()) {
@@ -459,6 +471,7 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     }
     promote_pr_continuations(&mut out, query);
     attach_full_patch_continuation(&mut out, query);
+    attach_raw_body_read(&mut out, query, &minified);
     if let Some(path) = first_unsearched {
         attach_unsearched_read(&mut out, query, &path);
     }

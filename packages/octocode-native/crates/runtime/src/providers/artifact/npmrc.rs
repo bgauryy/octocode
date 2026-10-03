@@ -1,11 +1,12 @@
-//! Origin-scoped npm registry credentials from the user npmrc.
+//! Origin- and path-scoped npm registry credentials from the user npmrc.
 //!
 //! Only the user config (`NPM_CONFIG_USERCONFIG`, else `~/.npmrc`) is read.
 //! A project `.npmrc` is never consulted: it is repository-controlled and
 //! must not be able to steer the user's token anywhere. The registry always
 //! comes from the query, and a token is attached only when its
-//! `//host[:port]/path/:_authToken` key is scoped to that registry's origin
+//! `//host[:port]/path/:_authToken` key matches that request's origin and path
 //! (npm "nerf-dart" matching, longest path prefix wins).
+use super::types::NpmAuthorization;
 use secrecy::SecretString;
 use std::path::{Path, PathBuf};
 use url::Url;
@@ -20,7 +21,7 @@ pub(crate) fn user_npmrc_path() -> Option<PathBuf> {
 }
 
 /// Authorization header value for `registry` from the npmrc at `path`.
-pub(crate) fn authorization_from_file(registry: &Url, path: &Path) -> Option<SecretString> {
+pub(crate) fn authorization_from_file(registry: &Url, path: &Path) -> Option<NpmAuthorization> {
     // npmrc files are tiny; refuse anything implausibly large.
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > 1024 * 1024 {
@@ -31,7 +32,7 @@ pub(crate) fn authorization_from_file(registry: &Url, path: &Path) -> Option<Sec
 }
 
 /// `//host[:port]/path/` for a registry URL, as npm keys credentials.
-fn nerf_dart(registry: &Url) -> Option<String> {
+pub(crate) fn nerf_dart(registry: &Url) -> Option<String> {
     let host = registry.host_str()?.to_ascii_lowercase();
     let port = registry
         .port()
@@ -76,10 +77,10 @@ pub(crate) fn authorization_for(
     registry: &Url,
     contents: &str,
     env: impl Fn(&str) -> Option<String>,
-) -> Option<SecretString> {
+) -> Option<NpmAuthorization> {
     let target = nerf_dart(registry)?;
-    // (scope length, header) of the most specific matching credential.
-    let mut best: Option<(usize, String)> = None;
+    // Keep the winning scope so every later request can enforce it.
+    let mut best: Option<(String, String)> = None;
     for line in contents.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
@@ -110,11 +111,17 @@ pub(crate) fn authorization_for(
             continue;
         };
         // Later lines override earlier ones for the same scope, as in npm.
-        if best.as_ref().is_none_or(|(len, _)| scope.len() >= *len) {
-            best = Some((scope.len(), format!("{scheme} {secret}")));
+        if best
+            .as_ref()
+            .is_none_or(|(selected_scope, _)| scope.len() >= selected_scope.len())
+        {
+            best = Some((scope, format!("{scheme} {secret}")));
         }
     }
-    best.map(|(_, header)| SecretString::from(header))
+    best.map(|(scope, header)| NpmAuthorization {
+        header: SecretString::from(header),
+        scope,
+    })
 }
 
 #[cfg(test)]
@@ -126,7 +133,7 @@ mod tests {
     fn auth(registry: &str, npmrc: &str) -> Option<String> {
         let env = |name: &str| (name == "NPM_TOKEN").then(|| "from-env".to_owned());
         authorization_for(&Url::parse(registry).unwrap(), npmrc, env)
-            .map(|secret| secret.expose_secret().to_owned())
+            .map(|secret| secret.header.expose_secret().to_owned())
     }
 
     #[test]
@@ -165,6 +172,52 @@ mod tests {
         let only_deep = "//h.test/api/npm/:_authToken=deep\n";
         assert_eq!(auth("https://h.test/", only_deep), None);
         assert_eq!(auth("https://h.test/api/npmx/", only_deep), None);
+    }
+
+    #[test]
+    fn resolved_credentials_retain_the_winning_normalized_scope() {
+        let base = Url::parse("https://h.test/api/npm/").unwrap();
+        let authorization = authorization_for(
+            &base,
+            "//h.test/:_authToken=root\n//H.TEST/api/npm:_authToken=old\n//h.test/api/npm/:_auth=ZmFrZQ==\n",
+            |_| None,
+        ).expect("scoped credential");
+        let registry = super::super::types::ResolvedNpmRegistry {
+            base,
+            authorization: Some(authorization),
+            cache_identity: "fake-test".into(),
+        };
+        assert_eq!(
+            registry.authorization.as_ref().unwrap().scope,
+            "//h.test/api/npm/"
+        );
+        for target in [
+            "https://h.test/api/npm/pkg",
+            "https://h.test:443/api/npm/pkg",
+        ] {
+            assert_eq!(
+                registry
+                    .authorization_for(&Url::parse(target).unwrap())
+                    .unwrap()
+                    .expose_secret(),
+                "Basic ZmFrZQ=="
+            );
+        }
+        for target in [
+            "https://h.test/other/pkg",
+            "https://h.test/api/npm-extra/pkg",
+            "https://h.test:444/api/npm/pkg",
+            "http://h.test/api/npm/pkg",
+            "https://fake:secret@h.test/api/npm/pkg",
+        ] {
+            assert!(
+                registry
+                    .authorization_for(&Url::parse(target).unwrap())
+                    .is_none(),
+                "{target}"
+            );
+        }
+        assert!(!format!("{registry:?}").contains("ZmFrZQ=="));
     }
 
     #[test]

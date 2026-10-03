@@ -1,0 +1,190 @@
+{
+  "qid": "L06",
+  "pairKey": "octocode-npm__rg-gh",
+  "label": "order2",
+  "subjectSha": "72e8d9ee374aeb0671ddf905f35622dd2a629e5cf9854e9d8631fe6c8dbcb622",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode-npm",
+  "attempts": 1,
+  "promptSha256": "e6072823d2c1107e206fc790af5eb4b65b6a0c14c8b495115f632f312d2f23fe",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [
+        "Intro says it affects 'route responses', which is vague and slightly misleading because route handlers don't use generateEtags"
+      ],
+      "notes": "Accurate core trace. Misses the next-server.ts forwarding step and the etag algorithm (fact 5), but admits not checking the algorithm. Cites :63 for the isDynamic line, which is actually :64."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [
+        "Section heading lists 'app routes' among rendered responses, but route handlers don't get ETags via this flag"
+      ],
+      "notes": "Fuller fact 2, including the next-server.ts forwarding step, and more call sites in app-page-runtime. Doesn't cover the etag algorithm (fact 5) but says so. Citations check out."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [
+        "Intro says it affects 'route responses', which is vague and slightly misleading because route handlers don't use generateEtags"
+      ],
+      "notes": "Accurate core trace. Misses the next-server.ts forwarding step and the etag algorithm (fact 5), but admits not checking the algorithm. Cites :63 for the isDynamic line, which is actually :64."
+    },
+    "octocode-npm": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [
+        "Section heading lists 'app routes' among rendered responses, but route handlers don't get ETags via this flag"
+      ],
+      "notes": "Fuller fact 2, including the next-server.ts forwarding step, and more call sites in app-page-runtime. Doesn't cover the etag algorithm (fact 5) but says so. Citations check out."
+    }
+  },
+  "preferredWorker": "octocode-npm",
+  "reference_issues": "none",
+  "cost_usd": 0.1005606,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 9261,
+        "cache_read_input_tokens": 11283,
+        "output_tokens": 1210,
+        "context_tokens": 20548,
+        "total_tokens": 21758,
+        "first_request_context": 8915,
+        "fixed_overhead_tokens": 17830,
+        "research_tokens": 3928,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 9261,
+          "cache_read_input_tokens": 11283,
+          "output_tokens": 11
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1199
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9261,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 11633
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1005606,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 9261,
+    "cache_read_input_tokens": 11283,
+    "output_tokens": 1210,
+    "context_tokens": 20548,
+    "total_tokens": 21758,
+    "first_request_context": 8915,
+    "fixed_overhead_tokens": 17830,
+    "research_tokens": 3928,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 9261,
+      "cache_read_input_tokens": 11283,
+      "output_tokens": 11
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1199
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9261,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 11633
+  },
+  "timedOut": false
+}

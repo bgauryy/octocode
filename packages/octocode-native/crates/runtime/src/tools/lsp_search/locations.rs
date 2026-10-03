@@ -12,6 +12,7 @@ use super::LspSearchQuery;
 use super::failure::{continuation, empty};
 use super::render::{as_array, flatten_document_symbol, paginate, symbol_kind_name, uri_to_path};
 use super::source::SourceCache;
+use crate::tools::id::ToolId;
 use serde_json::{Value, json};
 
 /// One-based public `displayRange` of a zero-based LSP range.
@@ -111,6 +112,7 @@ pub(super) async fn locations(
     };
     let (page, mut pagination) = paginate(&entries, query.page().unwrap_or(1), query.page_size());
     pagination["snapshot"] = json!(snapshot);
+    let mut declaration_reads: Vec<Value> = Vec::new();
     let mut payload = if grouped {
         json!({ "kind": kind, "byFile": page })
     } else if compact {
@@ -123,9 +125,10 @@ pub(super) async fn locations(
                 apply_context_lines(location, context_lines, sources).await;
             }
         } else {
-            for location in &mut page {
-                cap_declaration_content(location);
-            }
+            declaration_reads = page
+                .iter_mut()
+                .filter_map(cap_declaration_content)
+                .collect();
         }
         let mut page = page.into_iter().map(public_location).collect::<Vec<_>>();
         let shared_uri = shared_location_uri(&page);
@@ -164,13 +167,22 @@ pub(super) async fn locations(
         payload["totalFiles"] = json!(total_files);
         payload["coverage"] = json!({ "scope": "languageServer", "exhaustive": false });
     }
-    json!({
+    let mut row = json!({
         "type": query.operation(),
         "uri": query.uri(),
         "lsp": { "serverAvailable": true, "provider": provider },
         "payload": payload,
         "pagination": pagination
-    })
+    });
+    // One read per capped body: `readDeclaration`, `readDeclaration2`, ….
+    for (index, read) in declaration_reads.into_iter().enumerate() {
+        let key = match index {
+            0 => "readDeclaration".to_owned(),
+            n => format!("readDeclaration{}", n + 1),
+        };
+        row["next"][key] = read;
+    }
+    row
 }
 
 /// Widen a location's `content` to `context_lines` around its range, from
@@ -225,32 +237,49 @@ pub(super) const MAX_DECLARATION_CONTENT_LINES: usize = 60;
 
 /// Keep the first [`MAX_DECLARATION_CONTENT_LINES`] of a location's default
 /// declaration body and end it with a marker naming the omitted source lines,
-/// so a class definition does not ship its whole body.
-pub(super) fn cap_declaration_content(location: &mut Value) {
-    let Some(content) = location.get("content").and_then(Value::as_str) else {
-        return;
-    };
+/// so a class definition does not ship its whole body. Returns the localFetch
+/// continuation that reads exactly the omitted lines.
+pub(super) fn cap_declaration_content(location: &mut Value) -> Option<Value> {
+    let content = location.get("content").and_then(Value::as_str)?;
     let lines = content.split('\n').collect::<Vec<_>>();
     if lines.len() <= MAX_DECLARATION_CONTENT_LINES {
-        return;
+        return None;
     }
     let omitted = lines.len() - MAX_DECLARATION_CONTENT_LINES;
     let start = location
         .pointer("/displayRange/startLine")
         .and_then(Value::as_u64)
         .map(|start| start as usize);
-    let marker = match start {
-        Some(start) => format!(
-            "… {omitted} more lines omitted (source lines {}-{}); read them with localFetch startLine/endLine.",
+    let path = location.get("uri").and_then(Value::as_str).map(uri_to_path);
+    let rest = start.map(|start| {
+        (
             start + MAX_DECLARATION_CONTENT_LINES,
-            start + lines.len() - 1
+            start + lines.len() - 1,
+        )
+    });
+    let read = match (&path, rest) {
+        (Some(path), Some((from, to))) => Some(json!({
+            "tool": ToolId::LocalFetch.as_str(),
+            "why": "Read the declaration lines the location body omits.",
+            "query": {"path": path, "startLine": from, "endLine": to},
+            "confidence": "exact"
+        })),
+        _ => None,
+    };
+    let marker = match (rest, read.is_some()) {
+        (Some((from, to)), true) => format!(
+            "… {omitted} more lines omitted (source lines {from}-{to}); next.readDeclaration reads them."
         ),
-        None => format!("… {omitted} more lines omitted; read them with localFetch."),
+        (Some((from, to)), false) => format!(
+            "… {omitted} more lines omitted (source lines {from}-{to}); read them with localFetch startLine/endLine."
+        ),
+        (None, _) => format!("… {omitted} more lines omitted; read them with localFetch."),
     };
     let mut capped = lines[..MAX_DECLARATION_CONTENT_LINES].join("\n");
     capped.push('\n');
     capped.push_str(&marker);
     location["content"] = json!(capped);
+    read
 }
 
 pub(super) fn compact_location(value: Value) -> Value {

@@ -4,7 +4,7 @@ use crate::cache::write_private;
 use crate::civil_date::{civil_from_days, days_from_civil};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -353,9 +353,38 @@ pub(super) fn write_meta(path: &Path, meta: &CacheMeta) -> Result<(), CloneError
     let bytes = serde_json::to_vec_pretty(meta)
         .map_err(|error| CloneError::new("clone.cache.invalid", error.to_string()))?;
     let destination = path.join(META_FILE);
-    let temporary = path.join(format!("{META_FILE}.tmp-{}", std::process::id()));
-    write_private(&temporary, &bytes).map_err(cache_io)?;
-    fs::rename(&temporary, &destination).map_err(cache_io)
+    // Metadata is written only in the hidden stage before directory promotion.
+    // Exclusive creation protects source files arriving after the early check.
+    let mut options = fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&destination).map_err(|error| {
+        if error.kind() == io::ErrorKind::AlreadyExists {
+            metadata_conflict(meta)
+        } else {
+            cache_io(error)
+        }
+    })?;
+    file.write_all(&bytes).map_err(cache_io)
+}
+
+pub(super) fn metadata_conflict(meta: &CacheMeta) -> CloneError {
+    CloneError {
+        hints: vec![
+            "Read path:\".octocode-clone-meta.json\" with ghGetFileContent at this ref, or browse the repository with ghStructure.".into(),
+        ],
+        ..CloneError::new(
+            "clone.cache.metadataConflict",
+            format!(
+                "Repository {}/{}@{} contains reserved path '{}'; no checkout was replaced.",
+                meta.owner, meta.repo, meta.commit_sha, META_FILE,
+            ),
+        )
+    }
 }
 
 pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneError> {
@@ -434,16 +463,17 @@ pub(super) fn cleanup_stale_artifacts(home: &Path) {
     }
 }
 
-pub(super) fn evict(
-    home: &Path,
-    ttl: Duration,
-    max_bytes: u64,
-    max_count: usize,
-    protected: Option<&Path>,
-) {
+pub(super) fn evict(context: &CloneContext<'_>, protected: Option<&Path>) {
+    let home = &context.config.cache_home;
+    let ttl = context.config.cache_ttl;
+    let max_bytes = context.config.max_cache_size_bytes;
+    let max_count = context.config.max_clone_count;
     let base = home.join("tmp").join("clone");
     let mut live = vec![];
     for branch in clone_entries(&base) {
+        if context.path_policy.validate(&branch).is_err() {
+            continue;
+        }
         let meta = if protected == Some(branch.as_path()) {
             valid_clone(&branch, ttl)
         } else {
@@ -453,6 +483,13 @@ pub(super) fn evict(
             };
             let meta = valid_clone(&branch, ttl);
             if meta.is_none() {
+                // Expired/invalid bookkeeping does not authorize deleting the
+                // caller's files. Unverifiable trees also remain untouched.
+                if !super::git::checkout_status(context, &branch)
+                    .is_ok_and(|status| status.safe_to_replace)
+                {
+                    continue;
+                }
                 log_eviction(home, "expired-or-invalid", &branch, directory_size(&branch));
                 remove_dir(&branch);
             }
@@ -479,6 +516,9 @@ pub(super) fn evict(
         let Some(_guard) = try_lock(&lock) else {
             continue;
         };
+        if !super::git::checkout_status(context, &path).is_ok_and(|status| status.safe_to_replace) {
+            continue;
+        }
         if fs::remove_dir_all(&path).is_ok() {
             log_eviction(home, "size-limit", &path, size);
             bytes = bytes.saturating_sub(size);

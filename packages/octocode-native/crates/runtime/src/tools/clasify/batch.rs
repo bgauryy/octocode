@@ -80,7 +80,7 @@ pub(crate) async fn execute(
         });
     }
     let req = request(state, questions, model, provider);
-    let response = post(
+    let (response, provider_calls) = post(
         &req,
         key,
         endpoint(base_url, endpoint_path)?,
@@ -89,7 +89,13 @@ pub(crate) async fn execute(
         gate,
     )
     .await?;
-    project_response(&req, &response, questions, model, provider)
+    let mut group =
+        project_response(&req, &response, questions, model, provider).map_err(|mut error| {
+            error.provider_calls = provider_calls;
+            error
+        })?;
+    group.usage["provider_calls"] = json!(provider_calls);
+    Ok(group)
 }
 
 fn project_response(

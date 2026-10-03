@@ -122,11 +122,24 @@ pub(crate) fn analyze(
     .filter_map(|(present, reason)| present.then_some(reason))
     .collect::<Vec<_>>();
     let coverage_state = add_coverage(&mut base, b, q, &results_digest);
+    let result_page_limit =
+        !coverage_state.changed && base["pagination"]["hasMore"] == true && q.page() >= 1000;
+    let diagnostic_page_limit = !coverage_state.changed
+        && base["coverage"]["diagnosticsPagination"]["hasMore"] == true
+        && q.diagnostic_page() >= 1000;
+    if result_page_limit {
+        reasons.push("pageLimit".into());
+    }
+    if diagnostic_page_limit {
+        base["coverage"]["diagnosticsPagination"]["terminalLimit"] = json!(true);
+    }
     if !reasons.is_empty() {
         base.insert("truncated".into(), json!(true));
         base.insert("partialReasons".into(), json!(reasons));
     }
-    let terminal = b.files_skipped > 0
+    let terminal = result_page_limit
+        || diagnostic_page_limit
+        || b.files_skipped > 0
         || q.max_files().is_some_and(|x| x >= 50_000) && b.truncated
         || q.limit().is_some_and(|x| x >= 5_000) && limit_truncated;
     if terminal {
@@ -147,7 +160,9 @@ pub(crate) fn analyze(
             coverage_state.withheld.as_deref(),
         );
     }
-    let result_state = if base["pagination"]["hasMore"] == true {
+    let result_state = if result_page_limit {
+        "truncated"
+    } else if base["pagination"]["hasMore"] == true {
         "pageable"
     } else if reasons
         .iter()
@@ -1349,7 +1364,12 @@ fn add_coverage(
         .iter()
         .map(|d| json!([d.file, d.line, d.code, d.message]))
         .collect::<Vec<_>>();
-    let id = digest(&json!([tuples, results_digest]));
+    let id = digest(&json!([
+        tuples,
+        results_digest,
+        q.page_size(),
+        q.diagnostic_page_size()
+    ]));
     let mut counts = BTreeMap::<String, u32>::new();
     for d in &b.diagnostics {
         *counts.entry(d.code.clone()).or_default() += 1

@@ -75,6 +75,21 @@ pub(super) fn validate_history_keyword_scope(input: &Value) -> Result<(), Contra
     Ok(())
 }
 
+pub(super) fn validate_history_repository_scope(
+    input: &Value,
+) -> Result<(), ContractValidationError> {
+    for (index, query) in query_values(input) {
+        if query.get("repo").is_some() && query.get("owner").and_then(Value::as_str).is_none() {
+            return Err(issue(
+                "history.repository-scope",
+                vec!["queries".into(), index.to_string(), "owner".into()],
+                "repo requires owner; omit both to search all GitHub.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::contracts::validate::validate;

@@ -5,7 +5,7 @@
 // hops and bytes, and fails when a hop's promised handoff is missing.
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, declarations, rowData, sourcePath, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { REPOS, checks, collect, declarations, rowData, sourcePath, startServer, structureFiles, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('navigate');
 const client = await startServer();
@@ -50,7 +50,7 @@ for (const t of TARGETS) {
   // ORIENT: layout, then the biggest source file in scope.
   const tree = await hop('orient: tree', 'structureSearch', { operation: 'tree', path: path.join(root, t.scope), maxDepth: 1 });
   const listing = await hop('orient: files', 'structureSearch', { operation: 'files', path: path.join(root, t.scope), extensions: t.ext, detail: 'full', sort: 'lines', limit: 1 });
-  const top = collect(rowData(listing), o => typeof o.path === 'string' && typeof o.lineCount === 'number')[0];
+  const top = structureFiles(rowData(listing)?.files).filter(o => typeof o.path === 'string' && typeof o.lineCount === 'number')[0];
   if (!check(`${t.lang}: orient yields a file`, !tree.isError && top, listing.text.slice(0, 80))) { table.push(row); continue; }
   const file = abs(listing, top.path);
   check(`${t.lang}: base + path is a real file`, fs.existsSync(file), file);

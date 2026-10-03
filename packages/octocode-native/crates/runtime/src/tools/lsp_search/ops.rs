@@ -88,6 +88,8 @@ impl Operation<'_, '_> {
                     &found,
                 )
                 .await?;
+                let alias_scan_capped = recovered.capped;
+                let recovered = recovered.snippets;
                 let mut seen = found
                     .iter()
                     .chain(&recovered)
@@ -150,6 +152,9 @@ impl Operation<'_, '_> {
                 .await;
                 if let Some(importers) = &importers {
                     importers.annotate(&mut row);
+                }
+                if alias_scan_capped && row.pointer("/payload/coverage").is_some() {
+                    super::recovery::disclose_alias_cap(&mut row, query, self.workspace_root);
                 }
                 Ok(row)
             }

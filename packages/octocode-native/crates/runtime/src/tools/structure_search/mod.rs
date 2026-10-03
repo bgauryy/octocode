@@ -40,12 +40,23 @@ fn page_budget(response_window: Option<usize>, identity: &Value) -> usize {
     )
 }
 
+/// Serialized chars one row adds to a page: `entry` always, plus `header`
+/// when the row opens a group: it starts the page, or `continues` is false
+/// (it follows a row of another group). A page repeats the header of a group
+/// it continues, so every page reads on its own.
+#[derive(Clone, Copy, Debug)]
+struct RowCost {
+    entry: usize,
+    header: usize,
+    continues: bool,
+}
+
 /// Row ranges of each page: `page_size` rows each when the caller sets it,
 /// else as many rows as fit `budget` serialized chars (at least one per
 /// page). Costs come from snapshot-bound data, so every page of one snapshot
 /// cuts at the same rows. An empty listing has no pages.
 fn page_ranges(
-    costs: &[usize],
+    costs: &[RowCost],
     page_size: Option<usize>,
     budget: usize,
 ) -> Vec<std::ops::Range<usize>> {
@@ -64,27 +75,37 @@ fn page_ranges(
     let mut start = 0;
     let mut used = 0usize;
     for (index, cost) in costs.iter().enumerate() {
-        if index > start && used.saturating_add(*cost) > budget {
+        let opening = cost.entry.saturating_add(cost.header);
+        let added = if cost.continues { cost.entry } else { opening };
+        if index > start && used.saturating_add(added) > budget {
             pages.push(start..index);
             start = index;
             used = 0;
         }
-        used = used.saturating_add(*cost);
+        used = used.saturating_add(if index == start { opening } else { added });
     }
     pages.push(start..total);
     pages
 }
 
-/// Serialized chars of the walked root in each row path: rows name the root
-/// first, and the response renders that root workspace-relative (nothing
-/// for the workspace itself, absolute outside it).
-fn rendered_root_chars(paths: &crate::policy::path::PathPolicy, root: &std::path::Path) -> usize {
-    use crate::tools::stream_page::json_text_chars;
-    match paths.workspace_relative(root).as_deref() {
-        Some(".") => 0,
-        Some(relative) => json_text_chars(relative),
-        None => json_text_chars(&root.to_string_lossy()),
-    }
+/// A listed directory as the response renders it: the envelope anchors a
+/// row's `dir` (relative to the walked root's parent; `""` is that parent)
+/// on that parent, then names it workspace-relative (`.` for the workspace
+/// itself), or absolute outside it.
+fn rendered_dir(
+    paths: &crate::policy::path::PathPolicy,
+    root: &std::path::Path,
+    dir: &str,
+) -> String {
+    let parent = root.parent().unwrap_or(root);
+    let absolute = if dir.is_empty() {
+        parent.to_path_buf()
+    } else {
+        parent.join(dir)
+    };
+    paths
+        .workspace_relative(&absolute)
+        .unwrap_or_else(|| absolute.to_string_lossy().into_owned())
 }
 
 use sha2::{Digest, Sha256};
@@ -195,9 +216,8 @@ fn continuation(query: &impl serde::Serialize, changes: Value) -> Value {
     json!({"tool":crate::tools::id::ToolId::StructureSearch.as_str(),"query":query,"confidence":"exact"})
 }
 
-/// An empty listing whose walk pruned `.gitignore`d entries is empty because
-/// of ignore rules, not the caller's filters: say so and offer the retry that
-/// includes them (`retry` holds the query changes). No-op otherwise.
+/// An empty listing cannot prove absence in pruned `.gitignore`d entries.
+/// Disclose that coverage gap and offer a retry including those entries.
 fn note_ignored_empty(
     out: &mut Value,
     query: &impl serde::Serialize,

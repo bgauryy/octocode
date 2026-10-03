@@ -35,8 +35,6 @@ const TS_JS_GLOBS: [&str; 8] = [
 ];
 /// Candidate files opened and verified per request.
 pub(super) const MAX_CANDIDATE_FILES: usize = 24;
-/// Occurrences per candidate file checked by definition identity.
-const MAX_OCCURRENCES_PER_FILE: usize = 4;
 /// Settle/ready bounds for the last candidate open; the load it triggers
 /// covers every candidate opened before it.
 const OPEN_SETTLE_MS: u32 = 200;
@@ -56,7 +54,7 @@ pub(super) struct Importers {
     pub(super) anchors: Vec<Anchor>,
     /// Lexical candidates beyond [`MAX_CANDIDATE_FILES`] were not checked.
     pub(super) capped: bool,
-    /// The lexical candidate scan failed, so no importer was checked.
+    /// A candidate could not be read, opened, or resolved, or the scan failed.
     pub(super) failed: bool,
 }
 
@@ -90,9 +88,6 @@ fn occurrences(content: &str, symbol: &str) -> Vec<(u32, u32, bool)> {
             };
             let is_call = line[end..].trim_start().starts_with('(');
             found.push((line_number, character, is_call));
-            if found.len() >= MAX_OCCURRENCES_PER_FILE {
-                return found;
-            }
         }
     }
     found
@@ -301,9 +296,12 @@ pub(super) async fn verified_anchors(
         character,
     )
     .await?;
-    if declaration.is_empty() {
-        return Ok(Importers::default());
-    }
+    let Some(declaration) = declaration.filter(|declaration| !declaration.is_empty()) else {
+        return Ok(Importers {
+            failed: true,
+            ..Importers::default()
+        });
+    };
     let mut skip = known_files.clone();
     skip.insert(canonical(anchor_path));
     let scan_root = scan_root(workspace_root, sources.policy());
@@ -316,9 +314,11 @@ pub(super) async fn verified_anchors(
         });
     };
     let mut opened = Vec::new();
+    let mut failed = false;
     for (index, file) in files.iter().enumerate() {
         cancel.check().map_err(LspFailure::cancelled)?;
         let Some(source) = sources.get(file).await else {
+            failed = true;
             continue;
         };
         let spots = occurrences(&source.content, symbol);
@@ -344,6 +344,8 @@ pub(super) async fn verified_anchors(
         };
         if synced.is_ok() {
             opened.push((file.clone(), spots));
+        } else {
+            failed = true;
         }
     }
     let mut anchors = Vec::new();
@@ -366,6 +368,10 @@ pub(super) async fn verified_anchors(
                 spot_character,
             )
             .await?;
+            let Some(resolved) = resolved else {
+                failed = true;
+                continue;
+            };
             if !resolved.is_disjoint(&declaration) {
                 anchors.push(Anchor {
                     path: file.clone(),
@@ -383,7 +389,7 @@ pub(super) async fn verified_anchors(
     Ok(Importers {
         anchors,
         capped,
-        failed: false,
+        failed,
     })
 }
 
@@ -565,7 +571,7 @@ async fn identities(
     path: &str,
     line: u32,
     character: u32,
-) -> Result<HashSet<String>, LspFailure> {
+) -> Result<Option<HashSet<String>>, LspFailure> {
     match resolve_definition_chain(
         client,
         sources,
@@ -578,12 +584,12 @@ async fn identities(
     .await
     {
         Ok((found, warnings)) if warnings.is_empty() => {
-            Ok(found.iter().map(snippet_identity).collect())
+            Ok(Some(found.iter().map(snippet_identity).collect()))
         }
         // A retained pre-failure alias is not terminal declaration proof.
-        Ok(_) => Ok(HashSet::new()),
+        Ok(_) => Ok(None),
         Err(failure) if failure.code == "lsp.cancelled" => Err(failure),
-        Err(_) => Ok(HashSet::new()),
+        Err(_) => Ok(None),
     }
 }
 
@@ -602,9 +608,22 @@ mod tests {
     }
 
     #[test]
-    fn occurrences_cap_per_file() {
-        let content = "f f f f f f\n";
-        assert_eq!(occurrences(content, "f").len(), MAX_OCCURRENCES_PER_FILE);
+    fn occurrences_include_late_call_sites() {
+        let content = "// f f f f f\nf();\n";
+        let found = occurrences(content, "f");
+        assert_eq!(found.len(), 6);
+        assert_eq!(found.last(), Some(&(1, 0, true)));
+    }
+
+    #[test]
+    fn failed_importer_verification_never_reports_complete_coverage() {
+        let importers = Importers {
+            failed: true,
+            ..Importers::default()
+        };
+        let mut row = json!({"status": "success", "payload": {}});
+        importers.annotate(&mut row);
+        assert_eq!(row["payload"]["coverage"]["importerScan"], SCAN_FAILED);
     }
 
     #[test]

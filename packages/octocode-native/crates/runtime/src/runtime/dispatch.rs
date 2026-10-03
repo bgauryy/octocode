@@ -143,7 +143,8 @@ pub(super) fn execute_local(
         ToolId::StructureSearch => {
             let request = parsed!(StructureSearchQuery);
             Ok(
-                match execute_structure(&request, paths, security, context, context.response_window) {
+                match execute_structure(&request, paths, security, context, context.response_window)
+                {
                     Ok(data) => value_result(data),
                     Err(error) => {
                         let kind = error_failure(&error.code);

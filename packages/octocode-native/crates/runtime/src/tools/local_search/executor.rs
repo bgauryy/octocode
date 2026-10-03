@@ -407,14 +407,50 @@ pub fn execute_local_search(
         Some(relative) => crate::tools::stream_page::json_text_chars(relative) + 1,
         None => crate::tools::stream_page::json_text_chars(&output_root.to_string_lossy()) + 1,
     };
-    let file_chars = |file: &octocode_engine::types::RipgrepFile| {
-        crate::tools::stream_page::json_text_chars(&file.path) + prefix_chars + FILE_ENTRY_CHARS
-    };
     // matchOnly rows show their exact span clipped to the display bound.
     let match_only_limit = (view == LocalSearchQueryResultView::MatchOnly)
         .then_some(effective_match_content_length(query) as usize);
+    // A clipped row rides its file's `next.expandValues*` read (see
+    // [`expand_values`]): the page pays for that read, so it still fits.
+    let clipped = |matched: &octocode_engine::types::RipgrepMatch| match match_only_limit {
+        Some(limit) => matched.value.chars().nth(limit).is_some(),
+        None => matched.original_chars.is_some(),
+    };
+    let expand_context = if view == LocalSearchQueryResultView::MatchOnly {
+        0
+    } else {
+        context_lines
+    };
+    let read_chars = expansion_read_chars(query, multiline != LocalSearchQueryMultiline::Off);
+    let file_chars = |file: &octocode_engine::types::RipgrepFile| {
+        let entry = crate::tools::stream_page::json_text_chars(&file.path)
+            + prefix_chars
+            + FILE_ENTRY_CHARS;
+        if file.matches.iter().any(clipped) {
+            entry
+                + read_chars
+                + crate::tools::stream_page::json_text_chars(&file.path)
+                + prefix_chars
+        } else {
+            entry
+        }
+    };
     let row_chars = |matched: &octocode_engine::types::RipgrepMatch| {
-        row_chars(matched, match_only_limit, view == LocalSearchQueryResultView::MatchOnly)
+        let row = row_chars(
+            matched,
+            match_only_limit,
+            view == LocalSearchQueryResultView::MatchOnly,
+        );
+        if clipped(matched) {
+            // Its line range, and a share of the extra read every
+            // FETCH_RANGES ranges open.
+            let digits = |n: u32| n.checked_ilog10().map_or(1, |log| log as usize + 1);
+            row + 2 * digits(matched.line.saturating_add(expand_context))
+                + 4
+                + read_chars.div_ceil(FETCH_RANGES)
+        } else {
+            row
+        }
     };
     let hits_total: usize = if list {
         0
@@ -685,7 +721,7 @@ pub fn execute_local_search(
                     total_pages: Some(total_pages),
                     total_matches: total,
                     has_more,
-                    next_match_page: has_more.then_some(match_page + 1),
+                    next_match_page: (has_more && match_page < 1000).then_some(match_page + 1),
                     more_lines: (has_more && !later.is_empty())
                         .then(|| line_ranges(&later, MAX_MORE_LINE_RANGES)),
                     out_of_range,
@@ -738,11 +774,11 @@ pub fn execute_local_search(
     });
     if budget_binds && any_truncated {
         warnings.push(
-            "Match values were shortened to keep the total response within its size budget. Every match row and its line anchor is preserved; narrow the search (maxMatchesPerFile, matchContentLength, include/exclude) or use localFetch at each anchor for full source.".into(),
+            "Match values were shortened to keep the total response within its size budget. Every match row and its line anchor is preserved; next.expandValues reads the shortened values whole.".into(),
         );
     } else if any_truncated {
         warnings.push(
-            "Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.".into(),
+            "Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. next.expandValues reads them whole.".into(),
         );
     }
     if shown_redacted > 0 && !list {
@@ -798,7 +834,7 @@ pub fn execute_local_search(
     {
         next = Some(json!({ "read": read }));
     }
-    let (status, terminal_limit) = classify_search(
+    let (status, mut terminal_limit) = classify_search(
         empty,
         capped,
         has_more,
@@ -806,6 +842,37 @@ pub fn execute_local_search(
         coverage_gap,
         next.is_none(),
     );
+    terminal_limit |= (has_more && page >= 1000) || (leftover_matches && match_page >= 1000);
+    // Every clipped value on the page stays reachable whole.
+    let expansions = expand_values(
+        query,
+        paths,
+        output_root,
+        &files,
+        if view == LocalSearchQueryResultView::MatchOnly {
+            0
+        } else {
+            context_lines
+        },
+        multiline != LocalSearchQueryMultiline::Off,
+        // A caller-sized (grid) page keeps its rows whatever the value
+        // width; a streamed page is cut by serialized size.
+        (!streamed).then_some(GridPage {
+            value_cap: budget_cap.unwrap_or(RESPONSE_VALUE_CHAR_BUDGET),
+        }),
+    );
+    if !expansions.is_empty()
+        && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
+    {
+        for (index, expansion) in expansions.into_iter().enumerate() {
+            let name = if index == 0 {
+                "expandValues".to_owned()
+            } else {
+                format!("expandValues{}", index + 1)
+            };
+            map.insert(name, expansion);
+        }
+    }
     let skip_hint = skipped_target_hint(
         root.is_file(),
         stats.files_searched,
@@ -890,9 +957,8 @@ fn pagination_chars(file: &octocode_engine::types::RipgrepFile) -> usize {
     let total = file.matches.len();
     let widest_line = file.matches.iter().map(|m| m.line).max().unwrap_or(0);
     let ranges = total.saturating_sub(1).min(MAX_MORE_LINE_RANGES);
-    let more_lines = ranges * (2 * digits(u64::from(widest_line)) + 2)
-        + ",+ more".len()
-        + digits(total as u64);
+    let more_lines =
+        ranges * (2 * digits(u64::from(widest_line)) + 2) + ",+ more".len() + digits(total as u64);
     let empty = ItemPagination {
         current_page: None,
         total_pages: None,
@@ -1082,6 +1148,176 @@ fn read_handoff(
         "why": "Read the top file's hits in context.",
         "confidence": "high",
     }))
+}
+
+/// Line ranges one localFetch `ranges` read holds (the contract's
+/// `maxItems`).
+const FETCH_RANGES: usize = 10;
+/// The contract maximum of `matchContentLength`.
+const MAX_MATCH_CONTENT_LENGTH: usize = 100_000;
+
+/// Serialized chars of one `expandValuesNN` read without its path (and its
+/// ranges, which each row pays for).
+fn expansion_read_chars(query: &LocalSearchQuery, multiline: bool) -> usize {
+    let read = if multiline {
+        json!({"expandValues99": {
+            "tool": ToolId::LocalSearch.as_str(),
+            "query": normalized_query(query, true),
+            "why": MULTILINE_READ_WHY,
+            "confidence": "exact",
+        }})
+    } else {
+        json!({"expandValues99": {
+            "tool": ToolId::LocalFetch.as_str(),
+            "query": {"path": "", "ranges": []},
+            "why": LINES_READ_WHY,
+            "confidence": "exact",
+        }})
+    };
+    crate::tools::stream_page::json_chars(&read)
+}
+const LINES_READ_WHY: &str = "Read the clipped values' source lines whole.";
+const MULTILINE_READ_WHY: &str = "Search this file alone with room for its clipped values.";
+
+/// A caller-sized page: the same `page`/`matchPage` show the same rows at
+/// any `matchContentLength`, so one widened query reaches every clipped
+/// value while `value_cap` (the response budget's per-row share) still
+/// holds them.
+struct GridPage {
+    value_cap: usize,
+}
+
+/// Reads that return every clipped value of a page whole. A grid page whose
+/// longest clipped value fits both the contract maximum and the per-row
+/// budget gets one widened copy of the query. Otherwise each file gets its
+/// own read: a line row's value is its hit line with up to `context` lines
+/// on each side, so a localFetch of those source lines (`ranges`, merged, at
+/// most [`FETCH_RANGES`] per read) holds it whole, and localFetch pages a
+/// long read itself. A clipped multiline row hides how many lines its match
+/// spans, so its file is searched again alone with `matchContentLength`
+/// raised to its longest clipped value (past the contract maximum, a
+/// localFetch from its first line).
+fn expand_values(
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    root: &std::path::Path,
+    files: &[SearchFile],
+    context: u32,
+    multiline: bool,
+    grid: Option<GridPage>,
+) -> Vec<Value> {
+    let longest = files
+        .iter()
+        .flat_map(|file| file.matches.iter().flatten())
+        .filter(|matched| matched.truncated)
+        .filter_map(|matched| matched.original_chars)
+        .max();
+    let Some(longest) = longest else {
+        return Vec::new();
+    };
+    if let Some(grid) = grid
+        && longest <= MAX_MATCH_CONTENT_LENGTH.min(grid.value_cap)
+        && longest > effective_match_content_length(query) as usize
+    {
+        // The snapshot names this value width, so the widened page is a
+        // fresh run of the same page (same rows while the source is unchanged).
+        let mut widened = normalized_query(query, false);
+        widened["matchContentLength"] = json!(longest);
+        if let Some(fields) = widened.as_object_mut() {
+            fields.remove("snapshot");
+        }
+        return vec![json!({
+            "tool": ToolId::LocalSearch.as_str(),
+            "query": widened,
+            "why": "The same page with room for every clipped value.",
+            "confidence": "exact",
+        })];
+    }
+    let mut reads = Vec::new();
+    for file in files {
+        let clipped = file
+            .matches
+            .iter()
+            .flatten()
+            .filter(|matched| matched.truncated)
+            .collect::<Vec<_>>();
+        if clipped.is_empty() {
+            continue;
+        }
+        let source = root.join(&file.path);
+        let path = paths
+            .workspace_relative(&source)
+            .unwrap_or_else(|| source.to_string_lossy().into_owned());
+        if multiline {
+            let longest = clipped
+                .iter()
+                .filter_map(|matched| matched.original_chars)
+                .max()
+                .unwrap_or(0)
+                .min(MAX_MATCH_CONTENT_LENGTH);
+            if longest <= effective_match_content_length(query) as usize {
+                // Already at the widest view: read from the first clipped
+                // line; localFetch pages the rest of the file.
+                let first = clipped
+                    .iter()
+                    .map(|matched| matched.line)
+                    .min()
+                    .unwrap_or(1);
+                reads.push(json!({
+                    "tool": ToolId::LocalFetch.as_str(),
+                    "query": {"path": path, "startLine": first.saturating_sub(context).max(1), "endLine": crate::contracts::query_schema_max(ToolId::LocalFetch, None, "endLine")},
+                    "why": "Read from the clipped multiline value on; the read pages.",
+                    "confidence": "exact",
+                }));
+                continue;
+            }
+            let mut search = normalized_query(query, true);
+            if let Some(fields) = search.as_object_mut() {
+                for key in ["page", "matchPage", "snapshot", "pageSize"] {
+                    fields.remove(key);
+                }
+                fields.insert("path".into(), json!(path));
+                fields.insert("matchContentLength".into(), json!(longest));
+            }
+            reads.push(json!({
+                "tool": ToolId::LocalSearch.as_str(),
+                "query": search,
+                "why": MULTILINE_READ_WHY,
+                "confidence": "exact",
+            }));
+            continue;
+        }
+        let mut spans = clipped
+            .iter()
+            .map(|matched| {
+                (
+                    matched.line.saturating_sub(context).max(1),
+                    matched.line.saturating_add(context),
+                )
+            })
+            .collect::<Vec<_>>();
+        spans.sort_unstable();
+        let mut merged: Vec<(u32, u32)> = Vec::new();
+        for (start, end) in spans {
+            match merged.last_mut() {
+                Some(last) if start <= last.1.saturating_add(1) => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
+            }
+        }
+        for chunk in merged.chunks(FETCH_RANGES) {
+            let ranges = chunk
+                .iter()
+                .map(|(start, end)| format!("{start}-{end}"))
+                .collect::<Vec<_>>();
+            reads.push(json!({
+                "tool": ToolId::LocalFetch.as_str(),
+                "query": {"path": path, "ranges": ranges},
+                "why": LINES_READ_WHY,
+                "confidence": "exact",
+            }));
+        }
+    }
+    reads
 }
 
 /// A query that explicitly targets a single file which the engine then skips
@@ -1968,7 +2204,7 @@ fn build_next(
             json!({"tool":ToolId::LocalSearch.as_str(),"query":n,"confidence":"exact"}),
         );
     }
-    if leftover_matches {
+    if leftover_matches && match_page < 1000 {
         let mut n = base;
         n["matchPage"] = json!(match_page + 1);
         if let Some(s) = snapshot {
@@ -2335,8 +2571,9 @@ mod repair_tests {
     }
 }
 
-/// The binary-quit files a warning names: root-relative paths, then the
-/// count of any the engine did not keep (`a.bin, b.dat and 3 more`).
+/// The binary-quit files a warning names: every root-relative path the
+/// engine reports, then the count of any it could not name
+/// (`a.bin, b.dat and 3 more`).
 fn binary_file_list(paths: &[String], total: u32, root: &std::path::Path) -> String {
     if paths.is_empty() {
         return "a file with a NUL byte was".into();

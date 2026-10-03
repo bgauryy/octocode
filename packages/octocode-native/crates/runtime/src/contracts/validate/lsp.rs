@@ -1,6 +1,44 @@
 //! Interpreter for the `lsp_rust_context` opcode.
-use super::{ContractValidationError, issue, query_values};
+use super::{ContractValidationError, internal, issue, query_values};
 use serde_json::Value;
+
+pub(super) fn validate_operation_controls(
+    input: &Value,
+    rule_id: &str,
+    args: &Value,
+) -> Result<(), ContractValidationError> {
+    let fields = args["fields"]
+        .as_object()
+        .ok_or_else(|| internal("operation_controls requires fields".into()))?;
+    for (index, query) in query_values(input) {
+        let operation = query["operation"]
+            .as_str()
+            .or_else(|| args["defaultOperation"].as_str())
+            .unwrap_or("");
+        for (field, operations) in fields {
+            let operations = operations
+                .as_array()
+                .ok_or_else(|| internal("operation_controls requires operation arrays".into()))?;
+            if query.get(field).is_some()
+                && !operations
+                    .iter()
+                    .any(|value| value.as_str() == Some(operation))
+            {
+                let allowed = operations
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(issue(
+                    rule_id,
+                    vec!["queries".into(), index.to_string(), field.clone()],
+                    format!("{field} only applies to {allowed}; remove it from {operation}."),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
 
 pub(super) fn validate_lsp_queries(input: &Value) -> Result<(), ContractValidationError> {
     for (index, query) in query_values(input) {

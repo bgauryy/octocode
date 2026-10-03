@@ -172,8 +172,9 @@ pub(super) fn is_small_pr(
 }
 
 /// Per-row menu of first-page fetches for content the call did not request:
-/// at most four entries (`getChangedFiles`, `reviewPatches`, `getDiscussion`,
-/// `getMergeCommit`; an inventory read may add `getAllPatches`).
+/// at most three entries (`getChangedFiles`, `reviewPatches`,
+/// `getDiscussion`; an inventory read may add `getAllPatches`). A merged
+/// row already shows `mergeCommitSha`, so no merge-commit read is offered.
 ///
 /// `raw` is the provider PR object; `review` is the inventory's
 /// [`super::files::review_selection`] (empty before files were read). An
@@ -260,37 +261,18 @@ pub(super) fn pr_next_menu(
     if !discussion.is_empty() {
         next.insert("getDiscussion".into(), call(Value::Object(discussion)));
     }
-    if raw.get("merged_at").is_some_and(|v| !v.is_null())
-        && let Some(sha) = raw
-            .get("merge_commit_sha")
-            .and_then(Value::as_str)
-            .filter(|sha| !sha.is_empty())
-    {
-        let mut commit = json!({
-            "operation":"commit",
-            "owner":target["owner"],
-            "repo":target["repo"],
-            "ref":sha
-        });
-        // A small fix's diff fits the commit read; without it the stats
-        // alone cost another hop.
-        if small_pr {
-            commit["includeDiff"] = json!(true);
-        }
-        next.insert("getMergeCommit".into(), continuation(commit));
-    }
     Value::Object(next)
 }
 
-/// Longest added line `next.readAtMerge` anchors its read on.
-const MERGE_ANCHOR_CHARS: usize = 120;
+/// Longest added-line prefix `next.readAtMerge` anchors its read on.
+const MERGE_ANCHOR_CHARS: usize = 60;
 
 /// `next.readAtMerge`: a merged pull request whose patch rows were read
-/// offers its first changed source file (else its first changed file) at the
-/// merge commit, as a block read anchored on that file's first added line,
-/// so the fix is checked in the code that shipped. `None` for unmerged pull
-/// requests, for a `matchString` read (a targeted answer already), and for
-/// rows without an added line to anchor on.
+/// offers its first changed code file (not a test) at the merge commit, as a
+/// block read anchored on that file's first added line, so the fix is
+/// checked in the code that shipped. `None` for unmerged pull requests, for
+/// a `matchString` read (a targeted answer already), and for windows without
+/// such a file or an added line to anchor on.
 pub(super) fn read_at_merge(
     query: &HistoryItemRequest,
     raw: &Value,
@@ -313,10 +295,9 @@ pub(super) fn read_at_merge(
             Some((path, first_added_line(file.get("patch")?.as_str()?)?))
         })
         .collect::<Vec<_>>();
-    let (path, anchor) = patched
-        .iter()
-        .find(|(path, _)| classify_file_type(path) == Some(FileType::Code) && !is_test_path(path))
-        .or_else(|| patched.first())?;
+    let (path, anchor) = patched.iter().find(|(path, _)| {
+        classify_file_type(path) == Some(FileType::Code) && !is_test_path(path)
+    })?;
     Some(json!({
         "tool": ToolId::GhGetFileContent.as_str(),
         "confidence": "high",
@@ -460,32 +441,17 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
     }
 }
 
-/// `next.readFullPatches` (few files) or `next.widenContext` (many): the
-/// follow-up for files a `matchString` view narrowed to their hit lines
-/// (rows marked `fullPatchChars`, kept on rows only with `debug`). An
-/// explicit `matchContext` asked for the narrowed view itself: no offer.
+/// The lossless re-read of every patch row whose view is not the raw patch
+/// (rows marked `fullPatchChars`, kept on rows only with `debug`):
+/// `next.readFullPatches` for a `matchString` view (hit lines, clipped long
+/// lines), `next.readUntrimmed` for a minified view (context replaced by
+/// `...`). Both read the selected files with `minify:"none"` and page through
+/// the patch window; more files than one selection holds continue in
+/// `readFullPatches2`, `readFullPatches3`, …. Many narrowed files without an
+/// explicit `matchContext` also get `next.widenContext`.
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
-    let mut narrowed = Vec::new();
-    for file in out
-        .pointer_mut("/pullRequests/0/changedFiles")
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-    {
-        let Some(fields) = file.as_object_mut() else {
-            continue;
-        };
-        // The marker selects the continuation; rows carry it only in debug.
-        let marked = if q.debug() {
-            fields.contains_key("fullPatchChars")
-        } else {
-            fields.remove("fullPatchChars").is_some()
-        };
-        if marked && let Some(path) = fields.get("path").and_then(Value::as_str) {
-            narrowed.push(path.to_owned());
-        }
-    }
-    if narrowed.is_empty() || q.match_context().is_some() {
+    let narrowed = take_reshaped_paths(out.pointer_mut("/pullRequests/0/changedFiles"), q.debug());
+    if narrowed.is_empty() {
         return;
     }
     let mut nq = base_public_query(q, ItemOperation::PullRequest);
@@ -495,22 +461,96 @@ pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemReq
     if !out.get("next").is_some_and(Value::is_object) {
         out["next"] = json!({});
     }
-    if narrowed.len() > READ_FULL_PATCH_FILES {
-        // Many narrowed files: widen the hit context instead of re-reading
-        // every whole patch.
-        nq["matchContext"] = json!(WIDEN_MATCH_CONTEXT);
-        out["next"]["widenContext"] = continuation(nq);
-        return;
+    let name = if q.match_string().is_some() {
+        if narrowed.len() > WIDEN_CONTEXT_FILES && q.match_context().is_none() {
+            let mut widen = nq.clone();
+            widen["matchContext"] = json!(WIDEN_MATCH_CONTEXT);
+            out["next"]["widenContext"] = continuation(widen);
+        }
+        remove_key(&mut nq, "matchString");
+        remove_key(&mut nq, "matchContext");
+        "readFullPatches"
+    } else {
+        "readUntrimmed"
+    };
+    nq["minify"] = json!("none");
+    for (index, files) in narrowed.chunks(SELECTED_PATCH_FILES).enumerate() {
+        let mut read = nq.clone();
+        read["content"] = json!({"patches":{"mode":"selected","files":files}});
+        let key = if index == 0 {
+            name.to_owned()
+        } else {
+            format!("{name}{}", index + 1)
+        };
+        out["next"][key] = continuation(read);
     }
-    remove_key(&mut nq, "matchString");
-    nq["content"] = json!({"patches":{"mode":"selected","files":narrowed}});
-    out["next"]["readFullPatches"] = continuation(nq);
 }
 
-/// Narrowed files up to which `next.readFullPatches` re-reads whole patches;
-/// beyond it `next.widenContext` asks for [`WIDEN_MATCH_CONTEXT`] lines.
-const READ_FULL_PATCH_FILES: usize = 5;
+/// `next.readRawBody`: the PR text surfaces whose minified view dropped text
+/// (the row says `bodyView:"minified"`), re-read with `minify:"none"` from
+/// their first character, on the same comment and review pages.
+pub(super) fn attach_raw_body_read(out: &mut Value, q: &HistoryItemRequest, surfaces: &[&str]) {
+    if surfaces.is_empty() {
+        return;
+    }
+    let mut nq = base_public_query(q, ItemOperation::PullRequest);
+    for key in [
+        "charOffset",
+        "commentBodyOffset",
+        "filePage",
+        "commitPage",
+        "fileFilter",
+        "files",
+    ] {
+        remove_key(&mut nq, key);
+    }
+    let requested = q.content_value().unwrap_or_default();
+    let mut content = Map::new();
+    for surface in surfaces {
+        let value = match *surface {
+            "comments" => requested
+                .get("comments")
+                .cloned()
+                .unwrap_or(json!({"discussion":true})),
+            _ => json!(true),
+        };
+        content.insert((*surface).to_owned(), value);
+    }
+    nq["content"] = Value::Object(content);
+    nq["minify"] = json!("none");
+    if !out.get("next").is_some_and(Value::is_object) {
+        out["next"] = json!({});
+    }
+    out["next"]["readRawBody"] = menu_read(nq);
+}
+
+/// Paths of the rows marked `fullPatchChars` (a view that is not the raw
+/// patch). The marker stays on rows only with `debug`.
+pub(super) fn take_reshaped_paths(rows: Option<&mut Value>, debug: bool) -> Vec<String> {
+    let mut paths = Vec::new();
+    for file in rows.and_then(Value::as_array_mut).into_iter().flatten() {
+        let Some(fields) = file.as_object_mut() else {
+            continue;
+        };
+        let marked = if debug {
+            fields.contains_key("fullPatchChars")
+        } else {
+            fields.remove("fullPatchChars").is_some()
+        };
+        if marked && let Some(path) = fields.get("path").and_then(Value::as_str) {
+            paths.push(path.to_owned());
+        }
+    }
+    paths
+}
+
+/// Narrowed files above which `next.widenContext` (a [`WIDEN_MATCH_CONTEXT`]
+/// line view) is offered beside the whole-patch re-read.
+const WIDEN_CONTEXT_FILES: usize = 5;
 const WIDEN_MATCH_CONTEXT: u64 = 3;
+/// Paths one `content.patches.files` selection holds (the contract's
+/// `maxItems`).
+pub(super) const SELECTED_PATCH_FILES: usize = 100;
 
 /// Narrow a patch char-window continuation to the patch surface and to the
 /// files whose window has more; completed files are not re-emitted.
@@ -935,7 +975,10 @@ mod tests {
         for key in ["matchString", "charOffset", "filePage"] {
             assert!(next.get(key).is_none(), "{key} kept: {next}");
         }
-        // An explicit matchContext asked for the narrowed view: no offer.
+        // The re-read is raw: a minified view would trim the context again.
+        assert_eq!(next["minify"], "none", "{next}");
+        // An explicit matchContext still clips long lines: the whole patch
+        // stays reachable.
         let explicit: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
             "content":{"patches":{"mode":"all"}},"matchString":"needle","matchContext":0
@@ -945,13 +988,103 @@ mod tests {
             {"path":"src/a.rs","patch":"+needle","fullPatchChars":900}
         ]}]});
         attach_full_patch_continuation(&mut out, &explicit);
-        assert!(out.get("next").is_none(), "{out}");
+        let next = &out["next"]["readFullPatches"]["query"];
+        assert_eq!(
+            next["content"],
+            json!({"patches":{"mode":"selected","files":["src/a.rs"]}}),
+            "{out}"
+        );
+        assert!(next.get("matchContext").is_none(), "{next}");
+        assert!(out["next"].get("widenContext").is_none(), "{out}");
     }
 
-    /// Many narrowed files get `widenContext` (matchContext 3), not a
+    /// A minified PR patch view (context replaced by `...`) offers
+    /// `next.readUntrimmed`: the trimmed files only, raw.
+    #[test]
+    fn minified_patch_views_offer_the_untrimmed_patches() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "include":["patches"],"charOffset":40
+        }))
+        .expect("pr query");
+        let mut out = json!({"type":"pullRequests","pullRequests":[{"changedFiles":[
+            {"path":"src/a.rs","patch":"@@ -1,40 +1,40 @@\n a\n...\n-x\n+y","fullPatchChars":900},
+            {"path":"src/b.rs","patch":"+short"}
+        ]}]});
+        attach_full_patch_continuation(&mut out, &query);
+        let next = &out["next"]["readUntrimmed"]["query"];
+        assert_eq!(next["minify"], "none", "{out}");
+        assert_eq!(
+            next["content"],
+            json!({"patches":{"mode":"selected","files":["src/a.rs"]}}),
+            "{out}"
+        );
+        assert!(next.get("charOffset").is_none(), "{next}");
+        assert!(out["next"].get("readFullPatches").is_none(), "{out}");
+        assert!(!out.to_string().contains("fullPatchChars"), "{out}");
+    }
+
+    /// `next.readRawBody` re-reads only the minified surfaces, raw, from
+    /// their first character, on the same comment page.
+    #[test]
+    fn raw_body_read_targets_the_minified_surfaces_on_the_same_page() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "content":{"body":true,"comments":{"discussion":true},"patches":{"mode":"all"}},
+            "commentPage":2,"commentBodyOffset":30,"charOffset":10
+        }))
+        .expect("pr query");
+        let mut out = json!({"type":"pullRequests","pullRequests":[{"number":1}]});
+        attach_raw_body_read(&mut out, &query, &[]);
+        assert!(out.get("next").is_none(), "{out}");
+        attach_raw_body_read(&mut out, &query, &["body", "comments"]);
+        let next = &out["next"]["readRawBody"]["query"];
+        assert_eq!(next["minify"], "none", "{out}");
+        assert_eq!(next["commentPage"], 2, "{out}");
+        for key in ["charOffset", "commentBodyOffset"] {
+            assert!(next.get(key).is_none(), "{key} kept: {next}");
+        }
+        assert_eq!(
+            next["content"],
+            json!({"body":true,"comments":{"discussion":true}}),
+            "{next}"
+        );
+    }
+
+    /// More reshaped files than one selection holds continue in numbered
+    /// reads that reach each file exactly once.
+    #[test]
+    fn reshaped_files_past_one_selection_continue_in_numbered_reads() {
+        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+            "include":["patches"]
+        }))
+        .expect("pr query");
+        let rows = (0..SELECTED_PATCH_FILES + 3)
+            .map(|i| json!({"path":format!("src/{i}.rs"),"patch":"...","fullPatchChars":90}))
+            .collect::<Vec<_>>();
+        let mut out = json!({"type":"pullRequests","pullRequests":[{"changedFiles":rows}]});
+        attach_full_patch_continuation(&mut out, &query);
+        let files = |name: &str| {
+            out["next"][name]["query"]["content"]["patches"]["files"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        };
+        assert_eq!(files("readUntrimmed").len(), SELECTED_PATCH_FILES, "{out}");
+        assert_eq!(
+            files("readUntrimmed2"),
+            (SELECTED_PATCH_FILES..SELECTED_PATCH_FILES + 3)
+                .map(|i| json!(format!("src/{i}.rs")))
+                .collect::<Vec<_>>()
+        );
+        assert!(out["next"].get("readUntrimmed3").is_none(), "{out}");
+    }
+
+    /// Many narrowed files get `widenContext` (matchContext 3) beside the
     /// whole-patch re-read; the marker never reaches default rows.
     #[test]
-    fn many_narrowed_files_widen_context_instead_of_full_patches() {
+    fn many_narrowed_files_widen_context_beside_full_patches() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","goal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
             "matchString":"miri"
@@ -965,37 +1098,33 @@ mod tests {
         let widen = &out["next"]["widenContext"]["query"];
         assert_eq!(widen["matchContext"], 3, "{out}");
         assert_eq!(widen["matchString"], "miri", "{out}");
-        assert!(out["next"].get("readFullPatches").is_none(), "{out}");
+        assert_eq!(
+            out["next"]["readFullPatches"]["query"]["content"]["patches"]["files"]
+                .as_array()
+                .map(Vec::len),
+            Some(6),
+            "{out}"
+        );
         assert!(!out.to_string().contains("fullPatchChars"), "{out}");
     }
 
+    /// The row already shows a merged PR's `mergeCommitSha`, so the menu
+    /// offers no separate merge-commit read beside it.
     #[test]
-    fn merged_pull_requests_link_their_merge_commit_and_open_ones_do_not() {
+    fn merged_pull_requests_offer_no_merge_commit_read_beside_the_shown_sha() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","goal": "test", "reasoning":"test","owner":"o","repo":"r","number":5
         }))
         .expect("pr query");
-        let merged = json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc"});
-        let menu = pr_next_menu(&query, None, "none", &[], &merged);
-        assert_eq!(
-            menu["getMergeCommit"]["query"],
-            json!({"operation":"commit","owner":"o","repo":"r","ref":"facc6fc"})
-        );
-        // A small merged fix reads its merge commit with the diff: the stats
-        // alone would cost another hop.
-        let small = json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc",
-            "changed_files":3,"additions":63,"deletions":4});
-        assert_eq!(
-            pr_next_menu(&query, None, "none", &[], &small)["getMergeCommit"]["query"],
-            json!({"operation":"commit","owner":"o","repo":"r","ref":"facc6fc","includeDiff":true})
-        );
-        // An open PR's merge_commit_sha is GitHub's test merge, not a real commit.
-        let open = json!({"merged_at":null,"merge_commit_sha":"deadbee"});
-        assert!(
-            pr_next_menu(&query, None, "none", &[], &open)
-                .get("getMergeCommit")
-                .is_none()
-        );
+        for raw in [
+            json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc"}),
+            json!({"merged_at":"2026-09-26T15:24:18Z","merge_commit_sha":"facc6fc",
+                "changed_files":3,"additions":63,"deletions":4}),
+            json!({"merged_at":null,"merge_commit_sha":"deadbee"}),
+        ] {
+            let menu = pr_next_menu(&query, None, "none", &[], &raw);
+            assert!(menu.get("getMergeCommit").is_none(), "{menu}");
+        }
     }
 
     /// A merged PR whose patches were read offers the first changed source
@@ -1028,6 +1157,25 @@ mod tests {
         assert!(read_at_merge(&query, &merged, &inventory).is_none());
         let removed = json!([{"path":"a.go","stat":"M +0 -1","patch":"@@ -1 +0,0 @@\n-x := 1"}]);
         assert!(read_at_merge(&query, &merged, &removed).is_none());
+        // Docs and tests are not the shipped fix: no code file, no offer.
+        let no_code = json!([
+            {"path":"acceptance/README.md","stat":"M +1 -0","patch":"@@ -1 +1 @@\n+Run the acceptance suite"},
+            {"path":"pkg/cmd/pr/merge/merge_test.go","stat":"M +1 -0","patch":"@@ -1 +1 @@\n+func TestX() {}"}
+        ]);
+        assert!(read_at_merge(&query, &merged, &no_code).is_none());
+        // The anchor is a short prefix of the added line.
+        let long = format!(
+            "+\t{}",
+            "fields := []string{\"id\", \"number\", \"state\", \"title\", \"lastCommit\", \"headRefName\"}"
+        );
+        let files =
+            json!([{"path":"a.go","stat":"M +1 -0","patch":format!("@@ -1 +1 @@\n{long}")}]);
+        let anchor = read_at_merge(&query, &merged, &files).expect("offer")["query"]["matchString"]
+            .as_str()
+            .map(str::to_owned)
+            .expect("anchor");
+        assert!(anchor.chars().count() <= 60, "{anchor}");
+        assert!(long.contains(&anchor), "{anchor}");
     }
 
     #[test]
@@ -1099,10 +1247,10 @@ mod tests {
         );
     }
 
-    /// A summary menu holds at most four entries; an inventory read
+    /// A summary menu holds at most three entries; an inventory read
     /// turns its review pick into `reviewPatches` over several files.
     #[test]
-    fn summary_menu_is_four_entries_and_inventory_reviews_many_files() {
+    fn summary_menu_is_three_entries_and_inventory_reviews_many_files() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","goal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
         }))
@@ -1114,11 +1262,7 @@ mod tests {
             .as_object()
             .map(|m| m.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
-        assert_eq!(
-            keys,
-            ["getChangedFiles", "getDiscussion", "getMergeCommit"],
-            "{menu}"
-        );
+        assert_eq!(keys, ["getChangedFiles", "getDiscussion"], "{menu}");
         assert!(!menu.to_string().contains("<literal"), "{menu}");
         let review = vec!["src/a.rs".to_owned(), "src/b.rs".to_owned()];
         let inventory = json!({"changed_files":30,"additions":900,"deletions":10});

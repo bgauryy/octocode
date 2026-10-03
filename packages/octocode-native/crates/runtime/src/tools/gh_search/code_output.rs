@@ -271,20 +271,30 @@ pub(super) async fn resolve_lines<
     }))
 }
 
+/// Reads a shaped page carries: the top hit's line range, and one read of
+/// every keyword line for each file whose listed hits were capped or cut.
+pub(super) struct PageReads {
+    pub(super) top: Option<Value>,
+    pub(super) hits: Vec<Value>,
+}
+
 /// Shape file rows: resolved files list numbered `lines` instead of index
 /// fragments; fragment `matchIndices` stay only under `debug`; a repo-scoped
-/// page names owner/repo once. Returns the top hit's read: a line range of
-/// the top resolved hit, else `fragment_read` kept inside the verified
-/// source scope.
+/// page names owner/repo once. The top read is a line range of the top
+/// resolved hit, else `fragment_read` kept inside the verified source scope.
 pub(super) fn shape_files(
     value: &mut Value,
     items: &mut [Value],
     query: &GhSearchCodeQuery,
     resolution: Option<Resolution>,
     fragment_read: Option<Value>,
-) -> Option<Value> {
+) -> PageReads {
+    let mut hit_reads = Vec::new();
     if query.concise == Some(true) {
-        return None;
+        return PageReads {
+            top: None,
+            hits: hit_reads,
+        };
     }
     let fragment_read = scoped_fragment_read(fragment_read, query, resolution.as_ref());
     let reference = requested_ref(query);
@@ -310,6 +320,7 @@ pub(super) fn shape_files(
             match hits {
                 super::lines::FileHits::Lines {
                     lines,
+                    clipped,
                     first,
                     last,
                     best,
@@ -322,6 +333,11 @@ pub(super) fn shape_files(
                     row.insert("lines".into(), json!(lines));
                     if *total > lines.len() {
                         row.insert("hitCount".into(), json!(total));
+                    }
+                    if (*total > lines.len() || *clipped)
+                        && let Some(read) = hits_read(query, row, &resolution.sha)
+                    {
+                        hit_reads.push(read);
                     }
                     if top.is_none() {
                         top = Some(line_read(
@@ -357,7 +373,66 @@ pub(super) fn shape_files(
             }
         }
     }
-    top.flatten().or(fragment_read)
+    PageReads {
+        top: top.flatten().or(fragment_read),
+        hits: hit_reads,
+    }
+}
+
+/// ghGetFileContent read of every keyword line of one file at the resolved
+/// commit, whole and numbered: the lossless continuation of a hit list that
+/// was capped or cut to keyword windows. The same case-insensitive literal
+/// any-of match as the listing.
+fn hits_read(
+    query: &GhSearchCodeQuery,
+    row: &serde_json::Map<String, Value>,
+    sha: &str,
+) -> Option<Value> {
+    let path = row.get("path")?.as_str()?;
+    let repo = query.repo.as_deref()?;
+    let keywords: Vec<&str> = query
+        .keywords
+        .iter()
+        .map(|keyword| keyword.trim())
+        .filter(|keyword| !keyword.is_empty())
+        .collect();
+    let max = crate::contracts::query_schema_number(
+        ToolId::GhGetFileContent,
+        None,
+        "matchString",
+        "maxItems",
+    )
+    .and_then(|max| usize::try_from(max).ok())
+    .unwrap_or(10);
+    let mut read = json!({
+        "owner": query.owner.as_str(),
+        "repo": repo.as_str(),
+        "path": path,
+        "branch": sha,
+        "contextLines": 0,
+        "reasoning": "Read every hit line of this file.",
+    });
+    match keywords.as_slice() {
+        [] => return None,
+        [one] => read["matchString"] = json!(one),
+        many if many.len() <= max => read["matchString"] = json!(many),
+        // More keywords than a matchString list holds: one escaped
+        // alternation matches the same lines.
+        many => {
+            read["matchString"] = json!(
+                many.iter()
+                    .map(|keyword| regex::escape(keyword))
+                    .collect::<Vec<_>>()
+                    .join("|")
+            );
+            read["matchStringIsRegex"] = json!(true);
+        }
+    }
+    Some(json!({
+        "tool": ToolId::GhGetFileContent.as_str(),
+        "why": "Read every keyword line of this file whole.",
+        "query": read,
+    }))
 }
 
 /// The index-fragment read of the top file, kept inside the verified source

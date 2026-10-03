@@ -2,7 +2,7 @@
 // full pagination, and cross-tool correlation (text ⊇ syntax ⊇ identity).
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, astMatchRows, checks, collect, declarations, nextHints, rowData, sourcePath, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { REPOS, astMatchRows, checks, collect, declarations, nextHints, rowData, sourcePath, sourceView, startServer, structureFiles, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('repo-sweep');
 const client = await startServer();
@@ -50,7 +50,7 @@ for (const r of REPOS_BY_LANG) {
   const tree = await call('structureSearch', { operation: 'tree', path: root, maxDepth: 1 });
   check(`${r.lang}: structure tree`, !tree.isError && !tree.rowErrors, `${tree.ms}ms`);
   const listing = await call('structureSearch', { operation: 'files', path: scope, extensions: r.ext, detail: 'full', sort: 'lines', limit: 5 });
-  const biggest = collect(rowData(listing), o => typeof o.path === 'string' && typeof o.lineCount === 'number')[0];
+  const biggest = structureFiles(rowData(listing)?.files).filter(o => typeof o.path === 'string' && typeof o.lineCount === 'number')[0];
   check(`${r.lang}: biggest source located`, !!biggest, listing.text.slice(0, 100));
   if (!biggest) { table.push(row); continue; }
   const L = abs(listing, biggest.path);

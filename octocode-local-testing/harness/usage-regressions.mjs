@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
-import { ROOT, checks, collect, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { ROOT, checks, collect, expandShared, rowData, startServer, structureFiles, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('usage-regressions');
 const client = await startServer();
@@ -15,9 +15,9 @@ const RUNTIME = 'packages/octocode-native/crates/runtime/src';
 const LARGE = `${RUNTIME}/contracts/validate.rs`;
 
 /** The CLI as agents call it through a shell: exit code plus parsed stdout. */
-function cli(tool, input) {
+function cli(tool, input, env = {}) {
   const run = spawnSync(process.execPath, [path.join(ROOT, 'packages/octocode/out/octocode.js'), tool, JSON.stringify(input)], {
-    cwd: ROOT, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024,
+    cwd: ROOT, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...env },
   });
   let json;
   try { json = JSON.parse(run.stdout); } catch { json = undefined; }
@@ -163,6 +163,56 @@ for (const [label, query] of [['default', {}], ['fullContent', { fullContent: tr
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// Default-layout page walks: every streamed page fits one response window,
+// so following ONLY each row's next.nextPage reaches every row exactly once.
+// A page larger than the window used to split into row parts whose later
+// part had no continuation, and the row walk silently skipped its rows.
+{
+  const env = { OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH: '20000' };
+  const walker = await startServer({ env });
+  const rowWalk = async (surface, tool, query, rowsOf, totalOf) => {
+    let input = { queries: [{ ...brief, ...query }] };
+    const out = { seen: [], calls: 0, bytes: 0, splits: 0, total: undefined, exits: [] };
+    while (out.calls < 40) {
+      out.calls += 1;
+      let sc;
+      if (surface === 'mcp') {
+        const r = await walker.raw(tool, input);
+        sc = r.sc; out.bytes += r.bytes;
+      } else {
+        const r = cli(tool, input, env);
+        sc = expandShared(r.json); out.bytes += r.bytes; out.exits.push(r.exit);
+      }
+      const data = sc?.results?.[0]?.data ?? {};
+      if (sc?.responsePagination || sc?.results?.[0]?.rowPart) out.splits += 1;
+      out.total ??= totalOf(data);
+      out.seen.push(...rowsOf(data));
+      const next = data.next?.nextPage;
+      if (!next) break;
+      input = { queries: [next.query] };
+    }
+    out.unique = new Set(out.seen).size;
+    return out;
+  };
+  const hits = data => (data.files ?? []).flatMap(f => (f.matches ?? []).map(m => `${f.path}:${m.line}`));
+  const files = data => structureFiles(data.files).map(f => f.path);
+  for (const [label, tool, query, rowsOf, totalOf] of [
+    ['localSearch .unwrap() over runtime tools', 'localSearch', { path: `${RUNTIME}/tools`, searchText: '.unwrap()' }, hits, d => d.pagination?.totalMatches ?? hits(d).length],
+    // About 2.9k .py files: several pages even with directory-grouped rows.
+    ['structureSearch **/*.py over the python corpus', 'structureSearch', { operation: 'files', path: 'octocode-local-testing/repos/python', pathPattern: '**/*.py' }, files, d => d.pagination?.totalFiles ?? files(d).length],
+  ]) {
+    for (const surface of ['mcp', 'cli']) {
+      const w = await rowWalk(surface, tool, query, rowsOf, totalOf);
+      const stats = `${w.unique}/${w.total} unique, ${w.seen.length} shown, ${w.calls} calls, ${w.bytes}B, ${w.splits} split`;
+      check(`U19 ${surface.toUpperCase()}: ${label} spans several pages`, w.calls > 1, stats);
+      check(`U19 ${surface.toUpperCase()}: ${label} pages each fit one response (no row parts)`, w.splits === 0, stats);
+      check(`U19 ${surface.toUpperCase()}: ${label} row-continuation walk shows every row exactly once`, w.total > 0 && w.unique === w.total && w.seen.length === w.total, stats);
+      if (surface === 'cli') check(`U19 CLI: ${label} exits 6 until the last page, then 0`, w.exits.at(-1) === 0 && w.exits.slice(0, -1).every(code => code === 6), w.exits.join(','));
+    }
+  }
+  walker.close();
 }
 
 const result = summary();

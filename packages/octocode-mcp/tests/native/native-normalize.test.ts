@@ -205,4 +205,32 @@ describe('lossless scalar strings and stringified batches (benchmark input slips
       queries: [{ keywords: ['wrap_app_handling_exceptions'] }],
     });
   });
+
+  it.each([
+    ['70,130', ['70-130']],
+    [[' 140-150'], ['140-150']],
+    [['248', '325'], ['248-325']],
+    [[248, 325], ['248-325']],
+  ])(
+    'repairs the host line-range spelling %j for localFetch and ghGetFileContent',
+    async (ranges, expected) => {
+      for (const [tool, extra] of [
+        ['localFetch', { path: 'a.ts' }],
+        ['ghGetFileContent', { owner: 'o', repo: 'r', path: 'a.ts' }],
+      ] as const) {
+        const result = await validate(tool, {
+          queries: [{ ...brief, ...extra, ranges }],
+        });
+        expect(result.issues).toBeUndefined();
+        expect(result.value).toMatchObject({ queries: [{ ranges: expected }] });
+      }
+    }
+  );
+
+  it('keeps rejecting a range spelling it cannot read losslessly', async () => {
+    const message = await sdkMessage('localFetch', {
+      queries: [{ ...brief, path: 'a.ts', ranges: ['3:5'] }],
+    });
+    expect(message).toMatch(/^queries\.0\.ranges\.0: /);
+  });
 });

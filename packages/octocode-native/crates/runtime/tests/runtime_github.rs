@@ -38,6 +38,30 @@ impl Respond for DelayedContentResponse {
 }
 
 #[tokio::test]
+async fn malformed_remote_regex_keeps_original_error_and_required_file_path() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/README.md"))
+        .and(query_param("ref", sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"base64","content":STANDARD.encode("example source\n"),"size":15,"sha":"f".repeat(40),"path":"README.md"
+        })))
+        .mount(&server).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for debug in [false, true] {
+        let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","branch":sha,"matchString":"(","matchStringIsRegex":true,"debug":debug})).await.expect("error row");
+        assert_eq!(row_status(&out), "error", "{}", out.structured_content);
+        let data = row_data(&out);
+        assert_ne!(data["errorCode"], "outputContractViolation", "{data}");
+        assert_eq!(data["files"][0]["path"], "README.md", "{data}");
+        assert!(data.to_string().contains("Invalid regex pattern"), "{data}");
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn github_file_read_goes_through_execute_and_redacts() {
     let server = MockServer::start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
@@ -169,6 +193,18 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     );
     let data = row_data(&outcome);
     assert!(data["location"]["localPath"].as_str().is_some(), "{}", data);
+    let exhausted = call(&runtime, "ghStructure", json!({"owner":"a","repo":"b","branch":sha,"pageSize":1,"materialize":true,"materializeOffset":1})).await.expect("boundary offset");
+    let boundary = row_data(&exhausted);
+    assert_eq!(boundary["pagination"]["hasMore"], true, "{boundary}");
+    let next = &boundary["next"]["continueMaterialize"]["query"];
+    assert_eq!(next["branch"], sha, "{boundary}");
+    assert_eq!(next["page"], 2, "{boundary}");
+    assert_eq!(next["materializeOffset"], 0, "{boundary}");
+    let last = call(&runtime, "ghStructure", next.clone())
+        .await
+        .expect("replay boundary continuation");
+    let completed = row_data(&last);
+    assert_eq!(completed["location"]["complete"], true, "{completed}");
     runtime.close().await;
 }
 
@@ -825,6 +861,95 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
 }
 
 // ── Audit regressions: ghSearchHistory ──────────────────────────────────────
+
+#[tokio::test]
+async fn history_repository_without_owner_is_rejected_before_provider_requests() {
+    let server = MockServer::start().await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghSearchHistory",
+        json!({"operation": "pullRequest", "repo": "b"}),
+    )
+    .await
+    .expect_err("repository-only scope must fail native contract validation");
+    assert_eq!(outcome.code, "invalidInput");
+    let issues = outcome.validation_issues.as_ref().expect("typed issues");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].rule_id, "history.repository-scope");
+    assert_eq!(
+        serde_json::to_value(&issues[0].path).unwrap(),
+        json!(["owner"])
+    );
+    assert!(issues[0].message.contains("repo requires owner"));
+    let payload = outcome.payload.as_ref().expect("transport error payload");
+    assert_eq!(payload["kind"], "octocode.toolError");
+    assert_eq!(payload["tool"], "ghSearchHistory");
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty()
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn history_rest_page_ceiling_retains_current_items_without_invalid_continuation() {
+    for operation in ["pullRequest", "commit"] {
+        let server = MockServer::start().await;
+        mount_repo_metadata(&server).await;
+        let (endpoint, rows, field) = if operation == "pullRequest" {
+            (
+                "pulls",
+                json!([{"number": 9, "title": "Current PR", "state": "open", "user": {"login": "bob"}}]),
+                "pullRequests",
+            )
+        } else {
+            (
+                "commits",
+                json!([{"sha": "abc123", "commit": {"message": "Current commit", "author": {"name": "Bob", "date": "2024-01-01T00:00:00Z"}}, "author": {"login": "bob"}}]),
+                "commits",
+            )
+        };
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/{endpoint}")))
+            .and(query_param("page", "1000"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header(
+                        "Link",
+                        format!(
+                            "<{}/api/v3/repos/a/b/{endpoint}?page=1001>; rel=\"next\"",
+                            server.uri()
+                        ),
+                    )
+                    .set_body_json(rows),
+            )
+            .mount(&server)
+            .await;
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+        let outcome = call(
+            &runtime,
+            "ghSearchHistory",
+            json!({"operation": operation, "owner": "a", "repo": "b", "page": 1000, "pageSize": 1}),
+        )
+        .await
+        .expect("current page");
+        let data = row_data(&outcome);
+        assert_eq!(
+            data[field].as_array().expect("current rows").len(),
+            1,
+            "{data}"
+        );
+        assert_eq!(data["terminalLimit"], true, "{data}");
+        assert!(data.pointer("/next/nextPage").is_none(), "{data}");
+        runtime.close().await;
+    }
+}
 
 async fn mount_repo_metadata(server: &MockServer) {
     Mock::given(method("GET"))
@@ -1520,7 +1645,7 @@ async fn mount_capped_compare(server: &MockServer) {
         .collect::<Vec<_>>();
     for (page, count) in [(1, 100), (2, 50)] {
         let commits = (0..count)
-            .map(|n| json!({"sha":format!("{:040x}", page * 1000 + n),"commit":{"message":format!("c{n}"),"author":{"name":"a","date":"2024-01-01T00:00:00Z"}}}))
+            .map(|n| json!({"sha":format!("{:040x}", page * 1000 + n),"commit":{"message":format!("c{n}\n\nWhy: detail {n}"),"author":{"name":"a","date":"2024-01-01T00:00:00Z"}}}))
             .collect::<Vec<_>>();
         Mock::given(method("GET"))
             .and(path_regex(format!(
@@ -1558,6 +1683,11 @@ async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
     assert_eq!(data["head"], HEAD_SHA, "{data}");
     assert_eq!(data["base"], BASE_SHA, "{data}");
     assert_ne!(data["filesPagination"]["countScope"], "complete", "{data}");
+    // The commit list carries each whole message, not its headline.
+    assert_eq!(
+        data["commits"][0]["message"], "c0\n\nWhy: detail 0",
+        "{data}"
+    );
     let commit_page = data["next"]["nextPage"]["query"].clone();
     assert!(commit_page.get("filePage").is_none(), "{commit_page}");
     assert_eq!(commit_page["head"], HEAD_SHA, "{commit_page}");

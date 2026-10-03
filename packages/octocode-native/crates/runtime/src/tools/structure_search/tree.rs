@@ -61,6 +61,9 @@ pub fn execute_tree(
     let show_hidden = q.hidden.unwrap_or(false);
     let withheld = std::sync::atomic::AtomicUsize::new(0);
     let ignored = std::sync::atomic::AtomicUsize::new(0);
+    let hidden = std::sync::atomic::AtomicUsize::new(0);
+    let pruned =
+        PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults());
     let native = octocode_engine::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
@@ -71,19 +74,21 @@ pub fn execute_tree(
             names: (!q.names.is_empty()).then(|| q.names.clone()),
             extensions: (!q.extensions.is_empty()).then(|| q.extensions.clone()),
             entry_type: q.entry_type.map(|kind| kind.to_string()),
-            exclude_dir: Some(
-                PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults()),
-            ),
+            exclude_dir: Some(pruned.clone()),
             stop_at_limit: Some(true),
             limit: Some(super::max_walk()),
             ..Default::default()
         },
         &|path| {
             // Dot entries out of view (no `hidden`) are neither listed nor
-            // counted as withheld or ignored.
-            let dot = path
+            // counted as withheld or ignored; the ones `hidden:true` would
+            // walk (permitted, not ignored, not a pruned directory) are
+            // counted as hidden.
+            let name = path
                 .file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with('.'));
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let dot = name.starts_with('.');
             if gitignore
                 .as_ref()
                 .is_some_and(|filter| filter.is_ignored(path))
@@ -97,6 +102,9 @@ pub fn execute_tree(
             if !allowed && (show_hidden || !dot) && paths.is_sensitive(path) {
                 withheld.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
+            if allowed && dot && !show_hidden && !(pruned.contains(&name) && path.is_dir()) {
+                hidden.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
             Ok(allowed)
         },
     )
@@ -104,6 +112,7 @@ pub fn execute_tree(
     cancel.check().map_err(super::cancelled)?;
     let withheld = withheld.into_inner();
     let ignored = ignored.into_inner();
+    let hidden = hidden.into_inner();
 
     let mut files = 0_usize;
     let mut dirs = 0_usize;
@@ -143,6 +152,7 @@ pub fn execute_tree(
         q.entry_type.map(|kind| kind.to_string()),
         q.exclude_dir,
         requested,
+        q.page_size(),
     ]);
     // The page cut is part of the snapshot: a continuation under a
     // different response window restarts instead of skipping entries.
@@ -153,10 +163,15 @@ pub fn execute_tree(
     }
     let page_size = q.page_size();
     let page = q.page().max(1);
-    // Entries are relative to `path` (no prefix); each costs its quoted text.
+    // Entries are relative to `path` (no prefix, no groups); each costs its
+    // quoted text.
     let costs = rows
         .iter()
-        .map(|row| crate::tools::stream_page::json_chars(row) + 1)
+        .map(|row| super::RowCost {
+            entry: crate::tools::stream_page::json_chars(row) + 1,
+            header: 0,
+            continues: true,
+        })
         .collect::<Vec<_>>();
     let pages = super::page_ranges(&costs, page_size, budget);
     let total_pages = pages.len().max(1);
@@ -177,11 +192,19 @@ pub fn execute_tree(
             format!("{available} entries ({files} files, {dirs} dirs, {})", format_size(bytes)),
             ignored,
             withheld,
+            hidden,
         ),
         "snapshot": snapshot,
     });
     if total == 0 {
         out["status"] = json!("empty");
+    }
+    if hidden > 0 {
+        let mut call = super::continuation(q, json!({"hidden":true,"page":1}));
+        if let Some(query) = call["query"].as_object_mut() {
+            query.remove("snapshot");
+        }
+        out["next"]["includeHidden"] = call;
     }
     if total_pages > 1 || page > total_pages {
         out["pagination"] = json!({"currentPage":page,"totalPages":total_pages,"totalEntries":total,"hasMore":has_more});
@@ -227,17 +250,17 @@ pub fn execute_tree(
         ignored,
         json!({"noIgnore":true,"page":1}),
         format!(
-            "{ignored} entries here are .gitignore'd; retry with noIgnore:true (next.includeIgnored) to list them."
+            "The walk pruned {ignored} .gitignore'd entries; whether they match these filters is unproven. next.includeIgnored retries with noIgnore:true."
         ),
     );
     Ok(out)
 }
 
-/// The summary, plus how many entries `.gitignore` hid and how many the
+/// The summary, plus how many entries `.gitignore` hid, how many the
 /// sensitive-file policy withheld (credentials such as `.env.production` or
-/// `.npmrc`): their names stay out of the listing, but their absence is not
-/// silent.
-fn withheld_note(mut summary: String, ignored: usize, withheld: usize) -> String {
+/// `.npmrc`), and how many dot entries were skipped without `hidden`: their
+/// names stay out of the listing, but their absence is not silent.
+fn withheld_note(mut summary: String, ignored: usize, withheld: usize, hidden: usize) -> String {
     let entries = |count: usize| if count == 1 { "entry" } else { "entries" };
     if ignored > 0 {
         summary.push_str(&format!(
@@ -249,6 +272,12 @@ fn withheld_note(mut summary: String, ignored: usize, withheld: usize) -> String
         summary.push_str(&format!(
             "; {withheld} sensitive {} withheld by path policy",
             entries(withheld)
+        ));
+    }
+    if hidden > 0 {
+        summary.push_str(&format!(
+            "; {hidden} dot {} skipped (hidden:true includes them)",
+            entries(hidden)
         ));
     }
     summary

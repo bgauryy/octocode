@@ -72,6 +72,48 @@ impl CancellationCheck for Active {
 }
 
 #[test]
+fn match_pagination_ceilings_preserve_rows_and_disclose_terminal_limits() {
+    let root = Fixture::new();
+    for i in 0..1001 {
+        std::fs::write(root.0.join(format!("f{i:04}.ts")), "console.log(1);\n").expect("file");
+    }
+    let paths = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let security = ContentSecurity::new();
+    let base = json!({"operation":"match","path":root.0,"pattern":"console.log($A)","langType":"typescript","pageSize":1,"maxFiles":1500,"goal":"test","reasoning":"test"});
+    let first = execute_row(base.clone(), &paths, &security, &Active).expect("first page");
+    let mut last = first["next"]["nextPage"]["query"].clone();
+    last["page"] = json!(1000);
+    let page = execute_row(last, &paths, &security, &Active).expect("ceiling page");
+    assert_eq!(page["files"].as_array().expect("files").len(), 1, "{page}");
+    assert!(page["next"].get("nextPage").is_none(), "{page}");
+    assert_eq!(page["terminalLimit"], true, "{page}");
+
+    let file = root.0.join("rows.ts");
+    std::fs::write(&file, "console.log(1);\n".repeat(1001)).expect("match rows");
+    let first_rows = execute_row(json!({"operation":"match","path":file,"pattern":"console.log($A)","langType":"typescript","maxMatchesPerFile":1,"goal":"test","reasoning":"test"}), &paths, &security, &Active).expect("first match page");
+    let mut last_rows = first_rows["next"]["nextMatchPage"]["query"].clone();
+    last_rows["matchPage"] = json!(1000);
+    let row_page = execute_row(last_rows, &paths, &security, &Active).expect("match ceiling");
+    assert_eq!(
+        row_page["files"][0]["matches"]
+            .as_array()
+            .expect("rows")
+            .len(),
+        1,
+        "{row_page}"
+    );
+    assert!(
+        row_page["next"].get("nextMatchPage").is_none(),
+        "{row_page}"
+    );
+    assert_eq!(row_page["terminalLimit"], true, "{row_page}");
+}
+
+#[test]
 fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     let root = Fixture::new();
     std::fs::create_dir(root.0.join(".aws")).expect("sensitive directory");
@@ -283,6 +325,55 @@ fn match_directory_scan_truncation_is_surfaced_not_silent() {
             .any(|d| d["code"] == json!("structural.scan.truncated")),
         "expected a structural.scan.truncated diagnostic; got {out}"
     );
+}
+
+/// A `maxFiles` cut below the schema maximum is a raisable bound, not a
+/// terminal limit: match and symbols pages carry `next.expandScan`, which
+/// doubles the bound from page 1, and a warning naming the cut.
+#[test]
+fn a_raisable_max_files_cut_offers_an_expanded_scan() {
+    let root = Fixture::new();
+    for name in ["a.rs", "b.rs", "c.rs"] {
+        std::fs::write(root.0.join(name), "pub fn source() {}\n").expect("source file");
+    }
+    let rows = [
+        json!({"operation":"match","goal":"test","reasoning":"test","path":root.0,"langType":"rust",
+            "pattern":"pub fn source() {}","maxFiles":1}),
+        json!({"operation":"symbols","goal":"test","reasoning":"test","path":root.0,"maxFiles":1}),
+    ];
+    for query in rows {
+        let out = run(&root.0, query.clone()).expect("scan");
+        assert!(out.get("terminalLimit").is_none(), "{out}");
+        let expand = &out["next"]["expandScan"]["query"];
+        assert_eq!(expand["maxFiles"], 2, "{out}");
+        assert_eq!(expand["page"], 1, "{out}");
+        assert!(
+            expand
+                .get("snapshot")
+                .is_none_or(serde_json::Value::is_null),
+            "{out}"
+        );
+        assert!(
+            out["diagnostics"]
+                .as_array()
+                .is_some_and(|diagnostics| diagnostics
+                    .iter()
+                    .any(|d| d["code"] == "structural.scan.truncated")),
+            "{out}"
+        );
+        let expanded = run(&root.0, expand.clone()).expect("expanded scan");
+        assert_eq!(
+            expanded["next"]["expandScan"]["query"]["maxFiles"], 4,
+            "{expanded}"
+        );
+        let whole = {
+            let mut whole = query.clone();
+            whole["maxFiles"] = json!(4);
+            run(&root.0, whole).expect("whole scan")
+        };
+        assert!(whole["next"].get("expandScan").is_none(), "{whole}");
+        assert!(whole.get("terminalLimit").is_none(), "{whole}");
+    }
 }
 
 fn simple_policy(root: &std::path::Path) -> (PathPolicy, ContentSecurity) {
@@ -607,6 +698,87 @@ fn match_content_length_bounds_each_match_value() {
     assert_eq!(value_len(Some(40)), 40);
     assert!(value_len(Some(5_000)) > 300);
     assert_eq!(value_len(None), 500);
+}
+
+/// A value cut at `matchContentLength` is never a silent loss: the page is
+/// not complete and one exact continuation returns every cut value whole.
+#[test]
+fn clipped_match_values_carry_one_continuation_to_the_whole_text() {
+    let root = Fixture::new();
+    let source = root.0.join("long.rs");
+    let args = (0..200)
+        .map(|i| format!("arg{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    std::fs::write(
+        &source,
+        format!("fn m() {{ call({args}); }}\nfn n() {{ call(x); }}\n"),
+    )
+    .expect("source");
+    let full = format!("call({args})");
+    // The lean cut also hides the `$$$A` capture, so one expandCaptures call
+    // returns captures and whole values; a captureText cut needs only the
+    // length.
+    for (capture_text, key) in [(false, "expandCaptures"), (true, "expandValues")] {
+        let mut query = json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"call($$$A)"});
+        if capture_text {
+            query["captureText"] = json!(true);
+        }
+        let out = run(&root.0, query).expect("match");
+        assert_eq!(out["complete"], false, "{out}");
+        assert_eq!(
+            out["next"].as_object().map(|next| next.len()),
+            Some(1),
+            "{out}"
+        );
+        let next = &out["next"][key]["query"];
+        assert_eq!(next["matchContentLength"], full.chars().count(), "{out}");
+        assert_eq!(next["captureText"], true, "{out}");
+        let expanded = run(&root.0, next.clone()).expect("expanded");
+        assert_eq!(
+            expanded["files"][0]["matches"][0]["value"],
+            full.as_str(),
+            "{expanded}"
+        );
+        assert_eq!(expanded["complete"], true, "{expanded}");
+        assert!(expanded.get("next").is_none(), "{expanded}");
+    }
+    // Without captures to hide, a lean cut expands by length alone.
+    let lean = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":source,"pattern":"fn n() { call(x); }","matchContentLength":8}),
+    )
+    .expect("lean cut");
+    let next = &lean["next"]["expandValues"]["query"];
+    assert_eq!(next["matchContentLength"], 19, "{lean}");
+    let expanded = run(&root.0, next.clone()).expect("expanded lean");
+    assert_eq!(
+        lean_row(&expanded["files"][0]["matches"][0]).2,
+        "fn n() { call(x); }",
+        "{expanded}"
+    );
+    assert!(expanded.get("next").is_none(), "{expanded}");
+    // A cut header row expands its captures and its whole text in one call.
+    let block = root.0.join("block.rs");
+    let body = (0..120)
+        .map(|i| format!("    let v{i} = {i};"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&block, format!("fn big() {{\n{body}\n}}\n")).expect("block");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","goal":"test","reasoning":"test","path":block,"pattern":"fn $N() { $$$B }"}),
+    )
+    .expect("block match");
+    assert!(out["next"].get("expandValues").is_none(), "{out}");
+    let expand = out["next"]["expandCaptures"]["query"].clone();
+    assert_eq!(expand["captureText"], true, "{out}");
+    let expanded = run(&root.0, expand).expect("expanded block");
+    let value = expanded["files"][0]["matches"][0]["value"]
+        .as_str()
+        .expect("value");
+    assert!(value.ends_with("let v119 = 119; }"), "{value}");
+    assert!(expanded.get("next").is_none(), "{expanded}");
 }
 
 #[test]

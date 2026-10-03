@@ -1,6 +1,6 @@
 //! Pull-request discussion, review and commit sections: one public page of
 //! each, with per-item body windows.
-use super::continuations::attach_diff_continuations;
+use super::continuations::{attach_diff_continuations, take_reshaped_paths};
 use super::files::{attach_patch_cursor, shape_files};
 use super::util::{array, body_matches, needle, str_at, string, window_body};
 use super::window::{WindowState, commit_files_pagination, paginate_window};
@@ -8,6 +8,7 @@ use super::{HistoryItemRequest, ItemOperation, fetch};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
+use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use serde_json::{Map, Value, json};
@@ -15,13 +16,15 @@ use serde_json::{Map, Value, json};
 /// Commit-detail requests in flight at once for `commits.includeFiles`.
 const COMMIT_DETAIL_CONCURRENCY: usize = 4;
 
+/// Shape one page of PR comments; true when a minified body view dropped
+/// text from any of them.
 pub(super) fn shape_pr_comments(
     row: &mut Value,
     pagination: &mut Map<String, Value>,
     comments: Vec<Value>,
     state: WindowState,
     query: &HistoryItemRequest,
-) {
+) -> bool {
     let needle = needle(query);
     let mut comments = comments
         .into_iter()
@@ -49,12 +52,14 @@ pub(super) fn shape_pr_comments(
     );
     let mut shaped = Vec::new();
     let mut first_body_page = None;
+    let mut dropped = false;
     for comment in slice {
         let (body, body_page) = window_body(
             &string(comment.get("body")),
             query.comment_body_offset(),
             query,
             &mut first_body_page,
+            &mut dropped,
         );
         let mut item = json!({
             "id": comment["id"], "author": comment["author"],
@@ -74,15 +79,18 @@ pub(super) fn shape_pr_comments(
     if let Some(page) = first_body_page {
         pagination.insert("commentBody".into(), page);
     }
+    dropped
 }
 
+/// Shape one page of PR reviews; true when a minified body view dropped
+/// text from any of them.
 pub(super) fn shape_pr_reviews(
     row: &mut Value,
     pagination: &mut Map<String, Value>,
     reviews: Vec<Value>,
     state: WindowState,
     query: &HistoryItemRequest,
-) {
+) -> bool {
     let needle = needle(query);
     let reviews = reviews
         .into_iter()
@@ -95,10 +103,16 @@ pub(super) fn shape_pr_reviews(
     );
     let mut shaped = Vec::new();
     let mut first_body_page = None;
+    let mut dropped = false;
     for review in slice {
         let raw_body = string(review.get("body"));
-        let (body, body_page) =
-            window_body(&raw_body, query.char_offset(), query, &mut first_body_page);
+        let (body, body_page) = window_body(
+            &raw_body,
+            query.char_offset(),
+            query,
+            &mut first_body_page,
+            &mut dropped,
+        );
         let mut item = json!({
             // A review without an identity has none: never the text "null".
             "id": match &review["id"] {
@@ -120,6 +134,7 @@ pub(super) fn shape_pr_reviews(
     if let Some(page) = first_body_page {
         pagination.insert("reviewBody".into(), page);
     }
+    dropped
 }
 
 pub(super) async fn shape_pr_commits<R: CredentialResolver>(
@@ -164,7 +179,8 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
                 let files = array(detail.get("files").cloned().unwrap_or(json!([])));
                 let (files, files_page) =
                     paginate_window(files, 0, !more, Some(1), Some(query.collection_page_size()));
-                let (files, cursor) = shape_files(files, true, query);
+                let (mut files, cursor) = shape_files(files, true, query);
+                let reshaped = take_reshaped_paths(Some(&mut files), query.debug());
                 let mut files_page = commit_files_pagination(files_page);
                 attach_patch_cursor(&mut files_page, cursor);
                 commit["files"] = files;
@@ -176,6 +192,9 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
                     Some(&sha),
                     true,
                 );
+                if !reshaped.is_empty() {
+                    attach_raw_commit_read(&mut commit, query, &sha);
+                }
             }
             Ok::<_, ProviderError>(commit)
         })
@@ -185,4 +204,19 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
     row["commits"] = Value::Array(shaped);
     pagination.insert("commits".into(), page);
     Ok(())
+}
+
+/// A PR commit's file rows show the PR's patch view (minified or narrowed to
+/// `matchString` hits); a commit read is never reshaped, so it returns every
+/// patch of that commit whole, paged.
+fn attach_raw_commit_read(commit: &mut Value, query: &HistoryItemRequest, sha: &str) {
+    if !commit.get("next").is_some_and(Value::is_object) {
+        commit["next"] = json!({});
+    }
+    commit["next"]["readUntrimmed"] = json!({
+        "tool": ToolId::GhGetHistoryItem.as_str(),
+        "query": {"operation":"commit","owner":query.owner(),"repo":query.repo(),"ref":sha,"includeDiff":true},
+        "why": "Read this commit's raw patches; the rows above are a reshaped view.",
+        "confidence": "exact"
+    });
 }

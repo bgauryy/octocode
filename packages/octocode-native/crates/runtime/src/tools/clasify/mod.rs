@@ -268,7 +268,7 @@ pub(crate) async fn execute(
             ..Default::default()
         });
     }
-    let response = post(
+    let (response, provider_calls) = post(
         &request,
         &key,
         endpoint(base_url, endpoint_path)?,
@@ -282,6 +282,7 @@ pub(crate) async fn execute(
         .map_err(|error| ClassificationError {
             code: error.code().into(),
             message: error.message,
+            provider_calls,
             hints: vec!["Inspect provider compatibility before using the answer.".into()],
             ..Default::default()
         })?;
@@ -290,16 +291,23 @@ pub(crate) async fn execute(
         .ok_or_else(|| ClassificationError {
             code: "invalidClassificationResponse".into(),
             message: "Classification provider response is missing the expected answer.".into(),
+            provider_calls,
             hints: vec!["Inspect provider compatibility before using the response.".into()],
             ..Default::default()
         })?;
-    project(
+    let mut result = project(
         question,
         answer,
         model,
         response["model"].as_str().unwrap_or(model),
         &response["usage"],
     )
+    .map_err(|mut error| {
+        error.provider_calls = provider_calls;
+        error
+    })?;
+    result["usage"]["provider_calls"] = json!(provider_calls);
+    Ok(result)
 }
 
 fn project(
@@ -692,7 +700,7 @@ mod tests {
             .unwrap();
             assert_eq!(
                 result,
-                json!({"requestedModel":"m","resolvedModel":"provider-model","answer":answer,"usage":{"input_tokens":10,"output_tokens":1}})
+                json!({"requestedModel":"m","resolvedModel":"provider-model","answer":answer,"usage":{"input_tokens":10,"output_tokens":1,"provider_calls":1}})
             );
             assert!(!result.to_string().contains("HIDDEN_BODY"));
         }

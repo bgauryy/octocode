@@ -88,8 +88,7 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     let fragment_read = code_output::read_top_match(&json!({"files": &items}));
     let mut value = json!({});
     let resolution = code_output::resolve_lines(provider, query, &items, context, security).await?;
-    let top_read =
-        code_output::shape_files(&mut value, &mut items, query, resolution, fragment_read);
+    let reads = code_output::shape_files(&mut value, &mut items, query, resolution, fragment_read);
     if !items.is_empty() {
         value["files"] = json!(items);
     }
@@ -100,8 +99,16 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
         page.remove("nextPage");
     }
     add_next(&mut value, ToolId::GhSearchCode, query, current, more);
-    if let Some(read) = top_read {
+    if let Some(read) = reads.top {
         value["next"]["readTopMatch"] = read;
+    }
+    // `readHits`, `readHits2`, …: one per capped or cut file.
+    for (position, read) in reads.hits.into_iter().enumerate() {
+        let key = match position {
+            0 => "readHits".to_owned(),
+            n => format!("readHits{}", n + 1),
+        };
+        value["next"][key] = read;
     }
     // Provider-index completeness is reported on every page, apart from
     // whether another page exists.
@@ -219,11 +226,7 @@ pub async fn execute_repositories<
         // The listing API cannot rank by relevance, and its own default
         // order is creation (oldest first): best-match lists the most
         // recently pushed repositories first.
-        let sort = if *sort == GhSearchRepoQuerySort::Updated {
-            "updated"
-        } else {
-            "pushed"
-        };
+        let sort = "pushed";
         // Search excludes archived repositories by default
         // (`archived:false`); the owner listing API cannot, so filter
         // and keep reading provider pages until a page of kept rows,
@@ -380,6 +383,10 @@ fn add_next(
     if !has_more {
         return;
     }
+    if page >= 1000 {
+        value["terminalLimit"] = json!(true);
+        return;
+    }
     let mut next = serde_json::to_value(query).unwrap_or_default();
     remove_null_fields(&mut next);
     next["page"] = json!(page + 1);
@@ -422,11 +429,6 @@ fn date(value: Option<String>) -> Option<String> {
     value.map(|v| v.chars().take(10).collect())
 }
 
-/// Topics a row shows: at most this many, plus `topicCount` when cut.
-const ROW_TOPICS: usize = 5;
-/// Descriptions longer than this are cut at a character boundary with `…`.
-const ROW_DESCRIPTION_CHARS: usize = 160;
-
 /// Lowercased query topics and keyword words: a row lists these topics first.
 fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
     query
@@ -445,40 +447,27 @@ fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
         .collect()
 }
 
-/// One compact repository row: `owner/repo`, the decision facts, and at
-/// most [`ROW_TOPICS`] topics (query matches first). Forks and the creation
+/// One compact repository row: `owner/repo`, the decision facts, the whole
+/// description, and every topic (query matches first). Forks and the creation
 /// and metadata-update dates are diagnostics (`debug`).
 fn repository_row(
     item: crate::providers::github::RepositorySearchItem,
     wanted: &[String],
     debug: bool,
 ) -> Value {
-    let topic_count = item.topics.len();
     let mut topics = item.topics;
     // Stable: matching topics keep GitHub's order, then the rest.
     topics.sort_by_key(|topic| !wanted.contains(&topic.to_lowercase()));
-    topics.truncate(ROW_TOPICS);
-    let description = item.description.map(|text| {
-        if text.chars().count() > ROW_DESCRIPTION_CHARS {
-            let cut: String = text.chars().take(ROW_DESCRIPTION_CHARS - 1).collect();
-            format!("{}…", cut.trim_end())
-        } else {
-            text
-        }
-    });
     let mut row = json!({
         "repo": item.full_name,
         "stars": item.stargazers_count,
         "language": item.language,
         "license": item.license.and_then(|license| license.spdx_id),
         "pushedAt": date(item.pushed_at),
-        "description": description,
+        "description": item.description,
     });
     if !topics.is_empty() {
         row["topics"] = json!(topics);
-    }
-    if topic_count > ROW_TOPICS {
-        row["topicCount"] = json!(topic_count);
     }
     if debug {
         row["forks"] = json!(item.forks_count);
@@ -492,6 +481,23 @@ fn repository_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn owner_listing_page_ceiling_keeps_rows_and_discloses_remaining_results() {
+        let query: GhSearchRepoQuery = serde_json::from_value(
+            json!({"owner":"o","page":1000,"goal":"test","reasoning":"test"}),
+        )
+        .expect("query");
+        let mut page = json!({"repositories":[{"repo":"o/r"}],"pagination":{"hasMore":true}});
+        add_next(&mut page, ToolId::GhSearchRepo, &query, 1000, true);
+        assert_eq!(page["repositories"].as_array().expect("rows").len(), 1);
+        assert!(page.get("next").is_none(), "{page}");
+        assert_eq!(page["terminalLimit"], true, "{page}");
+        let mut earlier = json!({"repositories":[],"pagination":{"hasMore":true}});
+        add_next(&mut earlier, ToolId::GhSearchRepo, &query, 999, true);
+        assert_eq!(earlier["next"]["nextPage"]["query"]["page"], 1000);
+        assert!(earlier.get("terminalLimit").is_none());
+    }
+
     #[test]
     fn rejects_empty_and_unreachable_searches() {
         assert!(reject_window(11, 100).is_err());
@@ -843,6 +849,72 @@ mod tests {
                 query
             })
             .expect("readTopMatch is a valid ghGetFileContent query");
+        }
+
+        /// A file whose hits are capped or whose hit lines are cut carries an
+        /// executable read of every keyword line at the resolved commit, so
+        /// no hit stays unreachable; a fully shown file gets none.
+        #[tokio::test]
+        async fn capped_or_clipped_hit_files_carry_a_read_of_every_hit() {
+            let server = MockServer::start().await;
+            mount_code_search(&server).await;
+            mount_ref(&server, "HEAD").await;
+            mount_content(
+                &server,
+                "src/handler.py",
+                &format!("x = '{}' + wrap_app\n", "a".repeat(400)),
+            )
+            .await;
+            mount_content(&server, "src/routing.py", &"wrap_app()\n".repeat(25)).await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"]}),
+            )
+            .await
+            .expect("search");
+            let data = &out.data;
+            let reads: Vec<&Value> = ["readHits", "readHits2"]
+                .iter()
+                .filter_map(|key| data["next"].get(*key))
+                .collect();
+            assert_eq!(reads.len(), 2, "{data}");
+            assert!(data["next"].get("readHits3").is_none(), "{data}");
+            let mut paths: Vec<&str> = reads
+                .iter()
+                .map(|read| read["query"]["path"].as_str().expect("path"))
+                .collect();
+            paths.sort_unstable();
+            assert_eq!(paths, ["src/handler.py", "src/routing.py"], "{data}");
+            for read in reads {
+                assert_eq!(read["tool"], "ghGetFileContent", "{data}");
+                let query = &read["query"];
+                assert_eq!(query["branch"], TREE_SHA, "{data}");
+                assert_eq!(query["matchString"], "wrap_app", "{data}");
+                assert_eq!(query["contextLines"], 0, "{data}");
+                crate::contracts::validate_query("ghGetFileContent", {
+                    let mut query = query.clone();
+                    query["goal"] = json!("g");
+                    query
+                })
+                .expect("readHits is a valid ghGetFileContent query");
+            }
+        }
+
+        /// A fully shown hit list needs no extra read.
+        #[tokio::test]
+        async fn fully_shown_hit_files_get_no_hit_read() {
+            let server = MockServer::start().await;
+            mount_code_search(&server).await;
+            mount_ref(&server, "HEAD").await;
+            mount_content(&server, "src/handler.py", "def wrap_app(app):\n").await;
+            mount_content(&server, "src/routing.py", "wrap_app()\n").await;
+            let out = run(
+                &server,
+                json!({"operation":"code","goal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"]}),
+            )
+            .await
+            .expect("search");
+            assert!(out.data["next"].get("readHits").is_none(), "{}", out.data);
         }
 
         /// Owner-wide searches spend no contents quota: rows keep their
@@ -1265,11 +1337,11 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn owner_listing_honors_sort_and_excludes_archived() {
+        async fn owner_listing_updated_sort_tracks_pushes_and_excludes_archived() {
             let server = MockServer::start().await;
             Mock::given(method("GET"))
                 .and(path("/api/v3/orgs/o/repos"))
-                .and(query_param("sort", "updated"))
+                .and(query_param("sort", "pushed"))
                 .and(query_param("direction", "desc"))
                 .respond_with(
                     ResponseTemplate::new(200)
@@ -1290,6 +1362,7 @@ mod tests {
                 .map(|row| row["repo"].as_str().unwrap_or_default().to_owned())
                 .collect::<Vec<_>>();
             assert_eq!(names, vec!["o/live".to_owned()], "{}", out.data);
+            assert_eq!(out.data["order"], "pushed");
         }
 
         /// D8: the listing API's own order is creation (oldest first); the

@@ -1,4 +1,5 @@
-use super::types::{LineRange, LocalFetchQuery, RegexMatch};
+use super::types::{LineRange, LocalFetchQuery, NextCalls, RegexMatch, line_read, uncovered};
+use crate::tools::id::ToolId;
 
 pub struct Extraction {
     pub text: String,
@@ -9,6 +10,17 @@ pub struct Extraction {
     pub matched_lines: Vec<usize>,
     pub count: Option<usize>,
     pub warnings: Vec<String>,
+    /// Continuations to the data this view selected but did not return.
+    pub next: NextCalls,
+}
+
+fn follow_up(query: LocalFetchQuery, why: &str) -> Option<super::types::Continuation> {
+    Some(super::types::Continuation {
+        tool: ToolId::LocalFetch.as_str().into(),
+        query,
+        confidence: "exact".into(),
+        reason: Some(why.into()),
+    })
 }
 /// A matched line longer than this (minified or bundled source) is read in
 /// byte windows unless the caller chose a context.
@@ -95,6 +107,7 @@ pub fn extract(
             } else {
                 vec![]
             },
+            next: NextCalls::default(),
         });
     }
     Ok(Extraction {
@@ -106,6 +119,7 @@ pub fn extract(
         matched_lines: vec![],
         count: None,
         warnings: vec![],
+        next: NextCalls::default(),
     })
 }
 /// Line ranges joined into one view: sorted, overlapping or adjacent ranges
@@ -150,11 +164,21 @@ fn ranges_extract(
             "Requested lines start past the file end ({total} lines)"
         ));
     }
+    let mut rest = vec![];
     if q.block() {
-        kept = super::block::widen_ranges(content, q.path(), kept, &mut warnings);
+        kept = super::block::widen_ranges(content, q.path(), kept, &mut warnings, &mut rest);
     }
     let windows = merge_ranges(kept);
     let (text, selected) = windows_text(lines, &windows);
+    let next = NextCalls {
+        continue_block: line_read(q, &uncovered(&merge_ranges(rest), &windows)).and_then(|query| {
+            follow_up(
+                query,
+                "Read the rest of the declaration the block window stopped inside.",
+            )
+        }),
+        ..NextCalls::default()
+    };
     Ok(Extraction {
         text,
         source_lines: Some(selected),
@@ -164,6 +188,7 @@ fn ranges_extract(
         matched_lines: vec![],
         count: None,
         warnings,
+        next,
     })
 }
 
@@ -269,6 +294,7 @@ fn match_extract(
             matched_lines: vec![],
             count: Some(0),
             warnings: vec![],
+            next: NextCalls::default(),
         });
     }
     let context = q
@@ -282,12 +308,45 @@ fn match_extract(
             end: (line + context).min(lines.len()),
         })
         .collect();
+    let mut oversized = vec![];
     let windows = if q.block() && q.context_bytes().is_none() {
-        super::block::widen_matches(content, q.path(), &hits, windows, &mut warnings)
+        super::block::widen_matches(
+            content,
+            q.path(),
+            &hits,
+            windows,
+            &mut warnings,
+            &mut oversized,
+        )
     } else {
         windows
     };
     let mut ranges = merge_ranges(windows);
+    let mut next = NextCalls {
+        read_block: line_read(q, &uncovered(&merge_ranges(oversized), &ranges)).and_then(|query| {
+            follow_up(
+                query,
+                "Read the declarations too large for a block window, minus the lines shown.",
+            )
+        }),
+        ..NextCalls::default()
+    };
+    if let Some(requested) = q.context_lines_clamped_from() {
+        let wanted: Vec<LineRange> = hits
+            .iter()
+            .map(|&line| LineRange {
+                start: line.saturating_sub(requested).max(1),
+                end: line.saturating_add(requested).min(lines.len()),
+            })
+            .collect();
+        next.read_context =
+            line_read(q, &uncovered(&merge_ranges(wanted), &ranges)).and_then(|query| {
+                follow_up(
+                    query,
+                    "Read the requested context lines beyond the clamped maximum.",
+                )
+            });
+    }
     // `selected` maps each emitted view line to its source line; omission
     // markers between non-adjacent windows map to OMISSION_LINE.
     let (mut text, mut selected) = windows_text(lines, &ranges);
@@ -299,14 +358,22 @@ fn match_extract(
             .any(|line| lines[line - 1].len() > LONG_LINE_BYTES);
     if let Some(requested) = q.context_lines_clamped_from() {
         warnings.push(format!(
-            "contextLines {requested} clamped to {}; read a wider span with startLine/endLine or ranges.",
+            "contextLines {requested} clamped to {}; next.readContext reads the rest of the requested context.",
             super::types::MAX_CONTEXT_LINES
         ));
     }
     if long_lines {
         warnings.push(format!(
-            "longMatchedLines: a matched line exceeds {LONG_LINE_BYTES} bytes (minified source), so each match is shown with {LONG_LINE_CONTEXT_BYTES} bytes of context; `... [N bytes omitted] ...` marks gaps. Set contextLines to read whole lines, or contextBytes to resize the windows."
+            "longMatchedLines: a matched line exceeds {LONG_LINE_BYTES} bytes (minified source), so each match is shown with {LONG_LINE_CONTEXT_BYTES} bytes of context; `... [N bytes omitted] ...` marks gaps. next.wholeLines (contextLines:0) reads the whole matched lines; contextBytes resizes the windows."
         ));
+        let mut whole = q.clone();
+        whole.context_lines = Some(0);
+        whole.context_bytes = None;
+        whole.offset = None;
+        whole.chunk_type = None;
+        whole.chunk_size = None;
+        whole.snapshot = None;
+        next.whole_lines = follow_up(whole, "Read the whole matched lines, paged.");
     }
     if let Some(bytes) = q
         .context_bytes()
@@ -337,6 +404,12 @@ fn match_extract(
                     text.push('\n')
                 }
                 text.push_str(&format!("... [{} bytes omitted] ...\n", a - last_end));
+            } else if text.is_empty() && long_lines {
+                // The first window starting mid-line says what precedes it.
+                let line_start = content[..a].rfind('\n').map_or(0, |at| at + 1);
+                if a > line_start {
+                    text.push_str(&format!("... [{} bytes omitted] ...\n", a - line_start));
+                }
             }
             text.push_str(&content[a..b]);
             let first_line = content[..a].bytes().filter(|byte| *byte == b'\n').count() + 1;
@@ -348,6 +421,19 @@ fn match_extract(
                 + 1;
             selected.extend(first_line..=last_line.max(first_line));
             last_end = b
+        }
+        // The last window ending mid-line says what follows it.
+        let line_end = content[last_end..]
+            .find('\n')
+            .map_or(content.len(), |at| last_end + at);
+        if long_lines && line_end > last_end {
+            if !text.ends_with('\n') {
+                text.push('\n')
+            }
+            text.push_str(&format!(
+                "... [{} bytes omitted] ...\n",
+                line_end - last_end
+            ));
         }
         selected.sort_unstable();
         selected.dedup();
@@ -362,6 +448,7 @@ fn match_extract(
         matched_lines: hits.clone(),
         count: Some(hits.len()),
         warnings,
+        next,
     })
 }
 

@@ -14,10 +14,17 @@
 //! parses as a JSON array becomes that array, and a scalar every array
 //! alternative's items accept becomes a one-element array. Any string,
 //! untyped, or other alternative vetoes the repair.
+//!
+//! Line ranges: where items carry the canonical `a-b` line-range pattern,
+//! `" 140-150"`, `"140 - 150"` and `"70,130"` become `"140-150"`/`"70-130"`,
+//! and a pair of bare line numbers (`["248","325"]`, `[248,325]`) becomes the
+//! one range holding both. Every requested line stays in the read.
 
 use serde_json::Value;
 
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+/// The canonical line-range item pattern (`95-105`).
+const LINE_RANGE_PATTERN: &str = r"^[1-9]\d*-[1-9]\d*$";
 const MAX_REF_DEPTH: usize = 32;
 
 /// A schema and the root its `$ref`s resolve against.
@@ -39,7 +46,12 @@ pub(super) fn coerce_lossless(candidates: &[Typed<'_>], value: &mut Value) {
     }
     match value {
         Value::String(text) => {
-            if let Some(coerced) = agreed_scalar(&schemas).and_then(|kind| parse(kind, text)) {
+            if line_range_only(&schemas) {
+                if let Some(range) = line_range(text) {
+                    *value = Value::String(range);
+                }
+            } else if let Some(coerced) = agreed_scalar(&schemas).and_then(|kind| parse(kind, text))
+            {
                 *value = coerced;
             }
         }
@@ -59,6 +71,14 @@ pub(super) fn coerce_lossless(candidates: &[Typed<'_>], value: &mut Value) {
         }
         Value::Array(items) => {
             let children = item_schemas(&schemas);
+            if line_range_only(&flatten_all(&children))
+                && let [first, second] = items.as_slice()
+                && let (Some(start), Some(end)) = (line_number(first), line_number(second))
+                && start <= end
+            {
+                *items = vec![Value::String(format!("{start}-{end}"))];
+                return;
+            }
             for item in items {
                 coerce_lossless(&children, item);
             }
@@ -215,6 +235,40 @@ fn flatten<'a>(root: &'a Value, schema: &'a Value, depth: usize, out: &mut Vec<T
     }
 }
 
+/// Every alternative is a string holding one canonical line range.
+fn line_range_only(schemas: &[Typed<'_>]) -> bool {
+    !schemas.is_empty()
+        && schemas.iter().all(|(_, schema)| {
+            types(schema).is_some_and(|names| names == ["string"])
+                && schema.get("pattern").and_then(Value::as_str) == Some(LINE_RANGE_PATTERN)
+        })
+}
+
+/// A positive line number sent bare: an integer or its decimal string.
+fn line_number(value: &Value) -> Option<u64> {
+    let number = match value {
+        Value::Number(number) => number.as_u64()?,
+        Value::String(text) => {
+            let text = text.trim();
+            if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            text.parse().ok()?
+        }
+        _ => return None,
+    };
+    (number > 0 && number <= MAX_SAFE_INTEGER).then_some(number)
+}
+
+/// `a-b` or `a,b` with optional spaces around either number, as `a-b`;
+/// `None` for any other text (left for the validator to report).
+fn line_range(text: &str) -> Option<String> {
+    let (start, end) = text.split_once(['-', ','])?;
+    let start = line_number(&Value::String(start.to_owned()))?;
+    let end = line_number(&Value::String(end.to_owned()))?;
+    Some(format!("{start}-{end}"))
+}
+
 /// The one scalar type every alternative agrees on; a `null` alternative is
 /// neutral, any other type (string, untyped) vetoes coercion.
 fn agreed_scalar(schemas: &[Typed<'_>]) -> Option<Scalar> {
@@ -338,6 +392,40 @@ mod tests {
         assert_eq!(coerced(&untyped, json!(false)), json!([false]));
         let referenced = json!({"$ref":"#/properties/field/$defs/list","$defs":{"list":strings}});
         assert_eq!(coerced(&referenced, json!("x")), json!(["x"]));
+    }
+
+    /// Host spellings of a line range become the canonical `a-b`; a pair
+    /// becomes the one range that holds both lines, so no requested line is
+    /// lost. Anything else is left for the validator to report.
+    #[test]
+    fn line_range_spellings_repair_to_canonical_ranges() {
+        let ranges =
+            json!({"type":"array","items":{"type":"string","pattern":"^[1-9]\\d*-[1-9]\\d*$"}});
+        for (input, expected) in [
+            (json!("70,130"), json!(["70-130"])),
+            (json!(" 140-150"), json!(["140-150"])),
+            (json!(["140 - 150", "9-9"]), json!(["140-150", "9-9"])),
+            (json!(["248", "325"]), json!(["248-325"])),
+            (json!([248, 325]), json!(["248-325"])),
+            (json!("[248,325]"), json!(["248-325"])),
+            (json!(["70,130", " 1-2 "]), json!(["70-130", "1-2"])),
+            (json!(["95-105"]), json!(["95-105"])),
+        ] {
+            assert_eq!(coerced(&ranges, input.clone()), expected, "{input}");
+        }
+        for input in [
+            json!(["3:5"]),
+            json!(["0-5"]),
+            json!([325, 248]),
+            json!(["a-b"]),
+            json!([1, 2, 3]),
+            json!(["1-2-3"]),
+        ] {
+            assert_eq!(coerced(&ranges, input.clone()), input, "{input}");
+        }
+        // Only the line-range pattern is repaired.
+        let plain = json!({"type":"array","items":{"type":"string"}});
+        assert_eq!(coerced(&plain, json!(["70,130"])), json!(["70,130"]));
     }
 
     #[test]

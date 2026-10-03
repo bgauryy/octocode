@@ -212,8 +212,7 @@ allowlisted, no `repo:`/`org:`/`user:`). The older `forks`, `goodFirstIssues`,
 advertised to MCP hosts.
 
 Rows are compact: `repo` (`owner/name`), `stars`, `language`, `license`,
-`pushedAt`, `description` (≤160 chars), and at most 5 `topics` (query matches
-first) plus `topicCount` when more exist. `debug:true` adds `forks`,
+`pushedAt`, the full `description`, and every returned `topic`. `debug:true` adds `forks`,
 `createdAt`, and `updatedAt`. `pagination` holds only `totalMatches`/`hasMore`;
 the page cursor is `next.nextPage`.
 
@@ -266,7 +265,7 @@ Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `pattern`,
 `pattern` finds paths by name at any ref in one call: a case-insensitive glob
 over repo-relative paths (`**/_exception_handler.py`, `src/**/*.ts`); without
 a `/` it matches entry names, and a bare word matches names containing it.
-With `pattern` and no `maxDepth`, every level is searched. Rows keep the
+With `pattern` and no `maxDepth`, the depth bound is 20. Rows keep the
 `dir`/`files`/`folders` shape. A listing names `resolvedBranch` only when it
 resolved the default branch, and `commitSha` only when it differs from the
 requested ref; page totals ride `pagination`, and `debug: true` adds the
@@ -359,8 +358,11 @@ negation other than a PR's `-is:draft`, and a filter set twice. `archived`
 always routes a PR query through search, which enforces it. `next.readPr` targets the first merged row (else the first)
 and lists up to three `candidates`; a bare issue number in `keywords` adds
 `next.readIssueLinks`, the issue read whose `closedBy` names its fix PRs.
-Commit rows carry the author's login (else git name), never an email; read the
-full message with `next.readCommit`.
+Search rows are an index: each carries its identity (a PR search beyond one
+repository adds `repository`), and `readPr`, `readIssue`, and `readCommit`
+read any row by swapping in its number or sha (`candidates` names the first
+three). Commit rows carry the author's login (else git name), never an email;
+read the full message with `next.readCommit`.
 
 Keywords follow the `ghSearchCode` rule: a bare word or one quoted phrase, never an
 operator. `owner`, `repo`, and person fields (`author`, `committer`, `assignee`,
@@ -390,7 +392,9 @@ row carries its merge state (`mergedAt`, or `closedAt` for a PR closed without
 merging, and `targetBranch`; labels on the first page; `updatedAt` only while
 open). The body is opt-in (`include:["body"]`, offered by the menu). An issue read lists up to 25 pull requests that closed it
 (`closedBy`, merged first) and offers `next.readFixPr` (every patch of a small
-fix; a larger one's body and file inventory); past 25 every body and
+fix; a larger one's body and file inventory; only the patches of files the
+goal names, as `fileFilter.paths`, when it names any);
+`content:{body:false}` skips the issue body when `closedBy` is enough; past 25 every body and
 comment window is `isPartial` with `partialReasons:["closingReferenceLimit"]`
 and the fix is a medium-confidence candidate.
 
@@ -399,8 +403,9 @@ PR and issue identity is always `number`; commit identity is `ref`; comparison
 identity is the `base` + `head` pair.
 
 A merged pull request reports `mergeCommitSha` (from GraphQL `mergeCommit`;
-REST API 2026-03-10 drops `merge_commit_sha`) with `next.getMergeCommit`; an
-open pull request never reports GitHub's test-merge SHA. A commit offers
+REST API 2026-03-10 drops `merge_commit_sha`); read that commit with
+`operation:"commit"`. An open pull request never reports GitHub's test-merge
+SHA. A commit offers
 `next.findPullRequest`, a `ghSearchHistory` query that finds the pull request
 containing that SHA. A comparison resolves both `base` and `head` to SHAs, and
 each commit or file page carries only its own data.
@@ -416,12 +421,12 @@ each commit or file page carries only its own data.
 
 Request selected PR patches instead of every patch for large PRs, and leave
 commit diffs off until the relevant commit is known. A PR summary offers at
-most four reads: `getChangedFiles` (the body rides along), `reviewPatches`
-(every patch on a small PR, with the body when no file list is offered),
-`getDiscussion` (comments and reviews), and `getMergeCommit` (with the diff
-when the PR is small). A merged PR whose first patch window was read also
-offers `readAtMerge`: the first changed source file at the merge commit, as a
-`block` read anchored on its first added line.
+most three reads: `getChangedFiles` (the body rides along), `reviewPatches`
+(every patch on a small PR, with the body when no file list is offered), and
+`getDiscussion` (comments and reviews). A merged PR whose first patch window
+holds a changed code file (not a test) also offers `readAtMerge`: that file at
+the merge commit, as a `block` read anchored on a short prefix of its first
+added line.
 An inventory read offers `reviewPatches`: up to 30 source files (no tests,
 docs, lockfiles, generated or binary files; tests by each language's layout
 and naming, such as `_test.go`, `test_*.py`, `FooTest.java`, `_spec.rb`, or a
@@ -460,8 +465,10 @@ PR reads narrow with three optional fields:
   (`!tooLarge`, `!binary`, `!omitted`) are listed as unsearched, so a miss
   there is not absence.
 - `matchContext` (0–10) sets the lines kept around each hit. Omitted, it is 0
-  (hit lines only); narrowed files offer `next.readFullPatches` (up to five
-  files) or `next.widenContext` (`matchContext: 3`).
+  (hit lines only). Every narrowed or clipped file is re-read raw by
+  `next.readFullPatches` (100 files per read, then `readFullPatches2`, …);
+  more than five narrowed files without `matchContext` also get
+  `next.widenContext` (`matchContext: 3`).
 - A `files`/`status` scope that matches no changed file returns
   `noSelectedFilesMatched` with an inventory hint.
 
@@ -478,9 +485,11 @@ diff context before computing offsets; it preserves changed source lines
 regardless of language. In a patch over 30 lines it keeps the hunk headers and
 2 context lines around each change, and replaces each run of other context
 lines with one `...` line, so patch lengths differ from GitHub's and line
-numbers cannot be counted from a hunk header across a `...`. Pass
-`minify:"none"` for the verbatim patch. Match-filtered reads preserve source
-anchors.
+numbers cannot be counted from a hunk header across a `...`;
+`next.readUntrimmed` re-reads those files with `minify:"none"`. When Markdown
+compaction drops text from a body, comment, or review, the row says
+`bodyView:"minified"` and `next.readRawBody` re-reads those surfaces raw.
+Match-filtered reads preserve source anchors.
 
 Issue, commit, and compare details do not accept `minify`; they return exact
 selected text after redaction. Issue bodies and comment bodies use
@@ -524,8 +533,9 @@ carry the full commit message, including the body.
 
 Clone a repository or sparse subtree into Octocode's local cache.
 
-Clone is CLI-only (MCP never registers it) and needs local tools plus
-persistent storage (`storage.mode`, the default).
+Clone is CLI-only (MCP never registers it) and needs persistent storage
+(`storage.mode`, the default). With local tools disabled, cloning still works
+but omits `next.exploreClone`.
 
 Key fields:
 
@@ -535,7 +545,11 @@ Key fields:
 | `branch` | Branch, tag, or exact commit SHA. Omit to use the default branch. |
 | `sparsePath` | Optional file or directory, or an array of up to 10, for a sparse checkout. A missing path is a not-found error (exit 3). |
 | `depth` | Commits of history, 1–50 (default 1). |
-| `forceRefresh` | Bypass the clone cache and re-clone. |
+| `forceRefresh` | Fetch current state; refuses to replace a checkout containing local edits. |
+
+A checkout containing the reserved root path `.octocode-clone-meta.json` returns
+`clone.cache.metadataConflict` before bookkeeping is written. An existing checkout
+is preserved; use `ghGetFileContent` or `ghStructure` to read that repository.
 
 Returns a location with an absolute path, commit identity, resolved branch,
 `cached`, and `location.clonedAt`/`expiresAt` (fresh clones and cache hits
@@ -568,7 +582,7 @@ Rules:
 
 ### `artifactSearch`
 
-Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. `version` pins an exact lookup to an exact version, a range (`^3`, `>=2.31,<3`), or a tag (`latest`, `next`) on npm, PyPI, and crates.io (the `name@version` and PyPI `name==version` coordinates stay valid); a range resolves like the registry's installer, and a missing version is `versionNotFound` with the nearest published versions. Exact rows add release facts when the registry has them: `publishedAt`, `deprecated`, `yanked`, `dependencies`/`peerDependencies` counts, and `engines` (npm), `requiresPython` (PyPI), or `rustVersion` (crates); their `description` (and a `homepage` beside the repository) are discovery aids that keyword rows keep and `debug: true` restores. Rows never restate the requested `type`. npm discovery rows carry `downloadsMonthly`. Exact GitHub-backed lookups offer `next.viewRepo` for default-branch code and, when the registry names a commit or tag, `next.viewReleaseSource` for that release. Each labels `source.scope` (`defaultBranch` or `release`); `viewRepo` is always `source.verification:"unverified"`, and `viewReleaseSource.source.verification` is `provenance` when an npm SLSA provenance attestation binds this exact tarball (subject digest equals `dist.integrity`) to the manifest's repository and names the commit (the registry verifies the attestation at publish; octocode does not re-verify signatures), else `unverified` (npm `gitHead`, Go/Composer refs). Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
+Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. `version` pins an exact lookup to an exact version, a range (`^3`, `>=2.31,<3`), or a tag (`latest`, `next`) on npm, PyPI, and crates.io (the `name@version` and PyPI `name==version` coordinates stay valid); a range resolves like the registry's installer, and a missing version is `versionNotFound` with the nearest published versions. Exact rows add release facts when the registry has them: `publishedAt`, `deprecated`, `yanked`, `dependencies`/`peerDependencies` counts, and `engines` (npm), `requiresPython` (PyPI), or `rustVersion` (crates), beside their `description` and a `homepage` that is not the repository page. Rows never restate the requested `type`. npm discovery rows carry `downloadsMonthly`. Exact GitHub-backed lookups offer `next.viewRepo` for default-branch code and, when the registry names a commit or tag, `next.viewReleaseSource` for that release; a lookup with `version` offers only the release lead (drop its `branch` for the default branch). crates.io exact versions read the version record and crate metadata, not the whole version list. Each labels `source.scope` (`defaultBranch` or `release`); `viewRepo` is always `source.verification:"unverified"`, and `viewReleaseSource.source.verification` is `provenance` when an npm SLSA provenance attestation binds this exact tarball (subject digest equals `dist.integrity`) to the manifest's repository and names the commit (the registry verifies the attestation at publish; octocode does not re-verify signatures), else `unverified` (npm `gitHead`, Go/Composer refs). Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
 
 | Field | Meaning |
 |-------|---------|
@@ -744,7 +758,7 @@ matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
 | `matchWindow` | With `resultView:"matchOnly"`, widen each matched span by this many characters of context on each side (… marks trimmed sides). 0 = bare match. |
 | `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
 | `contextLines` | Lines around each match. Default 0 (`detailed`: 3), max 100. |
-| `matchContentLength` | Max characters per match snippet, clipped around the hit. Default 200 × (2·contextLines + 1), capped at 4000; explicit max 100000. |
+| `matchContentLength` | Max characters per match snippet, clipped around the hit. Default 200 × (2·contextLines + 1), capped at 4000; explicit max 100000. A clipped value carries `next.expandValues`: on a `pageSize`/`maxMatchesPerFile` page, the same page with a wider `matchContentLength`; on a default page, one localFetch of the clipped lines per file (`expandValues2`, …), or for a multiline match the file searched alone with a wider `matchContentLength`. |
 | `pageSize` | Files per lexical result page, 1–1000. Omitted: pages of about 24 KB (path/count views: 100 files). |
 | `maxMatchesPerFile` | Per-file match page size. Omitted: every row when the result fits one page, else 10 per file on page 1. Pair with `matchPage` to continue. |
 | `page` | Result page. |
@@ -926,7 +940,7 @@ Bounded directory outline (no parser) for understanding shape, ownership, and fi
 
 #### Output
 
-`operation` defaults to `"tree"`. The response lists `entries` as compact strings (`name (size)`, directories with a trailing `/`) plus pagination metadata when more remain.
+`operation` defaults to `"tree"`. The response lists `entries` as compact strings (`name (size)`, directories with a trailing `/`) plus pagination metadata when more remain. `summary` counts what the outline left out: `.gitignore`d entries, sensitive entries withheld by path policy, and, without `hidden`, skipped dot entries (pruned directories such as `.git` excluded); when it skipped any dot entry, `next.includeHidden` reruns the outline with `hidden:true`.
 
 #### Examples
 
@@ -966,13 +980,13 @@ Metadata search for files and directories.
 | `permissions` | Octal permission filter, such as `"644"`. |
 | `access` | Permission predicate: `executable`, `readable`, or `writable`. |
 | `excludeDir` | Directory names to prune, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). `defaultExcludes: false` turns that prune off; sensitive directories such as `secrets/` stay hidden. |
-| `detail` | `basic` (default: path and size), `modified` (adds `modifiedMs`, Unix milliseconds), or `full` (also adds line count). |
+| `detail` | `basic` (default: name and size), `modified` (adds `modifiedMs`, Unix milliseconds), or `full` (also adds `lineCount`). |
 | `sort` | Sort by `path` (default, walk order), `modified`, `name`, `size`, or `lines`. |
 | `page` | Result page. |
 | `pageSize` | Files per page, max 1000. Omitted: pages of about 24 KB. |
 | `limit` | Hard pre-pagination cap. Max 10000. |
 
-Rows carry `path` and, for files, `size` in bytes (`debug:true` adds `sizeFormatted`).
+Rows are grouped by directory in listing order: `files: [{"dir": "src/app", "files": ["main.ts (1533)", "util/"]}]`. An entry is its name, `/` after a directory (`./` is `dir` itself), then ` (<fields>)`: the size in bytes for every non-directory, `symlink`, `lineCount=N`, `modifiedMs=N`. `dir` resolves against `base` like any row path, so an entry's path is `dir` + `/` + name. Consecutive entries of one directory share a group; a page that continues a group repeats its `dir`. Every entry appears once, in the requested sort order.
 
 #### Examples
 
@@ -1633,11 +1647,11 @@ ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
 | **Identity** | File reads resolve an omitted branch; pass a commit SHA for reproducible reads. Clones accept branch, tag, or full commit SHA and return the actual HEAD as `location.commitSha` |
 | **Sparse clones** | Separate cache: `{branch}__sp_{hash}__host_{hash}/` |
 | **Coexistence** | Full clone and sparse clones of the same repository can coexist |
-| **Cache hit** | Reuses a clone checkout only when its working tree is clean at the recorded HEAD; a modified cache is re-cloned. Inspect `verified` separately from scoped `complete`. |
-| **Expired** | Owned entries are evicted when requested and by the shared 24-hour lifecycle |
+| **Cache hit** | Reuses a clone checkout only when its working tree is clean at the recorded HEAD; a modified cache returns `clone.cache.dirty` and keeps its files. Inspect `verified` separately from scoped `complete`. |
+| **Expired** | Clone activity evicts clean expired entries under their locks; locally modified clone checkouts are preserved. Automatic directory-age sweeps do not remove clones |
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
-| **Periodic GC** | CLI tool-runtime bootstrap performs a persisted due-check once per process and exits without a timer. MCP performs the same bootstrap check, then uses an unreferenced deadline timer. Both use one persisted 24-hour marker. A cross-process lock prevents duplicate sweeps; a cleanup failure doesn't block startup. |
-| **Cleanup scope** | Automatic maintenance removes expired entries only from owned clone, tree, response, and managed artifact roots. It preserves unrelated files under `tmp`. |
+| **Periodic GC** | Native runtime bootstrap performs a persisted due-check once per CLI process and at MCP startup, using one 24-hour marker. A cleanup failure does not block startup. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle). |
+| **Cleanup scope** | Automatic maintenance removes expired entries from owned tree, response, and managed artifact roots. Clone entries use their tool's lock/status-aware eviction. It preserves unrelated files under `tmp`. |
 | **Response limits** | Response entries also obey configurable per-entry and total-disk limits. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle). |
 | **Manual clear** | `octocode cache clear` deletes all cached responses; `octocode cache status` prints the cache home directory. There are no selective clear flags. |
 

@@ -51,7 +51,6 @@ const ABSTRACT_KINDS: &[&str] = &[
     "typeAlias",
     "protocol",
 ];
-const MAX_EVIDENCE: usize = 20;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Finding {
@@ -703,9 +702,9 @@ fn detect_cycles(c: &mut Ctx) {
         };
         let evidence = json!({
             "size": members.len(),
-            "members": member_keys.iter().take(MAX_EVIDENCE).collect::<Vec<_>>(),
+            "members": member_keys,
             "witness": witness.windows(2).map(|w| hop(w[0], w[1])).collect::<Vec<_>>(),
-            "suggestedCuts": cuts.iter().take(MAX_EVIDENCE).map(|(a, b)| hop(*a, *b)).collect::<Vec<_>>(),
+            "suggestedCuts": cuts.iter().map(|(a, b)| hop(*a, *b)).collect::<Vec<_>>(),
             "cutCount": cuts.len(),
         });
         let mut controls = vec!["type-only imports excluded", "dynamic imports excluded"];
@@ -820,7 +819,7 @@ fn detect_dir_cycles(c: &mut Ctx) {
             0.5 * magnitude(keys.len()),
             if rust { 0.3 } else { 0.7 },
             0.5,
-            json!({"dirs": keys.iter().take(MAX_EVIDENCE).collect::<Vec<_>>(), "witness": hops}),
+            json!({"dirs": keys, "witness": hops}),
             controls,
             Vec::new(),
         );
@@ -1047,7 +1046,7 @@ fn detect_unused_exports(c: &mut Ctx) {
             0.15,
             0.8,
             v.impact(file),
-            json!({"exports": names.iter().take(MAX_EVIDENCE).collect::<Vec<_>>(), "count": names.len()}),
+            json!({"exports": names, "count": names.len()}),
             vec!["referenced within the file; not dead code"],
             Vec::new(),
         );
@@ -1067,7 +1066,7 @@ fn detect_unused_exports(c: &mut Ctx) {
             0.4 * magnitude(names.len()),
             if lazy { 0.3 } else { 0.6 },
             v.impact(file),
-            json!({"exports": names.iter().take(MAX_EVIDENCE).collect::<Vec<_>>(), "count": names.len(), "dynamicallyImported": lazy}),
+            json!({"exports": names, "count": names.len(), "dynamicallyImported": lazy}),
             vec![
                 "entry files and everything they re-export treated as public API",
                 "namespace-imported files skipped",
@@ -1121,7 +1120,6 @@ fn detect_dependencies(c: &mut Ctx) {
     let sites = |files: &[(u32, u32)]| {
         files
             .iter()
-            .take(5)
             .map(|(f, l)| {
                 if *l == NONE {
                     json!({"file": v.key(*f)})
@@ -1221,7 +1219,7 @@ fn detect_boundaries(c: &mut Ctx) {
     for ((from, to), pairs) in crossings {
         let evidence = json!({
             "from": from, "to": to, "imports": pairs.len(),
-            "sites": pairs.iter().take(5).map(|(a, b)| json!({"from": v.key(*a), "to": v.key(*b), "line": v.line(*a, *b)})).collect::<Vec<_>>(),
+            "sites": pairs.iter().map(|(a, b)| json!({"from": v.key(*a), "to": v.key(*b), "line": v.line(*a, *b)})).collect::<Vec<_>>(),
         });
         pending.push((format!("{from} -> {to}"), pairs.len(), evidence, pairs[0].1));
     }
@@ -1277,7 +1275,7 @@ fn detect_unresolved(c: &mut Ctx) {
             0.5 * magnitude(sites.len()),
             0.8,
             0.5,
-            json!({"count": sites.len(), "sites": sites.into_iter().take(MAX_EVIDENCE).collect::<Vec<_>>()}),
+            json!({"count": sites.len(), "sites": sites}),
             vec!["relative/crate-internal specifiers only; packages are never unresolved"],
             vec![format!("octocode graph query diagnostics {}", quote(&file))],
         );
@@ -1399,7 +1397,10 @@ fn detect_critical(c: &mut Ctx) {
             0.9,
             c.v.impact(file),
             json!({"pageRank": c.v.rank[file as usize], "transitiveDependents": dependents, "directImporters": c.v.inc[file as usize].len()}),
-            vec!["informational: changes here need wide test coverage"],
+            vec![
+                "informational: changes here need wide test coverage",
+                "only the top 2% of imported files by PageRank (1 to 10) are checked",
+            ],
             vec![format!(
                 "octocode graph query dependents {} --depth 3",
                 quote(c.v.key(file))
@@ -1520,7 +1521,7 @@ fn detect_components(c: &mut Ctx) {
                 0.4,
                 0.6,
                 json!({"level": level, "instability": (i * 1000.0).round() / 1000.0, "ca": ca, "ce": ce,
-                       "lessStable": worse.iter().take(MAX_EVIDENCE).map(|d| json!({"unit": d, "instability": (instability(d) * 1000.0).round() / 1000.0})).collect::<Vec<_>>()}),
+                       "lessStable": worse.iter().map(|d| json!({"unit": d, "instability": (instability(d) * 1000.0).round() / 1000.0})).collect::<Vec<_>>()}),
                 vec!["Arcan DoUD ≥ 30% of dependencies", "runtime imports between authored files"],
             ));
         }

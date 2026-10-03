@@ -223,12 +223,13 @@ async fn exact(
         &registry.base,
         &format!("{encoded}/{}", encode_component(&spec)),
     )?;
+    let authorization = registry.authorization_for(&request_url);
     let response = client
         .json_with_dns_pin(
             ArtifactType::Npm,
             request_url,
             true,
-            registry.authorization.clone(),
+            authorization,
             dns_pin.clone(),
         )
         .await?;
@@ -314,12 +315,14 @@ async fn packument(
     client: &RegistryClient<'_>,
     dns_pin: Option<DnsPin>,
 ) -> Result<Option<Value>, ArtifactError> {
+    let url = registry_url(&registry.base, encoded)?;
+    let authorization = registry.authorization_for(&url);
     client
         .json_as(
             ArtifactType::Npm,
-            registry_url(&registry.base, encoded)?,
+            url,
             true,
-            registry.authorization.clone(),
+            authorization,
             dns_pin,
             NPM_INSTALL_JSON,
         )
@@ -392,19 +395,17 @@ async fn attested_commit(
 ) -> Option<String> {
     let dist = row.get("dist")?;
     let url = Url::parse(dist.pointer("/attestations/url")?.as_str()?).ok()?;
-    // Never follow an attestation URL off the registry host.
-    if url.host_str() != registry.base.host_str() || url.scheme() != registry.base.scheme() {
+    // Attestations must stay on the registry origin; credential path scope is checked below.
+    if url.origin() != registry.base.origin()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
         return None;
     }
     let integrity = dist.get("integrity")?.as_str()?;
+    let authorization = registry.authorization_for(&url);
     let bundle = client
-        .json_with_dns_pin(
-            ArtifactType::Npm,
-            url,
-            true,
-            registry.authorization.clone(),
-            dns_pin,
-        )
+        .json_with_dns_pin(ArtifactType::Npm, url, true, authorization, dns_pin)
         .await
         .ok()??;
     provenance_commit(
@@ -487,14 +488,9 @@ async fn search(
             ("from", (offset > 0).then(|| offset.to_string())),
         ],
     )?;
+    let authorization = registry.authorization_for(&url);
     let response = client
-        .json_with_dns_pin(
-            ArtifactType::Npm,
-            url,
-            false,
-            registry.authorization.clone(),
-            dns_pin,
-        )
+        .json_with_dns_pin(ArtifactType::Npm, url, false, authorization, dns_pin)
         .await?
         .ok_or_else(|| ArtifactError::new("provider_error", "npm registry search failed."))?;
     let data = object_for(&response, ArtifactType::Npm)?;
@@ -688,6 +684,7 @@ mod tests {
     struct RouteHttp {
         routes: Vec<(&'static str, &'static str, Value)>,
         seen: std::sync::Mutex<Vec<String>>,
+        requests: std::sync::Mutex<Vec<(String, bool)>>,
     }
 
     impl ArtifactHttp for RouteHttp {
@@ -696,6 +693,10 @@ mod tests {
             req: ArtifactHttpRequest,
             _budget: &'a RequestBudget,
         ) -> ArtifactHttpFuture<'a> {
+            self.requests
+                .lock()
+                .expect("requests")
+                .push((req.url.to_string(), req.authorization.is_some()));
             let path = req.url.path().to_owned();
             self.seen
                 .lock()
@@ -810,6 +811,7 @@ mod tests {
         RouteHttp {
             routes,
             seen: std::sync::Mutex::new(vec![]),
+            requests: std::sync::Mutex::new(vec![]),
         }
     }
 
@@ -911,6 +913,179 @@ mod tests {
                 "gitHead lead stays"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn attestation_requests_keep_fake_credentials_on_the_registry_origin() {
+        for (url, allowed) in [
+            ("https://registry.npmjs.org:444/attestation", false),
+            ("https://fake:secret@registry.npmjs.org/attestation", false),
+            ("https://registry.npmjs.org:443/attestation", true),
+        ] {
+            let http = routes(vec![(
+                "/attestation",
+                JSON,
+                bundle(
+                    "4.6.5",
+                    "https://github.com/colinhacks/zod",
+                    &sha512(TARBALL),
+                ),
+            )]);
+            let budget =
+                RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
+            let client = RegistryClient {
+                http: &http,
+                budget: &budget,
+                cache_revision: 0,
+                cache_enabled: false,
+            };
+            let mut registry = npm_registry("https://registry.npmjs.org/");
+            registry.authorization = super::super::npmrc::authorization_for(
+                &registry.base,
+                "//registry.npmjs.org/:_authToken=fake-test-token",
+                |_| None,
+            );
+            let mut item = super::ArtifactItem::new(
+                ArtifactType::Npm,
+                "zod".into(),
+                registry.base.to_string(),
+            );
+            item.repository = Some("https://github.com/colinhacks/zod".into());
+            let mut row = manifest("4.6.5", true);
+            row["dist"]["attestations"]["url"] = json!(url);
+            let commit = super::attested_commit(
+                &item,
+                "4.6.5",
+                row.as_object().expect("manifest"),
+                &registry,
+                &client,
+                None,
+            )
+            .await;
+            let requests = http.requests.lock().expect("requests");
+            if allowed {
+                assert_eq!(commit.as_deref(), Some(COMMIT));
+                assert_eq!(requests.len(), 1);
+                assert_eq!(
+                    requests[0],
+                    ("https://registry.npmjs.org/attestation".into(), true)
+                );
+            } else {
+                assert!(
+                    requests.is_empty(),
+                    "off-origin or userinfo URL reached authenticated transport: {url}"
+                );
+                assert!(commit.is_none());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn npm_path_scoped_credentials_do_not_reach_sibling_attestations() {
+        for (scope, target, authenticated) in [
+            ("/api/npm/", "/api/npm/attestation", true),
+            ("/api/npm/", "/other-service/attestation", false),
+            ("/api/npm/", "/api/npm-extra/attestation", false),
+            ("/", "/other-service/attestation", true),
+        ] {
+            let http = routes(vec![(
+                target,
+                JSON,
+                bundle(
+                    "4.6.5",
+                    "https://github.com/colinhacks/zod",
+                    &sha512(TARBALL),
+                ),
+            )]);
+            let budget =
+                RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
+            let client = RegistryClient {
+                http: &http,
+                budget: &budget,
+                cache_revision: 0,
+                cache_enabled: false,
+            };
+            let mut registry = npm_registry("https://registry.npmjs.org/api/npm/");
+            registry.authorization = super::super::npmrc::authorization_for(
+                &registry.base,
+                &format!("//registry.npmjs.org{scope}:_authToken=fake-path-test-token"),
+                |_| None,
+            );
+            assert!(registry.authorization.is_some());
+            let mut item = super::ArtifactItem::new(
+                ArtifactType::Npm,
+                "zod".into(),
+                registry.base.to_string(),
+            );
+            item.repository = Some("https://github.com/colinhacks/zod".into());
+            let mut row = manifest("4.6.5", true);
+            let url = format!("https://registry.npmjs.org{target}");
+            row["dist"]["attestations"]["url"] = json!(url);
+            let commit = super::attested_commit(
+                &item,
+                "4.6.5",
+                row.as_object().expect("manifest"),
+                &registry,
+                &client,
+                None,
+            )
+            .await;
+            assert_eq!(
+                commit.as_deref(),
+                Some(COMMIT),
+                "anonymous optional attestations remain usable"
+            );
+            assert_eq!(
+                *http.requests.lock().expect("requests"),
+                [(url, authenticated)],
+                "credential scope {scope}, target {target}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn npm_path_scoped_credentials_authorize_metadata_requests() {
+        let http = routes(vec![
+            (
+                "/api/npm/zod",
+                INSTALL,
+                json!({"name":"zod","dist-tags":{"latest":"4.6.5"},"versions":{"4.6.5":{}}}),
+            ),
+            ("/api/npm/zod/4.6.5", JSON, manifest("4.6.5", false)),
+            (
+                "/api/npm/-/v1/search",
+                JSON,
+                json!({"objects":[],"total":0}),
+            ),
+        ]);
+        let budget = RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
+        let client = RegistryClient {
+            http: &http,
+            budget: &budget,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        let mut registry = npm_registry("https://registry.npmjs.org/api/npm/");
+        registry.authorization = super::super::npmrc::authorization_for(
+            &registry.base,
+            "//registry.npmjs.org/api/npm/:_authToken=fake-metadata-token",
+            |_| None,
+        );
+        super::exact("zod", Some("^4"), &registry, &client, None)
+            .await
+            .expect("packument and manifest");
+        let query = artifact_query(json!({"type":"npm","keywords":["schema"]}), None);
+        super::search(&query, &Default::default(), &registry, &client, None)
+            .await
+            .expect("discovery");
+        let requests = http.requests.lock().expect("requests");
+        assert_eq!(requests.len(), 3);
+        assert!(
+            requests
+                .iter()
+                .all(|(url, auth)| url.starts_with("https://registry.npmjs.org/api/npm/") && *auth),
+            "{requests:?}"
+        );
     }
 
     #[test]

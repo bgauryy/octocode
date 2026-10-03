@@ -320,6 +320,26 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
     let rows = declarations
         .get(start..(start + size).min(declarations.len()))
         .unwrap_or(&[]);
+    // A `maxFiles` cut below the schema maximum is raisable: expandScan
+    // re-runs the outline with a doubled bound, so only the maximum is terminal.
+    let max_files = crate::contracts::query_schema_number(
+        ToolId::AstSearch,
+        Some("symbols"),
+        "maxFiles",
+        "maximum",
+    )
+    .and_then(|value| u32::try_from(value).ok())
+    .unwrap_or(u32::MAX);
+    let expand_scan = (truncated && q.max_files() < max_files)
+        .then(|| q.max_files().saturating_mul(2).min(max_files));
+    let mut diagnostics = diagnostics.clone();
+    if truncated {
+        let limit = q.max_files();
+        diagnostics.push(json!({
+            "code":"structural.scan.truncated",
+            "message":format!("Candidate scan hit the maxFiles limit ({limit}); files beyond it were not outlined."),
+        }));
+    }
     let mut out = json!({"operation":"symbols","path":path,"totalDeclarations":declarations.len(),"filesScanned":files_scanned,"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete||*recovered});
     // A directory outline groups rows under their file, like `match` results,
     // so each path is written once instead of on every declaration. Rows are
@@ -335,7 +355,7 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         out["snapshot"] = json!(snapshot);
         out["pagination"] = json!({"currentPage":page,"totalPages":declarations.len().div_ceil(size).max(1),"hasMore":more});
     }
-    if incomplete {
+    if skipped > 0 || (truncated && expand_scan.is_none()) {
         out["terminalLimit"] = json!(true)
     }
     if more {
@@ -348,6 +368,16 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         nq["page"] = json!(page + 1);
         out["next"] =
             json!({"nextPage":{"tool":ToolId::AstSearch.as_str(),"query":nq,"confidence":"exact"}})
+    }
+    if let Some(bound) = expand_scan {
+        let mut nq = serde_json::to_value(q).unwrap_or_default();
+        if let Some(map) = nq.as_object_mut() {
+            map.retain(|key, value| key != "snapshot" && !value.is_null());
+        }
+        nq["maxFiles"] = json!(bound);
+        nq["page"] = json!(1);
+        out["next"]["expandScan"] =
+            json!({"tool":ToolId::AstSearch.as_str(),"query":nq,"confidence":"exact"});
     }
     if declarations.is_empty() && !incomplete {
         out["status"] = json!("empty")

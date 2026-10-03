@@ -158,7 +158,7 @@ pub struct Continuation {
     #[serde(rename = "why", skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct NextCalls {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#continue: Option<Continuation>,
@@ -167,6 +167,127 @@ pub struct NextCalls {
     /// Offset-zero recovery for a page requested past the end of the view.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub restart: Option<Continuation>,
+    /// The whole matched lines a long-line match showed only byte windows of.
+    #[serde(
+        rename = "wholeLines",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub whole_lines: Option<Continuation>,
+    /// The rest of a declaration a `block` range stopped inside.
+    #[serde(
+        rename = "continueBlock",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub continue_block: Option<Continuation>,
+    /// The whole declarations a `block` match kept only a context window of.
+    #[serde(rename = "readBlock", skip_serializing_if = "Option::is_none", default)]
+    pub read_block: Option<Continuation>,
+    /// The context lines a clamped `contextLines` left out.
+    #[serde(
+        rename = "readContext",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub read_context: Option<Continuation>,
+}
+
+impl NextCalls {
+    /// Add every continuation `other` carries; `self` keeps its own on a clash.
+    pub fn absorb(&mut self, other: NextCalls) {
+        let NextCalls {
+            r#continue,
+            read_bounded_lines,
+            restart,
+            whole_lines,
+            continue_block,
+            read_block,
+            read_context,
+        } = other;
+        for (mine, theirs) in [
+            (&mut self.r#continue, r#continue),
+            (&mut self.read_bounded_lines, read_bounded_lines),
+            (&mut self.restart, restart),
+            (&mut self.whole_lines, whole_lines),
+            (&mut self.continue_block, continue_block),
+            (&mut self.read_block, read_block),
+            (&mut self.read_context, read_context),
+        ] {
+            if mine.is_none() {
+                *mine = theirs;
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == NextCalls::default()
+    }
+}
+
+/// A source-line read of `ranges` derived from `q`: the extraction selectors,
+/// paging cursor, and `block` are cleared so the read returns exactly those
+/// lines. One range reads as `startLine`/`endLine`; more than `ranges` holds
+/// read as one span from the first start to the last end.
+pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetchQuery> {
+    let (first, last) = (ranges.first()?, ranges.last()?);
+    let mut query = q.clone();
+    query.clear_block_selectors();
+    query.match_string = None;
+    query.match_string_is_regex = None;
+    query.match_string_case_sensitive = None;
+    query.context_lines = None;
+    query.context_bytes = None;
+    query.full_content = None;
+    query.offset = None;
+    query.chunk_type = None;
+    query.chunk_size = None;
+    query.snapshot = None;
+    query.start_line = None;
+    query.end_line = None;
+    if ranges.len() == 1 || ranges.len() > MAX_READ_RANGES {
+        query.start_line = wire_positive(first.start);
+        query.end_line = wire_positive(last.end);
+    } else {
+        query.ranges = ranges
+            .iter()
+            .filter_map(|range| format!("{}-{}", range.start, range.end).parse().ok())
+            .collect();
+    }
+    Some(query)
+}
+
+/// Most `ranges` one localFetch read accepts.
+pub const MAX_READ_RANGES: usize = 10;
+
+/// `wanted` minus every line in `shown`: the sorted, disjoint ranges of
+/// `wanted` lines a view did not return.
+pub fn uncovered(wanted: &[LineRange], shown: &[LineRange]) -> Vec<LineRange> {
+    let mut rest = vec![];
+    for range in wanted {
+        let mut start = range.start;
+        for seen in shown {
+            if seen.end < start || seen.start > range.end {
+                continue;
+            }
+            if seen.start > start {
+                rest.push(LineRange {
+                    start,
+                    end: seen.start - 1,
+                });
+            }
+            start = start.max(seen.end + 1);
+        }
+        if start <= range.end {
+            rest.push(LineRange {
+                start,
+                end: range.end,
+            });
+        }
+    }
+    rest.sort_by_key(|range| range.start);
+    rest.dedup();
+    rest
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,4 +1,4 @@
-use super::{CloneContext, CloneError, GitRunRequest, control, is_commit};
+use super::{CloneContext, CloneError, GitRunRequest, cache, control, is_commit};
 use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
@@ -38,29 +38,55 @@ pub(super) fn read_head(
 /// Edited, deleted, or added files mean the cache no longer holds the fetched
 /// revision, so it must not be served as `verified`.
 pub(super) fn is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
+    Ok(checkout_status(context, directory)?.clean)
+}
+
+pub(super) struct CheckoutStatus {
+    pub clean: bool,
+    pub safe_to_replace: bool,
+}
+
+/// Inspect ignored files as well: they do not change the verified revision,
+/// but replacing the checkout would still destroy them.
+pub(super) fn checkout_status(
+    context: &CloneContext<'_>,
+    directory: &Path,
+) -> Result<CheckoutStatus, CloneError> {
     let output = run(
         context,
         vec![
             "-C".into(),
             directory.as_os_str().to_owned(),
             "status".into(),
-            "--porcelain".into(),
-            "--untracked-files=normal".into(),
+            "--porcelain=v1".into(),
+            "-z".into(),
+            "--untracked-files=all".into(),
+            "--ignored=matching".into(),
         ],
         HEAD_TIMEOUT,
         "check cached checkout cleanliness",
         None,
     )?;
-    // Porcelain lines are `XY <path>`; octocode's own cache bookkeeping
-    // (meta, lock, and their temp files) lives in the checkout root.
-    Ok(output
-        .stdout
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .all(|line| {
-            line.get(3..)
-                .is_some_and(|path| path.trim_matches('"').starts_with(".octocode-"))
-        }))
+    let mut status = CheckoutStatus {
+        clean: true,
+        safe_to_replace: true,
+    };
+    for entry in output.stdout.split('\0').filter(|entry| !entry.is_empty()) {
+        // Only our untracked root metadata is bookkeeping. A tracked edit,
+        // nested namesake or arbitrary .octocode-* file remains user evidence.
+        if entry
+            .strip_prefix("?? ")
+            .or_else(|| entry.strip_prefix("!! "))
+            == Some(cache::META_FILE)
+        {
+            continue;
+        }
+        status.safe_to_replace = false;
+        if !entry.starts_with("!! ") {
+            status.clean = false;
+        }
+    }
+    Ok(status)
 }
 
 /// The branch a default-branch clone checked out (the remote HEAD).

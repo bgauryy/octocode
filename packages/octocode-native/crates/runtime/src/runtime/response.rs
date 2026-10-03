@@ -682,10 +682,10 @@ fn minimize_data(data: &mut Map<String, Value>, tool: ToolId, query: &Value) {
     }
     minimize_stats(data, more);
     // A commit's committer usually repeats its author, and the headline
-    // repeats the message's first line.
-    if data.get("committer").is_some()
-        && data["committer"].get("name") == data.get("author").and_then(|a| a.get("name"))
-    {
+    // repeats the message's first line. A committer that differs in any
+    // field (date or email after a rebase, cherry-pick or web merge) is
+    // evidence and stays.
+    if data.get("committer").is_some() && data.get("committer") == data.get("author") {
         data.remove("committer");
     }
     if let (Some(headline), Some(message)) = (
@@ -790,7 +790,7 @@ const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
             "files.returnedBytes",
             "files.selectedMatchCount",
         ],
-        ToolId::StructureSearch => &["filesScanned", "files.sizeFormatted"],
+        ToolId::StructureSearch => &["filesScanned"],
         // Per-row graph analytics (layer, in-degree, dominator, transitive
         // flag) and per-language linking explain the graph, not the edges.
         ToolId::AstTopology => &[
@@ -808,7 +808,6 @@ const fn debug_only_fields(tool: ToolId) -> &'static [&'static str] {
             "coverage.languages",
         ],
         ToolId::GhSearchHistory => &["effectiveQuery", "scope"],
-        ToolId::GhGetHistoryItem => &["parents"],
         _ => &[],
     }
 }
@@ -1057,11 +1056,81 @@ fn pagination_codes(data: &Value) -> Vec<String> {
             || k.contains("search")
             || k.contains("completeness")
     });
-    if (pageable && !page) || ((tree_some(data, &bounded) || partial) && !page && !expansion) {
+    if (pageable && !page)
+        || ((tree_some(data, &bounded) || partial) && !page && !expansion)
+        || clipped_value_unreached(data)
+    {
         vec!["continuationMissing".into()]
     } else {
         vec![]
     }
+}
+
+/// Whether a value clipped inside a file row (`truncated:true` under a row
+/// with a `path`) has no continuation reaching it: neither a read or
+/// expansion of that file nor one that widens values (`matchContentLength`).
+/// Page continuations (`next*`, `continue*`) list more rows and never widen a
+/// shown one.
+fn clipped_value_unreached(data: &Value) -> bool {
+    fn clipped_paths<'a>(value: &'a Value, path: Option<&'a str>, out: &mut Vec<&'a str>) {
+        match value {
+            Value::Object(map) => {
+                let path = map.get("path").and_then(Value::as_str).or(path);
+                if map.get("truncated") == Some(&Value::Bool(true))
+                    && let Some(path) = path
+                {
+                    out.push(path);
+                }
+                for (key, child) in map {
+                    if key != "next" {
+                        clipped_paths(child, path, out);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|item| clipped_paths(item, path, out)),
+            _ => {}
+        }
+    }
+    fn reaching<'a>(value: &'a Value, paths: &mut Vec<&'a str>, widened: &mut bool) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    if let Some(query) = child.get("query").and_then(Value::as_object)
+                        && child.get("tool").is_some_and(Value::is_string)
+                        && !has_prefix(&key.to_lowercase(), PAGE_CONTINUATION_PREFIXES)
+                    {
+                        *widened |= query.contains_key("matchContentLength");
+                        if let Some(path) = query.get("path").and_then(Value::as_str) {
+                            paths.push(path);
+                        }
+                    }
+                    reaching(child, paths, widened);
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|item| reaching(item, paths, widened)),
+            _ => {}
+        }
+    }
+    let mut clipped = Vec::new();
+    clipped_paths(data, None, &mut clipped);
+    if clipped.is_empty() {
+        return false;
+    }
+    let (mut targets, mut widened) = (Vec::new(), false);
+    reaching(data, &mut targets, &mut widened);
+    // Rows name files absolutely here; a continuation keeps the caller's
+    // (workspace-relative) spelling of the same file.
+    let same_file = |row: &str, target: &str| {
+        let target = target.trim_start_matches("./");
+        row == target
+            || row
+                .strip_suffix(target)
+                .is_some_and(|prefix| prefix.ends_with('/'))
+    };
+    !widened
+        && clipped
+            .iter()
+            .any(|path| !targets.iter().any(|target| same_file(path, target)))
 }
 
 /// Tools whose rows name local files: a relative row path must resolve as-is
@@ -1126,7 +1195,11 @@ pub fn envelope_in(
     if matches!(tool, ToolId::StructureSearch | ToolId::AstSearch) {
         for (row, root) in rows.iter_mut().zip(&roots) {
             if let Some(parent) = root.as_deref().and_then(Path::parent) {
-                prefix_relative_paths(&mut row["data"], 0, &parent.to_string_lossy());
+                let parent = parent.to_string_lossy();
+                prefix_relative_paths(&mut row["data"], 0, &parent);
+                if tool == ToolId::StructureSearch {
+                    anchor_listing_dirs(&mut row["data"], &parent);
+                }
             }
         }
     }
@@ -1135,7 +1208,64 @@ pub fn envelope_in(
         .ok()
         .map(|valid| valid.canonical.to_string_lossy().into_owned())
         .filter(|root| Path::new(root).parent().is_some());
-    compact(rows, workspace)
+    let mut value = compact(rows, workspace);
+    if tool == ToolId::StructureSearch {
+        relativize_listing_dirs(&mut value);
+    }
+    value
+}
+
+/// structureSearch `files` groups (`{dir, files}`) in a row's data.
+fn listing_groups(data: &mut Value) -> impl Iterator<Item = &mut Map<String, Value>> {
+    data.get_mut("files")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object_mut)
+        .filter(|group| group.get("files").is_some_and(Value::is_array))
+}
+
+/// A structureSearch group `dir` is relative to the walked root's parent
+/// (`""` is that parent), like the rows' `path`: make it absolute.
+fn anchor_listing_dirs(data: &mut Value, parent: &str) {
+    for group in listing_groups(data) {
+        if let Some(Value::String(dir)) = group.get_mut("dir")
+            && !Path::new(dir.as_str()).is_absolute()
+        {
+            *dir = if dir.is_empty() {
+                parent.to_owned()
+            } else {
+                format!("{parent}/{dir}")
+            };
+        }
+    }
+}
+
+/// Name every structureSearch group `dir` like a row path: relative to the
+/// response `base` under it (`.` for the base itself), else absolute, so
+/// `base` + `dir` + entry name resolves each listed entry.
+fn relativize_listing_dirs(value: &mut Value) {
+    let base = value.get("base").and_then(Value::as_str).map(str::to_owned);
+    for row in value
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        for group in listing_groups(&mut row["data"]) {
+            let Some(Value::String(dir)) = group.get_mut("dir") else {
+                continue;
+            };
+            let Some(base) = base.as_deref() else {
+                continue;
+            };
+            if dir == base {
+                *dir = ".".to_owned();
+            } else if let Some(relative) = dir.strip_prefix(&format!("{base}/")) {
+                *dir = relative.to_owned();
+            }
+        }
+    }
 }
 
 /// astTopology fields (`file`, entrypoints, diagnostics) are relative to the
@@ -1231,6 +1361,7 @@ fn compact(mut rows: Vec<Value>, base: Option<String>) -> Value {
 fn can_share_field(key: &str, value: &Value) -> bool {
     const EXCLUDED: &[&str] = &[
         "path",
+        "dir",
         "uri",
         "absolutePath",
         "owner",
@@ -1512,6 +1643,29 @@ mod tests {
             json!([{"severity":"warning","message":"keep"}])
         );
         assert_eq!(data["files"][0]["path"], "a.rs");
+    }
+
+    /// A committer is removed only when it repeats the author whole; a
+    /// different date or email (rebase, cherry-pick) and the parent list (a
+    /// merge has two) are commit evidence.
+    #[test]
+    fn commit_rows_keep_a_differing_committer_and_the_parents() {
+        let author = json!({"name":"Ada","email":"ada@x.dev","date":"2024-01-01T00:00:00Z"});
+        let commit = |committer: Value| {
+            minimized(
+                ToolId::GhGetHistoryItem,
+                json!({"operation":"commit","owner":"o","repo":"r","ref":"abc"}),
+                json!({"type":"commit","sha":"abc","message":"m","author":author,
+                    "committer":committer,"parents":["p1","p2"]}),
+            )
+        };
+        let same = commit(author.clone());
+        assert!(same["data"].get("committer").is_none(), "{same}");
+        assert_eq!(same["data"]["parents"], json!(["p1", "p2"]), "{same}");
+        let mut rebased = author.clone();
+        rebased["date"] = json!("2024-02-01T00:00:00Z");
+        let kept = commit(rebased.clone());
+        assert_eq!(kept["data"]["committer"], rebased, "{kept}");
     }
 
     #[test]
@@ -1906,6 +2060,72 @@ mod tests {
         }
     }
 
+    /// structureSearch `files` groups name their `dir` like row paths, so
+    /// `base` + `dir` + entry name resolves every listed entry, and a batch
+    /// never hoists a `dir` into `shared`.
+    #[test]
+    fn structure_listing_dirs_resolve_against_base_for_any_query_root() {
+        let ws = workspace();
+        let outside = ws.outside.to_string_lossy().into_owned();
+        let far_name = ws.outside.file_name().unwrap().to_string_lossy();
+        let workspace = json!({"path":"."});
+        let src = json!({"path":"src"});
+        let file = json!({"path":"src/a.rs"});
+        let far = json!({"path": outside});
+        let rows = vec![
+            json!({"index":0,"data":{"path":"app","files":[
+                {"dir":"app","files":["./","src/"]},
+                {"dir":"app/tests","files":["x.ts (1)"]}]}}),
+            json!({"index":1,"data":{"path":"src","files":[{"dir":"src/runtime","files":["b.rs (1)"]}]}}),
+            json!({"index":2,"data":{"path":"a.rs","files":[{"dir":"","files":["a.rs (1)"]}]}}),
+            json!({"index":3,"data":{"path":far_name,"files":[{"dir":far_name,"files":["o.rs (1)"]}]}}),
+            json!({"index":4,"data":{"path":"src","files":[{"dir":"src/runtime","files":["b.rs (1)"]}]}}),
+        ];
+        let value = envelope_in(
+            rows,
+            ToolId::StructureSearch,
+            &[
+                Some(&workspace),
+                Some(&src),
+                Some(&file),
+                Some(&far),
+                Some(&src),
+            ],
+            &ws.paths,
+        );
+        let dir = |row: usize, group: usize| {
+            value["results"][row]["data"]["files"][group]["dir"]
+                .as_str()
+                .unwrap_or_else(|| panic!("dir {row}/{group} in {value}"))
+                .to_owned()
+        };
+        assert_eq!(dir(0, 0), ".");
+        assert_eq!(dir(0, 1), "tests");
+        assert_eq!(dir(1, 0), "src/runtime");
+        assert_eq!(dir(2, 0), "src");
+        // Outside the workspace a directory stays absolute.
+        assert_eq!(dir(3, 0), outside);
+        assert_eq!(dir(4, 0), "src/runtime");
+        let same = envelope_in(
+            vec![
+                json!({"index":0,"data":{"path":"src","files":[{"dir":"src","files":["a.rs (1)"]}]}}),
+                json!({"index":1,"data":{"path":"src","files":[{"dir":"src","files":["a.rs (1)"]}]}}),
+            ],
+            ToolId::StructureSearch,
+            &[Some(&src), Some(&src)],
+            &ws.paths,
+        );
+        assert!(same.get("shared").is_none(), "{same}");
+        assert_eq!(
+            same["results"][1]["data"]["files"][0]["dir"], "src",
+            "{same}"
+        );
+        for path in ["tests/x.ts", "src/runtime/b.rs", "src/a.rs"] {
+            assert_resolvable(&ws, &value, path);
+        }
+        assert!(ws.paths.validate(format!("{outside}/o.rs")).is_ok());
+    }
+
     #[test]
     fn mixed_root_batches_resolve_every_row_even_after_a_rejected_row() {
         let ws = workspace();
@@ -2122,6 +2342,54 @@ mod tests {
             }
         }
     }
+    /// Never-trim invariant: a clipped value must carry a continuation that
+    /// reaches it. A read of another file, or a page of more rows, does not.
+    #[test]
+    fn a_clipped_value_needs_a_continuation_that_reaches_it() {
+        let read = |path: &str| json!({"tool":"localFetch","query":{"path":path,"startLine":1,"endLine":2}});
+        let page = |next: Value| {
+            json!({"files":[
+                {"path":"a.rs","matches":[{"line":1,"value":"short"}]},
+                {"path":"b.rs","matches":[{"line":4,"value":"long…","truncated":true,"originalChars":900}]}
+            ],"next":next})
+        };
+        let codes = |data: Value| {
+            result_row(
+                ToolId::from_name("localSearch").expect("known tool"),
+                0,
+                &json!({"debug":true}),
+                data,
+                None,
+            )
+            .pointer("/meta/diagnostics/codes")
+            .cloned()
+        };
+        let missing = Some(json!(["continuationMissing"]));
+        assert_eq!(codes(page(json!({"read":read("a.rs")}))), missing);
+        assert_eq!(
+            codes(page(
+                json!({"read":read("a.rs"),"nextPage":{"tool":"localSearch","query":{"path":".","searchText":"x","page":2}}})
+            )),
+            missing
+        );
+        assert_eq!(codes(page(json!({"read":read("b.rs")}))), None);
+        // An absolute row path and a relative continuation name one file.
+        let absolute = |next: Value| {
+            let mut data = page(next);
+            data["files"][1]["path"] = json!("/repo/src/b.rs");
+            data
+        };
+        assert_eq!(codes(absolute(json!({"read":read("src/b.rs")}))), None);
+        assert_eq!(codes(absolute(json!({"read":read("c/b.rs")}))), missing);
+        assert_eq!(codes(absolute(json!({"read":read("rc/b.rs")}))), missing);
+        assert_eq!(
+            codes(page(
+                json!({"expandValues":{"tool":"localSearch","query":{"path":".","searchText":"x","matchContentLength":900}}})
+            )),
+            None
+        );
+    }
+
     #[test]
     fn incomplete_evidence_requires_executable_continuation_or_terminal_diagnostic() {
         let missing = result_row(

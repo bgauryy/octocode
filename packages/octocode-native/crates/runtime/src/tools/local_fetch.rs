@@ -335,7 +335,16 @@ mod tests {
                 "{part:?}"
             );
         }
-        assert!(r.next.is_none(), "{:?}", r.next);
+        // The cut windows are not the whole lines: one read reaches them.
+        let next = r.next.clone().expect("next");
+        assert_eq!(
+            next.whole_lines
+                .as_ref()
+                .map(|read| read.query.context_lines),
+            Some(Some(0)),
+            "{next:?}"
+        );
+        assert!(next.r#continue.is_none(), "{next:?}");
         assert_eq!(
             r.source_line_ranges,
             vec![LineRange { start: 1, end: 2 }],
@@ -862,6 +871,133 @@ mod tests {
             "{:?}",
             r.warnings
         );
+        // The clamped-off context is one executable read away, each line once.
+        let rest = r
+            .next
+            .and_then(|next| next.read_context)
+            .expect("next.readContext");
+        let ranges: Vec<&str> = rest
+            .query
+            .ranges
+            .iter()
+            .map(|range| range.as_str())
+            .collect();
+        assert_eq!(ranges, ["30-49", "251-270"], "{rest:?}");
+        assert!(rest.query.match_string.is_none() && rest.query.context_lines.is_none());
+        let r = execute_local_fetch(&rest.query, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![
+                LineRange { start: 30, end: 49 },
+                LineRange {
+                    start: 251,
+                    end: 270
+                }
+            ],
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn an_oversized_block_continues_through_the_declaration_end() {
+        let t = Temp::new();
+        let p = t.0.join("m.py");
+        let body: String = (0..450).map(|i| format!("    x{i} = {i}\n")).collect();
+        // def at line 1, 450 body lines (2-451), return at 452.
+        fs::write(&p, format!("def big():\n{body}    return 0\n")).expect("fixture");
+        let paths = Paths(t.0.clone());
+        let ranged = qj(
+            &p,
+            serde_json::json!({"startLine": 10, "endLine": 12, "block": true}),
+        );
+        let r = execute_local_fetch(&ranged, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange {
+                start: 10,
+                end: 409
+            }]
+        );
+        let rest = r
+            .next
+            .and_then(|next| next.continue_block)
+            .expect("next.continueBlock");
+        assert_eq!(
+            (rest.query.start_line(), rest.query.end_line()),
+            (Some(410), Some(452)),
+            "{rest:?}"
+        );
+        assert!(
+            !rest.query.block(),
+            "a block re-read would widen back: {rest:?}"
+        );
+        let r = execute_local_fetch(&rest.query, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange {
+                start: 410,
+                end: 452
+            }]
+        );
+        // A match inside an oversized declaration keeps its context window
+        // and offers the whole declaration.
+        let matched = qj(
+            &p,
+            serde_json::json!({"matchString": "x200 = 200", "contextLines": 1, "block": true}),
+        );
+        let r = execute_local_fetch(&matched, &paths, &Safe, &NeverCancel);
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange {
+                start: 201,
+                end: 203
+            }]
+        );
+        let whole = r
+            .next
+            .and_then(|next| next.read_block)
+            .expect("next.readBlock");
+        let ranges: Vec<&str> = whole
+            .query
+            .ranges
+            .iter()
+            .map(|range| range.as_str())
+            .collect();
+        assert_eq!(ranges, ["1-200", "204-452"], "{whole:?}");
+        assert!(whole.query.match_string.is_none() && !whole.query.block());
+    }
+
+    #[test]
+    fn a_long_matched_line_marks_both_cuts_and_offers_the_whole_line() {
+        let t = Temp::new();
+        let p = t.0.join("min.js");
+        let line = format!("{}needleFn(){}", "a".repeat(3000), "b".repeat(3000));
+        fs::write(&p, format!("head\n{line}\ntail\n")).expect("fixture");
+        let paths = Paths(t.0.clone());
+        let req = qj(&p, serde_json::json!({"matchString": "needleFn"}));
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
+        let content = r.content.as_deref().expect("content");
+        assert!(
+            content.starts_with("... [2800 bytes omitted] ...\n"),
+            "{content:.80}"
+        );
+        assert!(
+            content.ends_with("\n... [2802 bytes omitted] ...\n"),
+            "{content:.80}"
+        );
+        let wire = serde_json::to_value(&r).expect("serializable");
+        crate::contracts::validate_output(
+            "localFetch",
+            &serde_json::json!({"results":[{"index":0,"data":wire}]}),
+        )
+        .expect("a row with next.wholeLines satisfies the output contract");
+        let whole = r
+            .next
+            .and_then(|next| next.whole_lines)
+            .expect("next.wholeLines");
+        assert_eq!(whole.query.context_lines, Some(0), "{whole:?}");
+        let r = execute_local_fetch(&whole.query, &paths, &Safe, &NeverCancel);
+        assert_eq!(r.content, Some(format!("{line}\n")), "{:?}", r.warnings);
     }
 
     #[test]

@@ -197,13 +197,10 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     let menu = row["next"].as_object().expect("next");
-    // 250 files: no every-patch read, and no placeholder literal search
-    // (only the caller knows the literal).
-    assert_eq!(
-        menu.keys().collect::<Vec<_>>(),
-        ["reviewPatches", "getMergeCommit"],
-        "{row}"
-    );
+    // 250 files: no every-patch read, no placeholder literal search (only
+    // the caller knows the literal), and no merge-commit read beside the
+    // row's mergeCommitSha.
+    assert_eq!(menu.keys().collect::<Vec<_>>(), ["reviewPatches"], "{row}");
     // The review read names up to one patch page of source files.
     let review = &menu["reviewPatches"]["query"]["files"];
     assert_eq!(review.as_array().map(Vec::len), Some(30), "{row}");
@@ -569,12 +566,110 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         only_hits["pullRequests"][0]["changedFiles"][0]["patch"],
         "@@ -201,1 +201,1 @@\n-old esbuild\n+new esbuild\n"
     );
-    assert!(only_hits.get("next").is_none(), "{only_hits}");
+    // An explicit matchContext still narrows the patch: the whole patch
+    // stays reachable.
+    assert_eq!(
+        only_hits["next"]["readFullPatches"]["query"]["content"]["patches"]["files"],
+        json!(["src/big.rs"]),
+        "{only_hits}"
+    );
     assert_eq!(
         data["next"]["readFullPatches"]["query"]["content"]["patches"]["files"],
         json!(["src/big.rs"]),
         "{data}"
     );
+    // Following the read returns the raw patch.
+    let mut full = data["next"]["readFullPatches"]["query"].clone();
+    for key in ["operation", "owner", "repo", "number"] {
+        full.as_object_mut().map(|q| q.remove(key));
+    }
+    let full = run(&server, full).await;
+    assert_eq!(
+        full["pullRequests"][0]["changedFiles"][0]["patch"], big,
+        "{full}"
+    );
+}
+
+/// The default minified PR view trims long patch context to `...` and drops
+/// markdown noise (HTML comments, badges) from bodies, comments and reviews:
+/// the response says so and carries the raw re-reads, which return every
+/// byte.
+#[tokio::test]
+async fn minified_pr_views_carry_lossless_raw_reads() {
+    let server = MockServer::start().await;
+    let raw_body = "Fixes the cache.\n<!-- reviewer checklist: perf tested -->\nDetails here.";
+    let mut meta = pr(2);
+    meta["body"] = json!(raw_body);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(meta))
+        .mount(&server)
+        .await;
+    let context = (1..=60).map(|n| format!(" ctx {n}\n")).collect::<String>();
+    let big = format!("@@ -1,121 +1,121 @@\n{context}-old\n+new\n{context}");
+    let small = "@@ -1 +1 @@\n-a\n+b";
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/big.rs", Some(&big), 1, 1),
+            rest_file("src/small.rs", Some(small), 1, 1),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"content": {"body": true, "patches": {"mode": "all"}}, "debug": false}),
+    )
+    .await;
+    let row = &data["pullRequests"][0];
+    assert_eq!(row["bodyView"], "minified", "{data}");
+    assert!(
+        !row["body"].as_str().unwrap_or("").contains("checklist"),
+        "{row}"
+    );
+    let files = row["changedFiles"].as_array().expect("files");
+    let trimmed = files
+        .iter()
+        .find(|f| f["path"] == "src/big.rs")
+        .expect("big");
+    assert!(
+        trimmed["patch"].as_str().unwrap_or("").contains("..."),
+        "{trimmed}"
+    );
+    assert!(trimmed.get("fullPatchChars").is_none(), "{trimmed}");
+    let untrimmed = &data["next"]["readUntrimmed"]["query"];
+    assert_eq!(
+        untrimmed["content"]["patches"]["files"],
+        json!(["src/big.rs"]),
+        "{data}"
+    );
+    let raw_read = &data["next"]["readRawBody"]["query"];
+    assert_eq!(raw_read["minify"], "none", "{data}");
+    let follow = |query: &Value| {
+        let mut query = query.clone();
+        for key in ["operation", "owner", "repo", "number"] {
+            query.as_object_mut().map(|q| q.remove(key));
+        }
+        query
+    };
+    let full = run(&server, follow(untrimmed)).await;
+    assert_eq!(
+        full["pullRequests"][0]["changedFiles"][0]["patch"], big,
+        "{full}"
+    );
+    assert!(full.pointer("/next/readUntrimmed").is_none(), "{full}");
+    let body = run(&server, follow(raw_read)).await;
+    assert_eq!(body["pullRequests"][0]["body"], raw_body, "{body}");
+    assert!(body["pullRequests"][0].get("bodyView").is_none(), "{body}");
+    // A raw read is never flagged.
+    let plain = run(
+        &server,
+        json!({"content": {"body": true, "patches": {"mode": "all"}}, "minify": "none"}),
+    )
+    .await;
+    assert!(plain.pointer("/next/readUntrimmed").is_none(), "{plain}");
+    assert!(plain.pointer("/next/readRawBody").is_none(), "{plain}");
 }
 
 /// D1: `matchString` searches patches, so a pull-request read with a

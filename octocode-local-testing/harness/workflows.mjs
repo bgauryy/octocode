@@ -22,7 +22,9 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
 }
 {
   const uri = path.join(NATIVE, 'scripts/native-addon-utils.cjs');
-  const refs = await call('lspSearch', { uri, symbolName: 'stageFile', lineHint: 28, operation: 'references' });
+  // Anchor on the live declaration line: this is a real repo file that moves.
+  const lineHint = fs.readFileSync(uri, 'utf8').split('\n').findIndex(line => line.startsWith('function stageFile(')) + 1;
+  const refs = await call('lspSearch', { uri, symbolName: 'stageFile', lineHint, operation: 'references' });
   const files = new Set(locations(refs).map(f => path.basename(f)));
   check('F1 real repo: stageFile references span build-native.cjs + test', files.has('build-native.cjs') && files.has('build-publication.test.cjs'), [...files].join(','));
   const coverage = rowData(refs)?.payload?.coverage;

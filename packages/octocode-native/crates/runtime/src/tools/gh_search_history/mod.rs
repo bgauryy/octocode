@@ -502,15 +502,29 @@ pub async fn execute<R: CredentialResolver>(
     let effective = request.query.clone();
     let mut value = match query.operation() {
         HistoryOperation::PullRequest => {
+            // A search beyond one repository names each row's repository:
+            // the row's number alone cannot be read.
+            let scoped = query.owner().zip(query.repo());
             let rows = result
                 .items
                 .iter()
                 .cloned()
                 .map(|item| {
+                    let repository = scoped.is_none().then(|| item_repo(&item)).flatten();
                     if query.concise() == Some(true) {
-                        concise_row(&item)
+                        let row = concise_row(&item);
+                        match (&repository, row.as_str()) {
+                            (Some((owner, repo)), Some(text)) => {
+                                json!(format!("{owner}/{repo}{text}"))
+                            }
+                            _ => row,
+                        }
                     } else {
-                        map_pr(item)
+                        let mut row = map_pr(item);
+                        if let Some((owner, repo)) = repository {
+                            row["repository"] = json!(format!("{owner}/{repo}"));
+                        }
+                        row
                     }
                 })
                 .collect::<Vec<_>>();
@@ -523,16 +537,20 @@ pub async fn execute<R: CredentialResolver>(
                 v["pagination"]["totalMatches"] = json!(total);
                 v["pagination"]["totalPages"] = json!(1);
             }
-            if let Some((number, candidates)) = read_target(&result.items, is_merged)
-                && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
+            if let Some((target, candidates)) = read_target(&result.items, is_merged)
+                && let Some((owner, repo)) = scoped
+                    .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()))
+                    .or_else(|| item_repo(&result.items[target]))
+                && let Some(number) = item_number(&result.items[target])
             {
                 // A merged row is the likely fix; the pick stays a guess.
                 let merged = result.items.iter().any(is_merged);
                 v["next"]["readPr"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),
-                    "query":pr_read_query(owner, repo, number),
+                    "query":pr_read_query(&owner, &repo, number),
                     "confidence":if merged {"medium"} else {"low"}});
                 if candidates.len() > 1 {
-                    v["next"]["readPr"]["candidates"] = json!(candidates);
+                    v["next"]["readPr"]["candidates"] =
+                        json!(candidate_ids(&result.items, &candidates, scoped.is_none()));
                 }
             }
             if let Some(read) = issue_links_read(&query) {
@@ -562,12 +580,14 @@ pub async fn execute<R: CredentialResolver>(
             } {
                 v["totalCount"] = json!(total);
             }
-            if let Some((number, candidates)) = read_target(&result.items, is_completed)
+            if let Some((target, candidates)) = read_target(&result.items, is_completed)
                 && let (Some(owner), Some(repo)) = (query.owner(), query.repo())
+                && let Some(number) = item_number(&result.items[target])
             {
                 v["next"]["readIssue"] = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":{"operation":"issue","owner":owner,"repo":repo,"number":number,"content":{"body":true,"comments":{"discussion":true}}},"confidence":"low"});
                 if candidates.len() > 1 {
-                    v["next"]["readIssue"]["candidates"] = json!(candidates);
+                    v["next"]["readIssue"]["candidates"] =
+                        json!(candidate_ids(&result.items, &candidates, false));
                 }
             }
             v
@@ -611,6 +631,17 @@ pub async fn execute<R: CredentialResolver>(
         }
         value["next"]["readCommit"] =
             json!({"tool":ToolId::GhGetHistoryItem.as_str(),"query":read,"confidence":"low"});
+        // Like readPr/readIssue: the read takes any row's sha as `ref`.
+        let shas = value["commits"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| row.get("sha").cloned())
+            .take(READ_CANDIDATES)
+            .collect::<Vec<_>>();
+        if shas.len() > 1 {
+            value["next"]["readCommit"]["candidates"] = json!(shas);
+        }
     }
     if !result.warnings.is_empty() {
         value["warnings"] = json!(result.warnings);
@@ -632,10 +663,10 @@ pub async fn execute<R: CredentialResolver>(
     {
         map.remove("effectiveQuery");
     }
-    if matches!(query.operation(), HistoryOperation::Commit) && more {
+    if matches!(query.operation(), HistoryOperation::Commit) && more && current_page < 1000 {
         value["pagination"]["nextPage"] = json!(current_page + 1);
     }
-    if more {
+    if more && current_page < 1000 {
         let mut next = serde_json::to_value(&query).unwrap_or_default();
         remove_null_fields(&mut next);
         next["page"] = json!(current_page + 1);
@@ -646,6 +677,9 @@ pub async fn execute<R: CredentialResolver>(
         next["pageSize"] = json!(per);
         value["next"]["nextPage"] =
             json!({"tool":ToolId::GhSearchHistory.as_str(),"query":next,"confidence":"exact"});
+    }
+    if more && current_page >= 1000 {
+        value["terminalLimit"] = json!(true);
     }
     remove_null_fields(&mut value);
     mark_empty(&mut value, more);
@@ -789,25 +823,53 @@ fn map_issue(v: Value, by_update: bool) -> Value {
     remove_null_fields(&mut row);
     row
 }
+/// Candidate rows a read continuation names, its target first.
+const READ_CANDIDATES: usize = 3;
+
 /// The row a default read continuation targets: the first row `prefer`
 /// picks (a merged PR, a completed issue), else the first row; plus up to
-/// three candidate numbers, the target first.
-fn read_target(items: &[Value], prefer: fn(&Value) -> bool) -> Option<(u64, Vec<u64>)> {
-    let number = |item: &Value| item.get("number").and_then(Value::as_u64);
-    let target = items
-        .iter()
-        .find(|item| prefer(item))
-        .or_else(|| items.first())
-        .and_then(number)?;
+/// [`READ_CANDIDATES`] candidate rows, the target first (indexes into
+/// `items`).
+fn read_target(items: &[Value], prefer: fn(&Value) -> bool) -> Option<(usize, Vec<usize>)> {
+    let readable = |index: &usize| item_number(&items[*index]).is_some();
+    let target = (0..items.len())
+        .filter(readable)
+        .find(|index| prefer(&items[*index]))
+        .or_else(|| (0..items.len()).find(readable))?;
     let mut candidates = vec![target];
     candidates.extend(
-        items
-            .iter()
-            .filter_map(number)
-            .filter(|n| *n != target)
-            .take(2),
+        (0..items.len())
+            .filter(readable)
+            .filter(|index| *index != target)
+            .take(READ_CANDIDATES - 1),
     );
     Some((target, candidates))
+}
+fn item_number(item: &Value) -> Option<u64> {
+    item.get("number").and_then(Value::as_u64)
+}
+/// Candidate identities as a read names them: the number, or
+/// `owner/repo#number` when the rows span repositories.
+fn candidate_ids(items: &[Value], candidates: &[usize], cross_repo: bool) -> Vec<Value> {
+    candidates
+        .iter()
+        .filter_map(|index| {
+            let item = &items[*index];
+            let number = item_number(item)?;
+            Some(match item_repo(item).filter(|_| cross_repo) {
+                Some((owner, repo)) => json!(format!("{owner}/{repo}#{number}")),
+                None => json!(number),
+            })
+        })
+        .collect()
+}
+/// `owner`/`repo` of a search item, from its `repository_url`
+/// (`…/repos/{owner}/{repo}`).
+fn item_repo(item: &Value) -> Option<(String, String)> {
+    let url = item.get("repository_url").and_then(Value::as_str)?;
+    let (owner, repo) = url.rsplit_once("/repos/")?.1.split_once('/')?;
+    (!owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
+        .then(|| (owner.to_owned(), repo.to_owned()))
 }
 fn is_merged(item: &Value) -> bool {
     item.get("merged_at")
@@ -1248,15 +1310,26 @@ mod tests {
             json!({"number":13787,"state":"open"}),
             json!({"number":13001,"state":"open"}),
         ];
-        let (number, candidates) = read_target(&rows, is_merged).expect("rows");
+        let numbers = |rows: &[Value], picked: Option<(usize, Vec<usize>)>| {
+            picked.map(|(target, candidates)| {
+                (
+                    item_number(&rows[target]).expect("number"),
+                    json!(candidate_ids(rows, &candidates, false)),
+                )
+            })
+        };
+        let (number, candidates) = numbers(&rows, read_target(&rows, is_merged)).expect("rows");
         assert_eq!(number, 13825);
-        assert_eq!(candidates, vec![13825, 13794, 13787]);
+        assert_eq!(candidates, json!([13825, 13794, 13787]));
         // No merged row: the first row, unchanged.
         let open = [
             json!({"number":5,"state":"open"}),
             json!({"number":6,"state":"closed"}),
         ];
-        assert_eq!(read_target(&open, is_merged), Some((5, vec![5, 6])));
+        assert_eq!(
+            numbers(&open, read_target(&open, is_merged)),
+            Some((5, json!([5, 6])))
+        );
         assert_eq!(read_target(&[], is_merged), None);
         let read = pr_read_query("o", "r", 13825);
         assert_eq!(read["number"], 13825);
@@ -1272,7 +1345,12 @@ mod tests {
             json!({"number":2,"state":"closed","state_reason":"not_planned"}),
             json!({"number":3,"state":"closed","state_reason":"completed"}),
         ];
-        assert_eq!(read_target(&rows, is_completed), Some((3, vec![3, 1, 2])));
+        let (target, candidates) = read_target(&rows, is_completed).expect("rows");
+        assert_eq!(item_number(&rows[target]), Some(3));
+        assert_eq!(
+            candidate_ids(&rows, &candidates, false),
+            vec![json!(3), json!(1), json!(2)]
+        );
     }
 
     /// A bare issue number in the keywords links straight to that issue's
@@ -1465,7 +1543,8 @@ mod tests {
             .and(path("/api/v3/search/issues"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "total_count": 1001, "incomplete_results": false,
-                "items": [{"number": 3, "title": "Fix", "state": "open", "user": {"login": "dev"}}]
+                "items": [{"number": 3, "title": "Fix", "state": "open", "user": {"login": "dev"},
+                    "repository_url": "https://api.github.com/repos/acme/widget"}]
             })))
             .mount(&server)
             .await;
@@ -1504,7 +1583,87 @@ mod tests {
                 "{data}"
             );
             assert_eq!(data["next"]["nextPage"].is_object(), page < 1000, "{data}");
+            // A search beyond one repository names each row's repository,
+            // and the read targets it: a bare number is unreadable.
+            assert_eq!(
+                data["pullRequests"][0]["repository"], "acme/widget",
+                "{data}"
+            );
+            let read = &data["next"]["readPr"]["query"];
+            assert_eq!(
+                (&read["owner"], &read["repo"], &read["number"]),
+                (&json!("acme"), &json!("widget"), &json!(3)),
+                "{data}"
+            );
         }
+    }
+
+    /// Commit rows are an index of headlines: the commit read takes any
+    /// row's sha, and names the rows it can read like readPr/readIssue.
+    #[tokio::test]
+    async fn commit_search_reads_name_every_candidate_sha() {
+        use crate::providers::github::{
+            CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver,
+        };
+        use std::{sync::Arc, time::Duration};
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        struct Passthrough;
+        impl ContentScan for Passthrough {
+            fn sanitize(
+                &self,
+                text: &str,
+                _: &std::path::Path,
+            ) -> Result<(String, Vec<String>), (String, String)> {
+                Ok((text.to_owned(), vec![]))
+            }
+        }
+
+        let server = MockServer::start().await;
+        let commit = |sha: &str| {
+            json!({"sha": sha, "commit": {"message": format!("Fix {sha}\n\nWhy: the body names the cache"),
+                "author": {"name": "Dev", "date": "2026-01-01T00:00:00Z"}}, "author": {"login": "dev"}})
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/v3/search/commits"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "total_count": 3, "incomplete_results": false,
+                "items": [commit("aaa"), commit("bbb"), commit("ccc")]
+            })))
+            .mount(&server)
+            .await;
+        let transport = GitHubTransport::new(
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("url"))
+                .expect("endpoint"),
+            Arc::new(StaticCredentialResolver::new(
+                "fixture",
+                CredentialSource::Override,
+            )),
+            RetryPolicy {
+                max_attempts: 1,
+                ..Default::default()
+            },
+        )
+        .expect("transport");
+        let query = serde_json::from_value(
+            json!({"operation":"commit","goal":"test","reasoning":"test",
+            "owner":"o","repo":"r","keywords":["cache"]}),
+        )
+        .expect("query");
+        let data = execute(
+            &transport,
+            &query,
+            &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+            &Passthrough,
+        )
+        .await
+        .expect("history search");
+        let read = &data["next"]["readCommit"];
+        assert_eq!(read["query"]["ref"], "aaa", "{data}");
+        assert_eq!(read["candidates"], json!(["aaa", "bbb", "ccc"]), "{data}");
     }
 
     /// D4: a plain issue listing pages `is:issue` search results, so every

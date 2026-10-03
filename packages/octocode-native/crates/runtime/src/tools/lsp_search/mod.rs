@@ -140,8 +140,8 @@ impl LspSearchQuery {
     }
     pub fn include_declaration(&self) -> Option<bool> {
         match self {
-            Self::Anchored(query) => Some(query.include_declaration),
-            Self::Position(query) => Some(query.include_declaration),
+            Self::Anchored(query) => query.include_declaration,
+            Self::Position(query) => query.include_declaration,
             _ => None,
         }
     }

@@ -572,6 +572,9 @@ fn execute(
         transaction,
     );
     if coverage.has_gaps() {
+        value["complete"] = json!(false);
+        value["isPartial"] = json!(true);
+        value["terminalLimit"] = json!(true);
         value["coverage"] = coverage.to_json();
         if let Some(warnings) = value.get_mut("warnings").and_then(Value::as_array_mut) {
             warnings.push(json!(coverage.warning()));
@@ -2000,6 +2003,73 @@ mod tests {
             replay["errorCode"], "ast.rewrite.snapshot_changed",
             "{replay}"
         );
+    }
+
+    #[test]
+    fn capped_scan_pages_remain_partial_and_apply_only_the_guarded_subset() {
+        let (root, policy, security) = fixture();
+        let untouched = "const third = oldCall(3);\n";
+        fs::write(root.join("b.ts"), untouched).expect("second source");
+        fs::write(root.join("c.ts"), untouched).expect("third source");
+        let mut capped = query(&root);
+        capped["maxFiles"] = json!(1);
+        let first = rewrite_row(capped, &policy, &security, &Active, &Default::default());
+        assert_eq!(first["coverage"]["scanTruncated"], true, "{first}");
+        assert_eq!(first["complete"], false, "{first}");
+        assert_eq!(first["isPartial"], true, "{first}");
+        assert_eq!(first["terminalLimit"], true, "{first}");
+        assert!(first["next"].get("apply").is_none(), "{first}");
+
+        let last = rewrite_row(
+            first["next"]["nextPage"]["query"].clone(),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        assert_eq!(last["pagination"]["hasMore"], false, "{last}");
+        assert_eq!(last["complete"], false, "{last}");
+        assert_eq!(last["isPartial"], true, "{last}");
+        assert_eq!(last["terminalLimit"], true, "{last}");
+        let apply = last["next"]["apply"]["query"].clone();
+        assert_eq!(
+            apply["expectedHashes"]
+                .as_object()
+                .map(|hashes| hashes.len()),
+            Some(1)
+        );
+        let options = AstRewriteRuntimeOptions {
+            allow_apply: true,
+            ..Default::default()
+        };
+        let before = fs::read(root.join("a.ts")).expect("selected source");
+        fs::write(root.join("a.ts"), "const changed = oldCall(9);\n").expect("change source");
+        let rejected = rewrite_row(apply.clone(), &policy, &security, &Active, &options);
+        assert_eq!(
+            rejected["errorCode"], "ast.rewrite.snapshot_changed",
+            "{rejected}"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("a.ts")).expect("unchanged rejected source"),
+            "const changed = oldCall(9);\n"
+        );
+        fs::write(root.join("a.ts"), before).expect("restore selected source");
+        let applied = rewrite_row(apply, &policy, &security, &Active, &options);
+        assert_eq!(applied["transaction"]["committed"], true, "{applied}");
+        assert_eq!(applied["complete"], false, "{applied}");
+        assert_eq!(applied["isPartial"], true, "{applied}");
+        assert_eq!(applied["terminalLimit"], true, "{applied}");
+        assert_eq!(
+            fs::read_to_string(root.join("a.ts")).expect("rewritten selected source"),
+            "const first = newCall(1);\nconst second = newCall(2);\n"
+        );
+        for name in ["b.ts", "c.ts"] {
+            assert_eq!(
+                fs::read_to_string(root.join(name)).expect("unselected source"),
+                untouched
+            );
+        }
+        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]

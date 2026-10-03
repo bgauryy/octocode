@@ -60,6 +60,9 @@ struct Pending<'tree> {
     included_parent: Option<u32>,
 }
 
+/// Recovery for a walk stopped by its deadline or node budget.
+const BUDGET_RECOVERY: &str = "Follow nextOffset through the numbered nodes. Nodes past this stop are not listed; query them with a match pattern or read their lines with localFetch.";
+
 fn diagnostic(
     code: &str,
     severity: &str,
@@ -88,6 +91,23 @@ pub fn inspect_with_extension(
     file_path: &str,
     extension: Option<&str>,
     options: Option<SyntaxTreeInspectOptions>,
+) -> SyntaxTreeInspectResult {
+    inspect_bounded(
+        content,
+        file_path,
+        extension,
+        options,
+        MAX_SYNTAX_TREE_NODES,
+    )
+}
+
+/// [`inspect_with_extension`] with the walk's node budget as a parameter.
+fn inspect_bounded(
+    content: &str,
+    file_path: &str,
+    extension: Option<&str>,
+    options: Option<SyntaxTreeInspectOptions>,
+    max_nodes: usize,
 ) -> SyntaxTreeInspectResult {
     let options = options.unwrap_or_default();
     let named_only = options.named_only.unwrap_or(false);
@@ -179,7 +199,6 @@ pub fn inspect_with_extension(
     let window_end = offset.saturating_add(limit);
     let mut page_nodes = Vec::with_capacity(limit.min(1_000));
     let mut next_id: usize = 0;
-    let mut budget_truncated = false;
     let mut cursor = tree.walk();
     let mut children = Vec::new();
     let mut status = if tree.root_node().has_error() {
@@ -206,31 +225,32 @@ pub fn inspect_with_extension(
     {
         if Instant::now() >= deadline {
             status = "partial".to_owned();
-            budget_truncated = true;
-            diagnostics.push(diagnostic(
-                "syntaxTree.budget.deadline",
-                "warning",
-                "walk",
-                "Syntax-tree traversal exceeded its execution deadline",
-                file_path,
-            ));
+            diagnostics.push(
+                diagnostic(
+                    "syntaxTree.budget.deadline",
+                    "warning",
+                    "walk",
+                    "Syntax-tree traversal exceeded its execution deadline",
+                    file_path,
+                )
+                .with_recovery(BUDGET_RECOVERY),
+            );
             break;
         }
         let included = !named_only || node.is_named();
         let next_parent = if included {
-            if next_id >= MAX_SYNTAX_TREE_NODES {
+            if next_id >= max_nodes {
                 status = "partial".to_owned();
-                budget_truncated = true;
-                diagnostics.push(diagnostic(
-                    "syntaxTree.budget.nodeLimit",
-                    "warning",
-                    "walk",
-                    format!(
-                        "Syntax-tree traversal reached the {} node limit",
-                        MAX_SYNTAX_TREE_NODES
-                    ),
-                    file_path,
-                ));
+                diagnostics.push(
+                    diagnostic(
+                        "syntaxTree.budget.nodeLimit",
+                        "warning",
+                        "walk",
+                        format!("Syntax-tree traversal reached the {max_nodes} node limit"),
+                        file_path,
+                    )
+                    .with_recovery(BUDGET_RECOVERY),
+                );
                 break;
             }
             let id = next_id as u32;
@@ -268,13 +288,10 @@ pub fn inspect_with_extension(
 
     let total_nodes = next_id.min(u32::MAX as usize) as u32;
     let end = window_end.min(next_id);
-    // A recovered parse (`partial` from syntax errors) still pages; only a
-    // deadline or node-budget stop leaves the tail unknown.
-    let next_offset = if !budget_truncated && end < next_id {
-        Some(end as u32)
-    } else {
-        None
-    };
+    // Every numbered node pages, whether the walk finished, recovered from
+    // syntax errors, or stopped at its deadline or node budget; only nodes
+    // past a budget stop are unknown.
+    let next_offset = (end < next_id).then_some(end as u32);
     SyntaxTreeInspectResult {
         nodes: page_nodes,
         total_nodes,
@@ -363,6 +380,48 @@ mod tests {
         }
         assert_eq!(ids.len(), all.total_nodes as usize);
         assert_eq!(ids, (0..all.total_nodes).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_node_budget_stop_still_pages_every_walked_node() {
+        // Nodes the walk numbered before the budget stop stay reachable page
+        // by page; only nodes past the budget are a terminal limit.
+        let source = "const a = 1; const b = 2; const c = 3; const d = 4;";
+        let budget = 10;
+        let page = |offset| {
+            inspect_bounded(
+                source,
+                "x.ts",
+                None,
+                Some(SyntaxTreeInspectOptions {
+                    named_only: Some(false),
+                    node_offset: Some(offset),
+                    node_limit: Some(3),
+                }),
+                budget,
+            )
+        };
+        let mut ids = Vec::new();
+        let mut offset = 0;
+        let last = loop {
+            let result = page(offset);
+            assert_eq!(result.status, "partial");
+            assert_eq!(result.total_nodes as usize, budget);
+            ids.extend(result.nodes.iter().map(|node| node.id));
+            match result.next_offset {
+                Some(next) => offset = next,
+                None => break result,
+            }
+        };
+        assert_eq!(ids, (0..budget as u32).collect::<Vec<_>>());
+        let stop = last
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "syntaxTree.budget.nodeLimit")
+            .expect("budget diagnostic");
+        let recovery = stop.recovery.as_deref().unwrap_or_default();
+        assert!(!recovery.contains("extension"), "{recovery}");
+        assert!(recovery.contains("nextOffset"), "{recovery}");
     }
 
     #[test]

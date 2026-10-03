@@ -299,11 +299,20 @@ pub(super) fn resolve(
                 "classificationContextEmpty",
                 format!("Context tool {tool} returned no evidence; classification was not called."),
             ),
-            receipt: Some(receipt(tool, &state)),
+            receipt: Some(receipt_with_evaluation(
+                tool,
+                &state,
+                true,
+                prepared.get("operation").and_then(Value::as_str),
+            )),
         });
     }
     if failed {
-        let receipt = failed_receipt(tool, &state);
+        let receipt = failed_receipt(
+            tool,
+            &state,
+            prepared.get("operation").and_then(Value::as_str),
+        );
         let code = state
             .pointer("/results/0/data/errorCode")
             .and_then(Value::as_str)
@@ -338,8 +347,18 @@ pub(super) fn resolve(
         });
     }
     checked(context).map_err(ContextFailure::from)?;
-    let mut receipt = receipt(tool, &state);
+    let mut receipt = receipt_with_evaluation(
+        tool,
+        &state,
+        true,
+        prepared.get("operation").and_then(Value::as_str),
+    );
     attach_requested_reference(tool, source, &mut receipt);
+    if id == ToolId::GhGetHistoryItem {
+        // Replays the selected page, including its independent content axes.
+        // History can change between reads, so this is a verification lead.
+        receipt["pageRead"] = json!({"tool":tool,"confidence":"high","query":prepared});
+    }
     Ok((state, Some(receipt)))
 }
 
@@ -590,8 +609,9 @@ pub(super) fn attach_read(receipt: &mut Value, read: Value) {
     receipt["read"] = read;
 }
 
+#[cfg(test)]
 fn receipt(tool: &str, state: &Value) -> Value {
-    receipt_with_evaluation(tool, state, true)
+    receipt_with_evaluation(tool, state, true, None)
 }
 
 /// Rebuild a receipt after one search response has been narrowed to a single
@@ -601,22 +621,34 @@ pub(super) fn candidate_receipt(source: &Value, state: &Value) -> Value {
     let Some(tool) = source.get("tool").and_then(Value::as_str) else {
         return value_receipt(state);
     };
-    let mut receipt = receipt(tool, state);
+    let mut receipt = receipt_with_evaluation(
+        tool,
+        state,
+        true,
+        source.pointer("/query/operation").and_then(Value::as_str),
+    );
     attach_requested_reference(tool, source, &mut receipt);
     receipt
 }
 
-fn failed_receipt(tool: &str, state: &Value) -> Value {
-    receipt_with_evaluation(tool, state, false)
+fn failed_receipt(tool: &str, state: &Value, operation: Option<&str>) -> Value {
+    receipt_with_evaluation(tool, state, false, operation)
 }
 
-fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool) -> Value {
+fn receipt_with_evaluation(
+    tool: &str,
+    state: &Value,
+    evaluation_completed: bool,
+    operation: Option<&str>,
+) -> Value {
     let mut next = Map::new();
     let mut terminal = false;
     let mut partial = response::is_partial(state);
-    let operation = state
-        .pointer("/results/0/data/operation")
-        .and_then(Value::as_str);
+    let operation = operation.or_else(|| {
+        state
+            .pointer("/results/0/data/operation")
+            .and_then(Value::as_str)
+    });
     inspect(
         state,
         tool,
@@ -657,6 +689,26 @@ fn receipt_with_evaluation(tool: &str, state: &Value, evaluation_completed: bool
         );
     }
     if receipt.to_string().len() > MAX_RECEIPT_BYTES {
+        // Keep the walk's own continuation (the axis `continuation` follows);
+        // only the other menu entries leave the receipt.
+        let main = receipt
+            .get("next")
+            .and_then(Value::as_object)
+            .and_then(main_axis)
+            .map(|(key, value)| (key.clone(), value.clone()));
+        if let Some((key, value)) = main {
+            let mut kept = receipt.clone();
+            kept["next"] = json!({ key.as_str(): value });
+            append_limitation(
+                &mut kept,
+                &format!(
+                    "Continuation metadata exceeded the receipt limit; only next.{key} was kept. Inspect the ordinary tool result for the other continuations."
+                ),
+            );
+            if kept.to_string().len() <= MAX_RECEIPT_BYTES {
+                return kept;
+            }
+        }
         if let Some(object) = receipt.as_object_mut() {
             object.remove("next");
         }
@@ -692,16 +744,21 @@ const INNER_PAGE_AXES: &[&str] = &["nextMatchPage"];
 /// an inner page axis first, else the first entry. Map iteration is stable,
 /// so repeated runs choose the same axis.
 pub(super) fn continuation(receipt: &Value) -> Option<Value> {
-    let next = receipt.get("next").and_then(Value::as_object)?;
-    let continuation = INNER_PAGE_AXES
-        .iter()
-        .find_map(|axis| next.get(*axis))
-        .or_else(|| next.values().next())
-        .and_then(Value::as_object)?;
+    let (_, continuation) = main_axis(receipt.get("next")?.as_object()?)?;
+    let continuation = continuation.as_object()?;
     Some(json!({
         "tool": continuation.get("tool")?,
         "query": continuation.get("query")?
     }))
+}
+
+/// The canonical continuation entry of a `next` map: an inner page axis
+/// first, else the first entry.
+fn main_axis(next: &Map<String, Value>) -> Option<(&String, &Value)> {
+    INNER_PAGE_AXES
+        .iter()
+        .find_map(|axis| next.get_key_value(*axis))
+        .or_else(|| next.iter().next())
 }
 
 /// Whether the receipt still has an inner page (e.g. more matches of the
@@ -858,19 +915,19 @@ fn is_history_expansion(name: &str, tool: &str, query: &Value) -> bool {
                 | "getCommits"
         )
         && query.as_object().is_some_and(|query| {
-            query.keys().all(|key| {
-                matches!(
-                    key.as_str(),
-                    "operation"
-                        | "owner"
-                        | "repo"
-                        | "number"
-                        | "content"
-                        | "goal"
-                        | "reasoning"
-                        | "debug"
-                )
-            })
+            // Menus are fresh first-page reads, even with formatting, sizing,
+            // or file selectors. Explicit cursors can continue the same view.
+            ![
+                "charOffset",
+                "commentBodyOffset",
+                "filePage",
+                "commentPage",
+                "reviewPage",
+                "commitPage",
+                "page",
+            ]
+            .iter()
+            .any(|key| query.contains_key(*key))
         })
 }
 
@@ -1136,6 +1193,25 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("terminal")
+        );
+    }
+
+    /// An oversized continuation menu keeps the walk's own continuation, so
+    /// the receipt stays executable; only the extra menu entries go.
+    #[test]
+    fn an_oversized_receipt_keeps_its_main_continuation() {
+        let state = json!({"results":[{"index":0,"data":{"isPartial":true,"next":{
+            "continue":{"tool":"localFetch","query":{"path":"/tmp/f","goal":"test","reasoning":"Read","offset":2},"confidence":"exact"},
+            "readOther":{"tool":"localFetch","query":{"path":format!("/tmp/{}", "a".repeat(MAX_RECEIPT_BYTES)),"goal":"test","reasoning":"Read"}}
+        }}}]});
+        let receipt = receipt("localFetch", &state);
+        assert!(receipt.to_string().len() <= MAX_RECEIPT_BYTES);
+        let next = receipt["next"].as_object().expect("main continuation kept");
+        assert_eq!(next.len(), 1, "{receipt}");
+        assert_eq!(next["continue"]["query"]["offset"], 2);
+        assert!(
+            receipt["limitations"].to_string().contains("next.continue"),
+            "{receipt}"
         );
     }
 
@@ -1523,5 +1599,33 @@ mod tests {
             json!({"startLine": 25, "endLine": 31, "totalLines": 132})
         );
         assert!(value_receipt(&json!({"key": "val"})).get("scope").is_none());
+    }
+    #[test]
+    fn include_history_expansions_do_not_expand_the_requested_evidence_scope() {
+        let state = json!({"results":[{"data":{"pullRequests":[{"number":1,"next":{
+            "getChangedFiles":{"tool":"ghGetHistoryItem","query":{
+                "operation":"pullRequest","owner":"o","repo":"r","number":1,
+                "include":["files","body"],"minify":"standard","pageSize":20,"goal":"g","reasoning":"r"}},
+            "getDiscussion":{"tool":"ghGetHistoryItem","query":{
+                "operation":"pullRequest","owner":"o","repo":"r","number":1,
+                "include":["comments","reviews"],"minify":"standard","goal":"g","reasoning":"r"}},
+            "reviewPatches":{"tool":"ghGetHistoryItem","query":{
+                "operation":"pullRequest","owner":"o","repo":"r","number":1,
+                "include":["patches"],"files":["a.rs"],"minify":"standard","goal":"g","reasoning":"r"}}
+        }}]}}]});
+        let compact = receipt("ghGetHistoryItem", &state);
+        assert!(compact.get("next").is_none(), "{compact}");
+        assert_eq!(compact["coverage"], "bounded");
+    }
+    #[test]
+    fn history_receipts_keep_the_requested_operation_without_an_output_echo() {
+        let state = json!({"results":[{"data":{"type":"issues","issues":[{"number":1,"next":{
+            "readMergedFix":{"tool":"ghGetHistoryItem","query":{
+                "operation":"pullRequest","owner":"o","repo":"r","number":2,
+                "goal":"g","reasoning":"r"}}
+        }}]}}]});
+        let compact = receipt_with_evaluation("ghGetHistoryItem", &state, true, Some("issue"));
+        assert!(compact.get("next").is_none(), "{compact}");
+        assert_eq!(compact["coverage"], "bounded");
     }
 }

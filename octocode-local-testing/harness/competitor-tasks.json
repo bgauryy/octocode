@@ -3,11 +3,13 @@
   "frozen": "2026-10-02",
   "notes": [
     "Frozen competitor tasks for harness/competitors.mjs (beat-rg-gh PLAN S5).",
-    "{{T}} = octocode-local-testing/repos, {{ROOT}} = repo root; shell commands get $T, $ROOT and $CT (scratch dir) and run from the repo root.",
+    "{{T}} = octocode-local-testing/repos, {{ROOT}} = repo root; shell commands get $T, $ROOT and $CT (scratch dir). Normalized runs (default) root a local task at its corpus repo (`workspace`, else the one {{T}}/<corpus> its recipe names): the MCP server gets WORKSPACE_ROOT there, the shell runs there, and both sides' corpus-prefixed paths become repo-relative. OCTOCODE_COMPETITOR_NORMALIZE=0 keeps the octocode root for both.",
     "Local truth was read from the pinned corpora (see repos/README.md); GitHub truth from gh api / npm / registry JSON at pinned SHAs, numbers and versions on 2026-10-02.",
-    "Truth checks (same for both sides): hits = (file suffix, line) pairs that must appear; range = every line start..end present; ranges = list of range; exactHits / exactFiles = set equality; count = distinct (file, line) pairs; files = file suffixes that must appear; text = regexes over model-visible text.",
+    "Truth checks (same for both sides): hits = (file suffix, line) pairs that must appear; range = every line start..end present; ranges = list of range; exactHits / exactFiles = set equality; count = distinct (file, line) pairs; files = file suffixes that must appear; fileCount = distinct files; exactOnce (pairs|files) = no (file, line) pair or file row arrives twice across pages; text = regexes over model-visible text.",
     "Octocode steps: tool+args (one MCP query), tool+queries (batched rows in one call), raw (root-level args, clasify), cli (CLI-only tools), follow (copy next.<name> verbatim), walk (follow every listed next.* verbatim until exhausted); a step's envelope adds call-level options (e.g. responseCharLength) to its calls. {{prev:a.b}} reads the previous response; {{hint:name.query.x}} reads a continuation field.",
-    "Shell parse modes: rg (path:line:text or bare paths), numbered (line[:\\t- ]text, with file), sed (unnumbered from start, with file), files (one path per line), filecolon (path: text), diff (diff --git headers), ghsearch (owner/repo:path: text), text (no line evidence)."
+    "Shell parse modes: rg (path:line:text or bare paths), numbered (line[:\\t- ]text, with file), sed (unnumbered from start, with file), files (one path per line), filecolon (path: text), diff (diff --git headers), ghsearch (owner/repo:path: text), text (no line evidence).",
+    "Briefs: a task's `goal` (about 25 chars, like real agent briefs) and a short shared reasoning; legacy runs use the question.",
+    "Shell arms: `competitor` is the expert recipe (may use field picks and known ranges); `unfiltered` is the first try without answer knowledge (no jq/--json field picks, no pre-known line ranges; whole-file reads for described targets). Tasks without `unfiltered` report the expert recipe in both columns."
   ],
   "tasks": [
     {
@@ -915,6 +917,84 @@
         {
           "sh": "rg -n 'function createApplication' $CT/express/lib",
           "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L21",
+      "tool": "localSearch",
+      "kind": "local",
+      "source": "fix-wave lane A (multi-page row walk; page-split defect)",
+      "question": "Every line containing .unwrap() in tokio/src, walking only the row continuations (several response pages).",
+      "goal": "All unwrap() in tokio/src",
+      "truth": {
+        "count": 813,
+        "exactOnce": "pairs"
+      },
+      "truthSource": "rg -n -F '.unwrap()' tokio/src on rust@facc6fc = 813 lines in 112 files; each (file, line) must arrive exactly once across pages",
+      "octocode": [
+        {
+          "tool": "localSearch",
+          "args": {
+            "searchText": ".unwrap()",
+            "path": "{{T}}/rust/tokio/src",
+            "regex": "literal"
+          }
+        },
+        {
+          "walk": [
+            "nextPage",
+            "nextMatchPage"
+          ],
+          "max": 30
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -F '.unwrap()' $T/rust/tokio/src",
+          "parse": "rg"
+        }
+      ]
+    },
+    {
+      "id": "L22",
+      "tool": "structureSearch",
+      "kind": "local",
+      "source": "fix-wave lane A (multi-page row walk; page-split defect)",
+      "question": "Every .rs file under tokio/, walking only the row continuations (several response pages).",
+      "goal": "All .rs files in tokio",
+      "truth": {
+        "fileCount": 570,
+        "exactOnce": "files",
+        "files": [
+          "tokio/fuzz/fuzz_targets/fuzz_linked_list.rs",
+          "tokio/src/blocking.rs",
+          "tokio/tests/uds_stream.rs"
+        ]
+      },
+      "truthSource": "git ls-files 'tokio/*.rs' in rust@facc6fc = 570 files; each must arrive exactly once across pages",
+      "octocode": [
+        {
+          "tool": "structureSearch",
+          "args": {
+            "operation": "files",
+            "path": "{{T}}/rust/tokio",
+            "names": [
+              "*.rs"
+            ]
+          }
+        },
+        {
+          "walk": [
+            "nextPage"
+          ],
+          "max": 10
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "git -C $T/rust ls-files 'tokio/*.rs'",
+          "parse": "files"
         }
       ]
     },
@@ -1859,6 +1939,142 @@
           "parse": "sed",
           "file": "tokio/src/task/coop/mod.rs",
           "start": 340
+        }
+      ]
+    },
+    {
+      "id": "C03",
+      "tool": "clasify",
+      "kind": "clasify",
+      "source": "DECISION F5 (described target, no literal; S9 A/B)",
+      "question": "In tokio's current-thread scheduler (current_thread/mod.rs, 925 lines), where does it periodically take tasks woken from other threads ahead of its own local queue so they are not starved?",
+      "goal": "Cross-thread task fairness",
+      "truth": {
+        "range": {
+          "file": "tokio/src/runtime/scheduler/current_thread/mod.rs",
+          "start": 335,
+          "end": 337
+        }
+      },
+      "truthSource": "current_thread/mod.rs:335-337 `if self.tick % self.global_queue_interval == 0 { handle.next_remote_task()`",
+      "octocode": [
+        {
+          "raw": "clasify",
+          "args": {
+            "resources": [
+              {
+                "id": "f",
+                "tool": "localFetch",
+                "query": {
+                  "path": "{{T}}/rust/tokio/src/runtime/scheduler/current_thread/mod.rs"
+                }
+              }
+            ],
+            "questions": [
+              {
+                "id": "t",
+                "type": "locate",
+                "ask": "Where the scheduler periodically takes tasks woken from other threads ahead of its local queue so they are not starved"
+              }
+            ]
+          }
+        },
+        {
+          "walk": [
+            "clasify"
+          ],
+          "max": 2
+        },
+        {
+          "follow": "read"
+        }
+      ],
+      "unfiltered": [
+        {
+          "sh": "cat -n $T/rust/tokio/src/runtime/scheduler/current_thread/mod.rs",
+          "parse": "numbered",
+          "file": "tokio/src/runtime/scheduler/current_thread/mod.rs"
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -i remote $T/rust/tokio/src/runtime/scheduler/current_thread/mod.rs",
+          "parse": "numbered",
+          "file": "tokio/src/runtime/scheduler/current_thread/mod.rs"
+        },
+        {
+          "sh": "sed -n 330,345p $T/rust/tokio/src/runtime/scheduler/current_thread/mod.rs",
+          "parse": "sed",
+          "file": "tokio/src/runtime/scheduler/current_thread/mod.rs",
+          "start": 330
+        }
+      ]
+    },
+    {
+      "id": "C04",
+      "tool": "clasify",
+      "kind": "clasify",
+      "source": "DECISION F5 (described target, no literal; S9 A/B)",
+      "question": "In Django's multipart parser (multipartparser.py, 759 lines), where does it reject a request carrying more ordinary (non-file) form fields than the configured maximum?",
+      "goal": "Too many form fields check",
+      "truth": {
+        "range": {
+          "file": "django/http/multipartparser.py",
+          "start": 205,
+          "end": 206
+        }
+      },
+      "truthSource": "multipartparser.py:205-206 `if settings.DATA_UPLOAD_MAX_NUMBER_FIELDS + 2 < num_post_keys: raise TooManyFieldsSent(` (the files limit at 260-263 is the distractor)",
+      "octocode": [
+        {
+          "raw": "clasify",
+          "args": {
+            "resources": [
+              {
+                "id": "f",
+                "tool": "localFetch",
+                "query": {
+                  "path": "{{T}}/python/django/http/multipartparser.py"
+                }
+              }
+            ],
+            "questions": [
+              {
+                "id": "t",
+                "type": "locate",
+                "ask": "Where a request is rejected for carrying more ordinary non-file form fields than the configured maximum"
+              }
+            ]
+          }
+        },
+        {
+          "walk": [
+            "clasify"
+          ],
+          "max": 2
+        },
+        {
+          "follow": "read"
+        }
+      ],
+      "unfiltered": [
+        {
+          "sh": "cat -n $T/python/django/http/multipartparser.py",
+          "parse": "numbered",
+          "file": "django/http/multipartparser.py"
+        }
+      ],
+      "competitor": [
+        {
+          "sh": "rg -n -i max $T/python/django/http/multipartparser.py",
+          "parse": "numbered",
+          "file": "django/http/multipartparser.py"
+        },
+        {
+          "sh": "sed -n 196,210p $T/python/django/http/multipartparser.py",
+          "parse": "sed",
+          "file": "django/http/multipartparser.py",
+          "start": 196
         }
       ]
     }

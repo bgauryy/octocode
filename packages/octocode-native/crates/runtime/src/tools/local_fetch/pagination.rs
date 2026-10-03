@@ -344,6 +344,7 @@ pub fn continuation(q: &LocalFetchQuery, p: &Pagination) -> Option<NextCalls> {
             }),
             read_bounded_lines: None,
             restart: None,
+            ..NextCalls::default()
         }
     })
 }

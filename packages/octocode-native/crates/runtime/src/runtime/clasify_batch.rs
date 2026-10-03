@@ -8,9 +8,8 @@
 use super::{
     ExecutionContext, ExecutionError,
     clasify_locate::{
-        LocateRead, LocatedPage, bare_identifier, bare_target_hint, collapse_locate_answer,
-        drop_redundant_page_reads, literal_search, literal_target_hint, locate_provider_questions,
-        located_state, rank_locate, readable_best, with_row_reads,
+        LocateRead, bare_identifier, bare_target_hint, drop_redundant_page_reads, literal_search,
+        literal_target_hint, rank_locate, readable_best, with_row_reads,
     },
     clasify_output::{self, PageOutcome},
     dispatch::{self, DomainResult},
@@ -21,7 +20,7 @@ use crate::policy::path::PathPolicy;
 use crate::providers::classification::gate::{self, GateLease};
 use crate::tools::clasify::{self, transport::ClassificationError};
 use crate::tools::id::ToolId;
-use futures_util::{StreamExt, stream, stream::FuturesUnordered};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -47,6 +46,14 @@ use crate::tools::id::clasify_policy::{
     MAX_FILE_CHUNK_CHARS as MAX_HYDRATED_CHARS, MAX_RESOURCE_CHARS, PREFILTER_WINDOWS,
 };
 const HYDRATED_LINE_RADIUS: u64 = 60;
+#[path = "clasify_provider.rs"]
+mod provider;
+#[cfg(test)]
+use super::clasify_locate::{LocatedPage, locate_provider_questions};
+use provider::assess_page;
+#[cfg(test)]
+use provider::{stamp_goal, with_briefs};
+
 #[path = "clasify_items.rs"]
 mod items;
 
@@ -1164,25 +1171,11 @@ fn candidate_jobs(
             })
             .collect();
     }
-    let windows = candidates
-        .iter()
-        .map(|candidate| {
-            let file = candidate.pointer("/results/0/data/files/0")?;
-            let path = candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)?;
-            Some((path, hit_cluster_windows(candidate_hit_lines(file))))
-        })
-        .collect::<Vec<_>>();
-    let clusters = windows
-        .iter()
-        .map(|entry| entry.as_ref().map_or(0, |(_, windows)| windows.len()))
-        .collect::<Vec<_>>();
-    let taken = allocate_windows(&clusters, page_budget);
-    windows
+    allotted_windows(candidates, page_budget)
         .into_iter()
-        .zip(taken)
-        .map(|(entry, taken)| {
-            let (path, mut windows) = entry?;
-            windows.truncate(taken.max(1));
+        .map(|entry| {
+            let (path, mut windows, taken) = entry?;
+            windows.truncate(taken);
             // Judge a file's windows in source order.
             windows.sort_unstable();
             let read = |window| {
@@ -1219,6 +1212,63 @@ fn candidate_jobs(
         .collect()
 }
 
+/// One local candidate's file, its hit-cluster windows (densest first), and
+/// how many of them the page budget judges (at least one).
+type AllottedWindows = (String, Vec<(u64, u64)>, usize);
+
+/// [`AllottedWindows`] per candidate; `None` without a usable file identity.
+fn allotted_windows(candidates: &[Value], page_budget: usize) -> Vec<Option<AllottedWindows>> {
+    let windows = candidates
+        .iter()
+        .map(|candidate| {
+            let file = candidate.pointer("/results/0/data/files/0")?;
+            let path = candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)?;
+            Some((path, hit_cluster_windows(candidate_hit_lines(file))))
+        })
+        .collect::<Vec<_>>();
+    let clusters = windows
+        .iter()
+        .map(|entry| entry.as_ref().map_or(0, |(_, windows)| windows.len()))
+        .collect::<Vec<_>>();
+    let taken = allocate_windows(&clusters, page_budget);
+    windows
+        .into_iter()
+        .zip(taken)
+        .map(|(entry, taken)| entry.map(|(path, windows)| (path, windows, taken.max(1))))
+        .collect()
+}
+
+/// Reads of the hit windows the page budget leaves unjudged, per candidate in
+/// source order: each becomes a `classificationBudgetSpent` page carrying its
+/// read, so no hit cluster drops out of the result.
+fn unjudged_window_reads(
+    source: &Value,
+    candidates: &[Value],
+    max_bytes: usize,
+    page_budget: usize,
+) -> Vec<Vec<Value>> {
+    if source.get("tool").and_then(Value::as_str) != Some(ToolId::LocalSearch.as_str()) {
+        return vec![Vec::new(); candidates.len()];
+    }
+    allotted_windows(candidates, page_budget)
+        .into_iter()
+        .map(|entry| {
+            let Some((path, windows, taken)) = entry else {
+                return Vec::new();
+            };
+            let mut rest = windows.get(taken..).unwrap_or_default().to_vec();
+            rest.sort_unstable();
+            rest.into_iter()
+                .map(|window| {
+                    let mut read = local_window_read(&path, window, max_bytes);
+                    inherit_search_goal(&mut read, source);
+                    read
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// Hydrate candidates with `budget` characters shared by every read: each of
 /// the planned reads is bounded to an equal share.
 fn hydrate_candidates(
@@ -1246,10 +1296,13 @@ fn hydrate_candidates(
         .unwrap_or(budget)
         .clamp(1, MAX_HYDRATED_CHARS);
     let jobs = candidate_jobs(source, &candidates, max_bytes, page_budget, &declarations);
+    let unjudged = unjudged_window_reads(source, &candidates, max_bytes, page_budget);
     std::thread::scope(|scope| {
         let mut completed = Vec::with_capacity(candidates.len());
         let mut tasks = Vec::with_capacity(candidates.len());
-        for (index, (candidate, job)) in candidates.into_iter().zip(jobs).enumerate() {
+        for (index, ((candidate, job), unjudged)) in
+            candidates.into_iter().zip(jobs).zip(unjudged).enumerate()
+        {
             execution.check()?;
             let Some(job) = job else {
                 completed.push((
@@ -1265,6 +1318,22 @@ fn hydrate_candidates(
                 ));
                 continue;
             };
+            let judged = job.len();
+            for (offset, read) in unjudged.into_iter().enumerate() {
+                let mut context = super::clasify_context::candidate_receipt(source, &candidate);
+                super::clasify_context::attach_read(&mut context, read);
+                completed.push((
+                    (index, judged + offset),
+                    vec![CapturedPage::Failed {
+                        error: ClassificationError::new(
+                            "classificationBudgetSpent",
+                            "This hit window was not judged: the call's page budget was spent on denser clusters.",
+                            "Run its next.read, or narrow the search to classify it.",
+                        ),
+                        context,
+                    }],
+                ));
+            }
             for (window, job) in job.into_iter().enumerate() {
                 // Acquire before spawning so at most the permitted number of
                 // blocking workers exists; later reads wait in this loop.
@@ -2048,172 +2117,6 @@ fn coalesce_pages(pages: Vec<CapturedPage>) -> Vec<CapturedPage> {
     output
 }
 
-/// Judgments already made in this process for the exact same provider input.
-static JUDGMENTS: clasify::cache::JudgmentCache = clasify::cache::JudgmentCache::new();
-
-/// One provider page, answered from [`JUDGMENTS`] when this exact state and
-/// question set was judged before (a resumed `next.clasify`, a repeated
-/// matrix, or an identical page judged concurrently in the same call). A
-/// replay reports no usage because no request was made. Only a fully
-/// successful answer set is stored. The key covers what the provider sees;
-/// correlation IDs are never sent, so they do not split it.
-async fn assess_provider_page(
-    state: &Value,
-    questions: &[Value],
-    config: &ProviderConfig<'_>,
-    budget: &crate::providers::RequestBudget,
-    gate: &GateLease,
-) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
-    let endpoint = format!("{}/{}", config.base_url, config.endpoint_path);
-    let provider_questions = questions
-        .iter()
-        .map(|question| question["question"].clone())
-        .collect::<Vec<_>>();
-    let key = clasify::cache::key(&endpoint, config.model, state, &provider_questions);
-    let flight = JUDGMENTS.flight(&key);
-    let assessed = {
-        let _turn = flight.lock().await;
-        match JUDGMENTS.get(&key) {
-            Some(answers) => (answers.into_iter().map(Ok).collect(), None),
-            None => request_and_store(state, questions, config, budget, gate, key).await,
-        }
-    };
-    drop(flight);
-    JUDGMENTS.land(&key);
-    assessed
-}
-
-async fn request_and_store(
-    state: &Value,
-    questions: &[Value],
-    config: &ProviderConfig<'_>,
-    budget: &crate::providers::RequestBudget,
-    gate: &GateLease,
-    key: [u8; 32],
-) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
-    let (answers, usage) = request_provider_page(state, questions, config, budget, gate).await;
-    if answers.iter().all(Result::is_ok) {
-        let stored = answers
-            .iter()
-            .filter_map(|answer| answer.as_ref().ok().cloned())
-            .map(|mut answer| {
-                if let Some(fields) = answer.as_object_mut() {
-                    fields.remove("usage");
-                }
-                answer
-            })
-            .collect();
-        JUDGMENTS.put(key, stored);
-    }
-    (answers, usage)
-}
-
-async fn request_provider_page(
-    state: &Value,
-    questions: &[Value],
-    config: &ProviderConfig<'_>,
-    budget: &crate::providers::RequestBudget,
-    gate: &GateLease,
-) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
-    let indexed = questions
-        .iter()
-        .enumerate()
-        .map(|(index, question)| (index, &question["question"]))
-        .collect::<Vec<_>>();
-    if indexed.len() > 1 && clasify::batch::fits(state, &indexed, config.model, config.provider) {
-        let result = clasify::batch::execute(
-            state,
-            &indexed,
-            config.key,
-            config.base_url,
-            config.endpoint_path,
-            config.model,
-            config.provider,
-            budget,
-            config.retries,
-            gate,
-        )
-        .await;
-        return match result {
-            Ok(mut response) => {
-                for answer in response.answers.iter_mut().skip(1).flatten() {
-                    if let Some(object) = answer.as_object_mut() {
-                        object.remove("usage");
-                    }
-                }
-                (response.answers, Some(response.usage))
-            }
-            Err(error) => (vec![Err(error); questions.len()], None),
-        };
-    }
-
-    let assessed = stream::iter(questions.iter())
-        .map(|question| {
-            clasify::execute(
-                state,
-                &question["question"],
-                config.key.clone(),
-                config.base_url,
-                config.endpoint_path,
-                config.model,
-                config.provider,
-                budget.clone(),
-                config.retries,
-                gate,
-            )
-        })
-        .buffered(questions.len().max(1))
-        .collect::<Vec<_>>()
-        .await;
-    let usages = assessed
-        .iter()
-        .filter_map(|result| result.as_ref().ok().map(|data| data["usage"].clone()))
-        .collect::<Vec<_>>();
-    (assessed, Some(json!({"calls":usages})))
-}
-
-enum PublicAnswerPlan {
-    Direct(usize),
-    Locate {
-        choice: usize,
-        exists: usize,
-        page: LocatedPage,
-    },
-    Failed(ClassificationError),
-}
-
-/// Put the caller's goal, next-read reason, and the read that produced the
-/// evidence on the state sent to Jev. An evidence object gains the missing
-/// sibling keys. A string, array, or object that already uses any of those
-/// names is wrapped so a judged field is kept.
-fn with_briefs(state: Value, reasoning: &str, goal: &str, read: Option<Value>) -> Value {
-    let reasoning = reasoning.trim();
-    let goal = goal.trim();
-    if reasoning.is_empty() && goal.is_empty() && read.is_none() {
-        return state;
-    }
-    let mut briefs = serde_json::Map::new();
-    if !reasoning.is_empty() {
-        briefs.insert("reasoning".into(), Value::String(reasoning.to_owned()));
-    }
-    if !goal.is_empty() {
-        briefs.insert("goal".into(), Value::String(goal.to_owned()));
-    }
-    if let Some(read) = read {
-        briefs.insert("read".into(), read);
-    }
-    match state {
-        Value::Object(mut map) if briefs.keys().all(|key| !map.contains_key(key)) => {
-            map.extend(briefs);
-            Value::Object(map)
-        }
-        other => {
-            briefs.insert("evidence".into(), other);
-            Value::Object(briefs)
-        }
-    }
-}
-
 fn secured_read(mut read: Value, security: &crate::security::ContentSecurity) -> Option<Value> {
     let checked = security.validate_input_parameters(read.get("query")?);
     if !checked.is_valid {
@@ -2242,26 +2145,6 @@ fn read_brief(resource: &Value, goal: &str, reasoning: &str) -> Option<Value> {
         _ => true,
     });
     Some(json!({"tool":tool,"query":query}))
-}
-
-/// Attach the caller's search goal to one provider question. Public questions
-/// and continuations keep the original text on the query, not inside each question.
-fn stamp_goal(mut question: Value, goal: &str) -> Value {
-    let goal = goal.trim();
-    if goal.is_empty() {
-        return question;
-    }
-    let Some(instructions) = question.get_mut("instructions") else {
-        return question;
-    };
-    if let Some(map) = instructions.as_object_mut() {
-        map.entry("goal")
-            .or_insert_with(|| Value::String(goal.to_owned()));
-    } else {
-        let prior = instructions.take();
-        *instructions = json!({"question": prior, "goal": goal});
-    }
-    question
 }
 
 fn copy_goal(next: &mut Value, query: &Value) {
@@ -2294,90 +2177,6 @@ fn inherit_call_brief(resource: &mut Value, goal: &str, reasoning: &str) {
     };
     fill(query, "goal", goal);
     fill(query, "reasoning", reasoning);
-}
-
-async fn assess_page(
-    state: &Value,
-    read: Option<Value>,
-    questions: &[Value],
-    goal: &str,
-    reasoning: &str,
-    config: &ProviderConfig<'_>,
-    budget: &crate::providers::RequestBudget,
-    gate: &GateLease,
-) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
-    let has_locate = questions
-        .iter()
-        .any(|question| clasify::questions::is_locate(&question["question"]));
-    let located = has_locate.then(|| located_state(state));
-    let (provider_state, page, locate_error) = match located {
-        Some(Ok((state, page))) => (state, page, None),
-        Some(Err(error)) => (state.clone(), LocatedPage::default(), Some(error)),
-        None => (state.clone(), LocatedPage::default(), None),
-    };
-    let provider_state = with_briefs(provider_state, reasoning, goal, read);
-    let mut provider_questions = Vec::new();
-    let mut plans = Vec::with_capacity(questions.len());
-    for question in questions {
-        if clasify::questions::is_locate(&question["question"]) {
-            if let Some(error) = &locate_error {
-                plans.push(PublicAnswerPlan::Failed(error.clone()));
-                continue;
-            }
-            let target = question["question"]["target"].as_str().unwrap_or_default();
-            let [choice, exists] = locate_provider_questions(target, &page);
-            let choice_index = provider_questions.len();
-            provider_questions
-                .push(json!({"id":question["id"],"question":stamp_goal(choice, goal)}));
-            let exists_index = provider_questions.len();
-            provider_questions
-                .push(json!({"id":question["id"],"question":stamp_goal(exists, goal)}));
-            plans.push(PublicAnswerPlan::Locate {
-                choice: choice_index,
-                exists: exists_index,
-                page: page.clone(),
-            });
-        } else {
-            let index = provider_questions.len();
-            let mut cloned = question.clone();
-            if let Some(provider_question) = cloned.get_mut("question") {
-                *provider_question = stamp_goal(provider_question.take(), goal);
-            }
-            provider_questions.push(cloned);
-            plans.push(PublicAnswerPlan::Direct(index));
-        }
-    }
-    let (answers, usage) = if provider_questions.is_empty() {
-        (Vec::new(), None)
-    } else {
-        assess_provider_page(&provider_state, &provider_questions, config, budget, gate).await
-    };
-    let projected = plans
-        .into_iter()
-        .map(|plan| match plan {
-            PublicAnswerPlan::Direct(index) => answers.get(index).cloned().unwrap_or_else(|| {
-                Err(ClassificationError::new(
-                    "invalidClassificationResponse",
-                    "Provider answer count did not match the requested questions.",
-                    "Inspect provider compatibility before using the answer.",
-                ))
-            }),
-            PublicAnswerPlan::Locate {
-                choice,
-                exists,
-                page,
-            } => match (answers.get(choice), answers.get(exists)) {
-                (Some(choice), Some(exists)) => collapse_locate_answer(choice, exists, &page),
-                _ => Err(ClassificationError::new(
-                    "invalidClassificationResponse",
-                    "Provider answer count did not match the locate questions.",
-                    "Inspect provider compatibility before using the answer.",
-                )),
-            },
-            PublicAnswerPlan::Failed(error) => Err(error),
-        })
-        .collect();
-    (projected, usage)
 }
 
 type Capture = (Vec<CapturedPage>, Option<Value>);
@@ -2422,10 +2221,27 @@ fn usage_summary(records: &[Value]) -> Value {
     let total = |key: &str| {
         records
             .iter()
-            .map(|record| record.get(key).and_then(Value::as_u64))
+            .map(|record| {
+                (record
+                    .get("provider_calls")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(1)
+                    == 1)
+                    .then(|| record.get(key).and_then(Value::as_u64))
+                    .flatten()
+            })
             .sum::<Option<u64>>()
     };
-    let mut usage = json!({"calls":records.len()});
+    let calls = records
+        .iter()
+        .map(|record| {
+            record
+                .get("provider_calls")
+                .and_then(Value::as_u64)
+                .unwrap_or(1)
+        })
+        .sum::<u64>();
+    let mut usage = json!({"calls":calls});
     if let Some(tokens) = total("input_tokens") {
         usage["inputTokens"] = json!(tokens);
     }
@@ -3400,6 +3216,47 @@ mod tests {
         assert_eq!(job.read["query"]["endLine"], 350);
     }
 
+    /// Hit windows past the page budget are not judged, but each stays
+    /// reachable as its own read: judged plus unjudged windows cover every
+    /// hit of every candidate.
+    #[test]
+    fn hit_windows_past_the_page_budget_stay_reachable() {
+        let source =
+            json!({"tool":"localSearch","query":{"path":"src","searchText":"task budget"}});
+        let candidate = json!({"results":[{"data":{"files":[{
+            "path":"src/a.rs","matches":[{"line":10},{"line":1000},{"line":2000}]
+        }]}}]});
+        let candidates = std::slice::from_ref(&candidate);
+        let judged = candidate_jobs(&source, candidates, 4_000, 1, &HashMap::new());
+        let unjudged = unjudged_window_reads(&source, candidates, 4_000, 1);
+        assert_eq!(unjudged.len(), 1);
+        assert_eq!(unjudged[0].len(), 2, "{unjudged:?}");
+        let windows = judged[0]
+            .as_ref()
+            .expect("jobs")
+            .iter()
+            .map(|job| &job.read)
+            .chain(&unjudged[0])
+            .map(|read| {
+                assert_eq!(read["query"]["path"], "src/a.rs");
+                (
+                    read["query"]["startLine"].as_u64().expect("start"),
+                    read["query"]["endLine"].as_u64().expect("end"),
+                )
+            })
+            .collect::<Vec<_>>();
+        for hit in [10, 1000, 2000] {
+            assert!(
+                windows
+                    .iter()
+                    .any(|(start, end)| (*start..=*end).contains(&hit)),
+                "{hit}: {windows:?}"
+            );
+        }
+        // A budget that covers every cluster leaves nothing unjudged.
+        assert!(unjudged_window_reads(&source, candidates, 4_000, 10)[0].is_empty());
+    }
+
     #[test]
     fn cluster_windows_share_the_page_budget_round_robin() {
         assert_eq!(allocate_windows(&[3, 1, 4], 25), [3, 1, 4]);
@@ -3611,42 +3468,6 @@ mod tests {
     }
 
     #[test]
-    fn briefs_reach_the_provider_state_beside_the_evidence() {
-        let file = json!({"path":"a.rs","lines":[1,1],"content":"fn a() {}\n"});
-        let tagged = with_briefs(
-            file,
-            "  The next read is the writer.  ",
-            "  The function that writes the continuation.  ",
-            None,
-        );
-        assert_eq!(tagged["reasoning"], "The next read is the writer.");
-        assert_eq!(tagged["goal"], "The function that writes the continuation.");
-        assert_eq!(tagged["path"], "a.rs");
-        assert_eq!(tagged["content"], "fn a() {}\n");
-        assert_eq!(
-            with_briefs(json!("plain"), "why", "what", None),
-            json!({"reasoning":"why","goal":"what","evidence":"plain"})
-        );
-        assert_eq!(
-            with_briefs(json!(["a", "b"]), "why", "what", None)["evidence"],
-            json!(["a", "b"])
-        );
-        let existing = with_briefs(
-            json!({"goal": "test", "reasoning":"field","content":"x"}),
-            "why",
-            "what",
-            None,
-        );
-        assert_eq!(existing["reasoning"], "why");
-        assert_eq!(existing["goal"], "what");
-        assert_eq!(existing["evidence"]["reasoning"], "field");
-        assert_eq!(
-            with_briefs(json!({"a":1}), "   ", "   ", None),
-            json!({"a":1})
-        );
-    }
-
-    #[test]
     fn read_briefs_pass_the_input_security_policy() {
         let security = crate::security::ContentSecurity;
         let read = json!({"tool":"localSearch","query":{"path":"/repo","searchText":"retry"}});
@@ -3789,5 +3610,25 @@ mod tests {
             json!({"startLine":1,"endLine":200,"totalLines":400})
         );
         assert!(matches!(pages[1], CapturedPage::Failed { .. }));
+    }
+
+    #[test]
+    fn usage_summary_counts_transport_retries_and_omits_unknown_totals() {
+        assert_eq!(
+            usage_summary(&[json!({"provider_calls":1})]),
+            json!({"calls":1})
+        );
+        assert_eq!(
+            usage_summary(&[json!({"provider_calls":2,"input_tokens":10,"output_tokens":3})]),
+            json!({"calls":2})
+        );
+        assert_eq!(
+            usage_summary(&[json!({"provider_calls":1,"input_tokens":10,"output_tokens":3})]),
+            json!({"calls":1,"inputTokens":10,"outputTokens":3})
+        );
+        assert_eq!(
+            usage_summary(&[]),
+            json!({"calls":0,"inputTokens":0,"outputTokens":0})
+        );
     }
 }

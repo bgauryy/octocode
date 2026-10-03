@@ -60,6 +60,36 @@ mod tests {
     }
 
     #[test]
+    fn match_page_ceiling_preserves_evidence_and_discloses_terminal_suffix() {
+        let root = tempfile::tempdir().expect("fixture");
+        fs::write(root.path().join("a.txt"), "CEILING\n".repeat(1001)).expect("matches");
+        fs::write(root.path().join("b.txt"), "CEILING\n").expect("other file page");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let request = ls_query(
+            serde_json::json!({"path":root.path(),"searchText":"CEILING","regex":"literal","pageSize":1,"maxMatchesPerFile":1,"matchPage":1000}),
+            None,
+        );
+        let result = execute_local_search(
+            &request,
+            &policy,
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+            None,
+        )
+        .expect("search");
+        let body = serde_json::to_value(result).expect("output");
+        assert_eq!(body["files"][0]["matches"][0]["line"], 1000, "{body}");
+        assert!(body["next"].get("nextMatchPage").is_none(), "{body}");
+        assert!(body["next"].get("nextPage").is_some(), "{body}");
+        assert_eq!(body["terminalLimit"], true, "{body}");
+    }
+
+    #[test]
     fn context_lines_scale_the_default_match_content_length() {
         let (root, policy, security) = context_fixture();
         let base = ls_query(
@@ -67,8 +97,9 @@ mod tests {
             None,
         );
         let run = |request: &LocalSearchQuery| {
-            let result = execute_local_search(request, &policy, &security, &NeverCancel, None, None)
-                .expect("search");
+            let result =
+                execute_local_search(request, &policy, &security, &NeverCancel, None, None)
+                    .expect("search");
             serde_json::to_value(result).expect("serialize")
         };
         let scaled = run(&base);
@@ -150,17 +181,23 @@ mod tests {
         assert_eq!(matched["originalChars"], 4107);
         assert_eq!(matched["returnedChars"], 30);
         assert_eq!(matched["count"], 1);
-        // The last match page has nowhere further to route: no per-file paging.
+        // The last match page has nowhere further to route: no per-file
+        // paging; its clipped value is read whole by `expandValues` only.
         assert!(body["files"][0].get("pagination").is_none(), "{body}");
-        assert!(body.get("next").is_none());
+        let names = body["next"]
+            .as_object()
+            .map(|next| next.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert_eq!(names, ["expandValues"], "{body}");
 
         for (limit, expected_chars) in [(None, 200), (Some(1), 1), (Some(4105), 4105)] {
             let bounded = ls_query(
                 serde_json::json!({"matchPage": 1, "snapshot": null, "matchContentLength": limit}),
                 Some(&continued.clone()),
             );
-            let result = execute_local_search(&bounded, &policy, &security, &NeverCancel, None, None)
-                .expect("default, minimal and exact-boundary caps");
+            let result =
+                execute_local_search(&bounded, &policy, &security, &NeverCancel, None, None)
+                    .expect("default, minimal and exact-boundary caps");
             let body = serde_json::to_value(result).expect("serialize");
             let matched = &body["files"][0]["matches"][0];
             assert_eq!(
@@ -201,8 +238,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "MIIEpQIB".to_string(), "resultView": LocalSearchQueryResultView::Detailed, "contextLines": 0}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         let body_json = serde_json::to_value(&result).expect("serialize");
         let value = body_json["files"][0]["matches"][0]["value"]
             .as_str()
@@ -267,8 +304,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "aGVsbG8".to_string(), "resultView": LocalSearchQueryResultView::Detailed, "contextLines": 0}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         let body_json = serde_json::to_value(&result).expect("serialize");
         let value = body_json["files"][0]["matches"][0]["value"]
             .as_str()
@@ -298,8 +335,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string(), "resultView": LocalSearchQueryResultView::Detailed, "matchContentLength": 5_000_000, "contextLines": 0}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         let matches = result.files[0].matches.as_ref().expect("matches");
         assert_eq!(
             matches.len(),
@@ -342,8 +379,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle".to_string()}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         let body = serde_json::to_value(&result).expect("serialize");
         let matched = &body["files"][0]["matches"][0];
         assert_eq!(matched["truncated"], true);
@@ -389,8 +426,8 @@ mod tests {
             serde_json::json!({"path": root.to_string_lossy().into_owned(), "searchText": "needle".to_string(), "hidden": true, "noIgnore": true, "sort": LocalSearchQuerySort::Path}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         assert_eq!(
             result
                 .files
@@ -531,10 +568,11 @@ mod tests {
             if !cached {
                 super::manifest::evict(&snapshot);
             }
-            let page_two = execute_local_search(&continued, &policy, &security, &NeverCancel, None, None)
-                .unwrap_or_else(|e| {
-                    panic!("unchanged continuation (cached={cached}): {}", e.message)
-                });
+            let page_two =
+                execute_local_search(&continued, &policy, &security, &NeverCancel, None, None)
+                    .unwrap_or_else(|e| {
+                        panic!("unchanged continuation (cached={cached}): {}", e.message)
+                    });
             assert_eq!(
                 page_two
                     .files
@@ -587,8 +625,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle", "pageSize": 1, "sort": "path"}),
             None,
         );
-        let first =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("page 1");
+        let first = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("page 1");
         let snapshot = first
             .source_snapshot
             .clone()
@@ -663,8 +701,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "needle", "regex": "literal", "sort": "path", "include": ["*.ts"], "noIgnore": true, "pageSize": 1}),
             None,
         );
-        let first =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("page 1");
+        let first = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("page 1");
         let snapshot = first
             .source_snapshot
             .clone()
@@ -744,8 +782,9 @@ mod tests {
                 None,
             );
             let request = ls_query(view.clone(), Some(&request));
-            let first = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
-                .unwrap_or_else(|e| panic!("{view}: {}", e.message));
+            let first =
+                execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+                    .unwrap_or_else(|e| panic!("{view}: {}", e.message));
             let snapshot = first
                 .source_snapshot
                 .clone()
@@ -789,8 +828,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "QUJD", "regex": "literal", "sort": "path", "include": ["*.ts"], "noIgnore": true, "pageSize": 1}),
             None,
         );
-        let first =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("page 1");
+        let first = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("page 1");
         let snapshot = first
             .source_snapshot
             .clone()
@@ -917,8 +956,8 @@ mod tests {
             None,
         );
 
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         let body = serde_json::to_value(&result).expect("serialize");
 
         assert_eq!(body["stats"]["filesSearched"], 0, "{body}");
@@ -954,8 +993,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned()}),
             Some(&request),
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         serde_json::to_value(&result).expect("serialize")
     }
 
@@ -1541,8 +1580,9 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         let mut pages = 0;
         loop {
-            let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
-                .expect("page");
+            let result =
+                execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+                    .expect("page");
             let body = serde_json::to_value(&result).expect("serialize");
             pages += 1;
             let chars = crate::tools::stream_page::json_chars(&body["files"]);
@@ -1854,8 +1894,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         assert_ne!(result.status, SearchStatus::Empty);
         let body = serde_json::to_value(&result).expect("serialize");
         assert_eq!(body["files"][0]["matches"][0]["line"], 1, "{body}");
@@ -1869,6 +1909,273 @@ mod tests {
             "{:?}",
             result.warnings
         );
+    }
+
+    /// Run each `expandValues*` read of a search result and return the
+    /// concatenated content it fetched.
+    fn follow_expansions(result: &LocalSearchResult, policy: &PathPolicy) -> (usize, String) {
+        let next = result.next.clone().unwrap_or_default();
+        let mut reads = 0;
+        let mut content = String::new();
+        for (name, read) in next.as_object().into_iter().flatten() {
+            if !name.starts_with("expandValues") {
+                continue;
+            }
+            reads += 1;
+            assert_eq!(read["tool"], "localFetch", "{read}");
+            let mut query = read["query"].clone();
+            query["goal"] = serde_json::json!("test");
+            query["reasoning"] = serde_json::json!("test");
+            let query: crate::tools::local_fetch::LocalFetchQuery =
+                serde_json::from_value(query).expect("localFetch query");
+            let fetched = crate::tools::local_fetch::execute_local_fetch(
+                &query,
+                policy,
+                &ContentSecurity::new(),
+                &NeverCancel,
+            );
+            assert_eq!(fetched.error, None, "{read}");
+            content.push_str(fetched.content.as_deref().unwrap_or(""));
+        }
+        (reads, content)
+    }
+
+    /// A value clipped to matchContentLength carries `next.expandValues`:
+    /// a read of its source lines that returns it whole, one per file.
+    #[test]
+    fn clipped_values_carry_reads_that_return_them_whole() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let long = format!("{} alpha {}", "x".repeat(3000), "y".repeat(3000));
+        fs::write(
+            root.path().join("long.txt"),
+            format!("short alpha\n{long}\nalpha z\n"),
+        )
+        .expect("fixture");
+        let other = format!("alpha {}", "q".repeat(900));
+        fs::write(root.path().join("other.txt"), format!("{other}\n")).expect("fixture");
+        fs::write(root.path().join("plain.txt"), "alpha\n").expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha", "regex": LocalSearchQueryRegex::Literal}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        let body = serde_json::to_value(&result).expect("serialize");
+        assert!(body.to_string().contains("\"truncated\":true"), "{body}");
+        let (reads, content) = follow_expansions(&result, &policy);
+        assert_eq!(reads, 2, "{body}");
+        assert!(content.contains(&long), "{content:.300}");
+        assert!(content.contains(&other), "{content:.300}");
+        // An unclipped file needs no read.
+        assert!(!content.contains("plain"), "{content:.300}");
+        let next = result.next.clone().unwrap_or_default();
+        let ranges = next
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(name, _)| name.starts_with("expandValues"))
+            .map(|(_, read)| read["query"]["ranges"].clone())
+            .collect::<Vec<_>>();
+        assert!(ranges.contains(&serde_json::json!(["2-2"])), "{ranges:?}");
+        assert!(ranges.contains(&serde_json::json!(["1-1"])), "{ranges:?}");
+    }
+
+    /// Clipped rows with context read their whole windows; overlapping
+    /// windows merge, and more than ten ranges continue in a second read.
+    #[test]
+    fn clipped_context_windows_merge_and_split_across_reads() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let mut text = String::new();
+        for line in 1..=200 {
+            if line % 10 == 0 {
+                text.push_str(&format!("alpha {}\n", "w".repeat(400)));
+            } else {
+                text.push_str(&format!("line {line}\n"));
+            }
+        }
+        fs::write(root.path().join("many.txt"), &text).expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha",
+                "regex": LocalSearchQueryRegex::Literal, "contextLines": 1, "matchContentLength": 100}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        let next = result.next.clone().unwrap_or_default();
+        assert_eq!(next["expandValues"]["query"]["ranges"][0], "9-11", "{next}");
+        assert_eq!(
+            next["expandValues"]["query"]["ranges"]
+                .as_array()
+                .map(Vec::len),
+            Some(10),
+            "{next}"
+        );
+        assert_eq!(
+            next["expandValues2"]["query"]["ranges"],
+            serde_json::json!([
+                "109-111", "119-121", "129-131", "139-141", "149-151", "159-161", "169-171",
+                "179-181", "189-191", "199-201"
+            ]),
+            "{next}"
+        );
+        let (_, content) = follow_expansions(&result, &policy);
+        let hit = format!("alpha {}", "w".repeat(400));
+        assert_eq!(content.matches(hit.as_str()).count(), 20, "{content:.300}");
+        for line in (10..=190).step_by(10) {
+            assert!(content.contains(&format!("line {}\n", line + 1)), "{line}");
+        }
+    }
+
+    /// A caller-sized page keeps its rows at any value width: one widened
+    /// copy of the query returns every clipped value of the page whole.
+    #[test]
+    fn clipped_values_on_a_grid_page_widen_the_same_page() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        for index in 0..4 {
+            fs::write(
+                root.path().join(format!("f{index}.txt")),
+                format!("alpha {}\n", "v".repeat(300 + index)),
+            )
+            .expect("fixture");
+        }
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha",
+                "regex": LocalSearchQueryRegex::Literal, "pageSize": 2, "matchContentLength": 50}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        let body = serde_json::to_value(&result).expect("serialize");
+        let next = result.next.clone().unwrap_or_default();
+        let mut names = next
+            .as_object()
+            .map(|next| next.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        names.sort();
+        assert_eq!(names, ["expandValues", "nextPage"], "{next}");
+        // The snapshot names the value width: the widened page runs fresh.
+        assert!(
+            next["expandValues"]["query"].get("snapshot").is_none(),
+            "{next}"
+        );
+        let widened = &next["expandValues"]["query"];
+        assert_eq!(next["expandValues"]["tool"], "localSearch", "{next}");
+        assert_eq!(widened["page"], 1, "{widened}");
+        let longest = body["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|file| file["matches"][0]["originalChars"].as_u64())
+            .max()
+            .expect("clipped");
+        assert_eq!(widened["matchContentLength"], longest, "{widened}");
+        let mut widened = widened.clone();
+        widened["goal"] = serde_json::json!("test");
+        widened["reasoning"] = serde_json::json!("test");
+        let again = execute_local_search(
+            &serde_json::from_value(widened).expect("widened query"),
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+            None,
+        )
+        .expect("widened search");
+        let again = serde_json::to_value(&again).expect("serialize");
+        assert!(!again.to_string().contains("\"truncated\":true"), "{again}");
+        let paths = |value: &serde_json::Value| {
+            value["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|file| file["path"].clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths(&again), paths(&body), "the same rows, whole");
+    }
+
+    /// A clipped multiline value hides its line span: its file is searched
+    /// again alone with room for the longest clipped value.
+    #[test]
+    fn clipped_multiline_values_widen_a_file_scoped_search() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let body = (0..60).map(|n| format!("  item{n},\n")).collect::<String>();
+        fs::write(
+            root.path().join("list.js"),
+            format!("const list = [\n{body}];\n"),
+        )
+        .expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(),
+                "searchText": "const list = \\[[^\\]]*\\]", "multiline": "on"}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        let body_json = serde_json::to_value(&result).expect("serialize");
+        assert!(
+            body_json.to_string().contains("\"truncated\":true"),
+            "{body_json}"
+        );
+        let next = result.next.clone().unwrap_or_default();
+        let widened = &next["expandValues"]["query"];
+        assert_eq!(next["expandValues"]["tool"], "localSearch", "{next}");
+        assert_eq!(widened["path"], "list.js", "{next}");
+        let original = body_json["files"][0]["matches"][0]["originalChars"]
+            .as_u64()
+            .expect("originalChars");
+        assert_eq!(widened["matchContentLength"], original, "{next}");
+        for key in ["page", "matchPage", "snapshot", "pageSize"] {
+            assert!(widened.get(key).is_none(), "{key}: {widened}");
+        }
+        let mut widened = widened.clone();
+        widened["path"] = serde_json::json!(root.path().join("list.js").to_string_lossy());
+        let again = execute_local_search(
+            &ls_query(widened, None),
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+            None,
+        )
+        .expect("widened search");
+        let again = serde_json::to_value(&again).expect("serialize");
+        assert!(!again.to_string().contains("\"truncated\":true"), "{again}");
+        assert!(again.to_string().contains("item59"), "{again}");
+    }
+
+    /// Every file searched only up to a NUL is a coverage gap: the warning
+    /// names each one, not the first few and a count.
+    #[test]
+    fn every_binary_cut_file_is_named() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        for index in 0..8 {
+            fs::write(
+                root.path().join(format!("mixed{index}.txt")),
+                b"alpha before\0alpha after\n",
+            )
+            .expect("fixture");
+        }
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        let warning = result
+            .warnings
+            .iter()
+            .find(|w| w.starts_with("binaryFileSkipped:"))
+            .expect("binary warning");
+        for index in 0..8 {
+            assert!(warning.contains(&format!("mixed{index}.txt")), "{warning}");
+        }
+        assert!(!warning.contains("more"), "{warning}");
     }
 
     #[test]
@@ -1909,8 +2216,8 @@ mod tests {
             serde_json::json!({"path": target.to_string_lossy().into_owned(), "searchText": "needle".to_string()}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         assert!(
             result.hints.iter().any(|h| h.contains("binary")),
             "{:?}",
@@ -1948,8 +2255,8 @@ mod tests {
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "hit".to_string(), "regex": LocalSearchQueryRegex::Literal}),
             None,
         );
-        let result =
-            execute_local_search(&request, &policy, &security, &NeverCancel, None, None).expect("search");
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
         assert_eq!(result.files[0].path, "zzz-hot.txt");
         let stats = &result.stats;
         assert_eq!(stats.files_searched, 10_002);
@@ -1969,8 +2276,9 @@ mod tests {
             serde_json::json!({"page": last_page, "snapshot": result.source_snapshot.as_ref().expect("snapshot")}),
             Some(&request),
         );
-        let last = execute_local_search(&last_request, &policy, &security, &NeverCancel, None, None)
-            .expect("last collected page");
+        let last =
+            execute_local_search(&last_request, &policy, &security, &NeverCancel, None, None)
+                .expect("last collected page");
         assert!(last.is_partial);
         assert!(last.terminal_limit);
         assert!(last.next.is_none());

@@ -23,10 +23,11 @@ pub(super) struct Matrix<'a> {
 
 /// Compact one verbose query result in place.
 pub(super) fn compact_query(output: &mut Value, matrix: &Matrix<'_>) {
+    let listed = best_windows(output);
     let mut paths = Map::new();
     if let Some(resources) = output.get_mut("resources").and_then(Value::as_array_mut) {
         for resource in resources.iter_mut() {
-            compact_resource(resource);
+            compact_resource(resource, &listed);
             if let (Some(id), Some(path)) = (
                 resource.get("resourceId").and_then(Value::as_str),
                 resource.get("path"),
@@ -55,6 +56,26 @@ pub(super) fn compact_query(output: &mut Value, matrix: &Matrix<'_>) {
     if let Some(next) = output.pointer_mut("/next/clasify") {
         unify_continuation(next, matrix, &paths);
     }
+}
+
+/// `(resourceId, startLine, endLine)` of every verbose `best` row: the
+/// located windows the compact output already lists.
+fn best_windows(output: &Value) -> Vec<(Value, Value, Value)> {
+    output
+        .get("best")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|best| best.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .map(|row| {
+            (
+                row["resourceId"].clone(),
+                row["startLine"].clone(),
+                row["endLine"].clone(),
+            )
+        })
+        .collect()
 }
 
 fn escape(token: &str) -> String {
@@ -105,7 +126,8 @@ pub(super) fn ranking_row(row: &Value, single: Option<&str>) -> Option<Value> {
     Some(out)
 }
 
-fn compact_resource(resource: &mut Value) {
+fn compact_resource(resource: &mut Value, listed: &[(Value, Value, Value)]) {
+    let resource_id = resource.get("resourceId").cloned().unwrap_or(Value::Null);
     let Some(fields) = resource.as_object_mut() else {
         return;
     };
@@ -129,8 +151,35 @@ fn compact_resource(resource: &mut Value) {
             .cloned()
     });
     for page in pages.iter_mut() {
-        compact_page(page, shared_path.is_some(), shared_total.is_some());
+        let window_listed = |read: &Value| {
+            let query = &read["query"];
+            listed.contains(&(
+                resource_id.clone(),
+                query["startLine"].clone(),
+                query["endLine"].clone(),
+            ))
+        };
+        compact_page(
+            page,
+            shared_path.is_some(),
+            shared_total.is_some(),
+            &window_listed,
+        );
     }
+    // Every page failed with one identical error (e.g. the matrix was over
+    // its cell budget before any provider call): the resource states it once
+    // and every page keeps its scope and read.
+    if pages.len() > 1
+        && let Some(error) = shared(pages, |page| page.get("error").cloned())
+    {
+        for page in pages.iter_mut() {
+            page.as_object_mut().map(|page| page.remove("error"));
+        }
+        fields.insert("error".into(), error);
+    }
+    let Some(pages) = fields.get_mut("pages").and_then(Value::as_array_mut) else {
+        return;
+    };
     let single_bare = match pages.as_slice() {
         [page] => page
             .as_object()
@@ -163,7 +212,12 @@ fn shared(pages: &[Value], value: impl Fn(&Value) -> Option<Value>) -> Option<Va
         .then_some(first)
 }
 
-fn compact_page(page: &mut Value, path_hoisted: bool, total_hoisted: bool) {
+fn compact_page(
+    page: &mut Value,
+    path_hoisted: bool,
+    total_hoisted: bool,
+    window_listed: &dyn Fn(&Value) -> bool,
+) {
     let Some(fields) = page.as_object_mut() else {
         return;
     };
@@ -199,8 +253,14 @@ fn compact_page(page: &mut Value, path_hoisted: bool, total_hoisted: bool) {
     for answer in answers.values_mut() {
         *answer = compact_answer(answer);
     }
-    // best and next.read carry the located windows.
-    if located {
+    // A located page's read is its top window: `best` (and the top
+    // next.read) already carry a listed one; any other stays reachable here.
+    if located
+        && fields
+            .get("next")
+            .and_then(|next| next.get("read"))
+            .is_none_or(window_listed)
+    {
         fields.remove("next");
     }
 }
@@ -290,7 +350,9 @@ mod tests {
                 {"resourceId":"f","exists":0.96,"startLine":1551,"endLine":1558,"probability":0.68,
                  "path":"src/server.c","next":{"read":read(1551,1558)}},
                 {"resourceId":"f","exists":0.94,"startLine":1854,"endLine":1861,"probability":0.76,
-                 "path":"src/server.c","next":{"read":read(1854,1861)}}
+                 "path":"src/server.c","next":{"read":read(1854,1861)}},
+                {"resourceId":"f","exists":0.89,"startLine":879,"endLine":886,"probability":0.53,
+                 "path":"src/server.c","next":{"read":read(879,886)}}
             ]},
             "resources":[{"resourceId":"f","coverage":"partial","pages":[
                 page(845, 1206, 0.89, (879, 886, 0.53)),
@@ -323,7 +385,8 @@ mod tests {
                 "queryId":"matrix-1",
                 "best":{"t":[
                     {"lines":[1551,1558],"exists":0.96,"p":0.68},
-                    {"lines":[1854,1861],"exists":0.94,"p":0.76}
+                    {"lines":[1854,1861],"exists":0.94,"p":0.76},
+                    {"lines":[879,886],"exists":0.89,"p":0.53}
                 ]},
                 "resources":[{"resourceId":"f","coverage":"partial","path":"src/server.c","totalLines":8615,"pages":[
                     {"lines":[845,1206],"answers":{"t":0.89}},
@@ -343,6 +406,26 @@ mod tests {
         // The resource, the resume read, and the top-window read name the file.
         assert_eq!(output.to_string().matches("src/server.c").count(), 3);
         assert!(output.to_string().len() * 2 < before);
+    }
+
+    /// `best` keeps the top windows only; a located page whose window it
+    /// does not list keeps that window's read, so no located window drops
+    /// out of the default output.
+    #[test]
+    fn a_located_window_outside_best_keeps_its_page_read() {
+        let mut output = verbose_locate();
+        output["best"]["t"].as_array_mut().expect("best").pop();
+        compact_query(
+            &mut output,
+            &Matrix {
+                single_resource: Some("f"),
+                locate_ids: &["t"],
+                default_max_chars: 80_000,
+            },
+        );
+        let pages = &output["resources"][0]["pages"];
+        assert_eq!(pages[0]["next"]["read"], read(879, 886), "{output}");
+        assert!(pages[1].get("next").is_none(), "{output}");
     }
 
     #[test]

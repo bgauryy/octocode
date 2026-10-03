@@ -50,12 +50,13 @@ fn no_outline(path: &str) -> String {
 
 /// Widen each range to the innermost declaration containing its first line.
 /// A declaration over [`BLOCK_MAX_LINES`] keeps the range start and reads at
-/// most that many lines of it.
+/// most that many lines of it; the lines it stops before go to `rest`.
 pub fn widen_ranges(
     content: &str,
     path: &str,
     ranges: Vec<LineRange>,
     warnings: &mut Vec<String>,
+    rest: &mut Vec<LineRange>,
 ) -> Vec<LineRange> {
     let Some(spans) = declaration_spans(content, path) else {
         warnings.push(no_outline(path));
@@ -79,10 +80,13 @@ pub fn widen_ranges(
             let end = range.end.max(last.min(range.start + BLOCK_MAX_LINES - 1));
             if end < last {
                 warnings.push(format!(
-                    "block: declaration {first}-{last} exceeds {BLOCK_MAX_LINES} lines; returned {}-{end}. Continue with startLine {}.",
+                    "block: declaration {first}-{last} exceeds {BLOCK_MAX_LINES} lines; returned {}-{end}. next.continueBlock reads through line {last}.",
                     range.start,
-                    end + 1
                 ));
+                rest.push(LineRange {
+                    start: end + 1,
+                    end: last,
+                });
             }
             LineRange {
                 start: range.start,
@@ -93,13 +97,15 @@ pub fn widen_ranges(
 }
 
 /// Replace each match window with the innermost declaration containing the
-/// matched line, when that declaration fits [`BLOCK_MAX_LINES`].
+/// matched line, when that declaration fits [`BLOCK_MAX_LINES`]; a larger
+/// one keeps the window and goes to `oversized_spans`.
 pub fn widen_matches(
     content: &str,
     path: &str,
     hits: &[usize],
     windows: Vec<LineRange>,
     warnings: &mut Vec<String>,
+    oversized_spans: &mut Vec<LineRange>,
 ) -> Vec<LineRange> {
     let Some(spans) = declaration_spans(content, path) else {
         warnings.push(no_outline(path));
@@ -112,8 +118,9 @@ pub fn widen_matches(
         .zip(windows)
         .map(|(&hit, window)| match innermost(&spans, hit) {
             Some((start, end)) if end + 1 - start <= BLOCK_MAX_LINES => LineRange { start, end },
-            Some(_) => {
+            Some((start, end)) => {
                 oversized += 1;
+                oversized_spans.push(LineRange { start, end });
                 window
             }
             None => {
@@ -130,7 +137,7 @@ pub fn widen_matches(
     }
     if oversized > 0 {
         warnings.push(format!(
-            "block: {oversized} match(es) sit in declarations over {BLOCK_MAX_LINES} lines; those keep their context window."
+            "block: {oversized} match(es) sit in declarations over {BLOCK_MAX_LINES} lines; those keep their context window, and next.readBlock reads the rest of each declaration."
         ));
     }
     widened
@@ -153,6 +160,7 @@ mod tests {
                 LineRange { start: 4, end: 4 },
             ],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(
             widened,
@@ -168,6 +176,7 @@ mod tests {
             "m.py",
             vec![LineRange { start: 1, end: 1 }],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
         assert!(warnings[0].contains("line 1"), "{warnings:?}");
@@ -181,6 +190,7 @@ mod tests {
             "notes.unknownext",
             vec![LineRange { start: 1, end: 1 }],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
         assert!(
@@ -199,6 +209,7 @@ mod tests {
             "m.py",
             vec![LineRange { start: 10, end: 12 }],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(
             widened,
@@ -214,6 +225,7 @@ mod tests {
             &[20],
             vec![LineRange { start: 18, end: 22 }],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(windows, vec![LineRange { start: 18, end: 22 }]);
     }
@@ -227,6 +239,7 @@ mod tests {
             &[10],
             vec![LineRange { start: 9, end: 11 }],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -244,6 +257,7 @@ mod tests {
                 LineRange { start: 9, end: 11 },
             ],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(
             windows,
@@ -269,6 +283,7 @@ mod tests {
             &[3],
             vec![LineRange { start: 1, end: 5 }],
             &mut warnings,
+            &mut vec![],
         );
         assert_eq!(windows, vec![LineRange { start: 3, end: 9 }]);
         assert!(warnings.is_empty(), "{warnings:?}");

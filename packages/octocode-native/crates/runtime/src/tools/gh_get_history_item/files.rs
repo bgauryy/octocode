@@ -565,7 +565,7 @@ fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
 
 /// Diff lines kept around each `matchString` hit when `matchContext` is
 /// omitted: only the hit lines (context was over half the bytes of a literal
-/// search); `next.widenContext` and `next.readFullPatches` widen it.
+/// search); `next.readFullPatches` re-reads the whole patches.
 const MATCH_CONTEXT_LINES: usize = 0;
 /// A `matchString` view clips diff lines longer than this (generated or
 /// minified text) to the characters around each hit.
@@ -843,15 +843,17 @@ pub(super) fn shape_patch_page(
         .iter()
         .map(|view| view.as_deref().map_or(0, |v| v.chars().count()))
         .collect::<Vec<_>>();
-    // A `matchString` view narrowed to matching hunks names the whole
-    // patch's size, so the caller knows more exists.
+    // A view that is not the raw patch (a `matchString` view narrowed to
+    // matching hunks, or a minified view with context replaced by `...`)
+    // names the whole patch's size: the row marker selects the lossless
+    // re-read (`next.readFullPatches` / `next.readUntrimmed`).
+    let reshaped = needle(query).is_some() || minified_view(query);
     let narrowed = files
         .iter()
         .zip(&views)
         .map(|(file, view)| {
             let patch = str_at(file, "/patch")?;
-            (needle(query).is_some() && view.as_deref() != Some(patch))
-                .then(|| patch.chars().count())
+            (reshaped && view.as_deref() != Some(patch)).then(|| patch.chars().count())
         })
         .collect::<Vec<_>>();
     let total = lengths.iter().sum::<usize>();
@@ -1577,6 +1579,41 @@ mod tests {
         );
         assert_eq!(page.rows[0]["patch"], view);
         assert_eq!(page.rows[0]["fullPatchChars"], patch.chars().count());
+    }
+
+    /// The default minified PR view replaces long context runs with `...`:
+    /// such a row is marked with its whole patch size (the marker selects
+    /// `next.readUntrimmed`); an untouched patch and `minify:"none"` are not.
+    #[test]
+    fn minified_patch_rows_are_marked_for_the_untrimmed_read() {
+        let long = (1..=40)
+            .map(|n| format!(" ctx {n}\n"))
+            .chain(["-old\n".to_owned(), "+new\n".to_owned()])
+            .collect::<String>();
+        let short = "@@ -1,2 +1,2 @@\n a\n-b\n+c\n";
+        let query = patch_request(json!({"minify":"standard"}));
+        let page = shape_patch_page(
+            vec![file("big.rs", &long), file("small.rs", short)],
+            true,
+            &query,
+            PatchCursor::FirstUnfinished,
+        );
+        let view = page.rows[0]["patch"].as_str().expect("patch");
+        assert!(view.contains("..."), "{view}");
+        assert_eq!(page.rows[0]["fullPatchChars"], long.chars().count());
+        assert!(
+            page.rows[1].get("fullPatchChars").is_none(),
+            "{:?}",
+            page.rows
+        );
+        let raw = shape_patch_page(
+            vec![file("big.rs", &long)],
+            true,
+            &patch_request(json!({})),
+            PatchCursor::FirstUnfinished,
+        );
+        assert_eq!(raw.rows[0]["patch"], long);
+        assert!(raw.rows[0].get("fullPatchChars").is_none());
     }
 
     /// `matchString` keeps only the hit lines by default (matchContext

@@ -420,6 +420,64 @@ fn issues_rank_hypotheses_with_evidence_and_controls() {
     assert_eq!(bad.exit, 2);
 }
 
+/// Finding evidence lists every member, export and site it counts: a list
+/// is never cut to a sample beside its count.
+#[test]
+fn issue_evidence_lists_every_item_it_counts() {
+    let dir = issues_fixture();
+    let src = dir.path().join("app/src");
+    for n in 0..25 {
+        std::fs::write(
+            src.join(format!("ring{n}.ts")),
+            format!(
+                "import {{ r{next} }} from './ring{next}';\nimport pad from 'left-pad';\nexport const r{n} = () => r{next}() + pad('');\n",
+                next = (n + 1) % 25
+            ),
+        )
+        .expect("ring file");
+    }
+    let exports = (0..25)
+        .map(|n| format!("export const unusedValue{n} = {n};\n"))
+        .collect::<String>();
+    std::fs::write(src.join("many.ts"), exports).expect("exports");
+    std::fs::write(
+        src.join("entry.ts"),
+        "import './many';\nimport './ring0';\n",
+    )
+    .expect("entry");
+    assert_eq!(ingest_fixture(dir.path(), None).exit, 0);
+    let out = ask(dir.path(), "issues", None, |o| o.limit = Some(500));
+    let rows = out.value["results"].as_array().cloned().unwrap_or_default();
+    let finding = |detector: &str, subject: &str| {
+        rows.iter()
+            .find(|row| {
+                row["detector"] == detector
+                    && row["subject"].as_str().is_some_and(|s| s.contains(subject))
+            })
+            .cloned()
+            .unwrap_or_else(|| panic!("{detector} {subject}: {}", out.value))
+    };
+    let cycle = finding("cycle", "ring");
+    assert_eq!(cycle["evidence"]["size"], 25, "{cycle}");
+    assert_eq!(
+        cycle["evidence"]["members"].as_array().map(Vec::len),
+        Some(25),
+        "{cycle}"
+    );
+    let unused = finding("unused-export", "many.ts");
+    assert_eq!(
+        unused["evidence"]["exports"].as_array().map(Vec::len),
+        Some(25),
+        "{unused}"
+    );
+    let undeclared = finding("undeclared-dependency", "left-pad");
+    let sites = undeclared["evidence"]["sites"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or(0);
+    assert!(sites >= 26, "{undeclared}");
+}
+
 #[test]
 fn issues_baseline_reports_new_and_resolved_findings() {
     let dir = issues_fixture();

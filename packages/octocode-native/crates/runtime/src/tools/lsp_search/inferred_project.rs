@@ -105,7 +105,7 @@ pub(super) fn annotate(
         ),
         Some(SCAN_FAILED) => (
             FAILED_REASON,
-            "The scan for files importing this name failed, so importers outside the server's project were not verified. Confirm with next.textSearch.".to_owned(),
+            "Importer recovery could not read, open, or resolve every candidate, or its scan failed. Some importers remain unverified; confirm with next.textSearch.".to_owned(),
         ),
         _ if lacks_project_config(Path::new(anchor_path)) => (REASON, INFERRED_WARNING.to_owned()),
         _ => return,
@@ -115,7 +115,7 @@ pub(super) fn annotate(
 
 /// Mark an incoming-direction row partial: coverage reason, a warning, and
 /// (when the query names its symbol) a lexical `localSearch` fallback.
-fn flag_partial(
+pub(super) fn flag_partial(
     row: &mut Value,
     query: &LspSearchQuery,
     reason: &str,

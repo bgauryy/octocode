@@ -158,15 +158,29 @@ pub(super) fn history_body_view(value: &str, query: &HistoryItemRequest) -> Stri
     }
 }
 
+/// Whether a body view dropped text: any non-whitespace character differs
+/// from the raw body (whitespace-only normalization keeps every word).
+pub(super) fn view_dropped_text(raw: &str, view: &str) -> bool {
+    let words = |text: &str| {
+        text.chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+    };
+    raw != view && words(raw) != words(view)
+}
+
 /// Window one item body through the body view, remembering the first window
-/// that has more text (the surface's body continuation).
+/// that has more text (the surface's body continuation) and whether the view
+/// dropped text (`bodyView` + `next.readRawBody`).
 pub(super) fn window_body(
     body: &str,
     offset: Option<usize>,
     query: &HistoryItemRequest,
     first_more: &mut Option<Value>,
+    dropped: &mut bool,
 ) -> (String, Value) {
     let view = history_body_view(body, query);
+    *dropped |= view_dropped_text(body, &view);
     let (text, page) = paginate_text(&view, offset, query.char_length());
     if page["hasMore"] == true && first_more.is_none() {
         *first_more = Some(page.clone());
@@ -203,6 +217,33 @@ mod tests {
         assert_eq!(page["nextCharOffset"], 100_000);
         let (clamped, _) = paginate_text(&body, None, Some(110_000));
         assert_eq!(clamped.chars().count(), 100_000);
+    }
+
+    /// Whitespace normalization is not a dropped-text view; a removed HTML
+    /// comment or badge is.
+    #[test]
+    fn body_views_that_drop_words_are_detected() {
+        assert!(!view_dropped_text("a\r\n\n\n b  ", "a\n\nb"));
+        assert!(view_dropped_text("a <!-- hidden --> b", "a b"));
+        let raw = "Fixes #1\n<!-- checklist: tests added -->\n[![ci](https://x/badge.svg)](https://x)\nBody";
+        let pr = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1
+        }))
+        .expect("pr query");
+        let mut first_more = None;
+        let mut dropped = false;
+        let (text, _) = window_body(raw, None, &pr, &mut first_more, &mut dropped);
+        assert!(dropped, "{text}");
+        assert!(!text.contains("checklist"), "{text}");
+        let raw_pr = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","goal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
+            "minify":"none"
+        }))
+        .expect("raw pr query");
+        let mut dropped = false;
+        let (text, _) = window_body(raw, None, &raw_pr, &mut first_more, &mut dropped);
+        assert!(!dropped);
+        assert_eq!(text, raw);
     }
 
     #[test]

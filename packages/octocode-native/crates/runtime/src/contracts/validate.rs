@@ -16,9 +16,12 @@ use artifact::validate_artifact_queries;
 use ast_rewrite::{validate_ast_rewrite_queries, validate_ast_rewrite_rules};
 use defaults::apply_observed_defaults;
 use github_search::{GithubSearchKind, validate_github_search_queries};
-use history::{validate_history_content_selection, validate_history_keyword_scope};
+use history::{
+    validate_history_content_selection, validate_history_keyword_scope,
+    validate_history_repository_scope,
+};
 use local_search::validate_local_search_queries;
-use lsp::validate_lsp_queries;
+use lsp::{validate_lsp_queries, validate_operation_controls};
 use schema::validate_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -607,12 +610,18 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
             Some("local_search_mode") => validate_local_search_queries(input),
             Some("ast_topology") => validate_topology_queries(input),
             Some("history_keyword_scope") => validate_history_keyword_scope(input),
+            Some("history_repository_scope") => validate_history_repository_scope(input),
             Some("qualifier_fields") => qualifiers::validate(
                 input,
                 rule["id"].as_str().unwrap_or("qualifier_fields"),
                 &rule["args"],
             ),
             Some("lsp_rust_context") => validate_lsp_queries(input),
+            Some("operation_controls") => validate_operation_controls(
+                input,
+                rule["id"].as_str().unwrap_or("operation_controls"),
+                &rule["args"],
+            ),
             Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input),
             Some("history_content_selection") => validate_history_content_selection(input),
             Some(opcode) => {
@@ -1104,6 +1113,34 @@ mod tests {
         assert_eq!(lsp["rustContext"]["features"], "all");
         let untouched = json!({"queries":"[\"*.go\"]"});
         assert_eq!(normalize_input("noSuchTool", untouched.clone()), untouched);
+    }
+
+    /// localFetch and ghGetFileContent accept host spellings of line ranges
+    /// on every path (CLI and MCP both normalize through here).
+    #[test]
+    fn line_range_spellings_validate_after_normalization() {
+        for (tool, extra) in [
+            ("localFetch", json!({"path":"/tmp/a.rs"})),
+            (
+                "ghGetFileContent",
+                json!({"owner":"o","repo":"r","path":"a.rs"}),
+            ),
+        ] {
+            for (ranges, expected) in [
+                (json!("70,130"), json!(["70-130"])),
+                (json!([" 140-150"]), json!(["140-150"])),
+                (json!(["248", "325"]), json!(["248-325"])),
+                (json!([248, 325]), json!(["248-325"])),
+            ] {
+                let mut row = json!({"goal":"g","reasoning":"r","ranges":ranges});
+                row.as_object_mut()
+                    .expect("row")
+                    .extend(extra.as_object().expect("extra").clone());
+                let normalized = normalize_input(tool, json!({"queries":[row]}));
+                assert_eq!(normalized["queries"][0]["ranges"], expected, "{tool}");
+                validate(tool, normalized).expect("repaired ranges validate");
+            }
+        }
     }
 
     #[test]

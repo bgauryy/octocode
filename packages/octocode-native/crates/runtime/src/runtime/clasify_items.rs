@@ -40,7 +40,9 @@ pub(super) fn split(source: &Value, state: &Value) -> Option<Vec<Item>> {
         (ToolId::LspSearch, _) => references(state, data, base, query)?,
         (ToolId::GhSearchRepo, _) => repositories(state, data)?,
         (ToolId::GhSearchHistory, _) => history(state, data, query)?,
-        (ToolId::ArtifactSearch, _) if query.get("keywords").is_some() => packages(state, data)?,
+        (ToolId::ArtifactSearch, _) if query.get("keywords").is_some() => {
+            packages(state, data, query)?
+        }
         _ => return None,
     };
     (!items.is_empty()).then_some(items)
@@ -337,8 +339,10 @@ fn repositories(state: &Value, data: &Value) -> Option<Vec<Item>> {
         .as_array()?
         .iter()
         .filter_map(|repository| {
-            let owner = repository.get("owner")?.as_str()?;
             let repo = repository.get("repo")?.as_str()?;
+            let (owner, repo) = repo
+                .split_once('/')
+                .or_else(|| Some((repository.get("owner")?.as_str()?, repo)))?;
             let mut query = serde_json::Map::new();
             query.insert("owner".into(), json!(owner));
             query.insert("repo".into(), json!(repo));
@@ -423,13 +427,16 @@ fn history(state: &Value, data: &Value, query: &Value) -> Option<Vec<Item>> {
     Some(items)
 }
 
-fn packages(state: &Value, data: &Value) -> Option<Vec<Item>> {
+fn packages(state: &Value, data: &Value, query: &Value) -> Option<Vec<Item>> {
     let items = data
         .get("artifacts")?
         .as_array()?
         .iter()
         .filter_map(|artifact| {
-            let kind = artifact.get("type")?.as_str()?;
+            let kind = artifact
+                .get("type")
+                .or_else(|| query.get("type"))?
+                .as_str()?;
             let name = artifact.get("name")?.as_str()?;
             let mut query = serde_json::Map::new();
             query.insert("type".into(), json!(kind));
@@ -675,10 +682,42 @@ mod tests {
         let matches = json!({"tool":"astSearch","query":{"operation":"match"}});
         assert!(split(&matches, &wrap(json!({"files":[]}))).is_none());
         let files = json!({"tool":"structureSearch","query":{"operation":"files"}});
+        assert!(
+            split(
+                &files,
+                &wrap(json!({"files":[{"dir":"src","files":["a.rs (1)"]}]}))
+            )
+            .is_none()
+        );
         assert!(split(&files, &wrap(json!({"files":[{"path":"a.rs"}]}))).is_none());
         let tree = json!({"tool":"structureSearch","query":{"operation":"tree"}});
         assert!(split(&tree, &wrap(json!({"entries":["a.rs"]}))).is_none());
         let gh_tree = json!({"tool":"ghStructure","query":{"owner":"o","repo":"r"}});
         assert!(split(&gh_tree, &wrap(json!({"structure":[]}))).is_none());
+    }
+    #[test]
+    fn compact_remote_lists_keep_every_candidate_and_its_read() {
+        let repos = json!({"tool":"ghSearchRepo","query":{"keywords":["compiler"]}});
+        let state = wrap(json!({"repositories":[
+            {"repo":"microsoft/TypeScript","description":"compiler"},
+            {"repo":"microsoft/TypeScript-Compiler-Notes","description":"notes"}
+        ]}));
+        let items = split(&repos, &state).expect("compact repositories split");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].item.as_deref(), Some("microsoft/TypeScript"));
+        assert_eq!(
+            items[0].read.as_ref().unwrap()["query"],
+            json!({"owner":"microsoft","repo":"TypeScript"})
+        );
+        let packages = json!({"tool":"artifactSearch","query":{"type":"npm","keywords":["yaml"]}});
+        let state =
+            wrap(json!({"artifacts":[{"name":"yaml-eslint-parser"},{"name":"yamlparser"}]}));
+        let items = split(&packages, &state).expect("compact packages split");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].item.as_deref(), Some("npm:yaml-eslint-parser"));
+        assert_eq!(
+            items[1].read.as_ref().unwrap()["query"],
+            json!({"type":"npm","packageName":"yamlparser"})
+        );
     }
 }

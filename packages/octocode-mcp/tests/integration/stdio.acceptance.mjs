@@ -150,6 +150,15 @@ const call = async (name, query) => {
   assert.equal(row.data.error, undefined, `${name} returned an error payload`);
   return row.data;
 };
+/** structureSearch `files` directory groups as row paths: dir + "/" + name. */
+const listedPaths = files =>
+  files.flatMap(group =>
+    group.files.map(entry => {
+      const name = (/^(.*) \([^()]*\)$/.exec(entry)?.[1] ?? entry).replace(/\/$/, '');
+      return name === '.' ? group.dir : group.dir === '' ? name : `${group.dir}/${name}`;
+    })
+  );
+
 const nextCall = async continuation => {
   const row = await continuationRow(continuation);
   assert.notEqual(row.status, 'error', `${continuation.tool} result failed`);
@@ -365,17 +374,25 @@ try {
           });
           let content = '';
           let count = 0;
+          const numbers = [];
           for (;;) {
             assert.ok(++count < 100);
             assert.equal(page.totalLines, 5);
             assert.equal(page.sourceBytes, Buffer.byteLength(source));
-            assert.equal(page.returnedBytes, Buffer.byteLength(page.content));
+            // Line views carry a `<line>\t` gutter (TOOL_DATA_CONTRACT numbered
+            // content); returnedBytes counts only the source bytes under it.
+            // Byte windows stay verbatim.
+            const text = chunkType === 'lines'
+              ? page.content.replace(/^(\d+)\t/gm, (_, line) => { numbers.push(Number(line)); return ''; })
+              : page.content;
+            assert.equal(page.returnedBytes, Buffer.byteLength(text));
             if (matched) assert.equal(page.minifyFallback.reason, 'match-evidence');
-            content += page.content;
+            content += text;
             if (!page.next?.continue) break;
             assert.equal(page.next.continue.tool, 'localFetch');
             page = await nextCall(page.next.continue);
           }
+          if (chunkType === 'lines') assert.deepEqual(numbers, matched ? [2, 4] : [1, 2, 3, 4, 5]);
           assert.equal(
             content,
             matched
@@ -437,7 +454,7 @@ try {
       extensions: ['ts'],
       pageSize: 50,
     });
-    assert.ok(data.files.some(file => file.path.endsWith('math.ts')));
+    assert.ok(listedPaths(data.files).some(file => file.endsWith('math.ts')));
   });
   await check('AST symbols identify the exported arithmetic declaration', async () => {
     const data = await call('astSearch', {
@@ -449,10 +466,9 @@ try {
     // Minimal output drops the `operation` request echo.
     assert.equal(data.operation, undefined);
     assert.equal(data.totalDeclarations, 1);
-    assert.equal(data.declarations[0].name, 'add');
-    assert.equal(data.declarations[0].kind, 'function');
-    assert.equal(data.declarations[0].line, 2);
-    assert.equal(data.declarations[0].exported, true);
+    // Outline row "<line> <kind> <name>" plus suffixes: " +" exported,
+    // " doc" for the comment block above.
+    assert.deepEqual(data.declarations, ['2 function add + doc']);
   });
   await check('astRewrite is CLI-only: MCP rejects it, the CLI previews and applies on an isolated fixture', async () => {
     assert.ok(!expectedTools.includes('astRewrite'), 'MCP must not list astRewrite');
@@ -540,13 +556,10 @@ try {
         const full = await call('structureSearch', { ...query, pageSize: 50 });
         const first = await call('structureSearch', { ...query, pageSize: 1 });
         const paged = await pages(first, 'nextPage', data =>
-          data.files.map(file => file.path)
+          listedPaths(data.files)
         );
         assert.ok(paged.count > 1);
-        assert.deepEqual(
-          paged.rows.sort(),
-          full.files.map(file => file.path).sort()
-        );
+        assert.deepEqual(paged.rows.sort(), listedPaths(full.files).sort());
       }
     );
     await check('whole-response pages replay captured output; fresh queries observe source edits', async () => {
@@ -621,21 +634,24 @@ try {
           pageSize: 50,
           excludeDir: [],
         };
-        const full = await call('astTopology', {
+        // The first page carries diagnostic counts; rows sit behind
+        // next.nextDiagnostics at every page size.
+        const collect = data => data.coverage.diagnostics ?? [];
+        const fullFirst = await call('astTopology', {
           ...query,
           diagnosticPageSize: 100,
         });
+        const full = await pages(fullFirst, 'nextDiagnostics', collect);
         const first = await call('astTopology', {
           ...query,
           diagnosticPageSize: 2,
         });
-        const paged = await pages(
-          first,
-          'nextDiagnostics',
-          data => data.coverage.diagnostics ?? []
-        );
-        assert.ok(paged.count > 1);
-        assert.deepEqual(paged.rows, full.coverage.diagnostics);
+        const paged = await pages(first, 'nextDiagnostics', collect);
+        const counted = Object.values(first.coverage.diagnosticCounts).reduce((sum, n) => sum + n, 0);
+        assert.equal(counted, 5);
+        assert.equal(full.rows.length, counted);
+        assert.ok(paged.count > full.count);
+        assert.deepEqual(paged.rows, full.rows);
       }
     );
     await check('LSP definition identifies the declaration', async () => {
@@ -665,15 +681,15 @@ try {
           symbolName: 'add',
           lineHint: 2,
         };
+        // References group per file: {path, refs: ["<line>:<col> <text>"]}.
+        const collect = data =>
+          data.payload.byFile.flatMap(file => file.refs.map(ref => `${file.path} ${ref}`));
         const first = await call('lspSearch', { ...query, pageSize: 1 });
-        const paged = await pages(
-          first,
-          'nextPage',
-          data => data.payload.locations
-        );
+        const paged = await pages(first, 'nextPage', collect);
         const full = await call('lspSearch', { ...query, pageSize: 100 });
         assert.ok(paged.count > 1);
-        assert.deepEqual(paged.rows, full.payload.locations);
+        assert.equal(paged.rows.length, full.payload.totalReferences);
+        assert.deepEqual(paged.rows, collect(full));
       }
     );
     for (const name of expectedTools)

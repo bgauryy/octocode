@@ -525,13 +525,16 @@ fn take_patches(value: &mut Value, label: &str, out: &mut Vec<(String, String)>)
                 if matches!(key.as_str(), "changedFiles" | "files")
                     && let Some(rows) = child.as_array_mut()
                 {
-                    rows.retain(|row| match patch_section(row, label) {
-                        Some(section) => {
-                            out.push(section);
-                            false
-                        }
-                        None => true,
-                    });
+                    *rows = std::mem::take(rows)
+                        .into_iter()
+                        .filter_map(|row| match patch_section(&row, label) {
+                            Some((section, rest)) => {
+                                out.push(section);
+                                rest
+                            }
+                            None => Some(row),
+                        })
+                        .collect();
                     if rows.is_empty() {
                         emptied.push(key.clone());
                     }
@@ -549,48 +552,95 @@ fn take_patches(value: &mut Value, label: &str, out: &mut Vec<(String, String)>)
     }
 }
 
-/// The `(header, patch)` section of a changed-file row with a non-empty patch.
-fn patch_section(row: &Value, label: &str) -> Option<(String, String)> {
+/// Patch-window fields a span header restates (`chars a-b of T`); the rest
+/// derive from the shown patch length.
+const SPAN_FIELDS: [&str; 5] = [
+    "charOffset",
+    "charLength",
+    "totalChars",
+    "hasMore",
+    "nextCharOffset",
+];
+
+/// The `(header, patch)` section of a changed-file row with a non-empty
+/// patch, plus the row's fields the header does not carry (with its path),
+/// or `None` when the header carries all of them.
+fn patch_section(row: &Value, label: &str) -> Option<((String, String), Option<Value>)> {
     let patch = row
         .get("patch")?
         .as_str()
         .filter(|patch| !patch.is_empty())?;
+    let mut rest = row.as_object()?.clone();
     let text = |key: &str| row.get(key).and_then(Value::as_str);
     let count = |key: &str| row.get(key).and_then(Value::as_u64);
     let mut header = label.to_owned();
-    if let Some(status) = text("status") {
-        let code = match status {
-            "added" => "A",
-            "removed" => "D",
-            "modified" => "M",
-            "renamed" => "R",
-            "copied" => "C",
-            "changed" => "T",
-            "unchanged" => "U",
-            other => other,
-        };
+    let code = text("status").map(|status| match status {
+        "added" => "A",
+        "removed" => "D",
+        "modified" => "M",
+        "renamed" => "R",
+        "copied" => "C",
+        "changed" => "T",
+        "unchanged" => "U",
+        other => other,
+    });
+    let (additions, deletions) = (count("additions"), count("deletions"));
+    if code.is_some() || additions.is_some() || deletions.is_some() {
+        if let Some(code) = code {
+            header.push_str(code);
+            header.push(' ');
+        }
         header.push_str(&format!(
-            "{code} +{} -{} ",
-            count("additions").unwrap_or(0),
-            count("deletions").unwrap_or(0)
+            "+{} -{} ",
+            additions.unwrap_or(0),
+            deletions.unwrap_or(0)
         ));
+        for key in ["status", "additions", "deletions"] {
+            rest.shift_remove(key);
+        }
+    } else if let Some(stat) = text("stat") {
+        header.push_str(stat);
+        header.push(' ');
+        rest.shift_remove("stat");
     }
-    header.push_str(text("path").or_else(|| text("filename")).unwrap_or(""));
-    if let Some(previous) = text("previousPath").or_else(|| text("previousFilename")) {
-        header.push_str(&format!(" <- {previous}"));
+    let path_key = ["path", "filename"]
+        .into_iter()
+        .find(|key| text(key).is_some());
+    header.push_str(path_key.and_then(text).unwrap_or(""));
+    if let Some(key) = ["previousPath", "previousFilename"]
+        .into_iter()
+        .find(|key| text(key).is_some())
+    {
+        header.push_str(&format!(" <- {}", text(key).unwrap_or("")));
+        rest.shift_remove(key);
     }
     let chars = patch.chars().count();
     let span = match (row.get("patchPagination"), count("fullPatchChars")) {
         (Some(page), _) => {
             let from = page.get("charOffset").and_then(Value::as_u64).unwrap_or(0);
             let total = page.get("totalChars").and_then(Value::as_u64).unwrap_or(0);
+            if let Some(Value::Object(window)) = rest.get_mut("patchPagination") {
+                for key in SPAN_FIELDS {
+                    window.shift_remove(key);
+                }
+                if window.is_empty() {
+                    rest.shift_remove("patchPagination");
+                }
+            }
             format!("chars {from}-{} of {total}", from + chars as u64)
         }
-        (None, Some(full)) => format!("{chars} of {full} chars"),
+        (None, Some(full)) => {
+            rest.shift_remove("fullPatchChars");
+            format!("{chars} of {full} chars")
+        }
         (None, None) => format!("{chars} chars"),
     };
     header.push_str(&format!(" ({span})"));
-    Some((header, patch.to_owned()))
+    rest.shift_remove("patch");
+    // The path names the patch; a row with nothing else left folds whole.
+    let leftover = rest.keys().any(|key| Some(key.as_str()) != path_key);
+    let rest = leftover.then(|| Value::Object(rest));
+    Some(((header, patch.to_owned()), rest))
 }
 
 /// YAML text of a single-row response: the row's `results: - index: 0 data:`
@@ -847,6 +897,38 @@ mod tests {
             TextFormat::Json,
         );
         assert!(plain.contains(r#"{"matches":[],"path":"a.rs"}"#), "{plain}");
+    }
+
+    /// Folding a changed-file row into its patch header never loses a field:
+    /// a compact `stat` and bare counts reach the header, and any field the
+    /// header cannot carry stays in the YAML row beside its path.
+    #[test]
+    fn folded_patch_rows_keep_every_field() {
+        let response = json!({"results":[{"index":0,"data":{"type":"commit","files":[
+            {"path":"a.go","stat":"M +1 -1","patch":"+x"},
+            {"path":"b.go","additions":3,"deletions":1,"patch":"+y"},
+            {"path":"c.go","status":"modified","additions":1,"deletions":0,"patch":"+z",
+             "sha":"abc123","patchPagination":{"charOffset":0,"totalChars":2,"hasMore":false,"note":"kept"}}
+        ]}}]});
+        let text = render_tool(
+            ToolId::GhGetHistoryItem,
+            &response,
+            &json!({}),
+            TextFormat::Yaml,
+        );
+        let (yaml, patches) = text.split_once("\n=== patch ").expect("patch section");
+        assert!(yaml.contains("sha: abc123"), "{yaml}");
+        assert!(yaml.contains("path: c.go"), "{yaml}");
+        assert!(yaml.contains("note: kept"), "{yaml}");
+        for folded in ["a.go", "b.go", "stat", "additions", "+z"] {
+            assert!(!yaml.contains(folded), "{folded} repeated: {yaml}");
+        }
+        assert_eq!(
+            patches,
+            "M +1 -1 a.go (2 chars) ===\n+x\n\
+             === patch +3 -1 b.go (2 chars) ===\n+y\n\
+             === patch M +1 -0 c.go (chars 0-2 of 2) ===\n+z\n"
+        );
     }
 
     /// YAML escapes every `\n`, `\r`, quote and backslash of a patch (5–15%

@@ -87,11 +87,14 @@ describe('numeric schema fields are bounded (#C1)', () => {
       matchString: 'foo',
       contextLines,
     });
-    const maximum = (
-      z.toJSONSchema(FileContentQueryLocalSchema) as {
-        properties: { contextLines: { maximum: number } };
-      }
-    ).properties.contextLines.maximum;
+    const contextLinesSchema = z.toJSONSchema(FileContentQueryLocalSchema)
+      .properties?.contextLines;
+    const maximum =
+      typeof contextLinesSchema === 'object'
+        ? contextLinesSchema.maximum
+        : undefined;
+    expect(maximum).toBeTypeOf('number');
+    if (typeof maximum !== 'number') return;
     // Values between the runtime clamp and the maximum are accepted (and
     // clamped natively); only values past the published maximum reject.
     expect(FileContentQueryLocalSchema.safeParse(query(120)).success).toBe(

@@ -78,7 +78,7 @@ export async function startServer({ env = {}, cwd = ROOT, timeoutMs = Number(pro
     const sc = expandShared(response.result?.structuredContent);
     const rows = sc?.results ?? [];
     const entry = {
-      label, tool, args, ms: Date.now() - started, bytes: text.length, text, sc,
+      label, tool, args, ms: Date.now() - started, bytes: Buffer.byteLength(text, 'utf8'), text, sc,
       isError: !!(response.error || response.result?.isError),
       rowErrors: collect(sc, r => r.status === 'error').length,
     };
@@ -115,12 +115,13 @@ export function expandShared(sc) {
   return copy;
 }
 
-/** Every `{tool, query}` continuation anywhere in a structured result. */
+/** Explicit tool/query hints and the bare next.clasify self-continuation. */
 export function nextHints(value, pathLabel = '') {
   const hints = [];
   const walk = (node, at) => {
     if (!node || typeof node !== 'object') return;
     if (typeof node.tool === 'string' && node.query && typeof node.query === 'object') hints.push({ ...node, path: at });
+    else if (at.endsWith('.next.clasify') && Array.isArray(node.resources) && Array.isArray(node.questions)) hints.push({ tool: 'clasify', query: node, path: at });
     for (const [key, child] of Object.entries(node)) walk(child, `${at}.${key}`);
   };
   walk(value, pathLabel);
@@ -156,6 +157,34 @@ export function inventoryRows(items = []) {
     if (typeof item === 'string') return [inventoryRow(item)];
     if (item && typeof item === 'object' && !('path' in item)) return Object.entries(item).flatMap(([dir, rows]) => rows.map(row => inventoryRow(row, dir)));
     return [item];
+  });
+}
+
+/**
+ * structureSearch `files` rows in one object shape. Directory groups
+ * {dir, files: ["<name>[/][ (<fields>)]"]} (fields: size in bytes, "symlink",
+ * "lineCount=N", "modifiedMs=N"; "/" marks a directory, "." names `dir`
+ * itself) expand in order to {path: dir + "/" + name, size?, type?,
+ * lineCount?, modifiedMs?}; `path` resolves against the response `base` like
+ * any row path. Object rows (the earlier shape) pass through.
+ */
+export function structureFiles(items = []) {
+  return (items ?? []).flatMap(item => {
+    if (!item || typeof item !== 'object' || typeof item.dir !== 'string' || !Array.isArray(item.files)) return [item];
+    return item.files.map(text => {
+      const m = /^(.*) \(([^()]*)\)$/.exec(text);
+      let name = m ? m[1] : text;
+      const row = {};
+      if (name.endsWith('/')) { name = name.slice(0, -1); row.type = 'directory'; }
+      row.path = name === '.' ? item.dir : item.dir === '' ? name : `${item.dir}/${name}`;
+      for (const field of m ? m[2].split(', ') : []) {
+        if (field === 'symlink') row.type = 'symlink';
+        else if (field.startsWith('lineCount=')) row.lineCount = Number(field.slice(10));
+        else if (field.startsWith('modifiedMs=')) row.modifiedMs = Number(field.slice(11));
+        else row.size = Number(field);
+      }
+      return row;
+    });
   });
 }
 

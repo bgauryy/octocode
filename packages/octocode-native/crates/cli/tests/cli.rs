@@ -973,6 +973,40 @@ fn tool_accepts_bulk_queries() {
     );
 }
 
+/// Host spellings of line ranges read the same lines as the canonical form.
+#[test]
+fn localfetch_accepts_host_line_range_spellings() {
+    let workspace = Workspace::new();
+    let lines: String = (1..=10).map(|n| format!("line {n}\n")).collect();
+    let path = workspace.write("ranges.txt", &lines);
+    for ranges in [
+        serde_json::json!("2,4"),
+        serde_json::json!([" 2-4"]),
+        serde_json::json!(["2", "4"]),
+        serde_json::json!([2, 4]),
+    ] {
+        let query = serde_json::json!({
+            "path": path, "ranges": ranges,
+            "goal": "test", "reasoning": "Verify tolerant line ranges."
+        })
+        .to_string();
+        let output = workspace
+            .cli()
+            .args(["localFetch", &query])
+            .output()
+            .expect("ranges query");
+        assert!(output.status.success(), "{ranges}: {}", stderr(&output));
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("tool JSON");
+        let content = value["results"][0]["data"]["content"]
+            .as_str()
+            .unwrap_or_default();
+        for line in ["line 2", "line 3", "line 4"] {
+            assert!(content.contains(line), "{ranges}: {value}");
+        }
+        assert!(!content.contains("line 5"), "{ranges}: {value}");
+    }
+}
+
 #[test]
 fn localsearch_emits_structured_results() {
     let workspace = Workspace::new();

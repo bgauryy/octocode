@@ -960,7 +960,22 @@ fn attach_continuations(
     materialize: bool,
     materialize_resume: Option<MaterializeResume>,
 ) -> Result<(), ProviderError> {
-    if let Some(resume) = materialize_resume {
+    let materialize_resume = materialize_resume.or_else(|| {
+        (has_more && materialize).then_some(MaterializeResume {
+            page: page + 1,
+            offset: 0,
+            reason: "listing",
+        })
+    });
+    if materialize_resume.is_some_and(|resume| resume.page > 1000)
+        || (has_more && !materialize && page >= 1000)
+    {
+        value["terminalLimit"] = json!(true);
+        if let Some(location) = value.get_mut("location") {
+            location["hasMore"] = json!(true);
+            location["complete"] = json!(false);
+        }
+    } else if let Some(resume) = materialize_resume {
         let mut next_query = public_query(query)?;
         next_query["page"] = json!(resume.page);
         next_query["pageSize"] = json!(page_size);
@@ -1232,6 +1247,34 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn materialization_page_boundary_continues_and_page_ceiling_is_explicit() {
+        let query: GhStructureQuery = serde_json::from_value(json!({
+            "owner": "a", "repo": "b", "branch": "a".repeat(40),
+            "path": "", "goal": "Read every materialized file", "reasoning": "Preserve the remaining listing"
+        })).expect("query");
+        let mut value = json!({"structure": [{"dir": ".", "files": ["a.rs"]}]});
+        attach_continuations(&mut value, &query, 1, 1, true, false, true, None)
+            .expect("continuation");
+        assert_eq!(value["next"]["continueMaterialize"]["query"]["page"], 2);
+        assert_eq!(
+            value["next"]["continueMaterialize"]["query"]["materializeOffset"],
+            0
+        );
+        assert_eq!(
+            value["next"]["continueMaterialize"]["query"]["branch"],
+            "a".repeat(40)
+        );
+        for materialize in [false, true] {
+            let mut value = json!({"structure": [{"dir": ".", "files": ["last.rs"]}]});
+            attach_continuations(&mut value, &query, 1000, 1, true, false, materialize, None)
+                .expect("terminal");
+            assert_eq!(value["terminalLimit"], true);
+            assert!(value.get("next").is_none());
+            assert_eq!(value["structure"][0]["files"][0], "last.rs");
+        }
+    }
+
     /// D9: a recursive git-tree listing of a path the tree lacks is a
     /// missing path (not an empty listing), so the viewTree recovery runs.
     #[test]

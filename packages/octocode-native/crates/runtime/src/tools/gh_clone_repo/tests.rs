@@ -467,18 +467,16 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     // surfaces verified:true rather than a false negative.
     assert!(cached.location.verified);
     assert_eq!(cached.location.local_path, fresh.location.local_path);
-    // Editing the cached working tree invalidates it: the next call re-clones
-    // instead of serving modified bytes as the verified revision.
+    // Editing the cached working tree must not replace the user's bytes.
     let readme = Path::new(&cached.location.local_path).join("README.md");
     fs::write(&readme, "tampered\n").expect("tamper cached checkout");
-    let recloned = execute_clone(&query(), &context).expect("reclone after tamper");
-    assert!(!recloned.location.cached, "a dirty cache must not be a hit");
-    assert!(recloned.location.verified);
+    let error = execute_clone(&query(), &context).expect_err("preserve dirty checkout");
+    assert_eq!(error.code, "clone.cache.dirty");
     assert_eq!(
-        fs::read_to_string(Path::new(&recloned.location.local_path).join("README.md"))
-            .expect("read reclone"),
-        "fixture\n"
+        fs::read_to_string(&readme).expect("read preserved checkout"),
+        "tampered\n"
     );
+    fs::write(&readme, "fixture\n").expect("restore owned fixture");
     let defaulted = execute_clone(
         &GhCloneRepoQuery {
             branch: None,
@@ -564,6 +562,405 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     assert!(seen.iter().all(|value| !value.contains("fixture-token")));
     assert!(seen.iter().any(|value| value.contains("[REDACTED]")));
+}
+
+#[test]
+fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() {
+    let fixture = Fixture::new();
+    let root = Temp::new("preserve");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = RewriteRunner::new(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+    );
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    let fresh = execute_clone(&query(), &context).expect("fresh clone");
+    let checkout = Path::new(&fresh.location.local_path);
+    for (name, ignored) in [
+        ("README.md", false),
+        ("untracked.txt", false),
+        ("ignored.txt", true),
+        (".octocode-user-notes", false),
+        ("nested/.octocode-clone-meta.json", false),
+        ("notes\n中.txt", false),
+    ] {
+        let file = checkout.join(name);
+        fs::create_dir_all(file.parent().expect("file parent")).expect("marker parent");
+        if ignored {
+            fs::write(
+                checkout.join(".git/info/exclude"),
+                format!("ignored.txt\n/{}\n", cache::META_FILE),
+            )
+            .expect("ignore fixture file");
+        }
+        fs::write(&file, "user evidence\n").expect("edit owned fixture");
+        for force_refresh in [false, true] {
+            let request = GhCloneRepoQuery {
+                force_refresh: Some(force_refresh),
+                ..query()
+            };
+            // Ignored bytes do not change the verified revision, but replacing
+            // its checkout must still preserve them.
+            if ignored && !force_refresh {
+                assert!(
+                    execute_clone(&request, &context)
+                        .expect("ignored reuse")
+                        .location
+                        .cached
+                );
+            } else {
+                let error = execute_clone(&request, &context).expect_err("preserve user file");
+                assert_eq!(
+                    error.code, "clone.cache.dirty",
+                    "{name}, refresh={force_refresh}"
+                );
+                assert!(!error.hints.is_empty(), "actionable recovery");
+            }
+            assert_eq!(
+                fs::read_to_string(&file).expect("preserved file"),
+                "user evidence\n"
+            );
+            assert_eq!(
+                git_output(checkout, &["rev-parse", "HEAD"]).trim(),
+                fixture.first_commit
+            );
+        }
+        if name == "README.md" {
+            fs::write(&file, "fixture\n").expect("restore owned tracked file");
+        } else {
+            fs::remove_file(&file).expect("remove owned marker");
+        }
+    }
+}
+
+#[test]
+fn refresh_rechecks_user_changes_written_while_fetching() {
+    struct LateWriteRunner {
+        inner: RewriteRunner,
+        target: Mutex<Option<PathBuf>>,
+    }
+    impl GitRunner for LateWriteRunner {
+        fn run(
+            &self,
+            request: &GitRunRequest<'_>,
+            control: &GitRunControl<'_>,
+        ) -> Result<GitOutput, CloneError> {
+            let output = self.inner.run(request, control)?;
+            if request.label == "read checkout HEAD"
+                && let Some(target) = self.target.lock().expect("target lock").take()
+            {
+                fs::write(
+                    target.join("during-fetch.txt"),
+                    "concurrent user evidence\n",
+                )
+                .expect("write owned late marker");
+            }
+            Ok(output)
+        }
+    }
+    let fixture = Fixture::new();
+    let root = Temp::new("late-write");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = LateWriteRunner {
+        inner: RewriteRunner::new(
+            "https://github.com/fixture-owner/fixture-repo.git",
+            &fixture.bare_url,
+        ),
+        target: Mutex::new(None),
+    };
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    let fresh = execute_clone(&query(), &context).expect("fresh clone");
+    let checkout = PathBuf::from(fresh.location.local_path);
+    *runner.target.lock().expect("target lock") = Some(checkout.clone());
+    let error = execute_clone(
+        &GhCloneRepoQuery {
+            force_refresh: Some(true),
+            ..query()
+        },
+        &context,
+    )
+    .expect_err("preserve late write");
+    assert_eq!(error.code, "clone.cache.dirty");
+    assert_eq!(
+        fs::read_to_string(checkout.join("during-fetch.txt")).expect("late marker"),
+        "concurrent user evidence\n"
+    );
+    assert_eq!(
+        git_output(&checkout, &["rev-parse", "HEAD"]).trim(),
+        fixture.first_commit
+    );
+}
+
+#[test]
+fn clone_eviction_preserves_dirty_expired_and_over_budget_checkouts() {
+    let fixture = Fixture::new();
+    let root = Temp::new("dirty-eviction");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = RewriteRunner::new(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+    );
+    let mut config = CloneConfig::persistent(&cache_home);
+    config.max_clone_count = 1;
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    let fresh = execute_clone(&query(), &context).expect("fresh clone");
+    let checkout = PathBuf::from(fresh.location.local_path);
+    fs::write(checkout.join(".git/info/exclude"), "ignored-evidence.txt\n").expect("exclude");
+    let evidence = checkout.join("ignored-evidence.txt");
+    fs::write(&evidence, "preserve through eviction\n").expect("owned evidence");
+    execute_clone(
+        &GhCloneRepoQuery {
+            branch: Some("v1".into()),
+            ..query()
+        },
+        &context,
+    )
+    .expect("budget clone");
+    assert_eq!(
+        fs::read_to_string(&evidence).expect("budget preserved"),
+        "preserve through eviction\n"
+    );
+    let meta_path = checkout.join(cache::META_FILE);
+    let mut meta: serde_json::Value =
+        serde_json::from_slice(&fs::read(&meta_path).expect("metadata")).expect("parse meta");
+    meta["expiresAt"] = "1970-01-01T00:00:00.000Z".into();
+    fs::write(
+        &meta_path,
+        serde_json::to_vec(&meta).expect("serialize meta"),
+    )
+    .expect("expire");
+    execute_clone(
+        &GhCloneRepoQuery {
+            branch: Some(fixture.first_commit.clone()),
+            ..query()
+        },
+        &context,
+    )
+    .expect("expiry cleanup clone");
+    assert_eq!(
+        fs::read_to_string(&evidence).expect("expired preserved"),
+        "preserve through eviction\n"
+    );
+}
+
+#[test]
+fn metadata_write_preserves_repository_pid_temp_filename() {
+    let stage = Temp::new("metadata-pid-temp");
+    let evidence = stage
+        .0
+        .join(format!("{}.tmp-{}", cache::META_FILE, std::process::id()));
+    fs::write(&evidence, "repository temp-name evidence\n").expect("source evidence");
+    let meta = cache::CacheMeta::new(
+        &cache::Identity {
+            owner: "fixture-owner",
+            repo: "fixture-repo",
+            branch: "main",
+            sparse_key: None,
+            depth: 1,
+        },
+        &"1".repeat(40),
+        Duration::from_secs(60),
+    );
+    cache::write_meta(&stage.0, &meta).expect("new stage metadata");
+    assert_eq!(
+        fs::read_to_string(&evidence).expect("source filename still exists"),
+        "repository temp-name evidence\n"
+    );
+    let written: cache::CacheMeta =
+        serde_json::from_slice(&fs::read(stage.0.join(cache::META_FILE)).expect("metadata"))
+            .expect("complete metadata");
+    assert_eq!(written.commit_sha, meta.commit_sha);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(stage.0.join(cache::META_FILE))
+                .expect("metadata permissions")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+}
+
+#[test]
+fn metadata_write_rejects_existing_source_without_overwrite() {
+    let stage = Temp::new("metadata-create-race");
+    let destination = stage.0.join(cache::META_FILE);
+    fs::write(&destination, "source arrived after inspection\n").expect("source evidence");
+    let meta = cache::CacheMeta::new(
+        &cache::Identity {
+            owner: "fixture-owner",
+            repo: "fixture-repo",
+            branch: "main",
+            sparse_key: None,
+            depth: 1,
+        },
+        &"1".repeat(40),
+        Duration::from_secs(60),
+    );
+    let error = cache::write_meta(&stage.0, &meta).expect_err("exclusive metadata creation");
+    assert_eq!(error.code, "clone.cache.metadataConflict");
+    assert!(error.message.contains(cache::META_FILE));
+    assert!(
+        error
+            .hints
+            .iter()
+            .any(|hint| hint.contains("ghGetFileContent"))
+    );
+    assert_eq!(
+        fs::read_to_string(destination).expect("preserved source"),
+        "source arrived after inspection\n"
+    );
+}
+
+#[test]
+fn repository_metadata_filename_conflict_never_replaces_an_existing_checkout() {
+    struct CollisionRunner {
+        inner: RewriteRunner,
+        collide: AtomicBool,
+        stages: Mutex<Vec<PathBuf>>,
+    }
+    impl GitRunner for CollisionRunner {
+        fn run(
+            &self,
+            request: &GitRunRequest<'_>,
+            control: &GitRunControl<'_>,
+        ) -> Result<GitOutput, CloneError> {
+            let output = self.inner.run(request, control)?;
+            if request.label == "full clone" && self.collide.load(Ordering::SeqCst) {
+                let stage = PathBuf::from(request.args.last().expect("clone stage argument"));
+                fs::write(
+                    stage.join(cache::META_FILE),
+                    "reserved repository evidence\n",
+                )
+                .expect("write owned source fixture");
+                self.stages.lock().expect("stage lock").push(stage);
+            }
+            Ok(output)
+        }
+    }
+    let fixture = Fixture::new();
+    let root = Temp::new("metadata-collision");
+    let cache_home = root.0.join("home");
+    fs::create_dir_all(&cache_home).expect("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.0.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let endpoint = GitHubEndpoint::github_com();
+    let runner = CollisionRunner {
+        inner: RewriteRunner::new(
+            "https://github.com/fixture-owner/fixture-repo.git",
+            &fixture.bare_url,
+        ),
+        collide: AtomicBool::new(true),
+        stages: Mutex::new(Vec::new()),
+    };
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(
+        &root.0,
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        None,
+    );
+    let fresh_error = execute_clone(&query(), &context).expect_err("reject fresh reserved source");
+    assert_eq!(fresh_error.code, "clone.cache.metadataConflict");
+    assert!(fresh_error.message.contains(cache::META_FILE));
+    assert!(fresh_error.message.contains(&fixture.first_commit));
+    assert!(
+        fresh_error
+            .hints
+            .iter()
+            .any(|hint| hint.contains("ghGetFileContent") && hint.contains(cache::META_FILE))
+    );
+    assert!(
+        runner
+            .stages
+            .lock()
+            .expect("stage lock")
+            .iter()
+            .all(|stage| !stage.exists()),
+        "failed tool-owned staging is cleaned up"
+    );
+    runner.collide.store(false, Ordering::SeqCst);
+    let initial = execute_clone(&query(), &context).expect("clean initial checkout");
+    let checkout = PathBuf::from(initial.location.local_path);
+    let original_meta = fs::read(checkout.join(cache::META_FILE)).expect("original metadata");
+    runner.collide.store(true, Ordering::SeqCst);
+    let refresh_error = execute_clone(
+        &GhCloneRepoQuery {
+            force_refresh: Some(true),
+            ..query()
+        },
+        &context,
+    )
+    .expect_err("reject reserved source before refresh");
+    assert_eq!(refresh_error.code, "clone.cache.metadataConflict");
+    assert_eq!(
+        fs::read(checkout.join(cache::META_FILE)).expect("unchanged metadata"),
+        original_meta
+    );
+    assert_eq!(
+        fs::read_to_string(checkout.join("README.md")).expect("unchanged source"),
+        "fixture\n"
+    );
+    assert_eq!(
+        git_output(&checkout, &["rev-parse", "HEAD"]).trim(),
+        fixture.first_commit
+    );
 }
 
 #[test]
@@ -886,17 +1283,23 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
     let cancellation = Arc::new(FlagCancel(AtomicBool::new(false)));
     let trigger = cancellation.clone();
     let trigger_pid_file = pid_file.clone();
+    let deadline = Instant::now() + Duration::from_secs(10);
     let join = std::thread::spawn(move || {
-        for _ in 0..200 {
-            if trigger_pid_file.exists() {
-                break;
+        while Instant::now() < deadline {
+            if let Some(pid) = fs::read_to_string(&trigger_pid_file)
+                .ok()
+                .and_then(|text| text.parse::<i32>().ok())
+                .filter(|pid| *pid > 0)
+            {
+                let cancelled_at = Instant::now();
+                trigger.0.store(true, Ordering::SeqCst);
+                return Some((pid, cancelled_at));
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        trigger.0.store(true, Ordering::SeqCst);
+        None
     });
     let runner = SystemGit::new(&script);
-    let started = Instant::now();
     let result = runner.run(
         &GitRunRequest {
             args: vec![pid_file.as_os_str().to_owned()],
@@ -907,22 +1310,22 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
         },
         &GitRunControl {
             cancellation: cancellation.as_ref(),
-            deadline: Instant::now() + Duration::from_secs(10),
+            deadline,
             cache_home: &root.0,
         },
     );
-    join.join().expect("trigger");
+    let (pid, cancelled_at) = join
+        .join()
+        .expect("trigger")
+        .expect("fixture must publish its child pid within the unchanged execution deadline");
     assert_eq!(
         result.expect_err("cancel").code,
         "clone.execution.cancelled"
     );
-    // The trigger itself allows two seconds for the fixture to publish its pid, so
-    // leave scheduler margin while still proving cancellation beats both deadlines.
-    assert!(started.elapsed() < Duration::from_secs(3));
-    let pid: i32 = fs::read_to_string(pid_file)
-        .expect("pid")
-        .parse()
-        .expect("integer pid");
+    assert!(
+        cancelled_at.elapsed() < Duration::from_secs(1),
+        "ready process-group cancellation must finish promptly"
+    );
     // A killed grandchild can remain briefly visible as a zombie until the OS
     // reaper runs. Poll only for that bounded reaping window; a live sleep would
     // remain for 30 seconds and fail this check.
@@ -943,18 +1346,11 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
 #[cfg(unix)]
 #[test]
 fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
-    use std::os::unix::fs::PermissionsExt;
     let root = Temp::new("process-errors");
-    let script = root.0.join("git-fixture.sh");
-    fs::write(
-        &script,
-        "#!/bin/sh\nif [ \"$3\" = timeout ]; then sleep 30; fi\nenv >&2\nprintf 'arg:%s\\n' \"$@\" >&2\nexit 1\n",
-    )
-    .expect("script");
-    let mut permissions = fs::metadata(&script).expect("metadata").permissions();
-    permissions.set_mode(0o700);
-    fs::set_permissions(&script, permissions).expect("permissions");
-    let runner = SystemGit::new(&script);
+    // Installed Git avoids measuring cold loading of a freshly created
+    // executable. Test-only aliases still exercise real subprocess stderr,
+    // credential scrubbing, deadlines and process-group cleanup.
+    let runner = SystemGit::default();
     let control = GitRunControl {
         cancellation: &NeverCancel,
         deadline: Instant::now() + Duration::from_secs(15),
@@ -964,7 +1360,11 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
     let failed = runner
         .run(
             &GitRunRequest {
-                args: vec!["fail".into()],
+                args: vec![
+                    "-c".into(),
+                    "alias.octocode-fixture=!env >&2; printf 'arg:%s\\n' \"$@\" >&2; exit 1".into(),
+                    "octocode-fixture".into(),
+                ],
                 timeout: Duration::from_secs(10),
                 label: "redaction fixture".into(),
                 authorization: Some(token),
@@ -981,7 +1381,11 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
     let timed_out = runner
         .run(
             &GitRunRequest {
-                args: vec!["timeout".into()],
+                args: vec![
+                    "-c".into(),
+                    "alias.octocode-fixture=!sleep 30".into(),
+                    "octocode-fixture".into(),
+                ],
                 timeout: Duration::from_millis(60),
                 label: "timeout fixture".into(),
                 authorization: None,

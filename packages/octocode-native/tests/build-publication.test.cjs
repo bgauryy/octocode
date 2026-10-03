@@ -130,3 +130,26 @@ test('stageFile replaces the destination inode instead of overwriting it', t => 
   assert.notEqual(statSync(join(root, 'destination')).ino, before);
   assert.deepEqual(readdirSync(root).sort(), ['destination', 'source']);
 });
+
+
+test('stageFile keeps unchanged bytes on their existing inode', t => {
+  const { stageFile } = require('../scripts/build-native.cjs');
+  const root = mkdtempSync(join(tmpdir(), 'octocode-stage-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, 'source');
+  const destination = join(root, 'destination');
+  const original = Buffer.alloc(128 * 1024 + 3, 65);
+  writeFileSync(source, original);
+  stageFile(source, destination, { executable: true });
+  const first = statSync(destination);
+  stageFile(source, destination, { executable: true });
+  assert.equal(statSync(destination).ino, first.ino);
+  assert.equal(statSync(destination).mtimeMs, first.mtimeMs);
+  const changed = Buffer.from(original);
+  changed[64 * 1024 + 1] = 66;
+  writeFileSync(source, changed);
+  stageFile(source, destination, { executable: true });
+  assert.notEqual(statSync(destination).ino, first.ino);
+  assert.deepEqual(readFileSync(destination), changed);
+  assert.deepEqual(readdirSync(root).sort(), ['destination', 'source']);
+});

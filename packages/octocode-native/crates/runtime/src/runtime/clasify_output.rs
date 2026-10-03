@@ -99,38 +99,6 @@ fn page_base(receipt: &Value) -> Map<String, Value> {
     page
 }
 
-/// Size failures name one candidate each; their receipts keep its read.
-const PER_PAGE_FAILURES: [&str; 2] = ["classificationContextTooLarge", "classificationBudgetSpent"];
-
-/// Every page failed with one identical error (e.g. the matrix was over its
-/// cell budget before any provider call): one page states it once, with the
-/// resource's page count, instead of repeating it beside every page receipt.
-fn collapse_shared_failure(pages: Vec<PageOutcome>) -> Vec<PageOutcome> {
-    let shared = match pages.as_slice() {
-        [PageOutcome::Failed { error, .. }, rest @ ..]
-            if !rest.is_empty()
-                && !PER_PAGE_FAILURES.contains(&error.code.as_str())
-                && rest.iter().all(|page| {
-                    matches!(page, PageOutcome::Failed { error: other, .. }
-                        if other.code == error.code && other.message == error.message)
-                }) =>
-        {
-            error.clone()
-        }
-        _ => return pages,
-    };
-    let mut error = shared;
-    error.message = format!(
-        "{} This resource captured {} pages.",
-        error.message,
-        pages.len()
-    );
-    vec![PageOutcome::Failed {
-        error,
-        receipt: json!({}),
-    }]
-}
-
 /// A page whose every answer is a located window needs no whole-page read:
 /// its read narrows to the top window, so the answer is one exact call away.
 fn only_located(answers: &[Result<Value, ClassificationError>]) -> bool {
@@ -186,7 +154,7 @@ pub(super) fn host_receipt(receipt: &mut Value, paths: &crate::policy::path::Pat
         relative(path);
     }
     let total_lines = receipt.pointer("/scope/totalLines").and_then(Value::as_u64);
-    for key in ["read", "fileRead"] {
+    for key in ["read", "fileRead", "pageRead"] {
         let Some(read) = receipt.get_mut(key) else {
             continue;
         };
@@ -313,9 +281,9 @@ fn worth_reading(answers: &[Result<Value, ClassificationError>]) -> bool {
         })
 }
 
-/// The host never received a delegated file read's evidence, so a verdict over
-/// it (even `sufficient`) is not the deciding fact. Such a page gets the read of
-/// exactly its judged lines, unless every verdict is a confident "no". A page
+/// The host never received a delegated read's evidence, so a verdict over
+/// it (even `sufficient`) is not the deciding fact. Such a page gets its selected
+/// history query or exactly its judged file lines, unless every verdict is a confident "no". A page
 /// with a located window already has its bounded read (`best`, `next.read`).
 fn verification_read(
     page: &mut Map<String, Value>,
@@ -332,6 +300,10 @@ fn verification_read(
         || receipt.get("read").is_some()
         || !worth_reading(answers)
     {
+        return;
+    }
+    if let Some(read) = receipt.get("pageRead") {
+        page.insert("next".into(), json!({"read":read}));
         return;
     }
     let Some(template) = receipt.get("fileRead") else {
@@ -380,7 +352,6 @@ pub(super) fn resource(
     pages: Vec<PageOutcome>,
     has_continuation: bool,
 ) -> Value {
-    let pages = collapse_shared_failure(pages);
     let mut answered = false;
     let mut failed = false;
     let mut terminal_partial = false;
@@ -886,15 +857,40 @@ mod tests {
                 receipt: receipt.clone(),
             })
             .collect::<Vec<_>>();
-        let rendered = resource(&json!("s"), &ids, pages, false);
+        let mut rendered = resource(&json!("s"), &ids, pages, false);
+        // Every captured page keeps its scope and read; none is merged away.
         let pages = rendered["pages"].as_array().unwrap();
-        assert_eq!(pages.len(), 1, "{rendered}");
-        assert_eq!(
-            pages[0],
-            json!({"error":{"code":"classificationExpandedCellsExceeded",
-                "message":"Captured 30 pages × 1 questions = 30 cells; the limit is 25. This resource captured 6 pages.",
-                "hints":["Reduce resources, questions, or search pageSize and retry."]}})
+        assert_eq!(pages.len(), 6, "{rendered}");
+        for page in pages {
+            assert_eq!(page["scope"]["startLine"], 1, "{rendered}");
+            assert_eq!(page["next"]["read"]["query"]["path"], "/repo/a.go");
+            assert_eq!(page["error"]["code"], "classificationExpandedCellsExceeded");
+        }
+        // The default output states the shared error once, on the resource.
+        let mut output = json!({"queryId":"m","resources":[rendered.take()]});
+        super::super::clasify_compact::compact_query(
+            &mut output,
+            &super::super::clasify_compact::Matrix {
+                single_resource: Some("s"),
+                locate_ids: &[],
+                default_max_chars: 80_000,
+            },
         );
+        let resource = &output["resources"][0];
+        assert_eq!(
+            resource["error"],
+            json!({"code":"classificationExpandedCellsExceeded",
+                "message":"Captured 30 pages × 1 questions = 30 cells; the limit is 25.",
+                "hints":["Reduce resources, questions, or search pageSize and retry."]}),
+            "{resource}"
+        );
+        let pages = resource["pages"].as_array().expect("pages");
+        assert_eq!(pages.len(), 6, "{resource}");
+        for page in pages {
+            assert!(page.get("error").is_none(), "{resource}");
+            assert_eq!(page["lines"], json!([1, 9]), "{resource}");
+            assert!(page["next"]["read"].is_object(), "{resource}");
+        }
     }
 
     #[test]
@@ -1023,5 +1019,30 @@ mod tests {
         let small = (json!("z"), json!({"coverage":"bounded"}));
         let merged = coalesce(vec![small.clone(), big, small], 100);
         assert_eq!(merged.len(), 3);
+    }
+    #[test]
+    fn unread_history_pages_offer_only_worthwhile_replay_reads() {
+        let ids = [json!("q")];
+        let ids = ids.iter().collect::<Vec<_>>();
+        let read = json!({"tool":"ghGetHistoryItem","confidence":"high","query":{
+            "operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "include":["body"],"charOffset":500,"charLength":500}});
+        for (probability, should_read) in [(0.9, true), (0.1, false)] {
+            let rendered = resource(
+                &json!("pr"),
+                &ids,
+                vec![PageOutcome::Assessed {
+                    receipt: json!({"coverage":"bounded","pageRead":read}),
+                    answers: vec![Ok(json!({"answer":{"type":"noul","noul":probability}}))],
+                }],
+                false,
+            );
+            if should_read {
+                assert_eq!(rendered["pages"][0]["next"]["read"], read, "{rendered}");
+            } else {
+                assert!(rendered["pages"][0].get("next").is_none(), "{rendered}");
+            }
+            assert!(!rendered.to_string().contains("pageRead"), "{rendered}");
+        }
     }
 }

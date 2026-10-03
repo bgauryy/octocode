@@ -148,11 +148,7 @@ async fn run(
         .map_err(|_| ArtifactError::new("provider_error", "Failed to encode artifacts."))?;
     if !query.debug() {
         compact_rows(&mut rows);
-        lean_rows(
-            &mut rows,
-            query.artifact_type(),
-            query.package_name().is_some(),
-        );
+        lean_rows(&mut rows, query.artifact_type());
     }
     let mut data = json!({
         "artifacts": rows,
@@ -225,9 +221,16 @@ async fn run(
             release["query"]["reasoning"] = json!(if attested {
                 "Release commit attested by npm provenance."
             } else {
-                "Registry release-ref lead; may be unpushed."
+                "Registry release-ref lead; if unpushed, omit branch."
             });
             data["next"]["viewReleaseSource"] = release;
+            // A pinned version asks about its release; the default-branch
+            // lead is the release lead without `branch`.
+            if query.version().is_some()
+                && let Some(next) = data["next"].as_object_mut()
+            {
+                next.remove("viewRepo");
+            }
         }
     }
     if let Some(limit) = page.terminal_limit.as_deref() {
@@ -287,11 +290,10 @@ fn compact_rows(rows: &mut Value) {
 }
 
 /// Drop what the request already states: each row's `type` (the queried
-/// registry). An exact lookup answers with release facts (version, dates,
-/// license, repository, deprecation, dependency counts); its description and
-/// a homepage beside the repository are discovery aids, kept for keyword
-/// search and under `debug`.
-fn lean_rows(rows: &mut Value, artifact_type: ArtifactType, exact: bool) {
+/// registry). Every other field is evidence: an exact lookup keeps the
+/// description and a homepage that is not the repository page
+/// ([`compact_rows`] drops only that duplicate).
+fn lean_rows(rows: &mut Value, artifact_type: ArtifactType) {
     let requested = serde_json::to_value(artifact_type).ok();
     for row in rows.as_array_mut().into_iter().flatten() {
         let Some(row) = row.as_object_mut() else {
@@ -299,13 +301,6 @@ fn lean_rows(rows: &mut Value, artifact_type: ArtifactType, exact: bool) {
         };
         if requested.is_some() && row.get("type") == requested.as_ref() {
             row.remove("type");
-        }
-        if exact {
-            row.remove("description");
-            // Without a repository the homepage is the only source lead.
-            if row.contains_key("repository") {
-                row.remove("homepage");
-            }
         }
     }
 }
@@ -365,24 +360,26 @@ mod github_repo_tests {
     }
 
     #[test]
-    fn exact_rows_keep_release_facts_and_drop_discovery_aids() {
+    fn exact_rows_keep_the_description_and_a_distinct_homepage() {
         let row = serde_json::json!({"type":"npm","name":"express","version":"4.21.2",
             "description":"Fast web framework","homepage":"http://expressjs.com/",
             "license":"MIT","repository":"https://github.com/expressjs/express",
             "publishedAt":"2024-12-05","engines":">= 0.10.0","dependencies":31});
         let mut exact = serde_json::json!([row.clone()]);
-        lean_rows(&mut exact, super::ArtifactType::Npm, true);
+        compact_rows(&mut exact);
+        lean_rows(&mut exact, super::ArtifactType::Npm);
+        let mut expected = row;
+        expected.as_object_mut().map(|row| row.remove("type"));
+        assert_eq!(exact, serde_json::json!([expected]));
+        // Only a homepage that is the repository page is a duplicate.
+        let mut same = serde_json::json!([{"name":"x","description":"d",
+            "homepage":"https://github.com/o/x#readme","repository":"https://github.com/o/x"}]);
+        compact_rows(&mut same);
+        lean_rows(&mut same, super::ArtifactType::Npm);
         assert_eq!(
-            exact,
-            serde_json::json!([{"name":"express","version":"4.21.2","license":"MIT",
-                "repository":"https://github.com/expressjs/express","publishedAt":"2024-12-05",
-                "engines":">= 0.10.0","dependencies":31}])
+            same,
+            serde_json::json!([{"name":"x","description":"d","repository":"https://github.com/o/x"}])
         );
-        // Keyword discovery chooses between packages by their description.
-        let mut discovery = serde_json::json!([row]);
-        lean_rows(&mut discovery, super::ArtifactType::Npm, false);
-        assert_eq!(discovery[0]["description"], "Fast web framework");
-        assert!(discovery[0].get("type").is_none());
     }
 
     #[test]
@@ -670,7 +667,30 @@ mod npm_auth_tests {
             row.keys()
                 .all(|key| key != "gitHead" && key != "sourceRef" && key != "registryUrl"),
             "{data}"
-        );
+        ); // A pinned version's code is its release: the default-branch lead
+        // would only repeat the release lead without its branch, which the
+        // release lead's reasoning names as the recovery.
+        let mut pinned = query.clone();
+        pinned["version"] = json!("1.31.0");
+        let data = run(
+            &pinned,
+            deadline,
+            CancellationToken::new(),
+            true,
+            None,
+            0,
+            false,
+            None,
+        )
+        .await
+        .expect("pinned lookup succeeds");
+        assert!(data["next"].get("viewRepo").is_none(), "{data}");
+        let release = &data["next"]["viewReleaseSource"];
+        assert_eq!(release["query"]["branch"], sha, "{data}");
+        assert_eq!(release["source"]["verification"], "unverified", "{data}");
+        let reasoning = release["query"]["reasoning"].as_str().expect("reasoning");
+        assert!(reasoning.contains("omit branch"), "{data}");
+        assert!(reasoning.chars().count() <= 60, "{reasoning}");
     }
 
     #[tokio::test]

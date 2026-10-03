@@ -1,0 +1,182 @@
+{
+  "qid": "L06",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "b074dd9bc067bf6c88135639c5a037a80da622296a6eee6d51a0d031ea475e96",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "1c62051ea6896e349e56df0ebfdeaa00601d78e02270c0a9e51aa76f7d8bb80d",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; covers app-page-runtime and pages-handler; omits NextNodeServer forwarding detail; honestly admits not reading etag.ts so misses the hash/format fact 5."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; includes the next-server.ts wrapper and the config-shared.ts:2614 detail, but leaves out app-page-runtime; omits the ETag algorithm (fact 5)."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; covers app-page-runtime and pages-handler; omits NextNodeServer forwarding detail; honestly admits not reading etag.ts so misses the hash/format fact 5."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; includes the next-server.ts wrapper and the config-shared.ts:2614 detail, but leaves out app-page-runtime; omits the ETag algorithm (fact 5)."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.0847634,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 7408,
+        "cache_read_input_tokens": 11117,
+        "output_tokens": 1163,
+        "context_tokens": 18529,
+        "total_tokens": 19692,
+        "first_request_context": 8749,
+        "fixed_overhead_tokens": 17498,
+        "research_tokens": 2194,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 7408,
+          "cache_read_input_tokens": 11117,
+          "output_tokens": 16
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1147
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7408,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 9780
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0847634,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7408,
+    "cache_read_input_tokens": 11117,
+    "output_tokens": 1163,
+    "context_tokens": 18529,
+    "total_tokens": 19692,
+    "first_request_context": 8749,
+    "fixed_overhead_tokens": 17498,
+    "research_tokens": 2194,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 7408,
+      "cache_read_input_tokens": 11117,
+      "output_tokens": 16
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1147
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7408,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 9780
+  },
+  "timedOut": false
+}

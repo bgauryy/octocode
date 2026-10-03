@@ -15,6 +15,7 @@
         "src/tools/clasify/questions.rs",
         "src/runtime/clasify_context.rs",
         "src/runtime/clasify_batch.rs",
+        "src/runtime/clasify_provider.rs",
         "src/runtime/clasify_locate.rs",
         "tests/runtime_clasify.rs",
         "src/tools/clasify/aliases.rs",
@@ -409,6 +410,8 @@
     "ghGetFileContent": {
       "evidence": [
         "src/tools/gh_get_file_content/mod.rs",
+        "src/tools/local_fetch.rs",
+        "src/tools/local_fetch/block.rs",
         "tests/runtime_github.rs"
       ],
       "variants": [],

@@ -802,6 +802,28 @@ async fn grouped_references_replace_locations_with_file_summaries() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn a_capped_alias_scan_is_disclosed_with_a_text_search() {
+    let q = query(serde_json::json!({
+        "operation": "references", "goal": "test", "reasoning": "test",
+        "uri": "/repo/a.ts", "symbolName": "foo", "lineHint": 1
+    }));
+    let mut row = serde_json::json!({
+        "type": "references",
+        "payload": {"kind": "references", "coverage": {"scope": "languageServer", "exhaustive": false}}
+    });
+    super::recovery::disclose_alias_cap(&mut row, &q, "/repo");
+    assert_eq!(row["payload"]["coverage"]["aliasScan"], "capped", "{row}");
+    assert_eq!(row["isPartial"], true);
+    assert_eq!(
+        row["partialReasons"],
+        serde_json::json!([super::recovery::ALIAS_SCAN_CAPPED_REASON])
+    );
+    assert!(row.get("terminalLimit").is_none(), "{row}");
+    assert_eq!(row["next"]["textSearch"]["tool"], "localSearch", "{row}");
+    assert_eq!(row["next"]["textSearch"]["query"]["path"], "/repo");
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn recovered_alias_references_are_labeled_in_output() {
     let (root, paths) = temp_workspace("alias-label");
@@ -1343,6 +1365,28 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
         &serde_json::json!({"results":[{"index":0,"data":row}]}),
     )
     .expect("partial hierarchy row satisfies the output contract");
+
+    // Every distinct failure is named with its count: none hides behind a cap.
+    let mut failures = (0..6)
+        .map(|n| engine_error(&format!("LSP error: node {n}")))
+        .collect::<Vec<_>>();
+    failures.extend((0..4).map(|_| engine_error("LSP error: timeout")));
+    let mut row = items_payload(&q, "callers", serde_json::json!(items));
+    mark_partial_expansion(&mut row, &q, &failures);
+    let warnings = row["warnings"].as_array().cloned().unwrap_or_default();
+    assert_eq!(warnings.len(), 7, "{warnings:?}");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().is_some_and(|w| w.contains("node 5"))),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings.iter().any(|w| w
+            .as_str()
+            .is_some_and(|w| w.contains("4 items") && w.contains("timeout"))),
+        "{warnings:?}"
+    );
 }
 
 /// A fake call graph: `callers[name]` lists the names calling `name`. Each
@@ -1575,40 +1619,94 @@ async fn hierarchy_depth_is_clamped_in_code() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn hierarchy_fan_out_cap_truncates_with_a_terminal_limit() {
-    let callers = (0..MAX_HIERARCHY_FAN_OUT + 10)
-        .map(|index| format!("caller{index}"))
-        .collect::<Vec<_>>();
-    let mut graph = graph(&[]);
-    graph.callers.insert("root".into(), callers);
-    let walk = walk(&graph, 1).await;
-    assert_eq!(walk.edges.len(), MAX_HIERARCHY_FAN_OUT);
-    assert_eq!(walk.fan_out_capped, vec!["root".to_owned()]);
+async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
+    let (root, paths) = temp_workspace("walk-fan-out");
+    let file = root.join("graph.ts");
+    std::fs::write(&file, "// graph\n").expect("graph.ts");
+    let uri = octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri");
+    let wide = |prefix: &str| {
+        (0..MAX_HIERARCHY_FAN_OUT + 10)
+            .map(|index| format!("{prefix}{index}"))
+            .collect::<Vec<_>>()
+    };
+    // The anchor's own results are paged, never cut.
+    let mut flat_graph = graph(&[]);
+    flat_graph.uri = Some(uri.clone());
+    flat_graph.callers.insert("root".into(), wide("caller"));
+    let flat = walk_from(
+        &flat_graph,
+        node_at("root", Some(&uri)),
+        1,
+        &paths,
+        &crate::tools::cancel::NeverCancel,
+    )
+    .await
+    .expect("walk");
+    assert_eq!(flat.edges.len(), MAX_HIERARCHY_FAN_OUT + 10);
+    assert!(flat.fan_out_capped.is_empty() && flat.resumes.is_empty());
 
+    // A wide node below the anchor keeps the first results and resumes from
+    // itself, where it is the anchor and lists every result.
+    let mut deep_graph = graph(&[("root", &["hub"])]);
+    deep_graph.uri = Some(uri.clone());
+    deep_graph.callers.insert("hub".into(), wide("caller"));
+    let deep = walk_from(
+        &deep_graph,
+        node_at("root", Some(&uri)),
+        2,
+        &paths,
+        &crate::tools::cancel::NeverCancel,
+    )
+    .await
+    .expect("walk");
+    assert_eq!(deep.edges.len(), 1 + MAX_HIERARCHY_FAN_OUT);
+    assert_eq!(deep.fan_out_capped, vec!["hub".to_owned()]);
     let q = query(serde_json::json!({
         "operation": "callers", "goal": "test", "reasoning": "test",
-        "uri": "file:///repo/a.ts",
-        "position": {"line": 0, "character": 0}
+        "uri": file.to_string_lossy(),
+        "symbolName": "root",
+        "lineHint": 1,
+        "depth": 2
     }));
-    let items = walk
+    let items = deep
         .edges
         .iter()
         .map(|edge| public_edge(Expansion::IncomingCalls, edge))
         .collect::<Vec<_>>();
     let mut row = items_payload(&q, "callers", serde_json::json!(items));
-    mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &walk)]);
+    mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &deep)]);
     assert_eq!(row["payload"]["truncated"], true);
     assert_eq!(row["isPartial"], true);
-    assert_eq!(row["terminalLimit"], true);
+    assert!(row.get("terminalLimit").is_none(), "{row}");
     assert_eq!(
         row["partialReasons"],
         serde_json::json!(["hierarchyFanOutLimit"])
     );
+    assert_eq!(row["payload"]["unexpandedParents"][0]["name"], "hub");
+    let resume = &row["next"]["continueWalk"]["query"];
+    assert_eq!(resume["depth"], 1, "{resume}");
+    assert_eq!(
+        resume["position"]["line"],
+        node_at("hub", Some(&uri))["selectionRange"]["start"]["line"]
+    );
+    let mut row = with_next(&q, row);
+    row["next"]["continueWalk"]["query"]["reasoning"] = serde_json::json!("continue");
     crate::contracts::validate_output(
         "lspSearch",
         &serde_json::json!({"results":[{"index":0,"data":row}]}),
     )
     .expect("fan-out-limited row satisfies the output contract");
+    let resumed = walk_from(
+        &deep_graph,
+        node_at("hub", Some(&uri)),
+        1,
+        &paths,
+        &crate::tools::cancel::NeverCancel,
+    )
+    .await
+    .expect("resumed walk");
+    assert_eq!(resumed.edges.len(), MAX_HIERARCHY_FAN_OUT + 10);
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -2215,7 +2313,7 @@ fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
         "content": body,
         "displayRange": {"startLine": 426, "endLine": 625}
     });
-    cap_declaration_content(&mut location);
+    let rest = cap_declaration_content(&mut location).expect("a read of the omitted lines");
     let content = location["content"].as_str().expect("content");
     let lines = content.lines().collect::<Vec<_>>();
     assert_eq!(lines.len(), MAX_DECLARATION_CONTENT_LINES + 1);
@@ -2223,12 +2321,18 @@ fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
     assert_eq!(lines[MAX_DECLARATION_CONTENT_LINES - 1], "line 59");
     assert_eq!(
         lines[MAX_DECLARATION_CONTENT_LINES],
-        "… 140 more lines omitted (source lines 486-625); read them with localFetch startLine/endLine."
+        "… 140 more lines omitted (source lines 486-625); next.readDeclaration reads them."
+    );
+    // The omitted lines are one executable read, each line once.
+    assert_eq!(rest["tool"], "localFetch");
+    assert_eq!(
+        rest["query"],
+        serde_json::json!({"path": "/repo/a.ts", "startLine": 486, "endLine": 625})
     );
     let short = "a\nb\nc";
     let mut small =
         serde_json::json!({"content": short, "displayRange": {"startLine": 1, "endLine": 3}});
-    cap_declaration_content(&mut small);
+    assert!(cap_declaration_content(&mut small).is_none());
     assert_eq!(small["content"], short, "short bodies are untouched");
 }
 

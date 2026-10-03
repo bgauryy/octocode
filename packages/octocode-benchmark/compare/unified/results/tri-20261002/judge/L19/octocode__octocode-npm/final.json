@@ -1,0 +1,163 @@
+{
+  "qid": "L19",
+  "pairKey": "octocode__octocode-npm",
+  "workers": [
+    "octocode",
+    "octocode-npm"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "octocode-npm": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    },
+    "octocode-npm": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "tie",
+    "octocode"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2246064,
+  "judgeTokens": 47797,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 10127,
+        "cache_read_input_tokens": 12323,
+        "output_tokens": 1321,
+        "context_tokens": 22454,
+        "total_tokens": 23775,
+        "first_request_context": 9955,
+        "fixed_overhead_tokens": 19910,
+        "research_tokens": 3865,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 10127,
+          "cache_read_input_tokens": 12323,
+          "output_tokens": 13
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1308
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10127,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 12499
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1099166,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 10131,
+        "cache_read_input_tokens": 12329,
+        "output_tokens": 1558,
+        "context_tokens": 22464,
+        "total_tokens": 24022,
+        "first_request_context": 9961,
+        "fixed_overhead_tokens": 19922,
+        "research_tokens": 4100,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 10131,
+          "cache_read_input_tokens": 12329,
+          "output_tokens": 15
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1543
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10131,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 12503
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.11468980000000001,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

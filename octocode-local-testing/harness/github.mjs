@@ -249,7 +249,7 @@ for (const r of Object.values(pinned)) {
   const prNumber = +(git(r.dir, 'log', '-1', '--format=%s').match(/#(\d+)\)/)?.[1] ?? 0);
   if (prNumber) {
     const pr = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, content: { changedFiles: true } }))?.pullRequests?.[0];
-    check(`PR #${prNumber}: mergeCommitSha is the pinned squash commit`, pr?.mergeCommitSha === r.sha && pr?.next?.getMergeCommit?.query?.ref === r.sha, `mergeCommitSha=${pr?.mergeCommitSha}`);
+    check(`PR #${prNumber}: mergeCommitSha is the pinned squash commit`, pr?.mergeCommitSha === r.sha && !pr?.next?.getMergeCommit, `mergeCommitSha=${pr?.mergeCommitSha}`);
     // A squash headline `… (#N)` routes straight to next.readPullRequest; otherwise next.findPullRequest searches by SHA.
     const prHint = commit?.next?.readPullRequest ?? commit?.next?.findPullRequest;
     check(`commit ${r.sha.slice(0, 8)}: PR continuation exists`, !!prHint);

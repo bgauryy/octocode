@@ -1,0 +1,166 @@
+{
+  "qid": "L20",
+  "pairKey": "octocode-npm__rg-gh",
+  "workers": [
+    "octocode-npm",
+    "rg-gh"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode-npm": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode-npm": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 10,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        10
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [
+    "Reference claims definition + 4 call sites is the full non-test set, but tsoptions/showconfig.go:47 also uses GetResolveJsonModule as a method value (computeFn((*core.CompilerOptions).GetResolveJsonModule)) for --showConfig computed output; the suggested rg pattern with '\\(' misses it.",
+    "Reference says the four call sites are the full non-test set, but tsoptions/showconfig.go:47 also uses GetResolveJsonModule as a method value for --showConfig computed output; both answers correctly include it."
+  ],
+  "judgeCost": 0.2205934,
+  "judgeTokens": 57157,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 10099,
+        "cache_read_input_tokens": 23731,
+        "output_tokens": 1793,
+        "context_tokens": 33836,
+        "total_tokens": 35629,
+        "first_request_context": 9525,
+        "fixed_overhead_tokens": 28575,
+        "research_tokens": 7054,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 10099,
+          "cache_read_input_tokens": 23731,
+          "output_tokens": 793
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1000
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10099,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 12471
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1214222,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 7982,
+        "cache_read_input_tokens": 11896,
+        "output_tokens": 1646,
+        "context_tokens": 19882,
+        "total_tokens": 21528,
+        "first_request_context": 9528,
+        "fixed_overhead_tokens": 19056,
+        "research_tokens": 2472,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 7982,
+          "cache_read_input_tokens": 11896,
+          "output_tokens": 12
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1634
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7982,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 10354
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.09917119999999999,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

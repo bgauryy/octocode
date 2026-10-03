@@ -437,16 +437,24 @@ fn execute_match_inner(
             .collect::<Vec<_>>();
         // Rows whose text was cut to a header or that hide capture text:
         // `captureText:true` (next.expandCaptures) returns them whole.
-        let header_rows = matches.iter().map(|row| row.1).collect::<Vec<_>>();
-        let matches = matches.into_iter().map(|row| row.0).collect::<Vec<_>>();
+        let header_rows = matches.iter().map(|row| row.withheld).collect::<Vec<_>>();
+        let full_chars = matches.iter().map(|row| row.cut).collect::<Vec<_>>();
+        let shown_cuts = matches.iter().map(|row| row.shown_cut).collect::<Vec<_>>();
+        let matches = matches.into_iter().map(|row| row.value).collect::<Vec<_>>();
         if !matches.is_empty() {
             let total = matches.len();
             total_matches += total as u64;
             if file_list {
                 if q.result_view().as_deref() == Some("countMatches") {
-                    groups.push((json!({"path":path,"totalOccurrences":total}), false, false));
+                    groups.push((
+                        json!({"path":path,"totalOccurrences":total}),
+                        false,
+                        false,
+                        None,
+                        false,
+                    ));
                 } else {
-                    groups.push((json!({"path":path}), false, false));
+                    groups.push((json!({"path":path}), false, false, None, false));
                 }
                 continue;
             }
@@ -454,6 +462,12 @@ fn execute_match_inner(
             let selected = matches.get(match_start..match_end).unwrap_or(&[]).to_vec();
             let more_matches = match_end < total;
             let truncated_captures = header_rows
+                .get(match_start..match_end)
+                .is_some_and(|rows| rows.contains(&true));
+            let cut_chars = full_chars
+                .get(match_start..match_end)
+                .and_then(|rows| rows.iter().flatten().max().copied());
+            let shown_cut = shown_cuts
                 .get(match_start..match_end)
                 .is_some_and(|rows| rows.contains(&true));
             let out_of_range = match_start >= total;
@@ -481,7 +495,13 @@ fn execute_match_inner(
                     group["pagination"]["outOfRange"] = json!(true);
                 }
             }
-            groups.push((group, more_matches, truncated_captures));
+            groups.push((
+                group,
+                more_matches,
+                truncated_captures,
+                cut_chars,
+                shown_cut,
+            ));
         }
         if status != "ok" || !diagnostics.is_empty() {
             // A literal prefilter can skip thousands of files. Preserve the
@@ -525,7 +545,7 @@ fn execute_match_inner(
             "stage":"scan",
             "message":format!("Candidate scan hit the maxFiles limit ({limit}); files beyond it were not evaluated. Results are a bounded subset, not the full corpus."),
             "path":super::display_name(&p.canonical),
-            "recovery":"Narrow the scope with include globs or excludeDir, or raise maxFiles, then re-run."
+            "recovery":"Follow next.expandScan, or narrow the scope with include globs or excludeDir."
         }));
     }
     let size = q.page_size().clamp(1, match_schema("pageSize", "maximum")) as usize;
@@ -538,6 +558,21 @@ fn execute_match_inner(
     // continue with nextMatchPage.
     let has_more_matches = page_groups.iter().any(|group| group.1);
     let has_truncated_captures = page_groups.iter().any(|group| group.2);
+    // The longest whole value a row on this page shortened: a continuation at
+    // that `matchContentLength` returns every cut value whole.
+    let cut_chars = page_groups.iter().filter_map(|group| group.3).max();
+    let shown_cut = page_groups.iter().any(|group| group.4);
+    let max_content_length = match_schema("matchContentLength", "maximum") as usize;
+    if let Some(chars) = cut_chars.filter(|chars| *chars > max_content_length) {
+        all_diagnostics.push(json!({
+            "code":"structural.match.valueClipped",
+            "severity":"warning",
+            "stage":"match",
+            "message":format!("A match value has {chars} characters, past the matchContentLength maximum ({max_content_length}); its row shows the first {max_content_length}."),
+            "path":super::display_name(&p.canonical),
+            "recovery":"Read the row's line range with localFetch for the whole text."
+        }));
+    }
     let selected = page_groups
         .iter()
         .map(|group| group.0.clone())
@@ -599,11 +634,19 @@ fn execute_match_inner(
         || compile_failed_files > 0
         || unevaluated_files > 0;
     out["truncated"] = json!(scan_truncated);
-    out["complete"] = json!(!more && !incomplete && !has_more_matches);
+    out["complete"] = json!(!more && !incomplete && !has_more_matches && !shown_cut);
     if groups.is_empty() && !more && !incomplete {
         out["status"] = json!("empty");
     }
-    if scan_truncated && !more {
+    // A `maxFiles` cut below the schema maximum is raisable: expandScan
+    // re-runs the scan with a doubled bound, so only the maximum is terminal.
+    let max_files = match_schema("maxFiles", "maximum");
+    let expand_scan = (scan_truncated && q.max_files() < max_files)
+        .then(|| q.max_files().saturating_mul(2).min(max_files));
+    if (scan_truncated && !more && expand_scan.is_none())
+        || (more && page >= 1_000)
+        || (has_more_matches && match_page >= 1_000)
+    {
         out["terminalLimit"] = json!(true);
     }
     let with = |changes: Value| {
@@ -613,7 +656,7 @@ fn execute_match_inner(
         }
         continuation_with(q, merged, &snapshot)
     };
-    if more {
+    if more && page < 1_000 {
         out["pagination"]["nextPage"] = json!(page + 1);
         // A new file page restarts per-file match pagination.
         out["next"] = json!({"nextPage":with(json!({"page":page + 1,"matchPage":1}))})
@@ -622,8 +665,22 @@ fn execute_match_inner(
         out["next"]["nextMatchPage"] =
             with(json!({"maxMatchesPerFile":matches_per_page,"matchPage":match_page+1}));
     }
+    if let Some(bound) = expand_scan {
+        let mut expand = with(json!({"maxFiles":bound,"page":1,"matchPage":1}));
+        if let Some(query) = expand["query"].as_object_mut() {
+            query.remove("snapshot");
+        }
+        out["next"]["expandScan"] = expand;
+    }
+    let whole_length = cut_chars.map(|chars| chars.min(max_content_length));
     if has_truncated_captures && !q.capture_text().unwrap_or(false) {
-        out["next"]["expandCaptures"] = with(json!({"captureText":true}));
+        let mut expand = json!({"captureText":true});
+        if let Some(length) = whole_length {
+            expand["matchContentLength"] = json!(length);
+        }
+        out["next"]["expandCaptures"] = with(expand);
+    } else if let Some(length) = whole_length.filter(|length| *length > content_length) {
+        out["next"]["expandValues"] = with(json!({"matchContentLength":length}));
     }
     Ok(out)
 }
@@ -632,20 +689,29 @@ fn execute_match_inner(
 /// `line`, `column` (0-based) and `value`, `endLine` and `endColumn` for a
 /// multi-line span, and each capture once in `metavarRanges` (text plus
 /// 1-based position; the engine `metavars` map is a fallback for a capture
-/// without a range). The flag is true when the lean row withheld something
-/// `captureText:true` returns: a multi-line match cut to its header
-/// (signature) followed by `…`, or capture text the value does not show.
-fn match_value(
-    m: StructuralDetailedMatch,
-    capture_text: bool,
-    content_length: usize,
-) -> (Value, bool) {
+/// without a range).
+struct MatchRow {
+    value: Value,
+    /// The lean row withheld something `captureText:true` returns: a
+    /// multi-line match cut to its header (signature) followed by `…`, or
+    /// capture text the value does not show.
+    withheld: bool,
+    /// The shown text was cut at `matchContentLength`.
+    shown_cut: bool,
+    /// The whole value's characters when they exceed `matchContentLength`,
+    /// so the shown or the `captureText` value is cut.
+    cut: Option<usize>,
+}
+
+fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: usize) -> MatchRow {
+    let whole_chars = normalized_chars(&m.text);
+    let cut = (whole_chars > content_length).then_some(whole_chars);
     let header = m.header.as_deref().filter(|_| !capture_text);
-    let text = match header {
-        Some(header) => format!(
-            "{} …",
-            compact_match(header, content_length.saturating_sub(2).max(1))
-        ),
+    let (text, shown_cut) = match header {
+        Some(header) => {
+            let (text, shown_cut) = compact_match(header, content_length.saturating_sub(2).max(1));
+            (format!("{text} …"), shown_cut)
+        }
         None => compact_match(&m.text, content_length),
     };
     if !capture_text {
@@ -664,7 +730,12 @@ fn match_value(
                 .flatten()
                 .any(|range| hidden(&range.text))
             || m.metavars.values().flatten().any(|value| hidden(value));
-        return (json!(format!("{lines}\t{text}")), withheld);
+        return MatchRow {
+            value: json!(format!("{lines}\t{text}")),
+            withheld,
+            shown_cut,
+            cut,
+        };
     }
     let mut value = json!({"line":m.start_line,"value":text,"column":m.start_col});
     if m.end_line != m.start_line {
@@ -707,12 +778,18 @@ fn match_value(
     if !ranges.is_empty() {
         value["metavarRanges"] = Value::Object(ranges);
     }
-    (value, false)
+    MatchRow {
+        value,
+        withheld: false,
+        shown_cut,
+        cut,
+    }
 }
 
 /// Whitespace-normalized match text bounded to `limit` characters
-/// (`matchContentLength`), including the trailing ellipsis when cut.
-fn compact_match(text: &str, limit: usize) -> String {
+/// (`matchContentLength`), including the trailing ellipsis when cut, and
+/// whether it was cut.
+fn compact_match(text: &str, limit: usize) -> (String, bool) {
     let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if normalized.chars().count() > limit {
         let mut output = normalized
@@ -720,10 +797,22 @@ fn compact_match(text: &str, limit: usize) -> String {
             .take(limit.saturating_sub(1))
             .collect::<String>();
         output.push('…');
-        output
+        (output, true)
     } else {
-        normalized
+        (normalized, false)
     }
+}
+
+/// Characters of `text` once whitespace-normalized, as [`compact_match`]
+/// measures it.
+fn normalized_chars(text: &str) -> usize {
+    let mut words = 0_usize;
+    let chars = text
+        .split_whitespace()
+        .inspect(|_| words += 1)
+        .map(|word| word.chars().count())
+        .sum::<usize>();
+    chars + words.saturating_sub(1)
 }
 
 fn match_display_path(root: &std::path::Path, path: &str) -> String {

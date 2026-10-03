@@ -69,7 +69,7 @@ Nothing else on your machine is written by Octocode. Deleting `tmp/` is always s
 | `stats.json` | Usage counters (clasify calls and tokens). Written only when `OCTOCODE_ENABLE_STATS=1` and storage is persistent. |
 | `logs/evictions.jsonl` | A log of cached checkouts that cleanup removed, so a vanished local path can be explained. `octocode cache status` shows the recent ones. |
 
-**Caches** (safe to delete, rebuilt on demand; see [Cache storage and lifecycle](#cache-storage-and-lifecycle)):
+**Caches** (rebuilt on demand; clone checkouts may also contain local edits; see [Cache storage and lifecycle](#cache-storage-and-lifecycle)):
 
 | Path | What it holds |
 |------|---------------|
@@ -94,7 +94,7 @@ Set `storage.mode` to `"memory"` when Octocode must not create persistent caches
 
 | Concern | Behavior |
 |---------|----------|
-| Automatic cleanup | At most one sweep per 24 hours, tracked by the marker `tmp/.last-cache-maintenance`. It deletes entries older than 24 hours under `tmp/clone`, `tmp/response`, `tmp/tree` and `tmp/ratelimit`, and search snapshots older than 60 seconds. |
+| Automatic cleanup | At most one sweep per 24 hours, tracked by the marker `tmp/.last-cache-maintenance`. It deletes entries older than 24 hours under `tmp/response`, `tmp/tree` and `tmp/ratelimit`, and search snapshots older than 60 seconds. Clones use lock/status-aware eviction during clone activity; automatic directory-age sweeps preserve them. |
 | When it runs | Synchronously when a native runtime starts: once per CLI process, and at MCP server start. There is no background timer. Skipped when `storage.mode` is `memory` or `tmp/` does not exist. |
 | Failure | Best-effort; an unavailable or read-only cache home never blocks CLI execution or MCP startup. |
 | Ownership | Sweeps only those Octocode-owned directories; other `tmp/` content is preserved. |

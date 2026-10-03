@@ -197,7 +197,8 @@ fn hop_failure_warning(snippet: &JsCodeSnippet, depth: usize, failure: &LspFailu
 /// imports that rename it, confirm by definition identity that the alias is
 /// the same symbol, and add the alias's references. Bounded by
 /// [`MAX_ALIAS_FILES_READ`] files read and [`MAX_ALIAS_IMPORTS`] verified
-/// imports per request.
+/// imports per request; a cap that leaves files or imports unchecked sets
+/// [`AliasRecovery::capped`].
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn recover_aliases(
     client: &NativeLspClient,
@@ -210,9 +211,9 @@ pub(super) async fn recover_aliases(
     line: u32,
     character: u32,
     provider: &[JsCodeSnippet],
-) -> Result<Vec<JsCodeSnippet>, LspFailure> {
+) -> Result<AliasRecovery, LspFailure> {
     let Some(symbol) = symbol else {
-        return Ok(Vec::new());
+        return Ok(AliasRecovery::default());
     };
     let definition_ids = match get_locations(
         client,
@@ -230,10 +231,10 @@ pub(super) async fn recover_aliases(
             .map(snippet_identity)
             .collect::<HashSet<_>>(),
         Err(failure) if failure.code == "lsp.cancelled" => return Err(failure),
-        Err(_) => return Ok(Vec::new()),
+        Err(_) => return Ok(AliasRecovery::default()),
     };
     if definition_ids.is_empty() {
-        return Ok(Vec::new());
+        return Ok(AliasRecovery::default());
     }
     let provider_ids = provider
         .iter()
@@ -245,10 +246,12 @@ pub(super) async fn recover_aliases(
         .map(|snippet| uri_to_path(&snippet.uri))
         .collect::<BTreeSet<_>>();
     let mut recovered = Vec::new();
+    let mut capped = false;
     let mut files_read = 0usize;
     let mut imports_checked = 0usize;
     for file in files {
         if files_read >= MAX_ALIAS_FILES_READ || imports_checked >= MAX_ALIAS_IMPORTS {
+            capped = true;
             break;
         }
         cancel.check().map_err(LspFailure::cancelled)?;
@@ -260,6 +263,7 @@ pub(super) async fn recover_aliases(
         };
         for (local_line, local_character) in aliasing_imports(&source.content, &file, symbol) {
             if imports_checked >= MAX_ALIAS_IMPORTS {
+                capped = true;
                 break;
             }
             imports_checked += 1;
@@ -301,7 +305,42 @@ pub(super) async fn recover_aliases(
             }
         }
     }
-    Ok(recovered)
+    Ok(AliasRecovery {
+        snippets: recovered,
+        capped,
+    })
+}
+
+/// What alias recovery found, and whether a cap left candidates unchecked.
+#[derive(Debug, Default)]
+pub(super) struct AliasRecovery {
+    pub(super) snippets: Vec<JsCodeSnippet>,
+    pub(super) capped: bool,
+}
+
+/// Partial reason of a references row whose alias scan stopped at a cap.
+pub(super) const ALIAS_SCAN_CAPPED_REASON: &str = "aliasScanCapped";
+
+/// Disclose a capped alias scan: `coverage.aliasScan:"capped"`, a partial
+/// reason with a warning, and the lexical `next.textSearch` that reaches the
+/// aliases left unchecked.
+pub(super) fn disclose_alias_cap(
+    row: &mut Value,
+    query: &super::LspSearchQuery,
+    workspace_root: &str,
+) {
+    if let Some(coverage) = row.pointer_mut("/payload/coverage") {
+        coverage["aliasScan"] = serde_json::json!("capped");
+    }
+    super::inferred_project::flag_partial(
+        row,
+        query,
+        ALIAS_SCAN_CAPPED_REASON,
+        &format!(
+            "Alias recovery checked at most {MAX_ALIAS_FILES_READ} files and {MAX_ALIAS_IMPORTS} renaming imports; references through the unchecked aliases may be missing. Confirm with next.textSearch."
+        ),
+        workspace_root,
+    );
 }
 
 /// Zero-based positions of the local names of imports in `source` that

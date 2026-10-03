@@ -279,6 +279,7 @@ pub(super) fn fetch_window(
                     "Read the file from the start in bounded line windows.",
                 )),
                 restart: None,
+                ..NextCalls::default()
             },
         );
         result.hints = vec![format!(
@@ -303,6 +304,7 @@ pub(super) fn fetch_window(
                     "Read the file in bounded line windows.",
                 )),
                 restart: None,
+                ..NextCalls::default()
             },
         );
     }
@@ -334,6 +336,7 @@ pub(super) fn fetch_window(
                 line_chunk_query(q, 0),
                 "Restart on the current file version.",
             )),
+            ..NextCalls::default()
         });
         return result;
     }
@@ -352,6 +355,7 @@ pub(super) fn fetch_window(
                 line_chunk_query(q, 0),
                 "Read from the first line.",
             )),
+            ..NextCalls::default()
         });
         return result;
     }
@@ -450,6 +454,7 @@ pub(super) fn fetch_window(
                 )),
                 read_bounded_lines: None,
                 restart: None,
+                ..NextCalls::default()
             }
         });
     }

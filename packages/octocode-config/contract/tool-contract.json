@@ -1,6 +1,6 @@
 {
   "contractFormatVersion": 2,
-  "fingerprint": "9804153488ea74d7c1936c3ae790612b41e5aabf9bc598edd66a34e3e34d9990",
+  "fingerprint": "de1fbc39154111ba9111c0fef85517b98d25802962bac0659b9d37be6cb58797",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -23168,7 +23168,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -23547,7 +23547,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -23659,7 +23659,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -30499,7 +30499,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -30878,7 +30878,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -30990,7 +30990,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -32033,7 +32033,7 @@
                   "type": "string"
                 },
                 "include": {
-                  "description": "Each adds an API call.",
+                  "description": "sizes: tree data; others add API calls.",
                   "items": {
                     "enum": [
                       "sizes",
@@ -32058,7 +32058,7 @@
                   "type": "integer"
                 },
                 "maxDepth": {
-                  "description": "Default 1; unlimited with pattern.",
+                  "description": "Omit: 1; with pattern: 20.",
                   "maximum": 20,
                   "minimum": 1,
                   "type": "integer"
@@ -37935,7 +37935,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -38314,7 +38314,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -38426,7 +38426,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -39059,7 +39059,7 @@
             "type": "string"
           },
           "include": {
-            "description": "Each adds an API call.",
+            "description": "sizes: tree data; others add API calls.",
             "items": {
               "enum": [
                 "sizes",
@@ -39084,7 +39084,7 @@
             "type": "integer"
           },
           "maxDepth": {
-            "description": "Default 1; unlimited with pattern.",
+            "description": "Omit: 1; with pattern: 20.",
             "maximum": 20,
             "minimum": 1,
             "type": "integer"
@@ -45206,7 +45206,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -45585,7 +45585,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -45697,7 +45697,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -53098,7 +53098,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -53477,7 +53477,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -53589,7 +53589,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -55283,6 +55283,11 @@
         {
           "id": "history.search-branches",
           "opcode": "schema_union",
+          "phase": "validate"
+        },
+        {
+          "id": "history.repository-scope",
+          "opcode": "history_repository_scope",
           "phase": "validate"
         },
         {
@@ -62100,7 +62105,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -62479,7 +62484,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -62591,7 +62596,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -72467,7 +72472,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -72846,7 +72851,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -72958,7 +72963,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -74050,7 +74055,7 @@
                   "type": "integer"
                 },
                 "forceRefresh": {
-                  "description": "Bypass the cached clone and fetch current repository state.",
+                  "description": "Fetch current state; refuses to replace local edits.",
                   "type": "boolean"
                 },
                 "goal": {
@@ -79915,7 +79920,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -80294,7 +80299,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -80406,7 +80411,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -81008,7 +81013,7 @@
             "type": "integer"
           },
           "forceRefresh": {
-            "description": "Bypass the cached clone and fetch current repository state.",
+            "description": "Fetch current state; refuses to replace local edits.",
             "type": "boolean"
           },
           "goal": {
@@ -87164,7 +87169,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -87543,7 +87548,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -87655,7 +87660,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -95472,7 +95477,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -95851,7 +95856,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -95963,7 +95968,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -96456,6 +96461,29 @@
                           "items": {
                             "anyOf": [
                               {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "dir": {
+                                    "description": "Resolves like a row path (against base); entry path = dir + \"/\" + name.",
+                                    "type": "string"
+                                  },
+                                  "files": {
+                                    "items": {
+                                      "description": "Entry \"<name>[/][ (<fields>)]\": \"/\" marks a directory, \".\" the listed dir itself. Fields: size in bytes (every non-directory), \"symlink\", \"lineCount=N\", \"modifiedMs=N\"; the last \" (\" of an entry ending in \")\" opens them.",
+                                      "title": "LocalListingEntry",
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "dir",
+                                  "files"
+                                ],
+                                "title": "LocalDirectoryGroup",
+                                "type": "object"
+                              },
+                              {
                                 "type": "string"
                               },
                               {
@@ -96632,6 +96660,29 @@
                           "items": {
                             "anyOf": [
                               {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "dir": {
+                                    "description": "Resolves like a row path (against base); entry path = dir + \"/\" + name.",
+                                    "type": "string"
+                                  },
+                                  "files": {
+                                    "items": {
+                                      "description": "Entry \"<name>[/][ (<fields>)]\": \"/\" marks a directory, \".\" the listed dir itself. Fields: size in bytes (every non-directory), \"symlink\", \"lineCount=N\", \"modifiedMs=N\"; the last \" (\" of an entry ending in \")\" opens them.",
+                                      "title": "LocalListingEntry",
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "dir",
+                                  "files"
+                                ],
+                                "title": "LocalDirectoryGroup",
+                                "type": "object"
+                              },
+                              {
                                 "type": "string"
                               },
                               {
@@ -96807,6 +96858,29 @@
                         "files": {
                           "items": {
                             "anyOf": [
+                              {
+                                "additionalProperties": {},
+                                "properties": {
+                                  "dir": {
+                                    "description": "Resolves like a row path (against base); entry path = dir + \"/\" + name.",
+                                    "type": "string"
+                                  },
+                                  "files": {
+                                    "items": {
+                                      "description": "Entry \"<name>[/][ (<fields>)]\": \"/\" marks a directory, \".\" the listed dir itself. Fields: size in bytes (every non-directory), \"symlink\", \"lineCount=N\", \"modifiedMs=N\"; the last \" (\" of an entry ending in \")\" opens them.",
+                                      "title": "LocalListingEntry",
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "dir",
+                                  "files"
+                                ],
+                                "title": "LocalDirectoryGroup",
+                                "type": "object"
+                              },
                               {
                                 "type": "string"
                               },
@@ -103979,7 +104053,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -104358,7 +104432,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -104470,7 +104544,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -114871,7 +114945,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -115250,7 +115324,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -115362,7 +115436,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -124448,7 +124522,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -124827,7 +124901,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -124939,7 +125013,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -133131,7 +133205,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -133510,7 +133584,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -133622,7 +133696,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -134480,7 +134554,6 @@
           ],
           "values": {
             "debug": false,
-            "includeDeclaration": true,
             "orderHint": 0,
             "page": 1,
             "pageSize": 40
@@ -134505,24 +134578,6 @@
           },
           "when": {
             "operation": "references"
-          }
-        },
-        {
-          "absent": [
-            "symbolName",
-            "workspaceRoot"
-          ],
-          "present": [
-            "position"
-          ],
-          "values": {
-            "debug": false,
-            "includeDeclaration": true,
-            "page": 1,
-            "pageSize": 40
-          },
-          "when": {
-            "operation": "definition"
           }
         },
         {
@@ -134555,6 +134610,23 @@
           },
           "when": {
             "operation": "diagnostic"
+          }
+        },
+        {
+          "absent": [
+            "symbolName",
+            "workspaceRoot"
+          ],
+          "present": [
+            "position"
+          ],
+          "values": {
+            "debug": false,
+            "page": 1,
+            "pageSize": 40
+          },
+          "when": {
+            "operation": "definition"
           }
         },
         {
@@ -134604,7 +134676,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "contextLines": {
-                      "description": "Source lines around each location.",
+                      "description": "definition/references/typeDefinition/implementation: source lines around each location.",
                       "maximum": 100,
                       "minimum": 0,
                       "type": "integer"
@@ -134627,12 +134699,11 @@
                       "type": "string"
                     },
                     "groupByFile": {
-                      "description": "Summarize references per file.",
+                      "description": "definition/references/typeDefinition/implementation: group locations per file.",
                       "type": "boolean"
                     },
                     "includeDeclaration": {
-                      "default": true,
-                      "description": "references: include the declaration; disable before unused analysis.",
+                      "description": "references only: include the declaration by default; disable before unused analysis.",
                       "type": "boolean"
                     },
                     "lineHint": {
@@ -134752,7 +134823,7 @@
                       "type": "string"
                     },
                     "symbolName": {
-                      "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                      "description": "Observed name, or fuzzy workspace symbol query.",
                       "minLength": 1,
                       "type": "string"
                     },
@@ -134780,7 +134851,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "contextLines": {
-                      "description": "Source lines around each location.",
+                      "description": "definition/references/typeDefinition/implementation: source lines around each location.",
                       "maximum": 100,
                       "minimum": 0,
                       "type": "integer"
@@ -134803,12 +134874,11 @@
                       "type": "string"
                     },
                     "groupByFile": {
-                      "description": "Summarize references per file.",
+                      "description": "definition/references/typeDefinition/implementation: group locations per file.",
                       "type": "boolean"
                     },
                     "includeDeclaration": {
-                      "default": true,
-                      "description": "references: include the declaration; disable before unused analysis.",
+                      "description": "references only: include the declaration by default; disable before unused analysis.",
                       "type": "boolean"
                     },
                     "lineHint": {
@@ -135201,7 +135271,7 @@
                       "type": "string"
                     },
                     "symbolName": {
-                      "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                      "description": "Observed name, or fuzzy workspace symbol query.",
                       "minLength": 1,
                       "type": "string"
                     },
@@ -135334,7 +135404,7 @@
                       "type": "string"
                     },
                     "symbolName": {
-                      "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                      "description": "Observed name, or fuzzy workspace symbol query.",
                       "minLength": 1,
                       "type": "string"
                     },
@@ -141175,7 +141245,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -141554,7 +141624,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -141666,7 +141736,7 @@
                             "type": "string"
                           },
                           "symbolName": {
-                            "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                            "description": "Observed name, or fuzzy workspace symbol query.",
                             "minLength": 1,
                             "type": "string"
                           },
@@ -142656,7 +142726,7 @@
                                   "type": "string"
                                 },
                                 "symbolName": {
-                                  "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                                  "description": "Observed name, or fuzzy workspace symbol query.",
                                   "minLength": 1,
                                   "type": "string"
                                 },
@@ -143035,7 +143105,7 @@
                                   "type": "string"
                                 },
                                 "symbolName": {
-                                  "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                                  "description": "Observed name, or fuzzy workspace symbol query.",
                                   "minLength": 1,
                                   "type": "string"
                                 },
@@ -143147,7 +143217,7 @@
                                   "type": "string"
                                 },
                                 "symbolName": {
-                                  "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                                  "description": "Observed name, or fuzzy workspace symbol query.",
                                   "minLength": 1,
                                   "type": "string"
                                 },
@@ -143563,7 +143633,7 @@
             "additionalProperties": false,
             "properties": {
               "contextLines": {
-                "description": "Source lines around each location.",
+                "description": "definition/references/typeDefinition/implementation: source lines around each location.",
                 "maximum": 100,
                 "minimum": 0,
                 "type": "integer"
@@ -143586,12 +143656,11 @@
                 "type": "string"
               },
               "groupByFile": {
-                "description": "Summarize references per file.",
+                "description": "definition/references/typeDefinition/implementation: group locations per file.",
                 "type": "boolean"
               },
               "includeDeclaration": {
-                "default": true,
-                "description": "references: include the declaration; disable before unused analysis.",
+                "description": "references only: include the declaration by default; disable before unused analysis.",
                 "type": "boolean"
               },
               "lineHint": {
@@ -143711,7 +143780,7 @@
                 "type": "string"
               },
               "symbolName": {
-                "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                "description": "Observed name, or fuzzy workspace symbol query.",
                 "minLength": 1,
                 "type": "string"
               },
@@ -143739,7 +143808,7 @@
             "additionalProperties": false,
             "properties": {
               "contextLines": {
-                "description": "Source lines around each location.",
+                "description": "definition/references/typeDefinition/implementation: source lines around each location.",
                 "maximum": 100,
                 "minimum": 0,
                 "type": "integer"
@@ -143762,12 +143831,11 @@
                 "type": "string"
               },
               "groupByFile": {
-                "description": "Summarize references per file.",
+                "description": "definition/references/typeDefinition/implementation: group locations per file.",
                 "type": "boolean"
               },
               "includeDeclaration": {
-                "default": true,
-                "description": "references: include the declaration; disable before unused analysis.",
+                "description": "references only: include the declaration by default; disable before unused analysis.",
                 "type": "boolean"
               },
               "lineHint": {
@@ -144160,7 +144228,7 @@
                 "type": "string"
               },
               "symbolName": {
-                "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                "description": "Observed name, or fuzzy workspace symbol query.",
                 "minLength": 1,
                 "type": "string"
               },
@@ -144293,7 +144361,7 @@
                 "type": "string"
               },
               "symbolName": {
-                "description": "Bare anchored identifier, or fuzzy workspace symbol query.",
+                "description": "Observed name, or fuzzy workspace symbol query.",
                 "minLength": 1,
                 "type": "string"
               },
@@ -144356,6 +144424,38 @@
         {
           "id": "lsp.branches",
           "opcode": "schema_union",
+          "phase": "validate"
+        },
+        {
+          "args": {
+            "defaultOperation": "definition",
+            "fields": {
+              "contextLines": [
+                "definition",
+                "references",
+                "typeDefinition",
+                "implementation"
+              ],
+              "depth": [
+                "callers",
+                "callees",
+                "callHierarchy",
+                "supertypes",
+                "subtypes"
+              ],
+              "groupByFile": [
+                "definition",
+                "references",
+                "typeDefinition",
+                "implementation"
+              ],
+              "includeDeclaration": [
+                "references"
+              ]
+            }
+          },
+          "id": "lsp.operation-controls",
+          "opcode": "operation_controls",
           "phase": "validate"
         },
         {

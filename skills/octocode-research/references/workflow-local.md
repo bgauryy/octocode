@@ -13,7 +13,7 @@ A known file, path, or anchor skips discovery: search or read it directly.
 | symbol identity/uses | `lspSearch` |
 | file relationships | `octocode graph` or beta `astTopology`; else LSP references + text |
 
-Use files/count views when bodies are unnecessary. `localSearch` shows every hit when the total is small, else pages per file; read all hits in one `localFetch` with `matchString`. Run an invalid-regex `next.repair` only after checking it still searches what you meant. `structureSearch files` walks in path order and stops at `limit` (`next.expandLimit`); `noIgnore`/`hidden` list ignored and dot entries before an absence claim. Quote and edit only `minify:"none"` text. Never pass view offsets as LSP positions.
+Use files/count views when bodies are unnecessary. `localSearch` shows every hit when the total is small, else pages per file; read all hits in one `localFetch` with `matchString`. Run an invalid-regex `next.repair` only after checking it still searches what you meant. `structureSearch files` walks in path order and stops at `limit` (`next.expandLimit`); its rows group by `dir` (path = `base`/`dir`/name, ` (n)` = bytes); `noIgnore`/`hidden` list ignored and dot entries before an absence claim. Quote and edit only `minify:"none"` text. Never pass view offsets as LSP positions.
 
 ## AST and LSP
 - AST: `langType` is inferred per extension for directories. Inspect hints and diagnostics before relaxing a zero-match pattern; incomplete or partial execution cannot prove absence. `terminalLimit` means narrow the query.

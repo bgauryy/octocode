@@ -155,7 +155,7 @@ pub(super) async fn compare<R: CredentialResolver>(
         "isPartial":(more||file_limit).then_some(true)});
     if !file_page {
         out["commits"] = json!(array(raw.get("commits").cloned().unwrap_or(json!([]))).into_iter().map(|v|json!({
-            "sha":v["sha"],"messageHeadline":str_at(&v,"/commit/message").unwrap_or("").lines().next().unwrap_or(""),
+            "sha":v["sha"],"message":str_at(&v,"/commit/message").unwrap_or(""),
             "author":str_at(&v,"/commit/author/name").or_else(||str_at(&v,"/author/login")).unwrap_or("unknown"),"date":str_at(&v,"/commit/author/date").unwrap_or("")
         })).collect::<Vec<_>>());
         // The last commit page past the first needs no page object.

@@ -109,6 +109,8 @@ pub struct ClassificationError {
     /// Failure kind of the delegated read behind a context error, so a call
     /// whose every read failed alike reports it like the read tool would.
     pub failure: Option<crate::runtime::FailureKind>,
+    /// HTTP requests actually attempted, including retries; never rendered as an error field.
+    pub provider_calls: u64,
 }
 
 impl ClassificationError {
@@ -450,6 +452,7 @@ enum Attempt {
     },
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn attempt(
     client: &reqwest::Client,
     request: &Value,
@@ -458,6 +461,7 @@ async fn attempt(
     budget: &RequestBudget,
     gate: &GateLease,
     attempt: u32,
+    provider_calls: &mut u64,
 ) -> Attempt {
     let permit = match gate.acquire(budget).await {
         Ok(permit) => permit,
@@ -467,6 +471,7 @@ async fn attempt(
         return Attempt::Done(Err(error));
     }
     let remaining = budget.deadline.saturating_duration_since(Instant::now());
+    *provider_calls = provider_calls.saturating_add(1);
     let sent = wait(
         budget,
         client
@@ -595,42 +600,53 @@ pub(crate) async fn post(
     budget: &RequestBudget,
     retries: u32,
     gate: &GateLease,
-) -> Result<Value, ClassificationError> {
+) -> Result<(Value, u64), ClassificationError> {
     let client = shared_client(&endpoint)?;
     let mut attempt_index = 0;
-    loop {
-        check_budget(budget)?;
-        match attempt(
-            &client,
-            request,
-            key,
-            &endpoint,
-            budget,
-            gate,
-            attempt_index,
-        )
-        .await
-        {
-            Attempt::Done(result) => return result,
-            Attempt::Retry {
-                delay,
-                error,
-                throttle,
-            } => {
-                if attempt_index >= retries {
-                    return Err(error);
+    let mut provider_calls = 0;
+    let result = async {
+        loop {
+            check_budget(budget)?;
+            match attempt(
+                &client,
+                request,
+                key,
+                &endpoint,
+                budget,
+                gate,
+                attempt_index,
+                &mut provider_calls,
+            )
+            .await
+            {
+                Attempt::Done(result) => return result,
+                Attempt::Retry {
+                    delay,
+                    error,
+                    throttle,
+                } => {
+                    if attempt_index >= retries {
+                        return Err(error);
+                    }
+                    if Instant::now() + delay >= budget.deadline {
+                        return Err(match throttle {
+                            Some(status) => rate_limited(Some(status), Some(delay), true),
+                            None => error,
+                        });
+                    }
+                    wait(budget, tokio::time::sleep(delay)).await?;
+                    attempt_index += 1;
                 }
-                if Instant::now() + delay >= budget.deadline {
-                    return Err(match throttle {
-                        Some(status) => rate_limited(Some(status), Some(delay), true),
-                        None => error,
-                    });
-                }
-                wait(budget, tokio::time::sleep(delay)).await?;
-                attempt_index += 1;
             }
         }
     }
+    .await;
+    result
+        .map(|body| (body, provider_calls))
+        .map_err(|mut error| {
+            error.provider_calls = provider_calls;
+            error
+        })
 }
 
 pub fn budget(
@@ -713,6 +729,7 @@ mod tests {
             lease,
         )
         .await
+        .map(|(body, _)| body)
     }
 
     #[tokio::test]

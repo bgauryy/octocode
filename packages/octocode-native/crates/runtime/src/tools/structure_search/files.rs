@@ -65,7 +65,10 @@ impl StructureSearchQueryFiles {
 }
 
 struct Row {
-    output: Value,
+    /// Directory the entry is listed under, named like `path`.
+    dir: String,
+    /// The entry text inside its directory group ([`entry_text`]).
+    entry: String,
     path: String,
     name: String,
     size: i64,
@@ -93,6 +96,7 @@ pub fn execute_files(
     let gitignore = (q.default_excludes.defaults() && q.no_ignore != Some(true))
         .then(|| crate::policy::gitignore::GitignoreFilter::new(&validated.canonical));
     let ignored = std::sync::atomic::AtomicUsize::new(0);
+    let withheld = std::sync::atomic::AtomicUsize::new(0);
     let detail = q.detail();
     let sort = q.sort();
     let requested = q
@@ -145,7 +149,11 @@ pub fn execute_files(
                 ignored.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 return Ok(false);
             }
-            super::allow_discovery(path, paths, cancel)
+            let allowed = super::allow_discovery(path, paths, cancel)?;
+            if !allowed {
+                withheld.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(allowed)
         },
     )
     .map_err(super::walk_error)?;
@@ -193,12 +201,21 @@ pub fn execute_files(
         q.sort(),
         q.detail(),
         requested,
+        q.page_size(),
+        q.no_ignore,
+        q.default_excludes,
+        q.time,
+        q.size,
     ]);
     let budget = super::page_budget(response_window, &identity);
+    // The row layout cuts pages too, so it is part of the snapshot.
     let snapshot = super::digest(&json!([
         identity,
         budget,
-        rows.iter().map(|r| &r.path).collect::<Vec<_>>()
+        ROW_LAYOUT,
+        rows.iter()
+            .map(|r| (&r.dir, &r.entry, &r.path))
+            .collect::<Vec<_>>()
     ]));
     if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
         return Ok(super::snapshot_changed(q, &snapshot));
@@ -206,26 +223,31 @@ pub fn execute_files(
     let page_size = q
         .page_size()
         .map(|size| size.clamp(1, super::structure_max("pageSize") as usize));
-    // A row's cost is its serialized output with the root rendered as the
-    // response shows it, bound by the snapshot, so every page of it cuts at
-    // the same rows.
-    let root = super::rendered_root_chars(paths, &validated.canonical);
-    let root_name =
-        crate::tools::stream_page::json_text_chars(&super::display_name(&validated.canonical));
+    // A row costs its serialized entry, plus its group's header with the
+    // directory rendered as the response shows it whenever it opens a group
+    // (a page repeats the header of a group it continues). Costs are bound
+    // by the snapshot, so every page of it cuts at the same rows.
+    let mut headers = std::collections::HashMap::<&str, usize>::new();
     let costs = rows
         .iter()
-        .map(|row| {
-            (crate::tools::stream_page::json_chars(&row.output) + 1 + root).saturating_sub(root_name)
+        .enumerate()
+        .map(|(index, row)| {
+            let header = *headers.entry(row.dir.as_str()).or_insert_with(|| {
+                let dir = super::rendered_dir(paths, &validated.canonical, &row.dir);
+                crate::tools::stream_page::json_chars(&json!({"dir":dir,"files":[]})) + 1
+            });
+            super::RowCost {
+                entry: crate::tools::stream_page::json_chars(&row.entry) + 1,
+                header,
+                continues: index > 0 && rows[index - 1].dir == row.dir,
+            }
         })
         .collect::<Vec<_>>();
     let pages = super::page_ranges(&costs, page_size, budget);
     let page = q.page().max(1) as usize;
     let total_pages = pages.len().max(1);
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
-    let files = rows[shown]
-        .iter()
-        .map(|r| r.output.clone())
-        .collect::<Vec<_>>();
+    let files = directory_groups(&rows[shown]);
     let out_of_range = total > 0 && page > total_pages;
     let has_more = page < total_pages;
     // An early-exit walk that found one more match than the limit has more;
@@ -283,6 +305,16 @@ pub fn execute_files(
         out["pagination"]["outOfRange"] = json!(true);
         warnings.push(format!("page:{page} is out of range (only {total_pages} page(s), {total} total file(s)) — returned 0 files. Use page:1..{total_pages}."));
     }
+    let withheld = withheld.into_inner();
+    if withheld > 0 {
+        let warning = format!(
+            "{withheld} entries were withheld by path policy; absence within those entries is unproven."
+        );
+        if total == 0 {
+            out["hints"] = json!([warning]);
+        }
+        warnings.push(warning);
+    }
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings)
     }
@@ -293,7 +325,7 @@ pub fn execute_files(
         ignored,
         json!({"noIgnore":true,"page":1}),
         format!(
-            "{ignored} entries here are .gitignore'd; retry with noIgnore:true (next.includeIgnored) to list them."
+            "The walk pruned {ignored} .gitignore'd entries; whether they match these filters is unproven. next.includeIgnored retries with noIgnore:true."
         ),
     );
     Ok(out)
@@ -311,7 +343,8 @@ fn make_row(
     // Rows name the root's own directory first; the envelope anchors them on
     // the root's parent, so every row path resolves against the workspace.
     let root_name = root.file_name().unwrap_or_default().to_string_lossy();
-    let relative = if e.relative_path.is_empty() || std::path::Path::new(&e.path) == root {
+    let is_root = e.relative_path.is_empty() || std::path::Path::new(&e.path) == root;
+    let relative = if is_root {
         root_name.into_owned()
     } else {
         format!("{root_name}/{}", e.relative_path)
@@ -322,36 +355,34 @@ fn make_row(
         "symlink" => "symlink",
         _ => "file",
     };
-    // `type` is omitted for regular files (the common case); only directories
-    // and symlinks carry it.
-    let mut output = json!({"path":path});
-    if kind != "file" {
-        output["type"] = json!(kind);
-    }
-    // Bytes as a number; the human-readable form is a debug field.
-    if kind != "directory"
-        && let Some(size) = e.size
-    {
-        output["size"] = json!(size);
-        output["sizeFormatted"] = json!(format_size(size));
-    }
+    // A directory root lists itself as `.` inside itself; every other entry
+    // is its name inside its parent (a file root's parent is `""`, the
+    // root's parent).
+    let (dir, name) = if is_root && kind == "directory" {
+        (path.as_str(), ".")
+    } else {
+        path.rsplit_once('/').unwrap_or(("", path.as_str()))
+    };
+    let dir = dir.to_owned();
     let modified = e.modified_ms.unwrap_or(0.0);
-    if (full || detail == "modified")
-        && let Some(modified) = e.modified_ms
-    {
-        // Whole epoch milliseconds: a float would print as `…737.0`.
-        output["modifiedMs"] = json!(modified.round() as i64);
-    }
     let lines = if count_lines && kind != "directory" {
         line_count(std::path::Path::new(&e.path), paths, cancel)?
     } else {
         0
     };
-    if full && lines > 0 {
-        output["lineCount"] = json!(lines)
-    }
+    let entry = entry_text(
+        name,
+        kind,
+        e.size.filter(|_| kind != "directory"),
+        (full && lines > 0).then_some(lines),
+        // Whole epoch milliseconds: a float would print as `…737.0`.
+        e.modified_ms
+            .filter(|_| full || detail == "modified")
+            .map(|modified| modified.round() as i64),
+    );
     Ok(Row {
-        output,
+        dir,
+        entry,
         path,
         name: e.name.clone(),
         size: e.size.unwrap_or(0),
@@ -359,6 +390,61 @@ fn make_row(
         lines,
     })
 }
+/// Page layout tag folded into the snapshot: rows grouped by directory.
+const ROW_LAYOUT: &str = "dirGroups";
+
+/// One listed entry inside its directory group: the name, `/` after a
+/// directory, then ` (<fields>)` naming the size in bytes (every non-directory
+/// entry), `symlink`, `lineCount=N` and `modifiedMs=N` as they apply. The
+/// fields never contain ` (`, so the last ` (` of an entry ending in `)`
+/// opens them, whatever the name holds.
+fn entry_text(
+    name: &str,
+    kind: &str,
+    size: Option<i64>,
+    line_count: Option<usize>,
+    modified_ms: Option<i64>,
+) -> String {
+    let mut text = name.to_owned();
+    if kind == "directory" {
+        text.push('/');
+    }
+    let mut fields = Vec::new();
+    if let Some(size) = size {
+        fields.push(size.to_string());
+    }
+    if kind == "symlink" {
+        fields.push("symlink".to_owned());
+    }
+    if let Some(lines) = line_count {
+        fields.push(format!("lineCount={lines}"));
+    }
+    if let Some(modified) = modified_ms {
+        fields.push(format!("modifiedMs={modified}"));
+    }
+    if !fields.is_empty() {
+        text.push_str(&format!(" ({})", fields.join(", ")));
+    }
+    text
+}
+
+/// Consecutive rows under one directory share a `{dir, files}` group, so the
+/// listing keeps its order and every entry once; a page that continues a
+/// group repeats its `dir`.
+fn directory_groups(rows: &[Row]) -> Vec<Value> {
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for row in rows {
+        match groups.last_mut() {
+            Some((dir, entries)) if *dir == row.dir => entries.push(&row.entry),
+            _ => groups.push((&row.dir, vec![&row.entry])),
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(dir, files)| json!({"dir":dir,"files":files}))
+        .collect()
+}
+
 fn sort_rows(r: &mut [Row], sort: &str) {
     r.sort_by(|a, b| match sort {
         "lines" => b.lines.cmp(&a.lines),

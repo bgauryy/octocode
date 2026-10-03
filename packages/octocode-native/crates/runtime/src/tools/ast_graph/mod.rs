@@ -236,6 +236,41 @@ mod drift_tests {
     }
 
     #[test]
+    fn topology_snapshots_bind_page_cuts_and_disclose_page_ceiling() {
+        let temp = tempfile::tempdir().expect("fixture");
+        let root = temp.path();
+        for i in 0..1001 {
+            std::fs::write(
+                root.join(format!("f{i:04}.ts")),
+                "export const value = 1;\n",
+            )
+            .expect("file");
+        }
+        let first = run(json!({"analysis":"reachability","path":root,"entrypoints":["f0000.ts"],"pageSize":1,"goal":"test","reasoning":"test"}), root).expect("first");
+        let mut resized = first["next"]["nextPage"]["query"].clone();
+        resized["pageSize"] = json!(2);
+        let rejected = run(resized, root).expect("resized cursor");
+        assert_eq!(rejected["errorCode"], "graphSnapshotChanged", "{rejected}");
+        let restarted = run(
+            rejected["next"]["restartDiagnostics"]["query"].clone(),
+            root,
+        )
+        .expect("restart");
+        assert_eq!(restarted["pagination"]["currentPage"], 1, "{restarted}");
+        let mut last = first["next"]["nextPage"]["query"].clone();
+        last["page"] = json!(1000);
+        let page = run(last, root).expect("ceiling");
+        assert_eq!(
+            page["results"].as_array().expect("results").len(),
+            1,
+            "{page}"
+        );
+        assert!(page["next"].get("nextPage").is_none(), "{page}");
+        assert_eq!(page["terminalLimit"], true, "{page}");
+        assert_eq!(page["completeness"]["results"], "truncated", "{page}");
+    }
+
+    #[test]
     fn drift_reports_resolved_cycle_and_removed_relation_between_two_roots() {
         let temp = tempfile::TempDir::new().expect("temp");
         let root = temp.path();

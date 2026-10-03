@@ -1,0 +1,176 @@
+{
+  "qid": "L15",
+  "pairKey": "octocode-npm__rg-gh",
+  "label": "order1",
+  "subjectSha": "aa7d384122ee059da87c1b0d943935cce7e9bf85df59b59b57a2375a389f7723",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode-npm",
+  "attempts": 1,
+  "promptSha256": "b4c25a644e7a3b065b92cc3c9cc79e368b5a19757d880ddea7687d6859efbf0e",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All core mechanisms correct with accurate line citations (build cited at 931 vs actual 927, close enough). Misses Builder.build()->review() flow and shrink detail, but covers fallback result JdkBackedImmutableSet."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and well-cited; detailed on hashFloodingDetected. Fact 4 only partial: admits not reading build(), so it never says the result is a JdkBackedImmutableSet. Related-collection notes are correct and clearly separated from ImmutableSet."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All core mechanisms correct with accurate line citations (build cited at 931 vs actual 927, close enough). Misses Builder.build()->review() flow and shrink detail, but covers fallback result JdkBackedImmutableSet."
+    },
+    "octocode-npm": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and well-cited; detailed on hashFloodingDetected. Fact 4 only partial: admits not reading build(), so it never says the result is a JdkBackedImmutableSet. Related-collection notes are correct and clearly separated from ImmutableSet."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.054845200000000004,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 1496,
+        "cache_read_input_tokens": 29266,
+        "output_tokens": 1850,
+        "context_tokens": 30768,
+        "total_tokens": 32618,
+        "first_request_context": 9533,
+        "fixed_overhead_tokens": 28599,
+        "research_tokens": 4019,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 1496,
+          "cache_read_input_tokens": 29266,
+          "output_tokens": 24
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1826
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 1496,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 11029
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.054845200000000004,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 1496,
+    "cache_read_input_tokens": 29266,
+    "output_tokens": 1850,
+    "context_tokens": 30768,
+    "total_tokens": 32618,
+    "first_request_context": 9533,
+    "fixed_overhead_tokens": 28599,
+    "research_tokens": 4019,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 1496,
+      "cache_read_input_tokens": 29266,
+      "output_tokens": 24
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1826
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 1496,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 11029
+  },
+  "timedOut": false
+}

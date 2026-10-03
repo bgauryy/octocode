@@ -932,10 +932,26 @@ async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
         let rows = data[key]
             .as_array()
             .unwrap_or_else(|| panic!("{key} rows: {}", outcome.structured_content));
+        // structureSearch groups list entries by `dir`: `dir/<name> (<size>)`.
         let mut paths = rows
             .iter()
-            .filter_map(|row| row.as_str().or_else(|| row["path"].as_str()))
-            .map(|path| path.split(' ').next().unwrap_or(path).replace('\\', "/"))
+            .flat_map(|row| match (row["dir"].as_str(), row["files"].as_array()) {
+                (Some(dir), Some(entries)) => entries
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(|entry| format!("{dir}/{entry}"))
+                    .collect::<Vec<_>>(),
+                _ => row
+                    .as_str()
+                    .or_else(|| row["path"].as_str())
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect(),
+            })
+            .map(|path| {
+                let path = path.as_str();
+                path.split(' ').next().unwrap_or(path).replace('\\', "/")
+            })
             .filter(|path| path.ends_with(".rs"))
             .map(|path| {
                 // Rows are relative to `base`, the workspace's parent.

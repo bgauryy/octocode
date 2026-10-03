@@ -360,9 +360,6 @@ struct CollectResult {
     first_error: Option<String>,
 }
 
-/// Binary-quit file paths a search keeps to name in its warning.
-const MAX_REPORTED_BINARY_FILES: usize = 5;
-
 /// Shared accumulation state for one search. Walk workers write finished files
 /// and counters here; the PCRE2 driver can read a consistent snapshot of the
 /// files finished so far while a worker is still stuck in a match, and raise
@@ -423,10 +420,9 @@ impl CollectState {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 Some(n.saturating_add(1))
             });
+        // Every binary-quit file is named: each is a coverage gap.
         if let Ok(mut files) = self.binary_files.lock() {
             files.push(path.to_string_lossy().into_owned());
-            files.sort();
-            files.truncate(MAX_REPORTED_BINARY_FILES);
         }
     }
 
@@ -486,7 +482,11 @@ impl CollectState {
             binary_files: self
                 .binary_files
                 .lock()
-                .map(|files| files.clone())
+                .map(|files| {
+                    let mut files = files.clone();
+                    files.sort();
+                    files
+                })
                 .unwrap_or_default(),
             binary_file_count: self.binary_file_count.load(Ordering::Relaxed),
             skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),

@@ -332,12 +332,35 @@ impl ArtifactError {
     }
 }
 
+/// Resolved credential together with its normalized npmrc path scope.
+#[derive(Clone)]
+pub struct NpmAuthorization {
+    pub(super) header: SecretString,
+    pub(super) scope: String,
+}
+
 #[derive(Clone)]
 pub struct ResolvedNpmRegistry {
     pub base: Url,
-    /// Complete already-resolved Authorization header value.
-    pub authorization: Option<SecretString>,
+    pub authorization: Option<NpmAuthorization>,
     pub cache_identity: String,
+}
+
+impl ResolvedNpmRegistry {
+    /// Attach credentials only inside their original origin and npmrc path scope.
+    pub(crate) fn authorization_for(&self, target: &Url) -> Option<SecretString> {
+        if target.origin() != self.base.origin()
+            || !target.username().is_empty()
+            || target.password().is_some()
+        {
+            return None;
+        }
+        let authorization = self.authorization.as_ref()?;
+        let target = super::npmrc::nerf_dart(target)?;
+        target
+            .starts_with(&authorization.scope)
+            .then(|| authorization.header.clone())
+    }
 }
 
 impl fmt::Debug for ResolvedNpmRegistry {

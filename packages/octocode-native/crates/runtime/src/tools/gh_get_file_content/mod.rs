@@ -219,6 +219,11 @@ where
         }
         .into();
     }
+    // Shared local read errors omit their path; the remote file envelope
+    // requires the repository-relative identity even when processing fails.
+    if content.path.is_empty() {
+        content.path = query.path.to_string();
+    }
     let next = rewrite_continuations(&mut content, query, &acquired.resolved_ref);
     Ok(GhGetFileContentResult {
         owner: query.owner.to_string(),

@@ -2586,7 +2586,6 @@
           "symbolName": "ToolRuntime",
           "lineHint": 58,
           "orderHint": 0,
-          "includeDeclaration": true,
           "page": 1,
           "pageSize": 40
         }
@@ -2695,7 +2694,6 @@
           "symbolName": "main",
           "lineHint": 1,
           "orderHint": 0,
-          "includeDeclaration": true,
           "page": 1,
           "pageSize": 40
         }
@@ -2728,7 +2726,6 @@
             "line": 0,
             "character": 0
           },
-          "includeDeclaration": true,
           "page": 1,
           "pageSize": 40
         }
@@ -3836,6 +3833,48 @@
       "reasoning": "Exercise the lsp.anchor native parity fixture.",
       "uri": "/r/a.ts",
       "operation": "definition"
+    },
+    "accepted": false
+  },
+  {
+    "id": "lsp.hover-depth",
+    "tool": "lspSearch",
+    "input": {
+      "goal": "Exercise the lsp.hover-depth fixture.",
+      "reasoning": "Exercise the lsp.hover-depth native parity fixture.",
+      "uri": "/r/a.ts",
+      "operation": "hover",
+      "symbolName": "x",
+      "lineHint": 1,
+      "depth": 2
+    },
+    "accepted": false
+  },
+  {
+    "id": "lsp.definition-declaration",
+    "tool": "lspSearch",
+    "input": {
+      "goal": "Exercise the lsp.definition-declaration fixture.",
+      "reasoning": "Exercise the lsp.definition-declaration native parity fixture.",
+      "uri": "/r/a.ts",
+      "operation": "definition",
+      "symbolName": "x",
+      "lineHint": 1,
+      "includeDeclaration": true
+    },
+    "accepted": false
+  },
+  {
+    "id": "lsp.hierarchy-context",
+    "tool": "lspSearch",
+    "input": {
+      "goal": "Exercise the lsp.hierarchy-context fixture.",
+      "reasoning": "Exercise the lsp.hierarchy-context native parity fixture.",
+      "uri": "/r/a.ts",
+      "operation": "callHierarchy",
+      "symbolName": "x",
+      "lineHint": 1,
+      "contextLines": 0
     },
     "accepted": false
   },

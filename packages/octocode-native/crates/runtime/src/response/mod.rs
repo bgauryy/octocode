@@ -727,7 +727,7 @@ fn row_next_chars(row: &Value, share: PartShare) -> usize {
 
 /// Keep only the continuations a row part rides (see [`PartShare`]).
 fn keep_row_next(value: &mut Value, share: PartShare) {
-    let mut retain = |slot: Option<&mut Map<String, Value>>| {
+    let retain = |slot: Option<&mut Map<String, Value>>| {
         let Some(slot) = slot else {
             return;
         };
@@ -1869,7 +1869,9 @@ mod lazy_page_tests {
             .collect();
         assert_eq!(
             heads,
-            (0..5).map(|index| (Some(index), Some(1))).collect::<Vec<_>>()
+            (0..5)
+                .map(|index| (Some(index), Some(1)))
+                .collect::<Vec<_>>()
         );
         let mut carriers = std::collections::BTreeMap::new();
         for (page, pagination) in &pages {
@@ -1914,7 +1916,12 @@ mod lazy_page_tests {
                 }
                 let part = row["rowPart"]["part"].as_u64().expect("row 0 is split");
                 parts = row["rowPart"]["of"].as_u64().expect("row 0 is split");
-                for name in row["data"]["next"].as_object().into_iter().flatten().map(|(name, _)| name) {
+                for name in row["data"]["next"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(name, _)| name)
+                {
                     carriers.push((name.clone(), part));
                 }
             }

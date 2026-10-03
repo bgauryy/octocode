@@ -1,9 +1,9 @@
-// Extremely large files through every local tool, following pagination to the end.
+// Large-file probes plus complete walks where the checks require exhaustion.
 // Verifies: no crash/timeout, bounded response size, gap-free page coverage,
 // totals that agree across pages, and executable continuations.
 import fs from 'node:fs';
 import path from 'node:path';
-import { FIXTURES, REPOS, checks, collect, declarations, nextHints, rowData, sourceView, startServer, writeResults, lspLocations } from './mcp-client.mjs';
+import { FIXTURES, REPOS, checks, collect, declarations, nextHints, rowData, sourceView, startServer, structureFiles, writeResults, lspLocations } from './mcp-client.mjs';
 
 const { check, summary } = checks('large-files');
 const MAX_RESPONSE_BYTES = 2_000_000;
@@ -98,8 +98,13 @@ for (const [label, query] of [
   const first = await call('localFetch', { path: TARGETS.oneLineWasm, chunkType: 'bytes', chunkSize: 16_384 }, {}, 'wasm bytes');
   const pages = await walk(first, 'continue', 100, 'wasm bytes');
   const size = fs.statSync(TARGETS.oneLineWasm).size;
-  const biggest = Math.max(...pages.map(p => rowData(p)?.returnedBytes ?? 0));
-  check(`localFetch one-line 972KB (redacted blob) bytes walk: ${pages.length} pages, each chunk-sized`, pages.length >= Math.floor(size / 16_384) && biggest <= 2 * 16_384, `pages=${pages.length} biggestPage=${biggest}B size=${size}`);
+  const biggest = Math.max(...pages.map(p => Buffer.byteLength(rowData(p)?.content ?? '', 'utf8')));
+  const contiguous = pages.every((p, index) => {
+    const request = p.args?.queries?.[0] ?? p.args;
+    const pagination = rowData(p)?.pagination;
+    return !p.isError && !p.rowErrors && request.chunkType === 'bytes' && request.chunkSize === 16_384 && (request.offset ?? 0) === index * 16_384 && (!pagination || (pagination.chunkType === 'bytes' && pagination.offset === index * 16_384));
+  });
+  check(`localFetch one-line 972KB (redacted blob) bytes walk: ${pages.length} contiguous pages, each chunk-sized`, contiguous && pages.length === Math.ceil(size / 16_384) && !hint(pages.at(-1), 'continue') && biggest > 0 && biggest <= 2 * 16_384, `pages=${pages.length} biggestPage=${biggest}B size=${size}`);
 }
 
 // ── localSearch: many hits in one huge file, walk match pages ──────────────
@@ -166,7 +171,7 @@ for (const [label, query] of [
 {
   const e = await call('astSearch', { operation: 'match', path: minified, langType: 'JavaScript', pattern: 'function $F($A) { return $$$B }', resultView: 'countMatches', debug: true /* totalStructuralMatches */ }, {}, 'match minified');
   const total = collect(rowData(e), o => typeof o.totalStructuralMatches === 'number')[0]?.totalStructuralMatches;
-  check('astSearch match 60k functions on one line', total === 60_000, `total=${total} ${e.ms}ms`);
+  check('astSearch match 60k functions on one line', total === 60_000, JSON.stringify({ total, ms: e.ms, data: rowData(e) }));
 }
 
 // ── lspSearch on a 3 MB file: documentSymbols + references paging ──────────
@@ -187,7 +192,7 @@ for (const [label, query] of [
 {
   const first = await call('structureSearch', { operation: 'files', path: REPOS, extensions: ['ts', 'go', 'py', 'rs', 'java', 'c', 'cpp', 'hpp', 'cs', 'scala', 'asm'], detail: 'full', sort: 'size', limit: 20, defaultExcludes: false, excludeDir: ['.git', 'node_modules', 'target'] }, {}, 'biggest files'); // repos/* is gitignored
   bounded(first, 'structureSearch biggest files');
-  const files = collect(rowData(first), o => typeof o.path === 'string' && typeof o.size === 'number');
+  const files = structureFiles(rowData(first)?.files).filter(o => typeof o.path === 'string' && typeof o.size === 'number');
   const sorted = files.every((f, i) => i === 0 || files[i - 1].size >= f.size);
   check('structureSearch files sort:size over 810MB', files.length === 20 && sorted, `${first.ms}ms top=${files[0]?.path} ${files[0]?.size}`);
   const tree = await call('structureSearch', { operation: 'tree', path: path.join(REPOS, 'typescript'), maxDepth: 3, pageSize: 100 }, {}, 'tree ts');
@@ -198,9 +203,9 @@ for (const [label, query] of [
 
 // ── whole-response pagination: reassemble a big bulk response exactly ──────
 {
-  const args = { queries: [{ reasoning: 'bulk', operation: 'symbols', path: TARGETS.jsonHpp }, { reasoning: 'bulk', path: TARGETS.checkerTs, matchString: 'createTypeChecker', contextLines: 20 }] };
-  const full = await raw('astSearch', { queries: [args.queries[0]] }, 'bulk full');
-  const firstPage = await raw('astSearch', { queries: [args.queries[0]], responseCharLength: 4000 }, 'bulk page 1');
+  const args = { queries: [{ goal: 'Verify response pagination over real AST evidence', reasoning: 'Read a large declaration page', operation: 'symbols', path: manyFns, pageSize: 1000 }] };
+  const full = await raw('astSearch', { ...args, responseCharLength: 50000 }, 'response full');
+  const firstPage = await raw('astSearch', { ...args, responseCharLength: 4000 }, 'response page 1');
   let text = firstPage.text.replace(/^# Response page[^\n]*\n/, '');
   let current = firstPage;
   let pages = 1;
@@ -209,7 +214,7 @@ for (const [label, query] of [
     current = await raw(n.tool, n.query, `bulk page ${++pages}`);
     text += current.text.replace(/^# Response page[^\n]*\n/, '');
   }
-  check(`response pagination: ${pages} char pages reassemble the full response`, text.trim() === full.text.trim(), `full=${full.text.length} rebuilt=${text.length}`);
+  check(`response pagination: ${pages} char pages reassemble the full response`, !full.isError && !full.rowErrors && !firstPage.isError && !firstPage.rowErrors && !current.isError && !current.rowErrors && pages > 1 && !current.sc?.responsePagination?.next && text.trim() === full.text.replace(/^# Response page[^\n]*\n/, '').trim(), `full=${full.text.length} rebuilt=${text.length}`);
 }
 
 const result = summary();

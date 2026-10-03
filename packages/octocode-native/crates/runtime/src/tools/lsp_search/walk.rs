@@ -26,11 +26,14 @@ use std::collections::{HashMap, HashSet};
 
 /// Hard ceiling on `depth` (the schema maximum), enforced here too.
 pub(super) const MAX_HIERARCHY_DEPTH: u32 = 20;
-/// Distinct nodes one walk may record (roots included). Edges to new nodes
-/// past the cap are dropped and the row carries a resumable continuation.
+/// Distinct nodes one walk expands toward (roots included). Past the cap,
+/// edges to new nodes below the anchor are dropped and the anchor's own
+/// results stay listed but unexpanded; each such parent carries a resumable
+/// continuation.
 pub(super) const MAX_HIERARCHY_NODES: usize = 200;
-/// Results kept per expanded node; the rest are dropped with a terminal
-/// diagnostic (re-anchoring on that node would hit the same cap).
+/// Results kept per expanded node below the anchor; a wider node resumes as
+/// the anchor of its own continuation, where every result is kept (the
+/// anchor's results are paged, never cut).
 pub(super) const MAX_HIERARCHY_FAN_OUT: usize = 50;
 /// Concurrent expansion requests per level.
 const LEVEL_CONCURRENCY: usize = 4;
@@ -123,8 +126,12 @@ pub(super) struct HierarchyWalk {
     /// Every parent whose new children the node cap dropped, in walk order
     /// (each once); each gets an executable continuation.
     pub(super) resumes: Vec<Resume>,
-    /// Names of nodes whose results were cut to [`MAX_HIERARCHY_FAN_OUT`].
+    /// Names of nodes whose results were cut to [`MAX_HIERARCHY_FAN_OUT`];
+    /// each is also a resume point.
     pub(super) fan_out_capped: Vec<String>,
+    /// Anchor results listed past the node cap without being expanded; each
+    /// is also a resume point.
+    pub(super) unexpanded_nodes: usize,
     /// Results naming a file outside the read policy (skipped).
     pub(super) out_of_policy: usize,
     /// Results declared in a TypeScript built-in lib file (`lib.*.d.ts`,
@@ -254,7 +261,13 @@ pub(super) async fn walk_hierarchy(
                 }
             };
             let parent_key = keys.key(&parent);
-            if results.len() > MAX_HIERARCHY_FAN_OUT {
+            // The anchor's results are all listed (the row pages them).
+            let fan_out = if level == 1 {
+                usize::MAX
+            } else {
+                MAX_HIERARCHY_FAN_OUT
+            };
+            if results.len() > fan_out {
                 walk.fan_out_capped.push(
                     parent
                         .get("name")
@@ -262,8 +275,14 @@ pub(super) async fn walk_hierarchy(
                         .unwrap_or("?")
                         .to_owned(),
                 );
+                if resumed.insert(parent_key.clone()) {
+                    walk.resumes.push(Resume {
+                        node: parent.clone(),
+                        depth: depth - level + 1,
+                    });
+                }
             }
-            for result in results.into_iter().take(MAX_HIERARCHY_FAN_OUT) {
+            for result in results.into_iter().take(fan_out) {
                 let Some(node) = expansion.node_of(&result).cloned() else {
                     continue;
                 };
@@ -291,7 +310,8 @@ pub(super) async fn walk_hierarchy(
                     continue;
                 }
                 let is_new = !seen.contains(&node_key);
-                if is_new && seen.len() >= MAX_HIERARCHY_NODES {
+                let full = seen.len() >= MAX_HIERARCHY_NODES;
+                if is_new && full && level > 1 {
                     walk.dropped_edges += 1;
                     if resumed.insert(parent_key.clone()) {
                         walk.resumes.push(Resume {
@@ -309,9 +329,21 @@ pub(super) async fn walk_hierarchy(
                     sites,
                 });
                 if is_new {
-                    seen.insert(node_key);
+                    seen.insert(node_key.clone());
                     if level < depth {
-                        next.push(node);
+                        if full {
+                            // An anchor result past the node cap: listed,
+                            // expanded by its own continuation.
+                            walk.unexpanded_nodes += 1;
+                            if resumed.insert(node_key) {
+                                walk.resumes.push(Resume {
+                                    node,
+                                    depth: depth - level,
+                                });
+                            }
+                        } else {
+                            next.push(node);
+                        }
                     }
                 }
             }
@@ -545,10 +577,21 @@ pub(super) fn mark_partial_expansion(
     } else {
         "callHierarchyExpansionFailed"
     };
-    let warnings = failures
-        .iter()
-        .take(5)
-        .map(|failure| format!("Hierarchy expansion failed for some items: {failure}"))
+    // Every distinct failure, once, with how many items it hit.
+    let mut distinct: Vec<(String, usize)> = Vec::new();
+    for failure in failures {
+        let message = failure.to_string();
+        match distinct.iter_mut().find(|(seen, _)| *seen == message) {
+            Some((_, count)) => *count += 1,
+            None => distinct.push((message, 1)),
+        }
+    }
+    let warnings = distinct
+        .into_iter()
+        .map(|(message, count)| {
+            let items = if count == 1 { "item" } else { "items" };
+            format!("Hierarchy expansion failed for {count} {items}: {message}")
+        })
         .collect::<Vec<_>>();
     mark_partial(row, query, reason, &warnings);
 }
@@ -562,7 +605,8 @@ pub(super) fn mark_partial_expansion(
 /// across directions, so neither direction's frontier is lost. With two
 /// directions each unexpanded parent carries `direction` (`incoming` or
 /// `outgoing`) and its continuation walks only that direction (`callers` or
-/// `callees`). A fan-out cap is a typed terminal limit.
+/// `callees`). A node whose results were cut to [`MAX_HIERARCHY_FAN_OUT`]
+/// resumes the same way: re-anchored, it lists every result.
 pub(super) fn mark_truncation(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -604,82 +648,98 @@ pub(super) fn mark_truncation(
         .iter()
         .flat_map(|(expansion, walk)| walk.resumes.iter().map(move |resume| (*expansion, resume)))
         .collect::<Vec<_>>();
+    let Some((_, first)) = resumes.first() else {
+        return;
+    };
     let dropped_edges = walks
         .iter()
         .map(|(_, walk)| walk.dropped_edges)
         .sum::<usize>();
-    if let Some((_, first)) = resumes.first() {
-        row["payload"]["truncated"] = json!(true);
-        // Every dropped parent is listed and resumable, not only the first.
-        row["payload"]["unexpandedParents"] = json!(
-            resumes
-                .iter()
-                .map(|(expansion, resume)| {
-                    let mut parent = public_via(&resume.node);
-                    parent["remainingDepth"] = json!(resume.depth);
-                    if tagged && let Some(direction) = expansion.direction() {
-                        parent["direction"] = json!(direction);
-                    }
-                    parent
-                })
-                .collect::<Vec<_>>()
-        );
-        let queries = resumes
-            .iter()
-            .map(|(expansion, resume)| {
-                resume_query(query, resume, tagged.then(|| expansion.operation()))
-            })
-            .collect::<Option<Vec<_>>>();
-        let warning = format!(
-            "Stopped at {MAX_HIERARCHY_NODES} hierarchy nodes; {dropped_edges} edges to further nodes under {} parent(s) (payload.unexpandedParents) were not listed. Run next.continueWalk to walk on from {}{}.",
-            resumes.len(),
-            first
-                .node
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("the first unexpanded node"),
-            if resumes.len() > 1 {
-                ", then next.continueWalk2… for the rest"
-            } else {
-                ""
-            }
-        );
-        match queries {
-            Some(queries) => {
-                push_reason(row, "hierarchyNodeLimit", &[warning]);
-                // One flat continuation per dropped parent, so the whole
-                // frontier is executable: `continueWalk`, `continueWalk2`, ….
-                for (index, query) in queries.into_iter().enumerate() {
-                    let key = match index {
-                        0 => "continueWalk".to_owned(),
-                        _ => format!("continueWalk{}", index + 1),
-                    };
-                    row["next"][key] = continuation(query);
-                }
-            }
-            None => mark_terminal_limit(row, "hierarchyNodeLimit", &[warning]),
-        }
-    }
+    let unexpanded_nodes = walks
+        .iter()
+        .map(|(_, walk)| walk.unexpanded_nodes)
+        .sum::<usize>();
     let fan_out_capped = walks
         .iter()
         .flat_map(|(_, walk)| walk.fan_out_capped.iter())
         .collect::<Vec<_>>();
+    row["payload"]["truncated"] = json!(true);
+    // Every unexpanded or capped parent is listed and resumable.
+    row["payload"]["unexpandedParents"] = json!(
+        resumes
+            .iter()
+            .map(|(expansion, resume)| {
+                let mut parent = public_via(&resume.node);
+                parent["remainingDepth"] = json!(resume.depth);
+                if tagged && let Some(direction) = expansion.direction() {
+                    parent["direction"] = json!(direction);
+                }
+                parent
+            })
+            .collect::<Vec<_>>()
+    );
+    let queries = resumes
+        .iter()
+        .map(|(expansion, resume)| {
+            resume_query(query, resume, tagged.then(|| expansion.operation()))
+        })
+        .collect::<Option<Vec<_>>>();
+    let follow = format!(
+        "Run next.continueWalk to walk on from {}{}.",
+        first
+            .node
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("the first unexpanded node"),
+        if resumes.len() > 1 {
+            ", then next.continueWalk2… for the rest"
+        } else {
+            ""
+        }
+    );
+    let mut limits = Vec::new();
+    if dropped_edges > 0 || unexpanded_nodes > 0 {
+        limits.push((
+            "hierarchyNodeLimit",
+            format!(
+                "Stopped at {MAX_HIERARCHY_NODES} hierarchy nodes; {dropped_edges} edges to further nodes were not listed and {unexpanded_nodes} listed results were not expanded (payload.unexpandedParents). {follow}"
+            ),
+        ));
+    }
     if !fan_out_capped.is_empty() {
-        row["payload"]["truncated"] = json!(true);
         let names = fan_out_capped
             .iter()
-            .take(5)
             .map(|name| name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        mark_terminal_limit(
-            row,
+        limits.push((
             "hierarchyFanOutLimit",
-            &[format!(
-                "Kept the first {MAX_HIERARCHY_FAN_OUT} results of {} node(s) ({names}); use references with pagination for the complete list.",
+            format!(
+                "Kept the first {MAX_HIERARCHY_FAN_OUT} results of {} node(s) below the anchor ({names}); each resumes as the anchor of its continuation, which lists every result. {follow}",
                 fan_out_capped.len()
-            )],
-        );
+            ),
+        ));
+    }
+    match queries {
+        Some(queries) => {
+            for (reason, warning) in limits {
+                push_reason(row, reason, &[warning]);
+            }
+            // One flat continuation per parent, so the whole frontier is
+            // executable: `continueWalk`, `continueWalk2`, ….
+            for (index, query) in queries.into_iter().enumerate() {
+                let key = match index {
+                    0 => "continueWalk".to_owned(),
+                    _ => format!("continueWalk{}", index + 1),
+                };
+                row["next"][key] = continuation(query);
+            }
+        }
+        None => {
+            for (reason, warning) in limits {
+                mark_terminal_limit(row, reason, &[warning]);
+            }
+        }
     }
 }
 

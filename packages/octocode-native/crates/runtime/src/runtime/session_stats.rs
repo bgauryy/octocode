@@ -40,11 +40,18 @@ impl ClassificationUsage {
         let tokens = |key: &str| usage.get(key).and_then(Value::as_u64);
         let input = tokens("input_tokens");
         let output = tokens("output_tokens");
-        self.calls = self.calls.saturating_add(1);
+        let calls = usage
+            .get("provider_calls")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        self.calls = self.calls.saturating_add(calls);
         if input.is_some() && output.is_some() {
             self.known_usage_calls = self.known_usage_calls.saturating_add(1);
+            self.unknown_usage_calls = self
+                .unknown_usage_calls
+                .saturating_add(calls.saturating_sub(1));
         } else {
-            self.unknown_usage_calls = self.unknown_usage_calls.saturating_add(1);
+            self.unknown_usage_calls = self.unknown_usage_calls.saturating_add(calls);
         }
         // Retain reported directional totals, but never call them complete
         // when either counter was absent. A reported zero is known usage.
@@ -290,5 +297,17 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .count();
         assert_eq!(leftovers, 0);
+    }
+
+    #[test]
+    fn retry_receipts_preserve_reported_tokens_and_unknown_attempts() {
+        let mut usage = ClassificationUsage::default();
+        usage.add_record(&json!({"provider_calls":2,"input_tokens":10,"output_tokens":3}));
+        usage.add_record(&json!({"provider_calls":1}));
+        assert_eq!(usage.calls, 3);
+        assert_eq!(usage.known_usage_calls, 1);
+        assert_eq!(usage.unknown_usage_calls, 2);
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 3);
     }
 }

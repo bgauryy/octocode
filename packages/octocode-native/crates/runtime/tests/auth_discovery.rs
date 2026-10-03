@@ -30,9 +30,30 @@ async fn mcp_runtime_discovers_once_and_pins_credential_across_github_requests()
         .and(header("authorization", "Bearer synthetic-gh-credential"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64","content":STANDARD.encode("hello\n"),"size":6,"sha":"a".repeat(40),"path":"readme.txt"}))).expect(1).mount(&server).await;
     let workspace = Workspace::new();
+    let gh_path = fake_gh(&workspace);
+    // macOS can delay the first launch of a newly written executable. Warm only
+    // the synthetic helper outside the runtime's auth deadline, then reset its
+    // marker so the assertions below still count runtime discovery alone.
+    let warmup = tokio::process::Command::new(workspace.workspace.join("bin/gh"))
+        .args(["auth", "token", "--hostname", "127.0.0.1"])
+        .env_clear()
+        .env("OCTOCODE_HOME", &workspace.home)
+        .kill_on_drop(true)
+        .output();
+    let warmup = tokio::time::timeout(std::time::Duration::from_secs(60), warmup)
+        .await
+        .expect("synthetic helper startup deadline")
+        .expect("start synthetic helper");
+    assert!(warmup.status.success(), "{warmup:?}");
+    assert_eq!(warmup.stdout, b"synthetic-gh-credential");
+    assert_eq!(
+        std::fs::read_to_string(workspace.home.join("gh-calls")).unwrap(),
+        "x"
+    );
+    std::fs::remove_file(workspace.home.join("gh-calls")).unwrap();
     let mut config = workspace.config(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("PATH", fake_gh(&workspace)),
+        ("PATH", gh_path),
     ]);
     config.env.remove("OCTOCODE_TOKEN");
     config.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;

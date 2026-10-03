@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ROOT, checks, expandShared, inventoryRows, nextHints, startServer, writeResults } from './mcp-client.mjs';
+import { ROOT, checks, expandShared, inventoryRows, nextHints, startServer, structureFiles, writeResults } from './mcp-client.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { tasks: ALL } = JSON.parse(fs.readFileSync(path.join(HERE, 'competitor-tasks.json'), 'utf8'));
@@ -261,7 +261,10 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
       // Direct callers: "<line>:<col>[,<line>:<col>…] in <kind> <name> …" lists call sites.
       for (const call of f.calls ?? []) for (const site of /^([\d:,]+) in /.exec(call)?.[1].split(',') ?? []) pair(f.path, +site.split(':')[0]);
     }
-    if (typeof node.dir === 'string' && Array.isArray(node.files)) {
+    if (entry.tool === 'structureSearch' && typeof node.dir === 'string' && Array.isArray(node.files)) {
+      // structureSearch groups: dir resolves against base like a row path.
+      for (const f of structureFiles([node])) { ev.files.add(f.path); ev.fileRows.push(f.path); }
+    } else if (typeof node.dir === 'string' && Array.isArray(node.files)) {
       // ghStructure dirs are relative to the requested path (the agent's own input).
       const base = entry.tool === 'ghStructure' ? String(entry.args?.queries?.[0]?.path ?? '').replace(/^\.?\/?$/, '') : '';
       const rel = node.dir === '.' || node.dir === '' ? '' : node.dir.replace(/\/$/, '');
@@ -366,6 +369,19 @@ function nextEntries(next, name = 'next') {
   if (Array.isArray(next)) return next.filter(isHint).map(hint => ({ name, hint }));
   return Object.entries(next).filter(([, v]) => isHint(v)).map(([k, hint]) => ({ name: k, hint }));
 }
+/** Largest number of entries in any one `next` object under a node (a row's or an item's menu). */
+function maxNextEntries(node) {
+  let max = 0;
+  const walk = n => {
+    if (!n || typeof n !== 'object') return;
+    for (const [key, child] of Object.entries(n)) {
+      if (key === 'next') max = Math.max(max, nextEntries(child).length);
+      else walk(child);
+    }
+  };
+  walk(node);
+  return max;
+}
 /** Every `next` entry anywhere under a node. */
 function allNextEntries(node, out = []) {
   if (!node || typeof node !== 'object') return out;
@@ -390,7 +406,7 @@ function trimSignals(node, at, windowed, out = []) {
   if (!node || typeof node !== 'object') return out;
   if (Array.isArray(node)) { node.forEach((child, i) => trimSignals(child, `${at}[${i}]`, windowed, out)); return out; }
   for (const [key, value] of Object.entries(node)) {
-    if (key === 'next') continue;
+    if (key === 'next' || key === 'responsePagination') continue;
     const here = `${at}.${key}`;
     if ((key === 'hasMore' || key === 'truncated') && value === true) out.push({ at: here, signal: key });
     else if ((key === 'isPartial' || key === 'partial') && value === true && !windowed) out.push({ at: here, signal: key });
@@ -404,22 +420,23 @@ function trimSignals(node, at, windowed, out = []) {
 const hasTerminalLimit = node => JSON.stringify(node ?? null).includes('"terminalLimit":');
 
 /**
- * Per-response sensors: nextShare, next entries per row (max), and never-trim
+ * Per-response sensors: nextShare, next entries per menu (max), and never-trim
  * violations (a truncation signal with no executable paging continuation in
  * its row and no terminal-limit disclosure; a split row part needs the
  * envelope continuation).
  */
 function responseSensors(entry) {
+  // nextEntriesMax counts the largest single `next` menu (row- or item-level).
   const sc = entry.raw;
   const out = { bytes: entry.bytes, nextBytes: 0, nextEntriesMax: 0, nextNames: [], violations: [] };
   if (!sc || typeof sc !== 'object') return out;
   out.nextBytes = nextBytes(sc);
   const queries = Array.isArray(entry.args?.queries) ? entry.args.queries : [entry.args ?? {}];
   const envelopeNext = nextEntries(sc.responsePagination?.next);
-  const rows = Array.isArray(sc.results) ? sc.results : [];
+  // Tool rows; a clasify matrix reports per-query rows, else the whole response is one row.
+  const rows = Array.isArray(sc.results) ? sc.results : Array.isArray(sc.queries) ? sc.queries : [sc];
   rows.forEach((row, i) => {
-    const own = [...nextEntries(row?.next), ...nextEntries(row?.data?.next)];
-    out.nextEntriesMax = Math.max(out.nextEntriesMax, own.length);
+    out.nextEntriesMax = Math.max(out.nextEntriesMax, maxNextEntries(row));
     const inRow = allNextEntries(row);
     out.nextNames.push(...inRow.map(e => e.name));
     const query = queries[row?.index ?? i] ?? queries[0] ?? {};

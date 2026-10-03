@@ -278,7 +278,7 @@ pub fn process_fetched_content(
     let mode = q.minify_mode();
     let match_blocks = q.match_string.is_some() && mode != MinifyMode::None;
     let applied = if match_blocks { MinifyMode::None } else { mode };
-    let ext = match extract(q, &raw, regex) {
+    let mut ext = match extract(q, &raw, regex) {
         Ok(x) => x,
         Err(e) => {
             return LocalFetchResult::error(
@@ -445,6 +445,7 @@ pub fn process_fetched_content(
                         confidence: "exact".into(),
                         reason: Some("The selected view is too large to scan safely. Read one source line; this starts a different source-line view, not a…".into()),
                     }),
+                    ..NextCalls::default()
                 });
                 }
                 return result;
@@ -508,6 +509,7 @@ pub fn process_fetched_content(
                     "Offset is past the end of the selected view; restart from offset 0.".into(),
                 ),
             }),
+            ..NextCalls::default()
         })
     } else {
         let mut next = continuation(q, &pg.pagination);
@@ -518,6 +520,13 @@ pub fn process_fetched_content(
         }
         next
     };
+    // Follow-ups to data the extraction selected but did not return.
+    let follow_ups = std::mem::take(&mut ext.next);
+    let mut next = next;
+    if !out_of_range && !follow_ups.is_empty() {
+        next.get_or_insert_with(NextCalls::default)
+            .absorb(follow_ups);
+    }
     if head && pg.pagination.has_more {
         warnings.push(format!(
             "Large file ({total_lines} lines) read without an anchor: returned its first {} lines. Target the answer with matchString or startLine/endLine (or next.clasify when offered); next.continue pages on, fullContent:true reads it whole.",
@@ -690,6 +699,7 @@ fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
             confidence: "exact".into(),
             reason: Some("The source changed; restart this view on the current version.".into()),
         }),
+        ..NextCalls::default()
     });
     result
 }

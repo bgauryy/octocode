@@ -3,7 +3,7 @@
 // candidates are verified against package declarations and lexical class uses.
 // Bounded syntactic graph coverage is measured against LSP, not called complete.
 import path from 'node:path';
-import { REPOS, ROOT, astMatchRows, checks, collect, declarations, nextHints, rowData, sourcePath, sourceView, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, ROOT, astMatchRows, checks, collect, declarations, nextHints, rowData, sourcePath, sourceView, startServer, structureFiles, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('deps-flows');
 const client = await startServer({ env: { OCTOCODE_BETA: '1' } });
@@ -89,7 +89,7 @@ for (const p of PROJECTS) {
   projectTopo = p.topo ?? {};
   const row = { lang: p.lang };
   const listing = await call('structureSearch', { operation: 'files', path: path.join(root, p.scope), extensions: p.ext, detail: 'full', sort: 'lines', limit: 30 });
-  const candidates = collect(rowData(listing), o => typeof o.path === 'string' && typeof o.lineCount === 'number')
+  const candidates = structureFiles(rowData(listing)?.files).filter(o => typeof o.path === 'string' && typeof o.lineCount === 'number')
     // Paths are relative to the response `base` (the workspace for structureSearch).
     .map(o => path.relative(root, path.resolve(listing.sc?.base ?? ROOT, o.path)))
     .filter(f => !/(^|[/_.])(tests?|spec|bench)([/_.]|$)/i.test(f));

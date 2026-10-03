@@ -120,6 +120,8 @@ pub(super) async fn issue<R: CredentialResolver>(
                 query.char_offset(),
                 query,
                 &mut body_page,
+                // Issue text is never minified.
+                &mut false,
             );
             let mut c = merge(comment, json!({"body":body,"bodyPagination":page}));
             if let Some(map) = c.as_object_mut()
@@ -323,13 +325,19 @@ fn attach_fix_pr(
         // A small fix reads whole in one call: its patches are the evidence
         // (`closedBy` already links it to this issue). A larger one names
         // its files, beside its description, so the review can pick patches.
-        Some(pr) => (
-            "readFixPr",
-            json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":confidence,"query":{
+        // Files the caller's goal names: their patches are the evidence, and
+        // the filter rides the copied query, so the narrowing is visible.
+        Some(pr) => {
+            let named = goal_file_globs(query);
+            let mut read = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":confidence,"query":{
                 "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
                 "number":pr.row["number"],
-                "include": if pr.small { json!(["patches"]) } else { json!(["body", "files"]) }}}),
-        ),
+                "include": if pr.small || !named.is_empty() { json!(["patches"]) } else { json!(["body", "files"]) }}});
+            if !named.is_empty() {
+                read["query"]["fileFilter"] = json!({"paths": named});
+            }
+            ("readFixPr", read)
+        }
         None if closed && closed_by.is_none() => (
             "findFixPr",
             json!({"tool":ToolId::GhSearchHistory.as_str(),"confidence":"medium","query":{
@@ -342,6 +350,40 @@ fn attach_fix_pr(
         out["next"] = json!({});
     }
     out["next"][next.0] = next.1;
+}
+
+/// Most goal-named files one fix-PR read narrows to.
+const MAX_GOAL_FILES: usize = 5;
+
+/// `fileFilter.paths` globs for file names the query's goal mentions
+/// (`merge.go`, `pkg/cmd/merge.go`): a word counts only when its name has a
+/// known code, config, doc, or lock file type, so dotted identifiers
+/// (`res.redirect`) and versions never narrow a read.
+fn goal_file_globs(query: &HistoryItemRequest) -> Vec<String> {
+    use crate::content::classify_file_type;
+    let goal = serde_json::to_value(&query.query)
+        .ok()
+        .and_then(|value| value.get("goal").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_default();
+    let mut globs = Vec::new();
+    for word in goal.split(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))) {
+        let path = word.trim_matches(|c| c == '.' || c == '/');
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let has_stem = name
+            .rsplit_once('.')
+            .is_some_and(|(stem, _)| stem.chars().any(char::is_alphanumeric));
+        if !has_stem || classify_file_type(name).is_none() {
+            continue;
+        }
+        let glob = format!("**/{path}");
+        if !globs.contains(&glob) {
+            globs.push(glob);
+        }
+        if globs.len() == MAX_GOAL_FILES {
+            break;
+        }
+    }
+    globs
 }
 
 #[cfg(test)]
@@ -391,6 +433,60 @@ mod tests {
                 out["next"]["readFixPr"]["query"]["include"],
                 json!(["body", "files"])
             );
+        }
+        assert!(
+            out_for(&query, &prs)["next"]["readFixPr"]["query"]
+                .get("fileFilter")
+                .is_none()
+        );
+    }
+
+    fn out_for(query: &HistoryItemRequest, prs: &[ClosingPr]) -> Value {
+        let mut out = json!({});
+        attach_fix_pr(&mut out, query, Some(prs), true, false);
+        out
+    }
+
+    /// A goal that names changed files reads only those files' patches of
+    /// the fix; dotted words that are not file names (`res.redirect`,
+    /// versions) never narrow it.
+    #[test]
+    fn read_fix_pr_narrows_to_files_the_goal_names() {
+        let issue = |goal: &str| {
+            HistoryItemRequest::from_row(json!({
+                "operation":"issue","goal":goal,"reasoning":"r","owner":"o","repo":"r","number":1
+            }))
+            .expect("issue query")
+        };
+        let large = map_closing_pull_requests(&[
+            json!({"number":9,"state":"MERGED","mergedAt":"x","additions":900,"deletions":4,"changedFiles":40}),
+        ]);
+        let out = out_for(
+            &issue("Which PR fixed cli/cli#14404 and what did it change in merge.go?"),
+            &large,
+        );
+        let read = &out["next"]["readFixPr"]["query"];
+        assert_eq!(
+            read["fileFilter"],
+            json!({"paths":["**/merge.go"]}),
+            "{read}"
+        );
+        assert_eq!(read["include"], json!(["patches"]), "{read}");
+        let out = out_for(
+            &issue("Check pkg/cmd/pr/merge/merge.go and README.md (v2.31.0)."),
+            &large,
+        );
+        assert_eq!(
+            out["next"]["readFixPr"]["query"]["fileFilter"]["paths"],
+            json!(["**/pkg/cmd/pr/merge/merge.go", "**/README.md"])
+        );
+        for goal in [
+            "What does res.redirect default to in express@4.21.2?",
+            "Which PR fixed this issue?",
+        ] {
+            let read = &out_for(&issue(goal), &large)["next"]["readFixPr"]["query"];
+            assert!(read.get("fileFilter").is_none(), "{goal}: {read}");
+            assert_eq!(read["include"], json!(["body", "files"]), "{goal}");
         }
     }
 }

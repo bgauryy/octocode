@@ -25,7 +25,8 @@ pub fn run_if_due(home: &Path) -> bool {
             return false;
         }
     }
-    sweep_dir(&tmp.join("clone"), INTERVAL);
+    // Clone entries may contain local edits. Their lock/status-aware eviction
+    // runs through ghCloneRepo; a directory-age sweep cannot safely remove them.
     sweep_dir(&tmp.join("response"), INTERVAL);
     sweep_dir(&tmp.join("tree"), INTERVAL);
     sweep_dir(&tmp.join("search-snapshots"), Duration::from_secs(60));
@@ -73,6 +74,26 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         assert!(!run_if_due(home.path()));
         assert!(!home.path().join("tmp").exists());
+    }
+
+    #[test]
+    fn automatic_maintenance_preserves_clone_evidence_under_an_old_owner_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let owner = home.path().join("tmp/clone/owner");
+        let checkout = owner.join("repo/main");
+        fs::create_dir_all(&checkout).unwrap();
+        let evidence = checkout.join("local-notes.txt");
+        fs::write(&evidence, "uncommitted evidence").unwrap();
+        let old = SystemTime::now() - INTERVAL * 2;
+        fs::File::open(&owner)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(old))
+            .unwrap();
+        assert!(run_if_due(home.path()));
+        assert_eq!(
+            fs::read_to_string(evidence).unwrap(),
+            "uncommitted evidence"
+        );
     }
 
     #[test]

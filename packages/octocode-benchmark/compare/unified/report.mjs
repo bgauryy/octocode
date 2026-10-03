@@ -34,7 +34,8 @@ const rows = questions.map((q) => {
   for (const w of workers) {
     const r = maybe(path.join(runDir, 'runs', q.id, w, 'run.json'));
     if (!r || !r.valid || r.status !== 'ok' || !r.isolation?.ok || !r.tokens?.verified) throw new Error(`invalid/missing worker ${q.id}/${w}`);
-    if (finals.length !== pairs.length || finals.some(f => !f.valid || f.graderErrors || !Number.isFinite(f.scores?.[w]?.quality))) throw new Error(`incomplete/invalid judgment ${q.id}/${w}`);
+    // With >2 workers each pair final scores only its own two workers.
+    if (finals.length !== pairs.length || finals.some(f => !f.valid || f.graderErrors || (f.workers.includes(w) && !Number.isFinite(f.scores?.[w]?.quality)))) throw new Error(`incomplete/invalid judgment ${q.id}/${w}`);
     const scores = finals.map((f) => f.scores?.[w]?.quality).filter((x) => x != null);
     const quality = scores.length ? mean(scores) : null;
     const t = r?.tokens;

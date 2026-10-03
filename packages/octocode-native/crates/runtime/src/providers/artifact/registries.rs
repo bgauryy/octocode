@@ -188,12 +188,65 @@ fn crate_item(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, Arti
     Ok(artifact)
 }
 
+/// One version's facts on its crate row.
+fn apply_crate_version(artifact: &mut ArtifactItem, entry: &Value) {
+    artifact.version = string(entry.get("num"));
+    artifact.published_at = date_prefix(entry.get("created_at"));
+    artifact.yanked = (entry.get("yanked") == Some(&Value::Bool(true))).then_some(true);
+    artifact.rust_version = string(entry.get("rust_version"));
+    artifact.license = license(entry.get("license")).or(artifact.license.take());
+}
+
+/// An exact crate version from its own record plus the crate's metadata
+/// without its version list (`include=`): the same row the crate document
+/// gives, without downloading every version. `None` when either is unknown,
+/// so the crate-document read reports not-found or the nearest versions.
+async fn crate_release(
+    name: &str,
+    version: &str,
+    client: &RegistryClient<'_>,
+) -> Result<Option<ArtifactItem>, ArtifactError> {
+    let encoded = super::util::encode_component(name);
+    let metadata = parse_url(&format!(
+        "https://crates.io/api/v1/crates/{encoded}?include="
+    ))?;
+    let record = parse_url(&format!(
+        "https://crates.io/api/v1/crates/{encoded}/{}",
+        super::util::encode_component(version)
+    ))?;
+    let (metadata, record) = tokio::join!(
+        client.json(ArtifactType::Crates, metadata, true, None),
+        client.json(ArtifactType::Crates, record, true, None)
+    );
+    let (Some(metadata), Some(record)) = (metadata?, record?) else {
+        return Ok(None);
+    };
+    let row = object_for(
+        object_for(&metadata, ArtifactType::Crates)?
+            .get("crate")
+            .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?,
+        ArtifactType::Crates,
+    )?;
+    let entry = record
+        .get("version")
+        .filter(|entry| entry.get("num").and_then(Value::as_str) == Some(version))
+        .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?;
+    let mut artifact = crate_item(row)?;
+    apply_crate_version(&mut artifact, entry);
+    Ok(Some(artifact))
+}
+
 pub(crate) async fn crates(
     query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     if let Some(name) = query.bare_package_name() {
+        if let Some(VersionSpec::Exact(version)) = query.version().map(VersionSpec::parse)
+            && let Some(artifact) = crate_release(name, &version, client).await?
+        {
+            return Ok(single(artifact));
+        }
         let url = parse_url(&format!(
             "https://crates.io/api/v1/crates/{}",
             super::util::encode_component(name)
@@ -248,11 +301,7 @@ pub(crate) async fn crates(
                 .iter()
                 .find(|entry| entry.get("num").and_then(Value::as_str) == Some(wanted))
         }) {
-            artifact.version = num(entry);
-            artifact.published_at = date_prefix(entry.get("created_at"));
-            artifact.yanked = (entry.get("yanked") == Some(&Value::Bool(true))).then_some(true);
-            artifact.rust_version = string(entry.get("rust_version"));
-            artifact.license = license(entry.get("license")).or(artifact.license);
+            apply_crate_version(&mut artifact, entry);
         }
         return Ok(single(artifact));
     }
@@ -718,11 +767,16 @@ mod tests {
             _budget: &'a RequestBudget,
         ) -> ArtifactHttpFuture<'a> {
             let path = req.url.path().to_owned();
-            self.seen.lock().expect("seen").push(path.clone());
+            let full = match req.url.query() {
+                Some(query) => format!("{path}?{query}"),
+                None => path.clone(),
+            };
+            self.seen.lock().expect("seen").push(full.clone());
             let found = self
                 .routes
                 .iter()
-                .find(|(route, _)| *route == path)
+                .find(|(route, _)| *route == full)
+                .or_else(|| self.routes.iter().find(|(route, _)| *route == path))
                 .map(|(_, body)| serde_json::to_vec(body).expect("body"));
             Box::pin(async move {
                 Ok(match found {
@@ -817,21 +871,23 @@ mod tests {
         );
     }
 
+    fn serde_crate_document() -> Value {
+        json!({
+            "crate": {"name": "serde", "max_stable_version": "1.0.228",
+                "description": "serialization", "homepage": "https://serde.rs",
+                "repository": "https://github.com/serde-rs/serde"},
+            "versions": [
+                {"num": "1.0.228", "created_at": "2025-09-27T00:00:00Z", "yanked": false, "license": "MIT OR Apache-2.0", "rust_version": "1.61"},
+                {"num": "1.0.200", "created_at": "2024-05-01T00:00:00Z", "yanked": true, "license": "MIT OR Apache-2.0", "rust_version": "1.31"},
+                {"num": "1.0.100", "created_at": "2019-09-08T01:56:06Z", "yanked": false, "license": "MIT OR Apache-2.0"},
+                {"num": "1.0.99", "created_at": "2019-08-01T00:00:00Z", "yanked": false}
+            ]
+        })
+    }
+
     #[tokio::test]
     async fn crates_versions_resolve_from_the_crate_response() {
-        let http = RouteHttp::new(vec![(
-            "/api/v1/crates/serde",
-            json!({
-                "crate": {"name": "serde", "max_stable_version": "1.0.228",
-                    "description": "serialization", "repository": "https://github.com/serde-rs/serde"},
-                "versions": [
-                    {"num": "1.0.228", "created_at": "2025-09-27T00:00:00Z", "yanked": false, "license": "MIT OR Apache-2.0", "rust_version": "1.61"},
-                    {"num": "1.0.200", "created_at": "2024-05-01T00:00:00Z", "yanked": true, "license": "MIT OR Apache-2.0"},
-                    {"num": "1.0.100", "created_at": "2019-09-08T01:56:06Z", "yanked": false, "license": "MIT OR Apache-2.0"},
-                    {"num": "1.0.99", "created_at": "2019-08-01T00:00:00Z", "yanked": false}
-                ]
-            }),
-        )]);
+        let http = RouteHttp::new(vec![("/api/v1/crates/serde", serde_crate_document())]);
         let b = budget();
         let client = RegistryClient {
             http: &http,
@@ -845,16 +901,6 @@ mod tests {
             let state = &state;
             async move { crates(&query, state, client).await }
         };
-        let exact = lookup(versioned(ArtifactType::Crates, "serde", "1.0.100"))
-            .await
-            .expect("exact");
-        let item = &exact.artifacts[0];
-        assert_eq!(item.version.as_deref(), Some("1.0.100"));
-        assert_eq!(item.published_at.as_deref(), Some("2019-09-08"));
-        let coordinate = lookup(exact_query(ArtifactType::Crates, "serde@1.0.100"))
-            .await
-            .expect("@");
-        assert_eq!(coordinate.artifacts[0].version.as_deref(), Some("1.0.100"));
         let latest = lookup(exact_query(ArtifactType::Crates, "serde"))
             .await
             .expect("latest");
@@ -871,14 +917,96 @@ mod tests {
             Some("1.0.100"),
             "yanked 1.0.200 is skipped"
         );
-        let missing = lookup(versioned(ArtifactType::Crates, "serde", "1.0.101"))
-            .await
-            .expect_err("missing");
-        assert_eq!(missing.code, "versionNotFound");
         assert!(
             http.seen()
                 .iter()
                 .all(|path| path == "/api/v1/crates/serde")
+        );
+        // A version the registry does not know reads the crate document for
+        // its nearest versions.
+        let missing = lookup(versioned(ArtifactType::Crates, "serde", "1.0.101"))
+            .await
+            .expect_err("missing");
+        assert_eq!(missing.code, "versionNotFound");
+        assert!(missing.hints[0].contains("1.0.100"), "{missing:?}");
+    }
+
+    async fn crate_lookup(
+        http: &RouteHttp,
+        budget: &RequestBudget,
+        query: &ArtifactSearchQuery,
+    ) -> Result<ArtifactProviderPage, ArtifactError> {
+        let client = RegistryClient {
+            http,
+            budget,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        crates(query, &ArtifactProviderState::default(), &client).await
+    }
+
+    /// An exact version reads its own record and the crate's metadata, not
+    /// the crate document that lists every version, and returns the same
+    /// row the document would.
+    #[tokio::test]
+    async fn crates_exact_versions_read_the_version_record_with_the_same_fields() {
+        let document = serde_crate_document();
+        let record = |num: &str| {
+            json!({"version": document["versions"].as_array().expect("versions").iter()
+                .find(|entry| entry["num"] == num).expect("entry")})
+        };
+        // `include=` leaves the version-derived fields empty, as crates.io does.
+        let mut metadata = json!({"crate": document["crate"].clone(), "versions": null});
+        metadata["crate"]["max_stable_version"] = Value::Null;
+        metadata["crate"]["max_version"] = json!("0.0.0");
+        let small = RouteHttp::new(vec![
+            ("/api/v1/crates/serde?include=", metadata),
+            ("/api/v1/crates/serde/1.0.100", record("1.0.100")),
+            ("/api/v1/crates/serde/1.0.200", record("1.0.200")),
+        ]);
+        let whole = RouteHttp::new(vec![("/api/v1/crates/serde", document.clone())]);
+        let b = budget();
+        for (query, version) in [
+            (
+                versioned(ArtifactType::Crates, "serde", "1.0.100"),
+                "1.0.100",
+            ),
+            (
+                exact_query(ArtifactType::Crates, "serde@1.0.100"),
+                "1.0.100",
+            ),
+            (
+                versioned(ArtifactType::Crates, "serde", "1.0.200"),
+                "1.0.200",
+            ),
+        ] {
+            let item = crate_lookup(&small, &b, &query)
+                .await
+                .expect("exact")
+                .artifacts
+                .remove(0);
+            assert_eq!(item.version.as_deref(), Some(version));
+            let via_document = crate_lookup(&whole, &b, &query)
+                .await
+                .expect("document")
+                .artifacts
+                .remove(0);
+            assert_eq!(
+                serde_json::to_value(&item).expect("item"),
+                serde_json::to_value(&via_document).expect("item"),
+                "{version}"
+            );
+        }
+        let mut seen = small.seen();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(
+            seen,
+            [
+                "/api/v1/crates/serde/1.0.100",
+                "/api/v1/crates/serde/1.0.200",
+                "/api/v1/crates/serde?include=",
+            ]
         );
     }
 

@@ -24,6 +24,8 @@ pub(super) enum FileHits {
     /// Every line holding a keyword (capped at [`MAX_LINES_PER_FILE`]).
     Lines {
         lines: Vec<String>,
+        /// A shown line was cut to its keyword window.
+        clipped: bool,
         first: u32,
         last: u32,
         /// The hit that best fits the goal ([`hit_score`]).
@@ -131,6 +133,7 @@ pub(super) fn scan(
     let mut last = 0;
     let mut total = 0;
     let mut line_count = 0;
+    let mut clipped = false;
     let lowered: Vec<String> = text.lines().map(str::to_lowercase).collect();
     let terms = goal_terms(goal, &needles);
     let mut best = (0, (0, 0));
@@ -163,6 +166,7 @@ pub(super) fn scan(
         let shown = if in_key_block {
             crate::security::key_fragment_placeholder()
         } else {
+            clipped |= line.chars().count() > MAX_LINE_CHARS;
             let window = clip(line, lower_to_char_index(line, lower, at));
             security
                 .sanitize(&window, Path::new(path))
@@ -179,6 +183,7 @@ pub(super) fn scan(
     }
     FileHits::Lines {
         lines,
+        clipped,
         first,
         last,
         best: best.0,
@@ -381,6 +386,7 @@ mod tests {
                 best: 2,
                 total: 2,
                 line_count: 4,
+                clipped: false,
             }
         );
         assert_eq!(
@@ -455,7 +461,7 @@ mod tests {
     #[test]
     fn long_lines_keep_a_window_around_the_keyword() {
         let line = format!("{}needle{}", "a".repeat(500), "b".repeat(500));
-        let FileHits::Lines { lines, .. } = scan(
+        let FileHits::Lines { lines, clipped, .. } = scan(
             line.as_bytes(),
             "a.js",
             &["needle".into()],
@@ -464,6 +470,8 @@ mod tests {
         ) else {
             panic!("hit");
         };
+        // The cut is flagged so the page carries a read of the whole line.
+        assert!(clipped);
         assert!(lines[0].starts_with("1\t…"), "{}", lines[0]);
         assert!(lines[0].contains("needle"));
         assert!(lines[0].chars().count() <= MAX_LINE_CHARS + 4);
@@ -473,7 +481,11 @@ mod tests {
     fn many_hits_are_capped_but_counted() {
         let text = "needle\n".repeat(30);
         let FileHits::Lines {
-            lines, total, last, ..
+            lines,
+            total,
+            last,
+            clipped,
+            ..
         } = scan(
             text.as_bytes(),
             "a.rs",
@@ -487,5 +499,6 @@ mod tests {
         assert_eq!(lines.len(), MAX_LINES_PER_FILE);
         assert_eq!(total, 30);
         assert_eq!(last, 30);
+        assert!(!clipped);
     }
 }
