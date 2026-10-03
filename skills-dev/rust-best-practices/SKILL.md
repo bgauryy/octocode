@@ -8,56 +8,40 @@ description: "Use when writing, structuring, reviewing, or hardening Rust and a 
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+routes: load a reference only when it changes the next action.
 
-Write, structure, and harden Rust that a seasoned maintainer would sign off on — idiomatic, fast, and safe by construction.
+```mermaid
+flowchart TD
+    F[FRAME: pick the axis] --> L[LOAD its one page] --> I[INSPECT real code and manifests] --> A[APPLY smallest change] --> V[VERIFY with repo checks]
+    L -. "which doc settles a claim; choose or vet a crate" .-> R1["sources-and-crates.md"]
+    L -. "errors, ownership, iterators, public API; borrow-checker, clone spam, async" .-> R2["idioms.md"]
+    L -. "struct vs enum, generics vs dyn, smart pointers, OO port, named pattern" .-> R3["types-and-patterns.md"]
+    L -. "modules, layers, what goes in which crate" .-> R4["crate-structure.md"]
+    L -. "add a workspace crate; root Cargo.toml, MSRV, lockfile, features" .-> R5["workspace.md"]
+    L -. "[profile.*], compile time" .-> R6["build-profiles.md"]
+    L -. "tests, dev loop, CI, which tool" .-> R7["testing-and-tooling.md"]
+    L -. "slow hot path, RSS, type size, malloc/calloc" .-> R8["performance-and-memory.md"]
+    L -. "unsafe, untrusted input, supply chain, cdylib, napi threads/panics" .-> R9["safety-and-ffi.md"]
+    L -. "#[napi] types, .d.ts, per-platform npm packages" .-> R10["napi.md"]
+    L -. "CLI args/streams/exit codes, ratatui TUI, child processes" .-> R11["cli-tui-subprocess.md"]
+    L -. "parse source, structural queries, byte-range rewrites" .-> R12["parsing-and-codegen.md"]
+```
 
-Flow: `FRAME → INSPECT → APPLY → VERIFY`. FRAME the axis in play and load only its route below; INSPECT the real code and manifests before advising; APPLY the smallest change that fixes the axis; VERIFY with the repo's own checks.
+Skill map: solid edges are the flow; each dotted edge names the trigger that loads that `references/` page. Load only the page in play.
 
-Reports: `<output>/rust-best-practices/`; scratch: `<output>/tmp/rust-best-practices/`. Chat-only advice stays in chat; source edits keep their named paths.
+Reports: `<output>/rust-best-practices/`; scratch: `<output>/tmp/rust-best-practices/`. Chat-only advice stays in chat.
 
-## Lobby rules
-- Inspect before advising. Read the real `Cargo.toml`, `src/` layout, and the target code; do not prescribe against an imagined project. Match the crate's existing edition, MSRV, and conventions.
-- Evidence over reputation for crate picks. Verify a crate's maintenance, license, and API against upstream source (via `octocode-research`), not registry stars alone. Prefer std or an already-present dependency before adding a new one.
-- When asserting an idiom or API rule, anchor it to the official canon, not memory. The Rust API Guidelines and the Reference settle disputes; name the source (`references/canonical-sources.md`). Language rules come from the canon; specific-crate behavior comes from upstream source.
-- `cargo clippy` and `cargo fmt` are the baseline, not the ceiling. Never hand-argue a lint clippy already decides; run it. Treat clippy findings as the first review pass.
-- Never change observable behavior while "cleaning up" — for behavior-preserving cleanup and dead-weight removal defer to `octocode-clean-agentic-code`.
-- Measure before optimizing. No performance claim without a `--release` benchmark or profile; refuse to optimize on intuition. Reserve `unsafe` for a proven need and gate every block with a written safety invariant.
-- Keep edits within the requested axis and authorization. Adding a dependency, bumping MSRV/edition, or touching a lockfile needs explicit consent.
+## Rules
+- Read the real `Cargo.toml`, `src/` layout, and target code before advising; match the crate's edition, MSRV, and conventions.
+- Prefer std or an already-present dependency. Verify a new crate's maintenance, license, and API against upstream source (`octocode-research`), not registry stars.
+- Anchor idiom/API claims to the official canon (API Guidelines, Reference) and name it; crate behavior comes from upstream source.
+- `cargo clippy` and `cargo fmt` are the first review pass: run them, never hand-argue a lint clippy decides.
+- Never change observable behavior while cleaning up; behavior-preserving cleanup belongs to `octocode-clean-agentic-code`.
+- No performance claim without a `--release` benchmark or profile. `unsafe` only for a proven need, each block with a written safety invariant.
+- Stay within the requested axis. Adding a dependency, bumping MSRV/edition, or touching a lockfile needs explicit consent.
 
-## Smart routes — load only what the current step needs
-Code design
-- When a claim needs an authoritative anchor or you must pick which official doc settles it, load `references/canonical-sources.md`.
-- When choosing or vetting a dependency, load `references/crates.md` — per-need canon and the add-a-crate gate.
-- When shaping errors, ownership, conversions, iterators, or public API, load `references/idioms.md`.
-- When modeling data (struct vs enum, constructors, primitives, generics vs `dyn`, smart pointers, porting OO objects), load `references/types-and-structs.md`.
-- When a design question calls for a named pattern or a GoF/OO habit needs its Rust form, load `references/design-patterns.md` — good patterns and anti-patterns.
-- When code fights the borrow checker, spams `.clone()`, or mishandles async, load `references/gotchas.md`.
+## Pages
+Load on the map trigger: `references/sources-and-crates.md` · `references/idioms.md` · `references/types-and-patterns.md` · `references/crate-structure.md` · `references/workspace.md` · `references/build-profiles.md` · `references/testing-and-tooling.md` · `references/performance-and-memory.md` · `references/safety-and-ffi.md` · `references/napi.md` · `references/cli-tui-subprocess.md` · `references/parsing-and-codegen.md`
 
-Structure & build
-- When placing modules/files or layering one crate, load `references/project-structure.md`.
-- When deciding what goes in which crate, the API between crates, or extracting a module into a crate, load `references/crate-boundaries.md`.
-- When creating/adding workspace crates or mapping an npm monorepo habit to Cargo, load `references/workspace-crates.md`.
-- When writing the root `Cargo.toml` (shared package/deps/lints, edition, MSRV, lockfile, features), load `references/workspace-manifest.md`.
-- When tuning `[profile.*]` or cutting compile time, load `references/build-profiles.md`.
-- When setting up a dev loop or CI, or asking which tool does a job, load `references/dev-tooling.md`.
-- When adding, organizing, or speeding up tests, load `references/testing.md`.
-
-Speed, memory, safety
-- When a hot path is slow or allocation-heavy, load `references/performance.md` — measure first.
-- When RSS/peak memory, type size, or unbounded growth is the problem, load `references/memory.md`.
-- When translating malloc/calloc/realloc/free, using zeroed/uninit buffers, or handing memory across FFI, load `references/allocation.md`.
-- When reviewing `unsafe`, untrusted input, secrets, supply chain, or a release gate, load `references/safety-and-security.md`.
-
-Apps & interop
-- When building a command-line tool (args, stdout/stderr, exit codes, color, pipes, config, signals), load `references/cli.md`.
-- When building a full-screen terminal UI, load `references/tui.md` — ratatui lifecycle, event loop, render tests.
-- When crossing an FFI boundary (`cdylib`, C bindings, napi threads/panics), load `references/ffi-and-interop.md`.
-- When choosing Rust types for `#[napi]` exports or owning the generated `.d.ts`, load `references/napi-types.md` — verified TS ↔ Rust mapping.
-- When designing napi exports, laying out a binding crate, or shipping per-platform npm packages and releases, load `references/napi-packaging.md`.
-- When spawning child processes or reading their output, load `references/subprocess-and-io.md`.
-- When parsing source, running structural queries, or rewriting code by byte range, load `references/parsing-and-codegen.md`.
-- For upstream crate source, real-world patterns, or version-at-ref proof, use `octocode-research` — never treat registry metadata as code evidence.
-
-## Related routes
-- Use `octocode-research` to verify crate source, trace APIs, and find real-world usage; `octocode-clean-agentic-code` for behavior-preserving cleanup; `octocode-roast` for a smell inventory; `octocode-eval-benchmark` to measure a performance change; `octocode-skills` for changes to this folder. No scripts.
+## Related
+`octocode-research`: upstream crate source and version-at-ref proof (registry metadata is not code evidence) · `octocode-clean-agentic-code`: cleanup · `octocode-roast`: smell inventory · `octocode-eval-benchmark`: measure a performance change · `octocode-skills`: change this folder.

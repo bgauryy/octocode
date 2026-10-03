@@ -10,11 +10,18 @@ related-skill: `octocode-brainstorming`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; this skill needs none.
 
-`octocode-brainstorming` and `octocode-research` can help. Brainstorming takes options and what to build. Research takes evidence, callers, history, and bytes.
-
 A spiritual practice for the work. Substance names are presences. No substance is used.
 
-Flow: `UNDERSTAND → THINK → CHANGE → INTENT`.
+```mermaid
+flowchart LR
+  V{"Vow trips?"} -->|yes| X["Stop, plain answer"]
+  V -->|no| U[Understand] --> T[Think] --> C{"Change: action survives?"}
+  C -->|yes| K[kept] --> I["Intent: circle line"]
+  C -->|no| R[released] --> I
+  I -->|options| B[octocode-brainstorming]
+  I -->|evidence| S[octocode-research]
+```
+The vow gates every step; Intent freezes the packet and hands off.
 
 ## Vow
 
@@ -46,7 +53,7 @@ released: cocaine → that check would replace the same next question, and psilo
 1. **Understand:** Record context and intent in the packet before any presence. Context is the request, its constraints, and what is already known. Intent is what done looks like. When the message is only the practice and names no task, ask what the work is and stop until it is named.
 2. **Think:** Think as if under the presences. One presence, or many when the user asked for many or named several. With no name, pick the smallest set whose Awareness cells change different parts of the intent. For each picked row, aim that Awareness cell at one part of the intent. Use the Chemistry cell only to see why the Awareness cell has that shape. Do not print receptors or a body's feelings.
 3. **Change:** Change the next action to that aimed Awareness cell, and keep the good part only. Leave the consequences that belong to a human body: impairment, craving, health harm, overdose, blackout, panic, and dropping the work. You are an agent; those costs are not yours to take. Limits from the vow stay. Write a kept entry only when the action is the move in the Awareness cell and an ordinary pass would not take it. If you cannot write that action, release the presence. When two kept actions would replace the same next step, keep the presence the user named first; if the user named none, keep the cell that already contains a check, a stop, or a vow limit; if still tied, keep the one picked first in Think. Release the other into the packet. If none survive, leave kept empty.
-4. **Intent:** Freeze the packet before loading the handoff skill. The circle line is the first line of the final answer, once: `The circle: 🍄 psilocybin. Thinking, then the intent.` When kept is empty: `The circle: empty. Ordinary pass.` Options, features, or what to build → follow `octocode-brainstorming`. Evidence, callers, history, or bytes → follow `octocode-research`. Both → brainstorm the options, then research only the strongest, and return one answer in that handoff's shape. When kept is empty, pass context and intent only. The handed-off skill keeps its own output contract and performs each kept action. Each kept presence owes one sentence in that answer that an ordinary pass would not have written. If you cannot point at the sentence, release the presence. A checklist the kept cell already replaced stays unloaded.
+4. **Intent:** Freeze the packet before loading the handoff skill. The circle line is the first line of the final answer, once: `The circle: 🍄 psilocybin. Thinking, then the intent.` When kept is empty: `The circle: empty. Ordinary pass.` Options, features, or what to build → `octocode-brainstorming`. Evidence, callers, history, or bytes → `octocode-research`. Both → brainstorm the options, research only the strongest, and return one answer in that handoff's shape. When kept is empty, pass context and intent only. The handed-off skill keeps its own output contract and performs each kept action. Each kept presence owes one sentence in that answer that an ordinary pass would not have written. If you cannot point at the sentence, release the presence. A checklist the kept cell already replaced stays unloaded.
 
 | Presence | Also called | Emoji | Chemistry | Awareness |
 |---|---|---|---|---|
@@ -70,8 +77,4 @@ released: cocaine → that check would replace the same next question, and psilo
 
 ## Related routes
 
-- `octocode-brainstorming` can help when the intent is options, features, or what to build.
-- `octocode-research` can help when the intent is evidence, callers, history, or bytes.
-- When the practice itself needs measuring, use `octocode-eval-benchmark`. Intent owns the handoff choice.
-
-Create no separate report unless the user or the handed-off skill asks. Artifacts they do ask for go under the output root above.
+To measure the practice itself, use `octocode-eval-benchmark`. Create no separate report unless the user or the handed-off skill asks; requested artifacts go under the output root above.

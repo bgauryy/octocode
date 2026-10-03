@@ -14,7 +14,7 @@ Both workers use the same model (Sonnet 5.5) and the same goal paragraph. Neithe
 
 | Path | What it is |
 |---|---|
-| `questions/QUESTIONS.md`, `questions/questions.json` | The 30 questions: 10 GitHub (PR review, GitHub code research, bug root-cause analysis) and 20 local (cloned repos at pinned commits). They are plain developer asks, with no hints, steps or tool names |
+| `questions/QUESTIONS.md`, `questions/questions.json` | The 49 questions: 18 GitHub (PR review, code research, bug root-cause analysis, repository structure, repository discovery, history, package releases), 26 local (cloned repos at pinned commits) and 5 mixed (a local checkout plus GitHub or a registry). They are plain developer asks, with no hints, steps or tool names. The category table in `QUESTIONS.md` lists them |
 | `references/` | **Judge-only** answer keys: key facts, acceptable variations, common wrong answers. Never shown to workers |
 | `workers/<id>/WORKER.md` + `profile.json` | A worker: instructions (the subject under test) plus tool wiring. Add a worker by adding a folder; the harness never branches on the worker id |
 | `REFLECT.md` | The reflection prompt each worker answers after each question |

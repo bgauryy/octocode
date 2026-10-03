@@ -1,9 +1,9 @@
 # Redemption Flow
 
-Load after the autopsy when you can want fixes. Why: separate critique from mutation and obtain a precise repair choice.
+Load after the autopsy when fixes are wanted; it keeps critique separate from mutation.
 
 ## Checkpoint
-When you asked only for critique, present a compact menu, and wait:
+When the user asked only for critique, present a compact menu and wait:
 
 ```text
 Redemption options

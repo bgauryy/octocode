@@ -12,6 +12,7 @@ Prefer each package's `AGENTS.md`, `ARCHITECTURE.md`, and `docs/` for its implem
 **Major rule.** Tool output never drops or truncates evidence to save bytes. When a result is large, return a complete page plus an executable `next.*` continuation that reaches every remaining row, line, file, or patch exactly once; disclose any terminal limit explicitly.
 - Byte reductions may only remove duplication (repeated keys, prefixes, identities, echoes) or metadata that carries no evidence. Every listed item, scanned range, match, coverage fact, and warning stays.
 - A preview, clip, or summary is allowed only when the same response carries the lossless continuation to the full data (or the caller opted in to the shorter view).
+- Non-evidence lists (for example skipped binary files) appear as a count plus a lossless continuation that lists every item; do not inline them and do not drop them.
 - A page must fit its response window; a continuation must never skip unshown data. Silent gaps are correctness defects, not efficiency trade-offs.
 - Optimize for quality × token efficiency: fewer calls and less duplication, never less evidence.
 

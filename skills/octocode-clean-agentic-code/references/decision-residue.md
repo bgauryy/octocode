@@ -1,6 +1,6 @@
 # Decision Residue
 
-Load when code, comments, skills, or docs carry the record of how a decision was made rather than the decision itself. Why: probe output and provenance age badly, and a number nobody re-derives becomes a false claim.
+Load when code, comments, skills, or docs carry the record of how a decision was made rather than the decision itself. A number nobody re-derives becomes a false claim.
 
 The test is whether a reader must act on it. A decision is instruction; the evidence that produced it is history, and history belongs in the commit, the PR, or one declared evidence owner.
 
@@ -39,4 +39,4 @@ Text-search the markers rather than reading whole files: `Sources consulted`, `R
 
 Behavior-preserving, so these belong in a normal batch. Two guards before deleting: search the repository for the literal number or key in case a check consumes it, and confirm no document index declares the provenance section as that file's owned concept, which removing would orphan.
 
-Next: for comment and documentation length rules load `references/doc-hygiene.md`; for agent-authored signatures load `references/agentic-defects.md`; to run the batch load `references/cleanup-playbook.md`.
+Next: for comment and documentation length rules load `references/doc-config-hygiene.md`; for agent-authored signatures load `references/agentic-defects.md`; to run the batch load `references/cleanup-playbook.md`.

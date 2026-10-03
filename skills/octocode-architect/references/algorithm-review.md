@@ -1,6 +1,6 @@
 # Algorithm Review
 
-Load when an algorithm, data structure, scheduler, parser, query, cache, retry loop, or concurrent protocol can determine correctness or cost. Why: example-based tests often miss boundary, state-space, and complexity failures.
+Load when an algorithm, data structure, scheduler, parser, query, cache, retry loop, or concurrent protocol can determine correctness or cost. Example-based tests often miss boundary, state-space, and complexity failures.
 
 ## Contract first
 
@@ -25,4 +25,4 @@ Write `inputs + preconditions → postconditions + invariants → failure/termin
 4. Measure only the cost the decision names, under comparable inputs and resource limits.
 5. Classify `confirmed | likely | candidate | dismissed`; unresolved input bounds, concurrency ordering, or numeric range cap the claim below confirmed.
 
-If the flaw crosses module or ownership boundaries, continue with `references/architecture-analysis.md`. If a proven flaw needs structural change, load `references/refactoring.md`.
+If the flaw crosses module or ownership boundaries, continue with `references/architecture-analysis.md`. If a proven flaw needs structural change, load `references/change-discipline.md`.

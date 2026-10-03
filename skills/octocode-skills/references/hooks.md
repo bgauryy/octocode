@@ -1,6 +1,6 @@
 # Hooks
 
-Load when reviewing or explaining skill lifecycle hooks — before install or before adding one.
+Load when you review or explain skill lifecycle hooks (before install), or wire a new hook into a skill. Why: a wrong host surface or a missing timeout gives a silent no-op or a hung harness.
 
 A hook observes, blocks, or modifies an agent action. Surface depends on host.
 
@@ -32,4 +32,33 @@ The target skill's scripts/hooks/NAME.sh wrapper executes its internal brain und
 
 Read every hook script and every `command:` in skill/host configs. Flag destructive, silent, or unbounded hooks.
 
-Next: when wiring a new hook load `references/hooks-add.md`; after editing frontmatter load `references/skill-review.md`.
+## Add a hook
+
+Claude frontmatter:
+
+```yaml
+hooks:
+  PreToolUse: [{ matcher: "Write|Edit", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/example-hook.sh", timeout: 20 }] }]
+```
+
+- `${CLAUDE_SKILL_DIR}` only (Claude Code v2.1.196+). No `$SKILL_DIR` / `${SKILL_DIR}` — those resolve to nothing.
+- Installers writing `.claude/settings.json` / `.cursor/hooks.json` / `.codex/hooks.json` must use project-relative or absolute paths (no skill-dir var).
+- Omit `matcher` for Stop, SessionEnd, UserPromptSubmit, SessionStart, PreCompact.
+
+Cursor native (project hooks run from repository root; cloud agents support a subset of events only):
+
+```json
+{ "version": 1, "hooks": { "preToolUse": [{ "command": ".cursor/hooks/guard.sh", "matcher": "Write", "timeout": 20 }] } }
+```
+
+Steps:
+
+1. Pick event + matcher from the tables above.
+2. Copy `assets/hooks/example-hook.sh` (wrapper) into the target skill as scripts/hooks/NAME.sh (rename it).
+3. Copy `assets/hooks/example-hook-brain.mjs` (brain + exit contract); replace TODO; keep `--help` + stdin parse.
+4. Claude: add frontmatter with `${CLAUDE_SKILL_DIR}/…` + `timeout`. Cursor/Codex: native config or installer with `--dry-run` first.
+5. Document in `SKILL.md` body (host, event, what it does, how to verify) — review requires `hooks-handling`.
+6. Optional always-on installer: merge into host config only after dry-run + user approval.
+7. Run `scripts/skill-review.mjs` — enforces `hook-script-routing` + `hook-timeout`.
+
+Next: after wiring or editing frontmatter, load `references/skill-review.md`.

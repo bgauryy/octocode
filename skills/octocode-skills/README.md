@@ -2,49 +2,18 @@
 
 Discover, evaluate, create, improve, install, synchronize, and verify standalone Agent Skill folders.
 
-## Use when
+**Use when** a `SKILL.md` trigger, workflow, route, hook, or install destination needs work; when you compare or install skills from a local path, repository, or registry; or when a skill folder needs structural review, cleanup, or publication checks.
 
-- A `SKILL.md` trigger, workflow, route, hook, or install destination needs work.
-- You need to compare or install skills from a local path, repository, or registry.
-- A skill folder needs structural review, cleanup, or publication checks.
+**Not for** code logic owned by another skill, open ideation (`octocode-brainstorming`), or code architecture (`octocode-architect`).
 
-## Folder contract
-
-- `SKILL.md` owns the workflow, hard rules, stop conditions, and route table.
-- References own one concept each and remain inside the skill folder.
-- `scheme/<contract-name>.json` optionally holds one machine-readable contract as a top-level JSON object.
-- Keep every shipped file reachable and useful; remove duplicate, development-only metadata, probe, and scratch files.
-- Use scripts for deterministic work, and route them from the lobby or import them from a used script.
-
-## Not for
-
-- Writing skill-dependent code logic → the skill that owns the code
-- Open-ended ideation → `octocode-brainstorming`
-- Architectural decisions about code structure → `octocode-architect`
-
-## Workflow
-
-```text
-UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → CLEANUP → REVIEW → VERIFY
-```
-
-## Install
+The flow and routes live in `SKILL.md`; folder shape lives in `references/skill-anatomy.md`.
 
 ```bash
 npx -y octocode skill install octocode-skills
+node scripts/skill-review.mjs <skill-or-collection>   # errors block completion; warnings need a fix or a reason
+node scripts/skill-review.mjs --self-test             # maintainer check
 ```
 
-## Review a skill
+## Sources
 
-```bash
-node scripts/skill-review.mjs <skill-or-collection>
-```
-
-The review checks triggers, routes, JSON schemes, internal-only references, whole-folder usage, portability, and navigation. Errors block completion; warnings require correction or explanation.
-
-## Maintainer verification
-
-```bash
-node scripts/skill-review.mjs --self-test
-node scripts/skill-review.mjs ..
-```
+This skill drew on skills.sh install rankings (`code review`, `skill search agent`, `find skills install`); `vercel-labs/skills` find-skills (discovery and gate UX); `anthropics/skills` skill-creator (creation flow); `obra/superpowers` brainstorming (research → recommend); and the agentskills.io, aiskillstore.io, claude-plugins.dev, and Microsoft Sensei surfaces.

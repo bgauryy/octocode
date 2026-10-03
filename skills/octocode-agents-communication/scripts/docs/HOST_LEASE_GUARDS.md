@@ -138,12 +138,7 @@ for new native sessions. Restrict this opt-in plugin to hosts where all particip
 sessions have mappings. It does not discover identities, create sessions, call models,
 or consume messages. Shell, `apply_patch`, custom tools, post-check rewrites by other
 plugins and formatter side effects remain outside coverage. Disable alternative
-mutation paths separately when a stronger host policy is required.
-
-The [plugin hook types](https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/index.ts),
-[write schema](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/tool/write.ts),
-[edit schema](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/tool/edit.ts)
-and [plugin guide](https://opencode.ai/docs/plugins/) establish this integration seam.
+mutation paths separately when a stronger host policy is required. See the [plugin guide](https://opencode.ai/docs/plugins/).
 
 ## Other hosts: supported seams, not installed adapters
 
@@ -152,10 +147,9 @@ and [plugin guide](https://opencode.ai/docs/plugins/) establish this integration
 | Codex | `PreToolUse` for `apply_patch`, Bash and local/MCP tools | Patch text needs an exact parser; some specialized paths bypass hooks and `write_stdin` does not rerun the pre-hook |
 | Grok | `PreToolUse` with explicit deny; Claude-compatible matcher aliases | `Write`/`Edit` alias to `search_replace`; crashes/timeouts/malformed output fail open |
 
-Sources: [Codex hooks](https://learn.chatgpt.com/docs/hooks),
-[Grok hooks](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md).
-These sources establish available integration seams, not installed or live-tested
-lease guards for Codex or Grok. Existing message/lifecycle hooks do not enforce
+These are documented seams ([Codex](https://learn.chatgpt.com/docs/hooks),
+[Grok](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md)),
+not installed or tested guards. Existing message/lifecycle hooks do not enforce
 leases and must not be relabeled as edit guards.
 
 All three structured guards reject parent (`..`) traversal, leading `@`/`~`,
@@ -164,10 +158,7 @@ Use a plain repository-relative or absolute path; OpenCode requires an absolute 
 On Windows, shell-style slash-root and drive-relative aliases are also rejected.
 This matters for symlink/parent combinations: Pi lexically normalizes a path before
 writing, while the Python lease resolver follows physical traversal. Rejecting these
-ambiguous inputs prevents a lease for one target from admitting a different target.
-[Pi's path resolver](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/utils/paths.ts)
-and [write implementation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/tools/write.ts)
-establish that distinction. Plain symlink paths still undergo Python canonical checks.
+ambiguous inputs prevents a lease for one target from admitting a different target. Plain symlink paths still undergo Python canonical checks.
 
 Stronger write isolation requires host permissions/sandbox policy that removes
 alternative mutation paths, or a trusted mutation service that checks ownership
@@ -175,27 +166,8 @@ inside the write operation. Regex inspection of shell text is not a substitute.
 
 ## Verification boundary
 
-`tests/lease-guard.test.mjs` exercises real CLI admission, own versus foreign leases,
-file/tree coverage, missing files, expiry, workspace escapes, invalid inputs, and
-read-only operation while another connection owns the SQLite writer.
-`tests/pi-lease-guard.test.mjs` invokes the real adapter with a deterministic Pi event
-fixture and the real Python CLI, proving an unleased structured write is blocked before
-the simulated side effect and a leased write proceeds. It also checks event-relative
-paths, stale identity, unavailable presence, explicit opt-in, and uncovered tools.
-These deterministic fixtures are not a claim of universal filesystem enforcement.
-
-`tests/claude-lease-guard.test.mjs` and `tests/opencode-lease-guard.test.mjs` run
-real-CLI fixtures for denial, coverage, exact host binding, path/cwd handling,
-expiry, checker errors, read-only operation under a held writer, ignored tools,
-shell-safe settings previews, rejection before a simulated side effect, native
-identity mismatch and input mutation during the check.
-
-Single live trials with installed Pi, Claude Code and OpenCode hosts each rejected
-one unleased structured write without creating the file, then accepted the same
-write after host lease acquisition. Their receipts and reproducible probes stay in
-the local `.octocode/benchmarks/communication-{pi,claude,opencode}-lease-guard/`
-artifacts. The OpenCode trial used a deterministic provider fixture, not live model
-inference. The trials predate the single-call `check_write` binding and the
-ambiguous-path rejection, which the deterministic fixtures cover. They demonstrate
-the structured-write gates only, not shell/custom-tool enforcement or
-hostile-extension resistance.
+`tests/lease-guard.test.mjs`, `tests/pi-lease-guard.test.mjs`,
+`tests/claude-lease-guard.test.mjs` and `tests/opencode-lease-guard.test.mjs` run the
+real CLI against deterministic host fixtures: unleased structured writes are blocked
+before the side effect and leased writes proceed. They prove structured-write gates
+only, not shell/custom-tool enforcement or hostile-extension resistance.

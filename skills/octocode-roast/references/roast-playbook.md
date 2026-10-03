@@ -1,7 +1,6 @@
 # Roast Playbook
 
-Load for a complete critique. Why: enforce scope, evidence, triage, autopsy, and the pre-fix checkpoint.
-Flow matches the lobby: `TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM`.
+Load when the target is clear; it runs the lobby flow phase by phase.
 
 ## 1. Target
 Use explicit files/directories/symbols/lines first, then an explicitly requested diff/branch scope; inspect the whole repository only when requested.
@@ -32,8 +31,8 @@ Explain why it is risky, where contracts cross, and how the repair can be staged
 
 ## 5. Checkpoint
 Summarize important versus redundant findings, then stop.
-Load `redemption-flow.md` only when you selects a repair path.
+Load `redemption-flow.md` only when the user selects a repair path.
 
-Output: top roast, important findings, autopsy, repair paths, and fix checkpoint. Include redundant/low-value findings only when useful.
+Output order: top roast, important findings, autopsy, repair paths, fix checkpoint. Include redundant/low-value findings only when they help scope debt.
 
-Next: rank the inventory with `references/sin-catalog.md` (ecosystem leads: `references/language-sins.md`); use the research/tool route in `SKILL.md`; split a monorepo pass with `references/parallel-roasting.md`; on a selected repair load `references/redemption-flow.md`.
+Next: rank with `references/sin-catalog.md`; split a monorepo pass with `references/parallel-roasting.md`; on a selected repair load `references/redemption-flow.md`.

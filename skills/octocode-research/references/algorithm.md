@@ -14,7 +14,7 @@ Load when the task class or first move is unclear. The strongest handle decides 
 
 Pick a surface and a task; skip irrelevant or redundant stages when a known anchor already answers.
 - Surface: local → `workflow-local.md`; remote, docs, or local ↔ remote → `workflow-external.md`.
-- Task: lookup → direct read; bug → `workflow-debug.md`; feature/enhancement/refactor → `workflow-change.md`; review → `workflow-pr-review.md`; consequential claim → `code-research.md`; multi-pass → `campaigns.md`.
+- Task: lookup → direct read; bug, root cause, or consequential claim → `code-research.md`; feature/enhancement/refactor → `workflow-change.md`; review → `workflow-pr-review.md`; multi-pass → `campaigns.md`.
 
 ## Problem contract
 `actual | expected | authority | trigger | impact | success criteria | non-goals`. Authority: test, spec, schema, documented promise, accepted user criterion, or established behavior.

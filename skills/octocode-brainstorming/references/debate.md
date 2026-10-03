@@ -37,4 +37,4 @@ Keep claims that survived, remove concessions, and mark unresolved claims as dec
 
 An RFC handoff needs a worth-prototyping/underserved verdict; specific user, problem, and success; grounded prior art; and a bounded first slice. The largest unknown must be a design tradeoff rather than demand.
 
-Next: to present the surviving synthesis load `references/output.md`. To score what survived load `references/confidence.md`. When a flipped claim needs fresh evidence return to `references/tools.md` for another research round. When the lens design itself is challenged load `references/grounding.md`. <!-- style-lint: ignore-line passive-voice -->
+Next: to present the surviving synthesis load `references/output.md`. Score what survived with its confidence markers. When a flipped claim needs fresh evidence return to `references/tools.md` for another research round. When the lens design itself is challenged load `references/grounding.md`. <!-- style-lint: ignore-line passive-voice -->

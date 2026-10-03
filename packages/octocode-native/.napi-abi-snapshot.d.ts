@@ -119,6 +119,11 @@ export declare function acquirePooledLspClient(config: JsLanguageServerConfig): 
  */
 export declare function applyContentViewMinification(content: string, filePath: string): string
 
+export interface BinaryExtensionCount {
+  extension: string
+  count: number
+}
+
 export declare function buildIndex(options: IndexBuildRequest): Promise<unknown>
 
 export interface ByteRange {
@@ -906,16 +911,22 @@ export interface RipgrepStats {
   /** Bounded first failure detail. Counts include every observed failure. */
   firstError?: string
   /**
-   * Files searched only up to their first NUL byte (`binaryQuit`), in path
-   * order and bounded; `binary_file_count` counts all of them.
+   * Files searched only up to their first NUL byte (`binaryQuit`) after
+   * real text, every one in path order; `binary_file_count` counts them.
    */
   binaryFiles?: Array<string>
   binaryFileCount?: number
   /**
-   * Opaque binary files (first NUL before any text) skipped like rg skips
+   * Files binary from their leading bytes (a NUL before any text, or
+   * after a short header that matched nothing), skipped like rg skips
    * them. Nothing text-searchable was lost, so they are not a coverage gap.
    */
   skippedBinaryCount?: number
+  /**
+   * `skipped_binary_count` per lowercased extension ("" for none), most
+   * files first.
+   */
+  skippedBinaryExtensions?: Array<BinaryExtensionCount>
 }
 
 /**

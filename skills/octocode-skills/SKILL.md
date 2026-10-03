@@ -10,39 +10,47 @@ related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, script, or scheme only when it changes the next action; otherwise keep the rule here.
 
-Manage standalone Agent Skill folders: `SKILL.md` plus optional refs, scripts, assets, and machine-readable schemes.
-Flow: `UNDERSTAND → INSPECT → ACT → VERIFY`. Discover or compare candidates only when the source is unresolved; ask only for missing scope or authority. For review-only requests, report findings without applying edits.
+Manage standalone Agent Skill folders: `SKILL.md` plus optional references, scripts, assets, and JSON schemes.
 
-Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. Chat-only recommendations stay in chat; approved edits, installs, symlinks, and config keep their gated destinations.
+Flow: `UNDERSTAND → INSPECT → ACT → VERIFY`.
+
+```mermaid
+flowchart LR
+  U[UNDERSTAND] --> Q{source known?}
+  Q -- no --> D[discover + judge] --> I
+  Q -- yes --> I[INSPECT]
+  I --> W{write authority?}
+  W -- "review only" --> R[report findings]
+  W -- yes --> A[ACT] --> V[VERIFY: skill-review 0 ERROR]
+  D -. "find candidates, registries, installers" .-> P1["discovery.md"]
+  D -. "judge, rank, present" .-> P2["quality.md"]
+  D -. "search, fetch, or install fails" .-> P3["recovery.md"]
+  I -. "rate, improve, prune" .-> P4["skill-improve.md"]
+  A -. "folder shape, scripts" .-> P5["skill-anatomy.md"]
+  A -. "write instructions, create a skill" .-> P6["skill-authoring.md"]
+  A -. "tune the trigger" .-> P7["description-tuning.md"]
+  A -. "review or wire a hook" .-> P8["hooks.md"]
+  A -. "install, fetch remote, sync vendors" .-> P9["install.md"]
+  V -. "run the gate, read finding codes" .-> P10["skill-review.md"]
+```
+Caption: discover only when the source is unresolved; review-only requests never edit; each dotted edge names the trigger that loads that `references/` page.
+
+Reviews go to `<output>/octocode-skills/`; scratch to `<output>/tmp/octocode-skills/`. Chat-only recommendations stay in chat. Approved edits, installs, symlinks, and config keep their gated destinations.
 
 ## Rules
-- `SKILL.md` owns entry decisions and shared constraints; references own conditional detail. Use `scheme/<contract-name>.json` only when the skill needs a machine-readable contract: one valid top-level JSON object per file. Keep each shipped file reachable through a route that explains when to use it.
-- Every lobby declares its actual tools, output/state destination (or none), and actionable supporting-file routes. Name a related skill only when useful; installing it still requires authority.
-- Inspect the real skill before quoting, judging, or installing it. Identify candidates by path and require authority for writes.
-- Stop discovery when one fit is clear, further angles add no evidence, a winner needs user judgment, or approval is pending.
-- Ship a standalone folder: local references stay inside it, and every shipped file is reachable from the lobby, README, or another used file. Remove duplicate, development-only metadata, probe, and scratch files. Core commands must work alone; optional sibling integrations must declare setup and pass isolated absent/present dependency checks.
+- UNDERSTAND: name the operation, scope, source, and write authority. Ask only for missing scope or authority.
+- INSPECT the real skill before you quote, judge, or install it. Identify candidates by path.
+- Stop discovery when one fit is clear, more angles add no evidence, a winner needs user judgment, or approval is pending.
+- ACT: ship a standalone folder. Every local reference stays inside it; every shipped file is reachable and used. Core commands work alone; optional sibling integrations declare setup and pass absent/present checks.
+- VERIFY: run `scripts/skill-review.mjs` after any create or edit; zero ERRORs must pass.
 
-## Smart routes — load only what the current step needs
-- At UNDERSTAND, identify the requested skill operation, scope, source, and write authority before choosing a route.
-- When discovering, load `references/search-playbook.md`; choose a source with `references/discovery-surfaces.md`, parse manifests with `references/discovery-manifests.md`, and recover with `references/recovery.md` — search broadly enough without inventing candidates.
-- When judging, load `references/quality-rubric.md` for content fit, and `references/quality-signals.md` for adoption/recency; when recommending, present through `references/output-format.md` — rank evidence, not popularity alone.
-- When designing structure or a machine-readable contract, load `references/skill-anatomy.md`; write with `references/skill-authoring.md`, extract deterministic work with `references/skill-scripts.md`, and tune activation with `references/description-tuning.md` — keep the lobby lean and triggers strong.
-- When improving, load `references/skill-improve.md`; choose review/refactor mode with `references/self-improvement.md` and clean with `references/skill-cleanup.md`. Use `octocode-eval-benchmark`; if unavailable, freeze goal/KPI/baseline and require comparable accept/revert evidence — preserve intent and measurable acceptance.
-- Before done, load `references/skill-review.md`; interpret findings with `references/skill-review-rules.md` — check navigation, useful content, and standalone execution. Assess advisory formatting warnings in context.
-- When reviewing lifecycle automation, load `references/hooks.md`; when adding it, load `references/hooks-add.md`, and use `assets/hooks/` — map the correct host event and avoid silent no-ops.
-- When installing, load `references/install-gates.md`, then `references/install-destinations.md`; remote sources use `references/fetch-remote.md`, local creation uses `references/create-local-skill.md`, and vendor links use `references/skill-sync.md` — secure approval, destination, and provenance before writes.
-- For code/package/repo research, use `octocode-research`.
-- When tracing source provenance, load `references/references.md`; when authoring a source appendix, start from `references/references-template.md` — keep claims auditable without bloating instructions.
+## Pages
+Load on the map trigger: `references/discovery.md` · `references/quality.md` · `references/recovery.md` · `references/skill-improve.md` · `references/skill-anatomy.md` · `references/skill-authoring.md` · `references/description-tuning.md` · `references/hooks.md` · `references/install.md` · `references/skill-review.md`. Hooks use `assets/hooks/`; measure behavior changes with `octocode-eval-benchmark`.
 
-## Related routes
-- Use `octocode-research` to verify candidates; `octocode-prompt-optimizer` to improve wording; `octocode-eval-benchmark` to measure behavior.
-- Use `octocode-rfc-generator` before a large skill-system redesign.
+Related: `octocode-research` verifies candidates; `octocode-prompt-optimizer` improves wording; `octocode-rfc-generator` precedes a large skill-system redesign.
 
-## Scripts and verification
-- Run `scripts/skill-review.mjs` after any create/edit — zero ERRORs must pass.
-- Run `scripts/skill-sync.mjs` after inspecting its dry-run and confirming that existing authorization covers the source, destinations, and conflict policy. Ask only for missing authority.
-- `scripts/skill-lint.mjs` is an alias for `scripts/skill-review.mjs` — same gate under the older name.
-- A skill script that needs Octocode home or env imports `./octocode-config.mjs`, a build artifact that `packages/octocode-config` injects into each skill that imports it relatively — never import `@octocodeai/config` from a skill, or the folder breaks once installed alone.
-- When wiring a hook, copy `assets/hooks/example-hook.sh` into the target skill's hook-script directory and route that internal file from frontmatter.
-
-Follow the approval and destination routes for creation or installation. Then review the result before reporting done.
+## Scripts
+- `scripts/skill-review.mjs`: the review gate after any create or edit. `scripts/skill-lint.mjs` is an alias.
+- `scripts/skill-sync.mjs`: run after you read its dry-run and existing authority covers source, destinations, and conflict policy.
+- A skill script that needs Octocode home or env imports `./octocode-config.mjs`, which `packages/octocode-config` injects at build. Never import `@octocodeai/config` from a skill.
+- To wire a hook, copy `assets/hooks/example-hook.sh` into the target skill's hook directory and route it from frontmatter.

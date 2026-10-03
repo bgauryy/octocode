@@ -17,10 +17,10 @@ Turn a consequential technical choice into an evidence-backed RFC, design docume
 ## Workflow
 
 ```text
-UNDERSTAND → RESEARCH → PREREQUISITES → CLOSE BLOCKERS → DECIDE → DEFINE ACCEPTANCE → PLAN → VALIDATE → DELIVER
+UNDERSTAND → RESEARCH → PREREQUISITES → CLOSE BLOCKERS → DECIDE → DEFINE ACCEPTANCE → PLAN → VALIDATE → DELIVER → VIEW (`scripts/render-rfc.mjs` opens the set as one HTML page)
 ```
 
-Use `RFC.md` for a consequential decision and standalone `PLAN.md` for execution of an already-settled decision. Add supplementary files (`PREREQUISITES.md`, `IMPLEMENTATION.md`, `KPI.md`) only when they have a separate lifecycle.
+Use `RFC.md` for a consequential decision and standalone `PLAN.md` for execution of a settled decision. Add `PREREQUISITES.md`, `IMPLEMENTATION.md`, or `KPI.md` only when they have a separate lifecycle. RFCs draw structure as Mermaid diagrams (`references/rfc-diagrams.md`) and keep prose for rationale and evidence.
 
 ## Install
 
@@ -32,7 +32,9 @@ npx -y octocode skill install octocode-rfc-generator
 
 ```bash
 node scripts/validate-rfc.mjs <file-or-folder>
+node scripts/validate-rfc.mjs --self-test
 node scripts/validate-debate.mjs --self-test
+node scripts/validate-review-cost.mjs --self-test
 ```
 
 Then run the `octocode-skills` review against this folder.

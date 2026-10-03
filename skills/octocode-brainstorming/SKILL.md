@@ -10,7 +10,23 @@ output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when n
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
 Explore ideas with evidence.
-Flow: `FRAME → DIVERGE → RESEARCH → CROSS-POLLINATE → STRESS-TEST → SYNTHESIZE → DECIDE`.
+```mermaid
+flowchart LR
+  F["FRAME"] --> D["DIVERGE"] --> R["RESEARCH"] --> X["CROSS-POLLINATE"] --> T["STRESS-TEST"] --> S["SYNTHESIZE"] --> G{"DECIDE"}
+  X -- "new lead" --> R
+  T -- "claim flipped" --> R
+  G -- "thin or conflicting evidence" --> P["pause for direction"]
+  D -. "build the Surface Plan" .-> TO["tools.md"]
+  X -. "carry findings across surfaces; delegated multi-engine workers" .-> TO
+  R -. "generic results cannot prove momentum, crowdedness, publication, or shipped prior art" .-> TS["trend-sources.md"]
+  R -. "research is substantial, multi-turn, or delegated" .-> HC["hook-communication.md"]
+  T -. "run the three lenses and cross-examination" .-> DB["debate.md"]
+  T -. "methods or source contracts face a challenge" .-> GR["grounding.md"]
+  S -. "synthesis and verdict shape; confidence markers" .-> OU["output.md"]
+  G -. "a durable artifact is approved" .-> BT["brief-template.md"]
+```
+Caption: leads loop back into research; the decision gate pauses instead of guessing; dotted edges load a page in `references/`.
+Pages (load each when its map edge fires): `references/tools.md` · `references/trend-sources.md` · `references/hook-communication.md` · `references/debate.md` · `references/grounding.md` · `references/output.md` · `references/brief-template.md`.
 
 Artifacts: `<output>/octocode-brainstorming/`; resumable runs: `<output>/brainstorming/runs/`. Chat-only answers stay in chat; approved edits keep their named paths.
 
@@ -23,22 +39,18 @@ Artifacts: `<output>/octocode-brainstorming/`; resumable runs: `<output>/brainst
 - Recall potentially useful context first and validate it; capture only durable lessons that survive rebuttal.
 
 ## Decision gate
-Pause for direction when the idea contains unrelated decisions, evidence remains too thin, or conflicting for a defensible verdict, or the next research round costs more than it can change. Otherwise state the uncertainty and recommend the smallest decision-changing step.
+Pause for direction when the idea holds unrelated decisions, evidence is too thin or conflicting for a defensible verdict, or the next research round costs more than it can change. Otherwise state the uncertainty and recommend the smallest decision-changing step.
 
-## Smart routes — load only what the current step needs
-- When framing the idea and diverging into angles, build the Surface Plan with `references/tools.md`. For code/repo/package evidence, use `octocode-research`.
-- When generic results cannot prove momentum, crowdedness, publication, or shipped prior art, load `references/trend-sources.md` — add time-sensitive evidence without domain lock-in.
-- When cross-pollinating leads from one active surface into another, stay in `references/tools.md` and `references/web-search-workers.md` — carry each finding across surfaces instead of closing a surface early.
-- When stress-testing, load `references/debate.md` — run the three lenses and cross-examination before converging.
-- When research is substantial, multi-turn, or delegated, load `references/hook-communication.md`. Run `scripts/brainstorm-run.mjs` to preserve a resumable claim/source/decision ledger.
-- During DECIDE and synthesis, load `references/output.md`. Score every prior-art claim with `references/confidence.md`; if you approve a durable artifact, load `references/brief-template.md` — match chat brevity or saved decision depth.
-- When methods or source contracts face a challenge, load `references/grounding.md` — make the process falsifiable.
+## Route facts the map cannot hold
+- For code, repo, or package evidence, use `octocode-research`.
+- For substantial, multi-turn, or delegated research, run `scripts/brainstorm-run.mjs` to keep a resumable claim/source/decision ledger.
+- Score every prior-art claim with its confidence markers. Match chat brevity or saved decision depth.
 - When improving this skill, use `octocode-eval-benchmark`.
 
 ## Related routes
 - Use `octocode-rfc-generator` for a Build verdict and `octocode-eval-benchmark` for measurable experiments. For technical evidence, `octocode-research` owns MCP/CLI workflow and live tool/grammar discovery.
 - Use `octocode-skills` when changing this skill folder.
-- Use `octocode-subagent` to dispatch and synthesize workers — see `references/web-search-workers.md` for the brainstorm-specific Scout/Aggregator/Checker topology.
+- Use `octocode-subagent` to dispatch and synthesize workers; the brainstorm Scout/Aggregator/Checker topology is in `references/tools.md`.
 
 ## Scripts — every one takes `--help`
 | Script | Run when | How |

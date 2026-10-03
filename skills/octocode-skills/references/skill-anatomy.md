@@ -1,50 +1,72 @@
-# Skill Anatomy
+# Skill anatomy
 
-Load when evaluating, improving, or creating a skill's folder shape — before rewriting structure.
+Load when you evaluate, improve, or create a skill's folder shape, or add or review `scripts/`. Why: shape decides what loads and when; code beats agentic prose for mechanical steps.
 
-A skill is a standalone folder with required `SKILL.md` and optional directories for scripts, references, assets, and schemes. Every local file reference resolves inside it, and every shipped file is used. Name optional sibling skills without file paths; vendor required helpers and remove development-only metadata, probes, duplicates, and dead artifacts. <!-- style-lint: ignore-line passive-voice -->
+A skill is one standalone folder. Every local file reference resolves inside it, and every shipped file is used. Name optional sibling skills without file paths.
 
 ```text
 my-skill/
-|-- SKILL.md       # metadata + operating map
-|-- scripts/       # deterministic helpers
-|-- references/    # one-concept depth
-|-- assets/        # templates / resources
-`-- scheme/        # optional JSON contracts; one file per contract
+|-- SKILL.md       # required lobby: frontmatter, flow, gates, routes
+|-- README.md      # human overview (review recommends)
+|-- references/    # one-concept depth, all reachable
+|-- scripts/       # deterministic helpers actually routed
+|-- assets/        # templates/resources actually used
+`-- scheme/        # optional JSON contracts; one top-level object per file
 ```
 
 ## Progressive disclosure
 
-1. Discovery — agent sees only `name` + `description`.
-2. Activation — matching task → full `SKILL.md`.
-3. Execution — load refs/scripts only when the map says so.
+1. Discovery: the agent sees only `name` + `description`.
+2. Activation: a matching task loads the full `SKILL.md`.
+3. Execution: the agent loads references and scripts only when a route says so.
 
-`SKILL.md` is the lobby: entry decisions, shared constraints, and routes live there. References own conditional procedures without redefining shared rules.
+`SKILL.md` owns the flow, entry decisions, shared constraints, and routes. It opens with the skill map: one Mermaid diagram that shows the flow phases (solid edges) and every reference page (dotted edges labeled with the trigger), then a one-line caption. Exact commands, thresholds, and paths stay in text.
 
-Every lobby declares `tools: npx octocode / octocode-mcp`, one `related-skill: <skill-name>`, and the `output:` decision: workspace root for workspace work, home root only when no workspace applies. These name execution, the closest handoff, and allowed artifact roots; they do not authorize installing a missing skill.
+```mermaid
+flowchart LR
+  U[UNDERSTAND] --> W[WRITE] --> V[VERIFY]
+  U -. "mode unclear" .-> M["modes.md"]
+  W -. "procedure or runbook" .-> S["style-ste80.md"]
+  V -. "a check fails" .-> R["review.md"]
+```
 
-## Reference discipline
+## References
 
-- One short H1 and one concept per file. Treat 50 lines as a review cue, not a reason to fragment useful instructions.
-- Routes explain when and why to load detail. Reuse prior reads and batch independent references when useful.
-- Ref→ref OK for depth — end with the next load when needed.
-- Gotchas stay in the lobby only if the agent must know them before the trigger.
-- Tabular content → a real markdown table, never prose describing rows/columns.
-- Every reference/citation states why it matters — no bare links.
-- Every sentence earns its tokens: dense, no filler, no duplicate phrasing, no data loss.
-- References, docs, scripts, and schemes must be efficient, coherent, and effective: each owns a complete conditional job, changes the next action, and costs less context or execution than it saves. Move a short shared rule into the lobby; remove a wrapper that only repeats a tool or related-skill handoff.
+- Keep 12 reference pages or fewer, each 100 lines or fewer. Merge pages that serve one decision or one moment of use; do not fragment a coherent procedure.
+- Open with `Load when … Why: …` so the route is verifiable from the file itself.
+- Give a next hop only when the procedure depends on another file.
+- Put tabular content in a real markdown table.
+- A reference earns its hop only when it changes the next action and saves context. Move a short shared rule into the lobby.
 
-## Map and navigation
+## Navigation
 
-- `SKILL.md` routes the main capabilities. An index or used reference can route deeper files and scripts; avoid duplicating the same catalog in both places.
-- Each chunk opens with its own entry condition (`Load when … Why: …`) so a route is verifiable from the file itself.
-- Give a next hop when the procedure depends on another file. A complete reference can end without a ceremonial closing line.
-- Every flow phase in `SKILL.md` appears in a route or gate; a phase named only in the flow line is decoration.
-- Library modules under `scripts/` stay unlisted but imported; each `scheme/<contract-name>.json` is a valid top-level object routed from its consumer.
-- Run `scripts/skill-review.mjs`; fix errors and judge advisory layout findings against actual navigation and task needs.
-## Context cut
+- `SKILL.md` routes main capabilities. A used reference can route deeper files; do not duplicate one catalog in two places.
+- Every flow phase in `SKILL.md` appears in a route or gate.
+- Library modules under `scripts/` stay unlisted but imported. Route each `scheme/<contract-name>.json` from its consumer.
 
-Ask: "Can the agent get this wrong without the skill?" If not, cut.
-Prefer stepwise guidance over exhaustive docs. Keep each skill a coherent unit of work.
+Cut test: "Can the agent get this wrong without the skill?" If not, cut it.
 
-Next: when improving an existing skill load `references/skill-improve.md`; when writing instructions load `references/skill-authoring.md`; before bundling scripts load `references/skill-scripts.md`.
+## Scripts
+
+### Why scripts
+
+A script is more reliable, token-cheap, and identical every run.
+Reserve prose for judgment; hand procedure to `scripts/`.
+Use one-off shell only when an existing tool already does the job; pin versions when needed.
+
+### Agent-facing contract
+
+- Input through flags, env, files, or stdin — never interactive prompts.
+- Concise `--help` with examples.
+- Errors say what failed, what was expected, what to try. <!-- style-lint: ignore-line passive-voice -->
+- Structured data on stdout; diagnostics on stderr.
+- Idempotent or safe to retry; reject ambiguous input.
+- `--dry-run` for destructive/stateful ops.
+- Meaningful exit codes; bounded or paginated output.
+- Reference from `SKILL.md` as `scripts/skill-review.mjs` (or the real script name) with when/why.
+
+### When to extract
+
+Move complex or repeatedly reinvented logic into `scripts/`. If `SKILL.md` has a long numbered command-like procedure with no helper, extract it — the review flags `deterministic-prose`.
+
+Next: to write instructions, load `references/skill-authoring.md`; if the script is a hook brain, load `references/hooks.md`; before done, load `references/skill-review.md`.

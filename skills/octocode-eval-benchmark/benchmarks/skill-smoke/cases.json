@@ -432,7 +432,7 @@
           "question": "Does the answer require a graph-boundary KPI and barrier/packet checks before treating worker output as success?",
           "passPattern": "\\b(primary KPI|e2e|graph boundary)\\b[\\s\\S]{0,200}\\b(barrier|packet|frozen)\\b|\\b(barrier|packet)\\b[\\s\\S]{0,200}\\b(primary KPI|e2e|baseline)\\b",
           "failureSignature": "mechanism:eval-subagent|cause:spawn-without-kpi",
-          "suggestedLesson": "Load subagent-cookbook.md: freeze protocol + KPIs + communication checks before the first spawn; spawn APIs stay in octocode-subagent."
+          "suggestedLesson": "Load multi-agent.md: freeze protocol + KPIs + communication checks before the first spawn; spawn APIs stay in octocode-subagent."
         }
       ],
       "forbidden": [

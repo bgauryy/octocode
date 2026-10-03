@@ -8,80 +8,58 @@ description: "Use when a prompt, agent contract, MCP instruction, tool/schema de
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-eval-benchmark`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+routes: load a reference only when it changes the next action; otherwise keep the rule here.
 
-Optimize the instruction surface the runtime reads, not nearby prose. Trace `source → assembly/serialization → model or tool reader → observable action/result`, then change the smallest owning layer.
+Optimize the instruction surface the runtime reads, not nearby prose. Trace `source → assembly/serialization → model or tool reader → observable action`, then change the smallest owning layer.
 
-Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`
+```mermaid
+flowchart LR
+  R[READ] --> U[UNDERSTAND] --> K{input}
+  K -- prompt --> RT[RATE] --> F[FIX]
+  K -- goal --> F
+  K -- "active failure" --> C[FIX smallest critical rule]
+  F --> V[VALIDATE] --> O[OUTPUT]
+  C --> V
+  V -- "intent changed" --> U
+```
+A goal skips RATE. An active safety, permission, or production failure is contained first; broader work then returns to RATE. Urgency never expands authority, permits a partial read, or skips VALIDATE.
 
-When the input is a goal rather than an existing prompt, skip RATE.
+## When → Load
 
-Reviews/drafts: `<output>/octocode-prompt-optimizer/`; scratch: `<output>/tmp/octocode-prompt-optimizer/`. Chat-only deltas stay in chat; approved prompt/schema/policy/source edits keep their paths.
-
-## Operating context and urgency
-
-Before judging text, record the context that changes the optimization:
-
-| Field | Record |
+| When | Load |
 |---|---|
-| Target | exact prompt, instruction, tool/schema, policy, or handoff and its owning source |
-| Runtime | executing surface, host/framework version, assembly, caching, and reader |
-| Readers | model, agent, tool client, server, human, or downstream parser and their authority boundaries |
-| Outcome | observable behavior to change and evidence of the current failure |
-| Invariants | intent, frozen contracts, identifiers, permissions, and working branches |
-| Delivery | output, write authority, budget, and success checks |
-| Urgency | active safety, permission, or production failure versus normal improvement |
+| Start: READ, UNDERSTAND, RATE | `references/flow/understand-rate.md` |
+| A host, loader, middleware, or graph assembles the context | `references/flow/runtime-context.md` |
+| FIX: repair order, change note, critical-rule pattern | `references/flow/fix.md` |
+| A rule leaves the action unclear; instructions conflict | `references/writing/rules.md` |
+| Text is wordy, buried, or mixes instructions with data | `references/writing/style.md` |
+| A specific failure mode needs a technique | `references/writing/prompt-techniques.md` |
+| VALIDATE and OUTPUT | `references/flow/validate-output.md` |
+| MCP instructions, descriptions, schemas / MCP wire / multi-tool audit | `references/tools/tool-contracts.md` / `references/tools/mcp-wire-contract.md` / `references/tools/contract-audit.md` |
+| Delegation / cross-app payload / Zod packet / frozen base prompt | `references/agents/agent-communication.md` / `references/agents/cross-app-contracts.md` / `references/agents/zod-agent-contracts.md` / `references/agents/agent-prompt-integrity.md` |
+| Context may overflow / must shrink / cost proof / cache misses | `references/context/context-budget.md` / `references/context/compaction.md` / `references/context/token-economics.md` / `references/context/prompt-caching.md` |
+| Instructions consume retrieved, tool, or user text | `references/context/untrusted-content.md` |
+| Typed judgment or semantic location in unread files | `octocode-research` clasify gate; verify deciding source |
+| A reliability claim needs proof, or this skill changes | `octocode-eval-benchmark` |
 
-For an active safety, permission, or production failure, contain first: `READ affected source → UNDERSTAND authority/invariants → FIX the smallest reversible critical rule → VALIDATE the affected branch → OUTPUT`. Then return to RATE for broader work. Urgency never expands authority, permits a partial read of the affected source, or skips validation.
+Related: `octocode-skills` owns skill-folder review; `octocode-research` owns MCP/CLI verification; `octocode-subagent` owns delegation topology; `octocode-documentation` (`style-ste80`) owns the STE-80 profile; `octocode-clean-agentic-code` owns intent-preserving sweeps of dated instruction cruft.
 
 ## Rules
-- Read the complete input and map its intent before judging it. Rate evidenced issues before drafting fixes.
-- Identify the executing surface and prove the running dependency and effective context path before counting or rewriting context. A manifest, source file, or installed copy alone does not prove what the active process reads.
-- For short, low-risk text, combine adjacent phases. For complex, tool-facing, or risky instructions, keep the phases explicit. Always validate the finished draft.
-- Make every rule decide an observable action. Keep one owner per behavior; use `references/writing/behavior.md` only when its action or scope remains ambiguous.
-- Maximize behavior per token, not brevity. Justify growth by the boundary it adds.
+
+- Read the complete input and map its intent before you judge it; rate evidenced issues before you draft fixes.
+- Prove the executing surface and effective context path before you count or rewrite context; a manifest, source file, or installed copy does not prove what the active process reads.
+- Combine adjacent phases only for short, low-risk text. Always validate the finished draft.
+- Make every rule decide an observable action, with one owner per behavior. Be explicit enough that a colleague with no context can follow it, and give the reason when a constraint is not obvious ([Anthropic](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)).
+- Start minimal; add an instruction only for an observed failure ([Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)). Maximize behavior per token, not brevity; justify growth by the boundary it adds.
+- Write rewritten instructions in STE-80 (ASD-STE100 rules): one instruction per sentence, active voice, imperative steps, one term per concept. Write flows and routing as Mermaid source or an arrow chain, not dense prose.
 - Treat context capacity, token billing, cache reuse, and prompt integrity as separate constraints.
-- Preserve intent, working branches, identifiers, commands, and required metadata. Verify technical claims before rewriting them.
-- Reserve mandatory language for real requirements. Keep preferences flexible and mutate files only when authorized.
-- When the request is for prompt text, output only that text.
-- Ask one focused question only when an unresolved choice changes intent, scope, or risk. Without write authority, return a delta. Report unmeasured reliability claims as unmeasured.
+- Preserve intent, working branches, identifiers, commands, and required metadata; verify technical claims before you rewrite them.
+- Reserve firm language for real requirements; never use capitals, threats, or rewards for emphasis.
+- Mutate files only when authorized; otherwise return a delta. When the request is for prompt text, output only that text.
+- Ask one focused question only when an unresolved choice changes intent, scope, or risk. Report unmeasured reliability claims as unmeasured.
 
-## Smart routes — load only what the current step needs
-
-Load references that resolve the current decision. Reuse material already read and combine independent reads when useful.
-
-| When | Load | It decides |
-|---|---|---|
-| READ, UNDERSTAND | `references/flow/gates.md` | intent and runtime-context map before judgment |
-| RATE | `references/flow/rate.md` | evidenced severity and baseline score |
-| Typed judgment or semantic location in unread files | the `octocode-research` clasify gate | Delegate unread evidence when hints can replace broad host reads; skip exact lookups and verify deciding source |
-| FIX | `references/flow/fix.md` | smallest repair in the owning layer |
-| VALIDATE | `references/flow/validate.md` | applicable behavioral and domain gates |
-| OUTPUT | `references/flow/output.md` | delivery variant and truthful delta |
-| A rule leaves the next action ambiguous | `references/writing/behavior.md` | observable action, scope, and useful examples |
-| Instructions conflict, or a fix needs a stock pattern | `references/writing/patterns.md` | which authority wins; one-line resolution log |
-| Text is noisy, buried, or mis-prioritized | `references/writing/conciseness-toolkit.md` · `references/writing/attention.md` | token cuts that keep logic; rule placement |
-| A specific failure mode is observed | `references/writing/prompt-techniques.md` | technique matched to failure mechanism |
-| A host, framework, skill loader, middleware, graph, or dependency assembles the context | `references/flow/runtime-context.md` | executing surface, running version, visibility, lifetime, and effective model/tool input |
-| MCP server instructions, tool descriptions, or schema design | `references/tools/tool-contracts.md` | ownership: workflow vs. selection vs. exact fields |
-| MCP discovery, negotiated versions, calls, results, caching, or state | `references/tools/mcp-wire-contract.md` | version-specific wire and lifecycle contract |
-| Multi-tool server, or after any description/schema edit | `references/tools/contract-audit.md` | set-wide contradictions, overlapping selection, descriptor drift |
-| Agent delegation, handoff, async work, or capability exchange | `references/agents/agent-communication.md` | ownership, lifecycle, authority, recovery, context transfer |
-| The same capability or payload crosses agent apps, hosts, vendors, or protocols | `references/agents/cross-app-contracts.md` | canonical semantics, native adapters, compatibility, and removal gates |
-| A TypeScript/Zod agent or MCP packet needs a runtime schema | `references/agents/zod-agent-contracts.md` | discriminated states, bounds, validation, versioning |
-| Context can overflow or the usable working budget is unclear | `references/context/context-budget.md` | capacity, occupancy, output reserve, relevance, pagination |
-| Token use, model choice, caching, or tool use needs an economic decision | `references/context/token-economics.md` | cost per successful task at the measured operating point |
-| Repeated OpenAI or Anthropic calls share a prefix, or cache hits are missing | `references/context/prompt-caching.md` | vendor controls, invalidators, telemetry, and break-even inputs |
-| An agent base prompt must remain frozen across tasks or workers | `references/agents/agent-prompt-integrity.md` | versioned base, append-only overlays, digest verification |
-| Accumulated context must be compacted, summarized, or compressed | `references/context/compaction.md` | what to cut, when to compact, what stays retrievable |
-| A token saving, compression ratio, or context-cost claim needs proof | `references/context/token-measurement.md` | tokens per fact, task-specific comparison, and verification |
-| A reliability claim needs proof | `references/flow/evaluation-data.md` | held-out scenarios, verifiers, metrics, failure ledger |
-| Instructions consume retrieved or user-supplied content | `references/context/untrusted-content.md` | the boundary between data and authority |
-| Improving this skill | `octocode-eval-benchmark` | — |
-
-## Related routes
-- Use `octocode-skills` for skill-folder architecture/review and `octocode-eval-benchmark` for held-out behavior. To verify technical contracts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery.
-- Use `octocode-subagent` for delegation topology.
+Reviews and drafts go to `<output>/octocode-prompt-optimizer/`; scratch to `<output>/tmp/octocode-prompt-optimizer/`. Chat-only deltas stay in chat.
 
 ## Done
-This skill ships no scripts. Report only checks performed; the deliverable, score, changed files, and deferrals must match reality.
+
+This skill ships no scripts. Report only checks you ran; the deliverable, score, changed files, and deferrals must match reality.

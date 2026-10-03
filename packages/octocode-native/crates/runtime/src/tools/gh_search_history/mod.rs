@@ -35,7 +35,6 @@ macro_rules! history_str_fields {
         $(pub fn $field(&self) -> Option<&str> {
             match self {
                 $(Self::$variant { $field, .. } => $field.as_deref(),)+
-                #[allow(unreachable_patterns)]
                 _ => None,
             }
         })+
@@ -48,7 +47,6 @@ macro_rules! history_enum_fields {
         $(pub fn $field(&self) -> Option<String> {
             match self {
                 $(Self::$variant { $field, .. } => $field.as_ref().map(ToString::to_string),)+
-                #[allow(unreachable_patterns)]
                 _ => None,
             }
         })+
@@ -68,6 +66,13 @@ impl GhSearchHistoryQuery {
         match self {
             Self::PullRequest { owner, .. } => owner.as_deref().map(String::as_str),
             Self::Issue { owner, .. } | Self::Commit { owner, .. } => Some(owner.as_str()),
+        }
+    }
+    pub fn author(&self) -> Option<&str> {
+        match self {
+            Self::PullRequest { author, .. } => author.as_deref(),
+            Self::Issue { author, .. } => author.as_deref(),
+            Self::Commit { author, .. } => author.as_deref(),
         }
     }
     pub fn repo(&self) -> Option<&str> {
@@ -149,7 +154,6 @@ impl GhSearchHistoryQuery {
         }
     }
     history_str_fields! {
-        author: PullRequest | Issue | Commit;
         assignee: PullRequest | Issue;
         commenter: PullRequest | Issue;
         mentions: PullRequest | Issue;

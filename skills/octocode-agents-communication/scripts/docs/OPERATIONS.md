@@ -1,61 +1,71 @@
-# Operating the local communication service
+# Operations, recovery and retention
 
 Use one supervised delivery owner per identity. Native adapters and raw hooks are
-explicit alternatives; restarting a process never authorizes replay of uncertain
-messages. There is no routing model to keep alive.
+explicit alternatives; a restart never authorizes replay of uncertain messages.
 
-## Compact diagnostics
+## Health
 
 ```sh
 agents-communication health '{"staleAfterMs":300000,"limit":25}' \
   --workspace /absolute/repo --database /absolute/communication.sqlite
 ```
 
-`health` opens an existing DB read-only and returns workspace-scoped counts plus
-a bounded issue page. It reads no message bodies or audit transcripts and sends
-no vendor requests. No session registration is needed for an operator using the
-same trusted OS account. Missing/incompatible storage fails rather than creating
-a second store. It remains readable while another WAL connection owns the writer.
-
-`status:clear` means no observed queue issue; it is not a vendor availability,
-authentication, inference-quality or listener-liveness probe. `status:pending`
-means active queued/submitted work without a diagnosed fault; normal processing
-is not an error. Successful reads exit zero even when status is `attention`;
-monitoring should inspect the JSON.
-Passive mail waiting for an action is normal. Submitted mail still requires the
-recipient's explicit handling completion.
+`health` opens an existing DB read-only (no session needed, readable during a WAL
+writer) and returns workspace-scoped counts plus a bounded issue page. It reads no
+bodies or audit and calls no vendor. Missing/incompatible storage fails; it never
+creates a second store. Reads exit zero even for `attention`; monitors inspect JSON.
+`clear` means no observed queue issue, not vendor/auth/listener liveness. `pending`
+means queued/submitted work without a fault. Passive mail waiting for action is normal.
 
 | Issue | Operator response |
 | --- | --- |
 | `uncertain` | Inspect the actual recipient and dispatch token before any explicit retry |
-| `expiredAction` | Decide whether work is still needed; acknowledge a deliberate no-action decision or issue a new request |
-| `offlineRecipient` | Check the recipient and delivery owner; deliberately resume without reviving old leases |
-| `stalledOffer` | Inspect the process offering context and the recipient before recovery |
-| `overdueHandling` | Check recipient progress; do not convert submission into an completion or blindly resend |
+| `expiredAction` | Acknowledge a deliberate no-action decision or issue a new request |
+| `offlineRecipient` | Check recipient and delivery owner; resume without reviving old leases |
+| `stalledOffer` | Inspect the offering process and the recipient before recovery |
+| `overdueHandling` | Check recipient progress; never convert submission into completion or resend blindly |
 
-The last two use `staleAfterMs`, default five minutes. It is an observation
-threshold, not a lease extension, cancellation or replay timer. Counts cover all
-unacknowledged deliveries in this workspace; `issues` defaults to 25 rows, maximum
-100. Follow the returned `next.command` and `next.input` unchanged. The cursor
-includes message and recipient so a broadcast cannot lose recipients between
-pages. Each call is a new read snapshot; start another scan when state changes.
+The last two use `staleAfterMs` (default 5 min): an observation threshold, not a
+lease extension or replay timer. `issues` defaults to 25 rows (max 100). Follow
+`next.command`/`next.input` unchanged; the cursor includes message and recipient so
+broadcasts lose no recipients. Each page is a new snapshot. Monitors notify only
+when the issue set changes; never ask a model to poll. No scheduler is installed.
 
-A host monitor may sample these small summaries and notify only when the issue
-set changes. Do not inject the same status or message bodies on every tick, and
-do not ask a model to poll. This package reports diagnostics; it does not install
-a scheduler or send external notifications.
+## Recovery
 
-## Recovery and storage
+Heartbeat every 15 s; presence expires at 60 s. Plain heartbeats do not renew leases;
+managed MCP, `run` and Pi do ([host setup](HOST_SETUP.md)). Guarded edits stop on
+expired identity, missing coverage or failed renewal ([guards](HOST_LEASE_GUARDS.md)).
+Before restoring, stop delivery owners and confirm no process uses the DB. Rehearse
+recovery at a new path; never overwrite a live store.
 
-Keep heartbeats at 15 seconds; presence expires at 60 seconds. A plain heartbeat does not
-renew path leases. Managed MCP, `run` and the Pi adapter also renew live owned
-leases; see [host setup](HOST_SETUP.md) for the renewal contract. Guarded edits must stop on expired identity, missing coverage
-or failed renewal. See [host lease admission](HOST_LEASE_GUARDS.md) for the exact
-structured-tool coverage and the unguarded shell/custom-tool boundary.
+## Retention
 
-Before restoring, stop delivery owners and confirm no other process is using the DB.
-`prune` only removes expired leases of the bound workspace. `db export` creates a verified non-overwriting snapshot including
-committed WAL state. Preserve `.octocode/communication/` documents separately.
-Use a new path for a recovery rehearsal; never overwrite a live store. Retained
-message keys and audit rows are protocol history, not disposable log clutter.
-See [retention and compaction](RETENTION.md) and [the SQL protocol](DB.md).
+Expiry controls delivery eligibility, not deletion. Messages, `(sender,key)`
+idempotency rows, replies' parents, deliveries, sessions and append-only audit are
+protocol history: the schema has no purge, and maintenance never drops triggers.
+To bound growth, `db export` a snapshot and start a fresh store at a new path after
+all workers stop. Hot paths use [indexes](DB.md#lookup-indexes).
+
+- `db retention '{"limit":100}' --database <db>`: read-only, all workspaces. Inputs:
+  `before` (expiry cutoff ms, default 30 days ago, not in the future), `afterId`
+  cursor, `limit` 1–1000. Reports storage sizes, `reusableBytes`, and per-page
+  `expiredSettledMessages` (retained, not deletion candidates),
+  `unacknowledgedMessages`, `unresolvedDispatchMessages` (may overlap), and `next`.
+  Counts cover the scanned page; never returns bodies.
+- `db compact '{}' --database <db>`: one `VACUUM`; checks schema fingerprint,
+  integrity and foreign keys, then a passive WAL checkpoint. Rejects symlink sources.
+  Busy timeout 2 s after opening (5 s to open); no automatic retry. May need about
+  2x DB size temporarily. Reports `logicalReclaimedBytes`, `reclaimedBytes`,
+  `before`/`after` and `checkpoint`; WAL and pinned readers can mask savings.
+- `prune`: the only expiry-based deletion. Removes up to 100 expired leases (or
+  leases of expired owners) in the bound workspace, audited; `next` repeats while a
+  full batch was removed. `leave` deletes an identity's leases and subscriptions; a
+  crashed identity keeps subscriptions for `resume`.
+- `db export '{"path":"/absolute/new.sqlite"}'`: verified, non-overwriting full
+  snapshot of all workspaces including committed WAL. It excludes
+  `.octocode/communication/` documents; back them up separately. See
+  [DB export](DB.md#cleanup-and-conformance).
+
+Regression tests: `node --test tests/retention.test.mjs` (bounded pagination, cutoff
+validation, missing databases, record states, writer-lock failures, compaction).

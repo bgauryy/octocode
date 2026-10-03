@@ -216,10 +216,10 @@ function configuredServers() {
     for (const [name, config] of Object.entries(entries ?? {})) servers.push({ name, source, config });
   };
   const claude = readJson(path.join(HOME, ".claude.json"));
-  push("~/.claude.json (user)", claude?.mcpServers);
-  push("~/.claude.json (project)", claude?.projects?.[WORKSPACE]?.mcpServers);
+  push("<home>/.claude.json (user)", claude?.mcpServers);
+  push("<home>/.claude.json (project)", claude?.projects?.[WORKSPACE]?.mcpServers);
   push(".mcp.json", readJson(path.join(WORKSPACE, ".mcp.json"))?.mcpServers);
-  push("~/.cursor/mcp.json", readJson(path.join(HOME, ".cursor", "mcp.json"))?.mcpServers);
+  push("<home>/.cursor/mcp.json", readJson(path.join(HOME, ".cursor", "mcp.json"))?.mcpServers);
   return servers;
 }
 

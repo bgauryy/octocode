@@ -102,11 +102,9 @@ const SCALA_BODY_QUERY: &str = r#"[
 static LANGUAGE_TABLE: LazyLock<Vec<LanguageEntry>> = LazyLock::new(init_language_table);
 
 fn init_language_table() -> Vec<LanguageEntry> {
-    // Non-feature-gated entries: use vec! to satisfy clippy::vec_init_then_push.
-    // `mut` is only exercised by the feature-gated cpp/c# pushes below; without
-    // those grammars the binding is never mutated.
-    #[allow(unused_mut)]
-    let mut entries = vec![
+    // Feature-gated grammars sit inside the literal behind `#[cfg]`, so the
+    // table is built in one expression with no mutable binding.
+    vec![
         LanguageEntry {
             name: "TypeScript",
             selector_aliases: &[],
@@ -206,45 +204,41 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: SCALA_BODY_QUERY,
             comment_style: "c",
         },
-    ];
+        #[cfg(feature = "tree-sitter-cpp")]
+        LanguageEntry {
+            name: "C++",
+            selector_aliases: &[],
+            // Include the `.hh`/`.hxx` header variants the structural expando table
+            // already anticipates.
+            extensions: &["cpp", "hpp", "cc", "cxx", "hh", "hxx"],
+            language_id: Some("cpp"),
+            language: tree_sitter_cpp::LANGUAGE.into(),
+            body_query: CPP_BODY_QUERY,
+            comment_style: "c",
+        },
 
-    // Feature-gated grammars: conditional push after vec! creation is fine.
-    #[cfg(feature = "tree-sitter-cpp")]
-    entries.push(LanguageEntry {
-        name: "C++",
-        selector_aliases: &[],
-        // Include the `.hh`/`.hxx` header variants the structural expando table
-        // already anticipates.
-        extensions: &["cpp", "hpp", "cc", "cxx", "hh", "hxx"],
-        language_id: Some("cpp"),
-        language: tree_sitter_cpp::LANGUAGE.into(),
-        body_query: CPP_BODY_QUERY,
-        comment_style: "c",
-    });
+        #[cfg(feature = "tree-sitter-cuda")]
+        LanguageEntry {
+            name: "CUDA",
+            selector_aliases: &[],
+            extensions: &["cu", "cuh"],
+            language_id: Some("cuda"),
+            language: tree_sitter_cuda::LANGUAGE.into(),
+            body_query: CUDA_BODY_QUERY,
+            comment_style: "c",
+        },
 
-    #[cfg(feature = "tree-sitter-cuda")]
-    entries.push(LanguageEntry {
-        name: "CUDA",
-        selector_aliases: &[],
-        extensions: &["cu", "cuh"],
-        language_id: Some("cuda"),
-        language: tree_sitter_cuda::LANGUAGE.into(),
-        body_query: CUDA_BODY_QUERY,
-        comment_style: "c",
-    });
-
-    #[cfg(feature = "tree-sitter-c-sharp")]
-    entries.push(LanguageEntry {
-        name: "C#",
-        selector_aliases: &[],
-        extensions: &["cs"],
-        language_id: Some("csharp"),
-        language: tree_sitter_c_sharp::LANGUAGE.into(),
-        body_query: CS_BODY_QUERY,
-        comment_style: "c",
-    });
-
-    entries
+        #[cfg(feature = "tree-sitter-c-sharp")]
+        LanguageEntry {
+            name: "C#",
+            selector_aliases: &[],
+            extensions: &["cs"],
+            language_id: Some("csharp"),
+            language: tree_sitter_c_sharp::LANGUAGE.into(),
+            body_query: CS_BODY_QUERY,
+            comment_style: "c",
+        },
+    ]
 }
 
 pub fn find_entry(ext: &str) -> Option<&'static LanguageEntry> {

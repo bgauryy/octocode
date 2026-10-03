@@ -337,12 +337,8 @@ mod provider_failure_tests {
 
     #[test]
     fn typed_parse_failure_is_a_row_error_not_a_worker_failure() {
-        #[derive(serde::Deserialize, Debug)]
-        struct Offset {
-            #[allow(dead_code)]
-            offset: usize,
-        }
-        let row = parse_query::<Offset>(json!({"offset": 1.5})).expect_err("fraction");
+        let row = parse_query::<std::collections::BTreeMap<String, usize>>(json!({"offset": 1.5}))
+            .expect_err("fraction");
         assert_eq!(row.status, Some("error"));
         assert_eq!(row.data["errorCode"], "invalidInput");
     }

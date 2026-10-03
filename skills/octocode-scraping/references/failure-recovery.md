@@ -22,4 +22,4 @@ After two same-class failures: stop; summarize evidence, route tried, sanitized 
 
 **Coverage note:** local hermetic checks do not replace this table for real bot-walls/regions.
 
-Next: to re-pick a cheaper route load `references/route-selection.md`; for a live-browser attempt load `references/browser-scraping.md`; only after approved spend load `references/scrapingant.md`.
+Next: to re-pick a cheaper route load `references/route-selection.md`; for a live-browser attempt load `references/browser-scraping.md`; only after approved spend load `references/providers.md` § ScrapingAnt.

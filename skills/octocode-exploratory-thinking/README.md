@@ -32,7 +32,7 @@ No presence lifts a limit the task already set. Body costs — impairment, cravi
 UNDERSTAND → THINK → CHANGE → INTENT
 ```
 
-The steps live in `SKILL.md`. `octocode-brainstorming` and `octocode-research` can help: brainstorming for options and what to build, research for evidence, callers, history, and bytes.
+The steps and handoff rules live in `SKILL.md`.
 
 ## Install
 

@@ -21,4 +21,4 @@ node skills/octocode-scraping/scripts/fetch.mjs --provider scrapingant --url 'ht
 
 The check reports only `"key":"set"`; `provider-usage.mjs` returns sanitized plan/credit status. Shell values override files; project `.octocode/.env` overrides global. Skill scripts load these through the vendored config module. MCP/CLI processes need `SCRAPING_ANT` in their own client environment.
 
-Skill scripts run standalone. To add another vendor, follow [ADDING_A_VENDOR.md](ADDING_A_VENDOR.md). Agent cost and routing rules live in `references/providers.md`, `references/route-selection.md`, and `references/scrapingant.md`.
+Skill scripts run standalone. To add another vendor, follow [ADDING_A_VENDOR.md](ADDING_A_VENDOR.md). Agent cost and routing rules live in `references/providers.md` and `references/route-selection.md`.

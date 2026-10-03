@@ -1,6 +1,6 @@
 # Smell Catalog
 
-Load when classifying a target as dead, duplicate, kludge, or junk prose. Why: class determines the evidence bar and excision protocol.
+Load when classifying a target as dead, duplicate, kludge, or junk prose.
 
 ## Re-exports and barrel aliases
 

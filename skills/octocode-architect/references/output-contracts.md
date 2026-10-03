@@ -1,6 +1,6 @@
 # Output Contracts
 
-Load when a consequential plan or review needs an explicit decision record. Why: expose boundaries and impact without forcing ceremony on small work.
+Load when a consequential plan or review needs an explicit decision record. Why: expose boundaries and impact without forcing ceremony on small work. Write every field in STE-80: one idea per sentence, active voice, no claim beyond the evidence. Show `Model` and `Place/Wiring` as a Mermaid diagram of evidenced edges instead of a paragraph; mark a candidate edge as a candidate. Build a single-file HTML explainer only on request, under `<output>/octocode-architect/`, and keep it out of agent handoffs.
 
 For low-risk local work:
 ```text
@@ -47,4 +47,4 @@ Hot path: <workload/budget, end-to-end baseline, attributed cost, comparable res
 
 For an interface or tool contract, review the complete path: input schema → actual adapter arguments → result shape and evidence → executable `next` continuation. Check one valid and one invalid example for each changed branch, distinguish static types from runtime validation, and separate measured reliability from an unmeasured expectation. For a multi-tool surface, compare shared field names and meanings across the set and run at least one held-out composition case.
 
-Next: during implementation load `delivery-discipline.md`; after a completed review return to `SKILL.md`.
+Next: during implementation load `references/change-discipline.md`; after a completed review return to `SKILL.md`.

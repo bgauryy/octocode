@@ -1,6 +1,6 @@
 # RFC Prerequisites
 
-Load when an RFC or plan changes existing code. Why: readiness facts, setup, owners, blockers, and baselines must be proven before decision or implementation planning.
+Load when an RFC or plan changes existing code. Prove readiness facts, setup, owners, blockers, and baselines before the decision or plan.
 Complete `PREREQUISITES.md` before the decision or plan steps that consume it; use `octocode-research` for repository, artifact, dependency, history, and migration evidence.
 
 Every prerequisite needs an exact local/external citation or an open question with owner, next proof, and why work cannot start.

@@ -1,27 +1,37 @@
 # Optional `clasify` review inside the RFC workflow
 
-Load only for an explicit classification request or experiment admitted by the `octocode-research` clasify gate, which owns the decision gate. Ordinary RFC work uses evidence review directly; this optional protocol is not a verified research improvement.
+Load when, and only when, there is an explicit classification request or experiment admitted by the `octocode-research` clasify gate. That gate owns admission. Ordinary RFC work uses evidence review directly. This optional protocol is not a verified research improvement.
 
-## Availability and limits
+## Availability and budget
+- Inspect the Octocode catalog once and check host subagent support. `references/jev-api.md` owns transport, schema discovery, credentials, and results. A catalog entry is not a successful provider call.
+- With both capabilities, use exactly two read-only workers. The host submits their arguments through `clasify` to the Jev API.
+- If a capability is missing or fails, continue evidence collection and the host completeness audit. Label coverage `unjudged` or `partial` and keep blockers. Do not impersonate agents or claim a judgment that did not run.
+- Default budget: two workers, one opening and one rebuttal each, one question group, one judge call, ten minutes. Record a different budget before you start.
+- Allow one judgment per unchanged crossroad. Another call needs material new evidence or a changed proposal, plus the action it can change. Stop on exhausted budget, unchanged evidence, or a missing owner decision. Count failed attempts and retries.
 
-Inspect the Octocode catalog once and check host subagent support. Read `references/jev-api.md` for native `clasify` transport, schema discovery, credentials, and result handling. MCP exposes the tool only when `OCTOCODE_CLASSIFICATION_API` is configured; CLI invocation without it must report the missing key. A catalog entry is not a successful provider call. With both capabilities available, use exactly two read-only workers; the host submits their arguments through `clasify` to the Jev API. If a capability is missing or fails, continue evidence collection and the host completeness audit, label attempted coverage `unjudged` or `partial`, and retain blockers. Do not impersonate agents or claim a judgment that did not run.
+## Sequence
+```mermaid
+flowchart LR
+    F[Frame questions] --> D["Debate: openings, one rebuttal"]
+    D --> S{Evidence settles it or workers converge?}
+    S -- yes --> V[Host verify + update ledger]
+    S -- no --> J[Admission gate + preflight + judge]
+    J --> V
+    V --> G[Return to RFC gates]
+```
+Read it as: the judge runs only for a disagreement that evidence and direct checks cannot settle.
 
-Default budget: two workers, one independent opening and one rebuttal each, one caller-selected question group and one judge call, and ten minutes of review. Record a different budget before starting when scope warrants it. Allow one judgment per unchanged crossroad; additional calls require material new evidence or a changed proposal and an explanation of the action they can change. Stop on exhausted budget, unchanged evidence or a missing owner decision. Count failed attempts and retries.
+1. **Frame.** Use the RFC and ledger from `references/rfc-completeness.md`. Record revision, scope, owner criteria, proposed answer, and deciding evidence. Classify each question: factual, causal, design tradeoff, owner preference, or execution detail. Missing evidence needs collection; owner preferences need owner criteria or a decision.
+2. **Debate.** Follow `references/jev-debate.md` for dispatch, barriers, and the frozen packet.
+3. **Judge.** Save the host's intended next action. Run `node scripts/validate-debate.mjs request.json worker-packet.json` from this skill folder before submission. Jev assesses the supplied claim or plan; calling it does not improve accuracy by itself.
+4. **Verify.** Inspect the deciding evidence or run the selected check. Apply the closure rules in `references/rfc-completeness.md`. Record the API result apart from the host disposition. Changed sources or criteria reopen affected questions. Votes, confidence, and agreement never establish facts or owner acceptance.
+5. **Return.** Keep Draft while any decision blocker remains. Continue through `references/workflow.md`. Review does not authorize implementation.
 
-## Review sequence
+## Receipts and delivery
+Store raw dispatches, both worker rounds, exact requests and results, revision or hash, requested model, provider-resolved models, page-local coverage, usage, elapsed time, and host checks under `<output>/octocode-rfc-generator/{name}/review/`. Use the scratch directory for temporary packets. Write the cost receipt from `references/review-cost.md`. Keep transcripts outside the RFC and credentials out of all receipts. Chat-only work stays in chat.
+Deliver changed answers, decisive evidence, remaining questions with owners and next checks, dissent, actual judge coverage, and measured cost. State what the review changed relative to the saved pre-call action: discovery, prioritization, or confirmation. "No demonstrated help" is valid. Provider availability, a passing preflight, and host verification are separate claims.
 
-1. **Frame and question.** Use the existing RFC and ledger from `references/rfc-completeness.md`. Record the revision, scope, owner criteria, proposed answer and deciding evidence. Classify questions as factual, causal, design tradeoff, owner preference or execution detail. Missing evidence needs collection; owner preferences need actual owner criteria or a decision.
-2. **Debate.** Read `references/jev-debate.md` before dispatch. Give both workers the same frozen review contract and raw evidence, with advocate and adversarial roles. Collect independent openings before exchanging them, then one rebuttal each. Preserve concessions and disagreement. If inspected evidence settles the question or the workers converge after rebuttal, stop without a judge call.
-3. **Judge.** Save the host's intended next action. Freeze an admission gate containing the remaining disagreement, distinct A/B positions, why evidence and direct checks cannot settle it, and distinct actions for support versus rejection. Preserve both agents' arguments, exact question/proposal identity and evidence IDs; run `node scripts/validate-debate.mjs request.json worker-packet.json` from this skill folder before submission. Put the projected review identity, subject and criteria, both argument rounds, and evidence in one `resources[].context.value`; keep admission in the host packet and copy its frozen `review.questions` only to outer `questions`. The host enforces admission and maps the judgment to its next action. Jev assesses the supplied claim or plan; it does not improve accuracy merely by being called.
-4. **Verify and update.** Inspect the original deciding evidence or run the selected check. Apply the closure rules in `references/rfc-completeness.md`, record the actual API result separately from the host disposition, and explain disagreement. Changed sources or criteria reopen affected questions. Votes, confidence and agent agreement never establish facts or owner acceptance.
-5. **Return to the RFC gates.** Keep Draft while any decision blocker remains. Continue decision, acceptance, planning, artifact validation and delivery through `references/workflow.md`. Preserve the accepted-document audit rules and existing task authority; review does not itself authorize implementation.
+## Sources
+These are attributions, not runtime dependencies. `octocode-research` (clasify gate: admission, one call per crossroad, credentials), `octocode-subagent` (worker packets, barriers, parent verification), `octocode-eval-benchmark` (frozen baselines, held-out outcomes, whole-workflow cost), and the [Jev documentation index](https://docs.typesafe.ai/llms.txt) for provider semantics. Native Octocode owns transport, paging, and typed validation.
 
-## Receipts and contribution
-
-Store raw dispatches, both worker rounds, exact requests/results, revision/hash, requested model, provider-resolved model(s), page-local coverage, usage, elapsed time, and host checks under `<output>/octocode-rfc-generator/{name}/review/`; use the skill's existing scratch directory for temporary packets. Create the cost receipt described in `references/review-cost.md` and validate it with `node scripts/validate-review-cost.mjs receipt.json`. Keep transcripts outside the RFC and credentials out of all receipts. Chat-only work stays in chat.
-
-Deliver changed answers, decisive evidence, remaining questions with owners/next checks, dissent, actual page-local judge coverage, and measured cost. State what the Jev-backed assessment changed relative to the saved pre-call action, distinguishing discovery, prioritization and confirmation; “no demonstrated help” is valid. Provider availability, successful preflight, and host verification are separate claims.
-
-When changing or comparing this step, use `references/jev-evaluation.md`, run `node scripts/validate-debate.mjs --self-test`, and review the skill with `octocode-skills`. For provenance and API ownership use `references/jev-sources.md`.
-
-Next: return to `references/workflow.md` for the existing RFC gates and delivery.
+Next: return to `references/workflow.md` for the RFC gates and delivery.

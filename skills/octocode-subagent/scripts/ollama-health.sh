@@ -52,7 +52,7 @@ fi
 echo "ok: ollama up at ${HOST}"
 
 if [[ -z "${MODEL}" ]]; then
-  echo "hint: run 'ollama list' then select via references/model-selection.md (catalog/RAM: references/ollama-local-models.md only if needed)"
+  echo "hint: run 'ollama list' then select via references/model-selection.md (catalog/RAM in the same page)"
   exit 0
 fi
 

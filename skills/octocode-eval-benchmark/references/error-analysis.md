@@ -1,30 +1,33 @@
-# Error Analysis
-Load before writing new eval cases or when the suite feels generic. Why: evals must come from real failure modes, not vanity metrics.
+# Error analysis and benchmarks
+Load before you write new eval cases, when the suite feels generic, or when you choose or trust a public benchmark. Evals come from real failure modes, not vanity metrics.
 
-## Process (Hamel-style)
-1. **Dataset** — gather representative traces (prod, dogfood, or synthetic starter).
-2. **Open coding** — domain expert notes the *first* clear failure per trace (journaling).
-3. **Axial coding** — cluster notes into a **failure taxonomy**; count frequency.
-4. **Saturation** — stop when representative additional traces no longer change the taxonomy; inspect rare high-impact failures separately.
-5. **Write evals** — one grader/case family per top failure mode; attach `failureSignature`.
+## Process
+1. **Dataset**: gather representative traces (production, dogfood, or a synthetic starter).
+2. **Open coding**: a domain expert notes the *first* clear failure per trace.
+3. **Axial coding**: cluster notes into a failure taxonomy; count frequency.
+4. **Saturation**: stop when more representative traces no longer change the taxonomy. Inspect rare high-impact failures separately.
+5. **Write evals**: one grader or case family per top failure mode; attach a `failureSignature` (`mechanism:…|cause:…`) for mining and host verification records.
 
-Use `failure-repair.md` before assigning fixes: task/reference, grader, infrastructure, leakage, and solver failures can overlap. Record the first divergence and contributing factors.
+- Before you assign fixes, use `references/failure-repair.md`: task, grader, infrastructure, leakage, and solver failures can overlap. Record the first divergence and contributing factors.
+- Outputs: the taxonomy prioritizes what to measure; top-N modes become capability suite targets; new cases grow the suite loop.
+- Do not start from generic platform metrics (toxicity, helpfulness) unless they appear in your taxonomy.
+- Prioritize frequency × impact; make rare critical failures explicit guardrails. Keep representative sampling separate from enriched stress tests.
+- Revisit after product or model shifts. Upstream errors cause downstream noise: fix or tag the first break.
+- Error analysis feeds the suite loop; experiments then hill-climb those cases; the meta loop changes the program when the same signatures recur.
 
-## Outputs
-| Artifact | Use |
+## Public and private benchmarks
+| Kind | Role |
 |---|---|
-| Failure taxonomy | Prioritize what to measure |
-| Top-N modes | Capability suite targets |
-| Signatures | `mechanism:…\|cause:…` for mining and host verification records |
-| New cases | Suite loop growth |
+| Public | Rough capability signal; compare systems; weak ship gate |
+| Private | Real failures from your traces; primary ship gate |
+| Hybrid | Public for orientation; private for ACCEPT/REVERT |
 
-## Rules
-- Do not start from generic platform metrics (“toxicity”, “helpfulness”) unless they appear in your taxonomy.
-- Prioritize frequency × impact; include rare critical failures as explicit guardrails. Keep representative sampling separate from deliberately enriched stress tests.
-- Revisit after product/model shifts; taxonomies rot.
-- Upstream errors cause downstream noise — fix/tag the first break.
+- Prefer private suites sourced from error analysis. A public gain without a transcript audit is weak evidence.
+- Check construct validity: does the benchmark measure the skill you care about?
+- Assume contamination risk on famous benchmarks (items or paraphrases in training, prompts, or RAG).
+- Saturation: scores near ceiling leave no hill; graduate to harder tasks or a new suite.
+- 0% pass@100 often means a broken task or grader, not a weak agent.
+- Coding (SWE-style): issue + repository snapshot → agent patch → fail-to-pass and pass-to-pass tests → read transcripts. Passing tests alone are not merge-ready; do not trust a saturated board as sole proof.
+- Retire a contaminated, saturated, or gaming-dominated benchmark to regression smoke; build a fresh private capability suite.
 
-## Link to loops
-Error analysis feeds the **suite loop**; experiments then hill-climb those cases; meta loop changes the program when the same signatures recur.
-
-Next: add cases → `eval-harness.md`; choose public vs private benches → `benchmarking.md`.
+Next: add cases → `references/eval-harness.md`; splits → `references/held-out-and-guards.md`.

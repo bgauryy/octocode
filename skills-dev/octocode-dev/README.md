@@ -14,7 +14,7 @@ node skills-dev/octocode-dev/scripts/dev.mjs verify      # full repo contract
 |---|---|
 | [`scripts/`](scripts/README.md) | `dev.mjs` task runner, workspace health, docs gate, dependency dedupe, dev setup, publish guard, build helpers, tool inventory |
 | [`docs/`](docs/DEVELOPMENT.md) | Developer docs: [development](docs/DEVELOPMENT.md), [adding config](docs/ADDING_CONFIG.md), [release](docs/RELEASE.md), [tool quality bar](docs/TOOL_QUALITY.md) |
-| [`references/`](references/surface-map.md) | Audit lanes: [surface map](references/surface-map.md), [contract](references/contract-audit.md), [implementation](references/implementation-audit.md), [output](references/output-audit.md), [workflow](references/workflow-audit.md), [config and docs](references/config-docs-audit.md), [fix and verify](references/fix-and-verify.md) |
+| [`references/`](references/surface-map.md) | Audit lanes: [surface map](references/surface-map.md), [contract, config, and docs](references/contract-audit.md), [implementation](references/implementation-audit.md), [output and workflow](references/output-audit.md), [fix and verify](references/fix-and-verify.md) |
 | [`assets/`](assets/audit-report.md) | Audit report template |
 
 User-facing docs stay in the repository `docs/` folder (`<repo>/docs/README.md`).

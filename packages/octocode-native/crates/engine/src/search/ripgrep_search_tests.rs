@@ -861,6 +861,12 @@ fn opaque_binary_files_are_skipped_not_a_coverage_gap() {
     assert_ne!(r.stats.capped, Some(true), "{:?}", r.stats);
     assert_eq!(r.stats.binary_files, None, "{:?}", r.stats);
     assert_eq!(r.stats.skipped_binary_count, Some(3), "{:?}", r.stats);
+    assert_eq!(
+        extension_groups(&r.stats),
+        [("node", 1), ("png", 1), ("ttf", 1)],
+        "{:?}",
+        r.stats
+    );
     assert_eq!(r.stats.files_searched, Some(4), "{:?}", r.stats);
 
     // files-without-match still never lists a file it could not read as text.
@@ -885,6 +891,84 @@ fn binary_quit_keeps_matches_before_the_nul() {
     assert_eq!(matches[0].value, "alpha before");
     assert_eq!(r.stats.match_count, Some(1));
     assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+}
+
+fn extension_groups(stats: &RipgrepStats) -> Vec<(&str, u32)> {
+    stats
+        .skipped_binary_extensions
+        .iter()
+        .flatten()
+        .map(|group| (group.extension.as_str(), group.count))
+        .collect()
+}
+
+/// A format whose magic is printable (woff2, OpenType, SQLite) still puts
+/// its NUL inside the leading bytes, before any complete line: it is binary
+/// like an image, not text cut short. Skipped, counted by extension.
+#[test]
+fn a_printable_magic_before_a_leading_nul_is_opaque_binary() {
+    let t = TmpDir::new();
+    fs::write(t.0.join("a.woff2"), b"wOF2\0\x01\0\0needle").expect("woff2");
+    fs::write(t.0.join("b.woff2"), b"wOF2\0\x01\0\0needle").expect("woff2");
+    fs::write(t.0.join("c.OTF"), b"OTTO\0\x0b\0\x80needle").expect("otf");
+    fs::write(t.0.join("store"), b"SQLite format 3\0needle").expect("sqlite");
+    t.write("text.txt", "needle plain\n");
+    let r = search(opts(t.path(), "needle")).expect("ok");
+    assert_eq!(r.files.len(), 1, "{:?}", r.files);
+    assert_eq!(r.stats.cap_reason, None, "{:?}", r.stats);
+    assert_eq!(r.stats.binary_files, None, "{:?}", r.stats);
+    assert_eq!(r.stats.skipped_binary_count, Some(4), "{:?}", r.stats);
+    // Most files first; the extension is lowercased like structureSearch
+    // matches it, and an extensionless file groups under "".
+    assert_eq!(
+        extension_groups(&r.stats),
+        [("woff2", 2), ("", 1), ("otf", 1)],
+        "{:?}",
+        r.stats
+    );
+}
+
+/// Text lines before a NUL are searchable text the cut leaves unread: a
+/// coverage gap even when nothing before the NUL matched.
+#[test]
+fn text_lines_before_a_nul_stay_a_coverage_gap() {
+    let t = TmpDir::new();
+    fs::write(t.0.join("log.txt"), b"first line\nsecond line\n\0needle\n").expect("log");
+    let r = search(opts(t.path(), "needle")).expect("ok");
+    assert!(r.files.is_empty(), "{:?}", r.files);
+    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+    assert_eq!(r.stats.skipped_binary_count, None, "{:?}", r.stats);
+    assert_eq!(r.stats.binary_file_count, Some(1));
+    let named = r.stats.binary_files.unwrap_or_default();
+    assert!(
+        named.len() == 1 && named[0].ends_with("log.txt"),
+        "{named:?}"
+    );
+}
+
+/// A match before the NUL is evidence from a file the search could not
+/// finish, so even a short single-line prefix keeps the file a named gap.
+#[test]
+fn a_match_before_a_leading_nul_keeps_the_file_a_gap() {
+    let t = TmpDir::new();
+    fs::write(t.0.join("a.woff2"), b"wOF2\0\x01\0\0").expect("woff2");
+    let r = search(opts(t.path(), "wOF2")).expect("ok");
+    assert_eq!(r.files.len(), 1, "{:?}", r.files);
+    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+    assert_eq!(r.stats.skipped_binary_count, None, "{:?}", r.stats);
+}
+
+/// A long run of text before a NUL is not a format header, line break or
+/// not: it stays a coverage gap.
+#[test]
+fn a_long_text_run_before_a_nul_stays_a_gap() {
+    let t = TmpDir::new();
+    let mut body = "x".repeat(4096).into_bytes();
+    body.extend_from_slice(b"\0needle\n");
+    fs::write(t.0.join("bundle.js"), body).expect("bundle");
+    let r = search(opts(t.path(), "needle")).expect("ok");
+    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+    assert_eq!(r.stats.skipped_binary_count, None, "{:?}", r.stats);
 }
 
 #[test]

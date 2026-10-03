@@ -1,6 +1,6 @@
 # Developing Octocode
 
-This page owns the monorepo map, the contract pipeline, build/test/lint commands, development-only environment variables, and ownership rules. Repository-wide agent rules (never commit, dogfood the tools) are in `<repo>/AGENTS.md`; the concept behind the tools is in `<repo>/docs/OCTOCODE_PROTOCOL.md`.
+This page owns the monorepo map, the contract pipeline, build commands, development-only environment variables, and ownership rules. Repository-wide agent rules are in `<repo>/AGENTS.md`. The tool concept is in `<repo>/docs/OCTOCODE_PROTOCOL.md`.
 
 ## Runtime flow
 
@@ -11,31 +11,27 @@ octocode-mcp-vscode ───┘          ├──▶ embedded contract from @o
                                   └──▶ configuration resolved in Rust, same rules as @octocodeai/config
 ```
 
-Public tool validation, providers, security, batching, pagination, response shaping and cancellation have one owner: `octocode-native`. Interfaces register, delegate or render; there is no TypeScript tool fallback.
+`octocode-native` is the one owner of public tool validation, providers, security, batching, pagination, response shaping, and cancellation. Interfaces register, delegate, or render. There is no TypeScript tool fallback.
 
 ## Packages
 
-Versions are from each `package.json`; workspace packages version independently.
+Versions come from each `package.json`. Workspace packages version independently.
 
-| Path | npm name | Version |
-|---|---|---|
-| (sibling repo `octocode-mcp-host/packages/octocode-core`) | `@octocodeai/octocode-core` | external |
-| `packages/octocode-config` | `@octocodeai/config` | 20.1.0 |
-| `packages/octocode-native` | `@octocodeai/octocode-native` | 20.0.0 |
-| `packages/octocode-mcp` | `octocode-mcp` | 19.2.0 |
-| `packages/octocode` | `octocode` | 19.2.0 |
-| `packages/octocode-vscode` | `octocode-mcp-vscode` | 19.2.0 |
-| `packages/octocode-claude-plugin` | `@octocodeai/claude-plugin` | 0.1.0 |
-| `packages/octocode-codex-plugin` | `@octocodeai/codex-plugin` | 0.1.0 |
-| `packages/octocode-skill-installer` | `@octocodeai/octocode-skill-installer` (private) | 0.1.0 |
-| `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | 19.2.0 |
-| `skills/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` (private) | 0.1.0 |
+| Path | npm name | Version | Owns |
+|---|---|---|---|
+| sibling repo `octocode-mcp-host/packages/octocode-core` | `@octocodeai/octocode-core` | external | Every tool's Zod input schema, description, output schema, limits, and shared MCP/CLI instructions. Never executes tools. Nothing in this repo authors contract content. |
+| `packages/octocode-config` | `@octocodeai/config` | 20.1.0 | The only tool-contract generator (`generate:tool-contract` writes `contract/` and `src/contracts/toolTypes.generated.ts`; re-exports core through `./schema` and `./mcp`). Also the configuration contract (`config-contract.json` → `<repo>/docs/generated/CONFIG_SETTINGS.md`), Octocode home, `.env` / `.octocoderc` loading, and protected keys. See [ADDING_CONFIG.md](ADDING_CONFIG.md). |
+| `packages/octocode-native` | `@octocodeai/octocode-native` | 20.0.0 | Rust implementation of every public tool. One npm package plus six platform packages (`npm/darwin-arm64`, `darwin-x64`, `linux-arm64-gnu`, `linux-x64-gnu`, `linux-x64-musl`, `win32-x64-msvc`) with the native CLI binary and addons. Publishing: `<repo>/packages/octocode-native/docs/PUBLISHING.md`. |
+| `packages/octocode-mcp` | `octocode-mcp` | 19.2.0 | Thin stdio MCP server: loads the addon, checks the core/native fingerprint, registers available tools (never CLI-only `ghCloneRepo` and `astRewrite`), forwards calls. See `<repo>/docs/OCTOCODE_MCP.md`. |
+| `packages/octocode` | `octocode` | 19.2.0 | Public Node launcher: delegates to the native binary; owns `octocode skill` and the install picker. See `<repo>/packages/octocode/docs/OCTOCODE_CLI.md`. |
+| `packages/octocode-vscode` | `octocode-mcp-vscode` | 19.2.0 | VS Code extension: GitHub sign-in, token sync into MCP configs, MCP install across editors. Runs no research tools. |
+| `packages/octocode-claude-plugin` | `@octocodeai/claude-plugin` | 0.1.0 | Claude Code manifest, local MCP launch config, public skills, GitHub CLI onboarding. The marketplace points to the npm package. See its `ARCHITECTURE.md`. |
+| `packages/octocode-codex-plugin` | `@octocodeai/codex-plugin` | 0.1.0 | Codex plugin metadata, local MCP launch config, public skills, onboarding; reuses native auth and CLI skill staging. See its `ARCHITECTURE.md`. |
+| `packages/octocode-skill-installer` | `@octocodeai/octocode-skill-installer` (private) | 0.1.0 | Library bundled into the CLI: canonical skill copies, per-platform links or copies, upgrades, conflict policy, atomic replacement. |
+| `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | 19.2.0 | Unified agent benchmark: 30 pinned questions, Octocode MCP vs `rg` + `gh`, blind Opus judge. Start at `<repo>/packages/octocode-benchmark/compare/unified/README.md`. |
+| `skills/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` (private) | 0.1.0 | Session identity, path leases, messages. |
 
-**`@octocodeai/octocode-core` (external).** Authors every tool's Zod input schema, description, output schema, limits and the shared MCP/CLI instructions. It defines contracts and never executes tools. Nothing in this repo authors contract content.
-
-**`@octocodeai/config`.** Two jobs. It is the only tool-contract generator: `generate:tool-contract` writes `contract/` (`tool-contract.json`, fixtures, provenance, `tool_types.rs`) and `src/contracts/toolTypes.generated.ts`, and re-exports core through `./schema` and `./mcp`. It also owns the configuration contract (`config-contract.json`, which generates `<repo>/docs/generated/CONFIG_SETTINGS.md`), Octocode home resolution, `.env` / `.octocoderc` loading and protected keys for Node consumers. See [ADDING_CONFIG.md](ADDING_CONFIG.md).
-
-**`@octocodeai/octocode-native`.** The Rust implementation of every public tool, shipped as one npm package plus six platform packages (`npm/darwin-arm64`, `darwin-x64`, `linux-arm64-gnu`, `linux-x64-gnu`, `linux-x64-musl`, `win32-x64-msvc`), each carrying the native CLI binary and the addons. Cargo crates under `crates/`:
+Native Cargo crates under `crates/`:
 
 | Crate dir | Cargo name | Owns |
 |---|---|---|
@@ -45,61 +41,38 @@ Versions are from each `package.json`; workspace packages version independently.
 | `cli` | `octocode-cli` | The native `octocode` binary: tool commands, `scheme`, `config`, `auth`, `graph`, `skill`, `install` |
 | `runtime-napi` | `octocode-runtime-napi` | N-API adapter the MCP server loads in-process |
 
-The `./engine` subpath exposes primitives, never tool policy. Publishing is in `<repo>/packages/octocode-native/docs/PUBLISHING.md`.
+Other folders:
 
-**`octocode-mcp`.** Thin stdio MCP server. It loads the native addon, checks the core/native contract fingerprint, registers the available tools (never the CLI-only `ghCloneRepo` and `astRewrite`) and forwards calls. See `<repo>/docs/OCTOCODE_MCP.md`.
-
-**`octocode`.** The public Node launcher. It delegates tool commands and management commands to the native binary, owns `octocode skill` (via the skill installer) and the interactive install picker. See the CLI guide (`<repo>/packages/octocode/docs/OCTOCODE_CLI.md`).
-
-**`octocode-mcp-vscode`.** VS Code extension: GitHub sign-in, token sync into MCP configs, and MCP installation across supported editors. It runs no research tools.
-
-**`@octocodeai/claude-plugin`.** Claude Code manifest, local MCP launch configuration, all public skills, and GitHub CLI onboarding. The GitHub marketplace points to the prebuilt npm package. See `<repo>/packages/octocode-claude-plugin/ARCHITECTURE.md` for validation and publishing.
-
-**`@octocodeai/codex-plugin`.** Codex plugin metadata, local MCP launch configuration, all public skills, and onboarding. It reuses the native runtime's authentication and the CLI's skill staging. See `<repo>/packages/octocode-codex-plugin/ARCHITECTURE.md` for packaging and release gates.
-
-**`@octocodeai/octocode-skill-installer`.** Private library bundled into the CLI: durable canonical skill copies, per-platform links or copies, upgrades, conflict policy and atomic replacement.
-
-**`@octocodeai/octocode-benchmark`.** Private unified agent benchmark: workers defined by an instruction doc plus a tool profile (Octocode MCP vs `rg` + `gh`) answer 30 pinned questions, graded by a blind Opus judge against evaluator-only references. Start at `<repo>/packages/octocode-benchmark/compare/unified/README.md`.
-
-**`skills/`.** Public Agent Skills installed by `octocode skill install`; each folder owns its `SKILL.md`. `skills-beta/` holds tested but unpublished skills, `skills-dev/` skills for working on this repo. `skills/octocode-agents-communication` is also a workspace package (session identity, path leases, messages).
-
-**`octocode-local-testing/`.** Not a package. `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `validate/` holds validation reports and `repos/` the pinned clones (including the benchmark corpus). See its README (`<repo>/octocode-local-testing/README.md`); benchmark results are in `<repo>/docs/BENCHMARKS.md` (pending).
+- `skills/`: public Agent Skills installed by `octocode skill install`. `skills-beta/` holds tested unpublished skills; `skills-dev/` holds skills for work on this repo.
+- `octocode-local-testing/` (not a package): `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `validate/` holds reports; `repos/` holds pinned clones. See `<repo>/octocode-local-testing/README.md`. Benchmark results: `<repo>/docs/BENCHMARKS.md` (pending).
 
 ## Contract pipeline
 
 1. **Author** in core: Zod schema, description, instructions, limits.
 2. **Build core**, then run `yarn contracts:regen` at the repo root. It refreshes the `file:` copy of core (`yarn install`) and runs `@octocodeai/config generate:tool-contract`, the only generator. It needs `cargo install cargo-typify --version 0.8.0 --locked`.
-3. **Output** lands in `packages/octocode-config/contract/` and `src/contracts/toolTypes.generated.ts`. It is committed and never hand-edited; `check:tool-contract` fails when it is stale.
+3. **Output** lands in `packages/octocode-config/contract/` and `src/contracts/toolTypes.generated.ts`. It is committed and never hand-edited. `check:tool-contract` fails when it is stale.
 4. **Rebuild native** (`yarn workspace @octocodeai/octocode-native build:dev`). `crates/runtime/build.rs` embeds `contract/` in place and fails on a fingerprint mismatch.
 
-Until native is rebuilt, the **MCP server refuses to start** and CLI `scheme` refuses to describe tools, because the core fingerprint differs from the native embed. `OCTOCODE_ALLOW_CONTRACT_DRIFT=1` downgrades that to a warning outside production; fix drift by regenerating, not by overriding.
+Until native is rebuilt, the MCP server refuses to start and CLI `scheme` refuses to describe tools. `OCTOCODE_ALLOW_CONTRACT_DRIFT=1` downgrades that to a warning outside production. Fix drift by regenerating, not by overriding.
 
-Never hand-write a tool wire type (no TS interface, Zod copy, or serde query/result struct). Release gate: `yarn workspace @octocodeai/config check:core-contract-sync:published` (publish core first).
+Never hand-write a tool wire type (TS interface, Zod copy, or serde query/result struct). Release gate: `yarn workspace @octocodeai/config check:core-contract-sync:published` (publish core first).
 
 ### Adding a tool field
 
 1. Add it in core and regenerate as above.
-2. Declare the new field or discriminator value in `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json` and implement it in the native tool.
-3. Public limit changes also trip the `public_response_and_tree_limits_are_pinned` test by design; update it deliberately.
-4. Check the result against the acceptance criteria in [TOOL_QUALITY.md](TOOL_QUALITY.md), then update `<repo>/docs/OCTOCODE_TOOLS.md`.
+2. Declare the field or discriminator value in `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`. Implement it in the native tool.
+3. A public limit change trips the `public_response_and_tree_limits_are_pinned` test by design. Update it deliberately.
+4. Check the result against [TOOL_QUALITY.md](TOOL_QUALITY.md), then update `<repo>/docs/OCTOCODE_TOOLS.md`.
 
-A new configuration setting (not a tool field) follows [ADDING_CONFIG.md](ADDING_CONFIG.md).
+A new configuration setting follows [ADDING_CONFIG.md](ADDING_CONFIG.md).
 
 ## Build, test, lint
 
-Run from the repo root unless noted.
+Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-dev/scripts/dev.mjs <task>`; the task table is in [SKILL.md](../SKILL.md#task-runner).
 
-| Command | Does |
-|---|---|
-| `node skills-dev/octocode-dev/scripts/dev.mjs build:dev` | Fast parallel build of every workspace; native uses a debug build (`build:dev`) |
-| `node skills-dev/octocode-dev/scripts/dev.mjs build` | Release build of every workspace |
-| `yarn workspace @octocodeai/octocode-native build:all` | Release native binaries for all platforms (clears old binaries first); root `yarn build:native:all` runs it |
-| `node skills-dev/octocode-dev/scripts/dev.mjs test` · `node skills-dev/octocode-dev/scripts/dev.mjs lint` · `node skills-dev/octocode-dev/scripts/dev.mjs typecheck` | Run each workspace's script in dependency order |
-| `node skills-dev/octocode-dev/scripts/dev.mjs verify` | Dependency-declaration check plus each package's `verify` |
-| `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify` | Links, workflow references, tool catalog, config keys and publish contracts in docs |
-| `yarn contracts:regen` | Regenerate the tool contract from core |
-
-Per package:
+- `yarn workspace @octocodeai/octocode-native build:all`: release native binaries for all platforms (clears old binaries first). Root `yarn build:native:all` runs it.
+- `yarn contracts:regen`: regenerate the tool contract from core.
+- One package: `yarn workspace <npm name> <script>`.
 
 | Package | Test | Lint / format |
 |---|---|---|
@@ -108,7 +81,7 @@ Per package:
 | mcp | `test`, `test:contracts` | `lint`, `format:check` |
 | octocode, vscode, skill-installer, benchmark | `test` | `lint` |
 
-Run one with `yarn workspace <npm name> <script>`. After any package change, rebuild and exercise the real CLI or MCP path, not just the compile: `node packages/octocode/out/octocode.js <tool> '<json>'`.
+After any package change, rebuild and run the real CLI or MCP path: `node packages/octocode/out/octocode.js <tool> '<json>'`.
 
 ## Development environment variables
 
@@ -125,17 +98,9 @@ These are not user settings and are not read from `.octocoderc`. User settings a
 ## Ownership rules
 
 - Public tool behavior lives only in `octocode-native` Rust.
-- Interfaces may register, delegate, render, or offer interactive selection; they never implement tools or hand-write tool guidance.
+- Interfaces may register, delegate, render, or offer interactive selection. They never implement tools or hand-write tool guidance.
 - `crates/engine` and the `./engine` subpath expose primitives, not tool policy.
 - Public contracts come from `@octocodeai/octocode-core`, through `@octocodeai/config`.
-- Configuration comes from `@octocodeai/config` (Node) and its generated contract (Rust); never reimplement home resolution or `.env` parsing.
+- Configuration comes from `@octocodeai/config` (Node) and its generated contract (Rust). Never reimplement home resolution or `.env` parsing.
 - Skill filesystem behavior comes from `@octocodeai/octocode-skill-installer`.
-- Each doc topic has one owner; see the docs index (`<repo>/docs/README.md`).
-
-## Related guides
-
-- [ADDING_CONFIG.md](ADDING_CONFIG.md): adding settings, sections and credentials.
-- [TOOL_QUALITY.md](TOOL_QUALITY.md): tool quality acceptance.
-- [RELEASE.md](RELEASE.md): release checklist and gates.
-- [scripts/README.md](../scripts/README.md): root automation scripts.
-- Package `ARCHITECTURE.md` files: per-package ownership and invariants.
+- Each doc topic has one owner; see `<repo>/docs/README.md`. Per-package invariants are in each package `ARCHITECTURE.md`.

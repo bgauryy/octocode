@@ -18,6 +18,6 @@ The installed skill contains `SKILL.md` and `scripts/`. CLI and MCP use the same
 - [Host setup](scripts/docs/HOST_SETUP.md): lifecycle, delivery, profiles and administrative discovery, loaded on demand.
 - [Database protocol](scripts/docs/DB.md): served directly by `db protocol`.
 - [Service protocol](scripts/docs/SERVICE_PROTOCOL.md), [hooks](scripts/docs/HOST_HOOKS.md) and [edit guards](scripts/docs/HOST_LEASE_GUARDS.md): host integration contracts.
-- [Locks](scripts/docs/LOCKS.md), [operations](scripts/docs/OPERATIONS.md) and [retention](scripts/docs/RETENTION.md): coordination and recovery procedures.
+- [Operations, recovery and retention](scripts/docs/OPERATIONS.md): health, recovery and storage procedures; lease rules live in [DB.md](scripts/docs/DB.md#path-leases).
 
 Edit these sources in place. The only copied runtime module is `scripts/octocode_config.py`, refreshed by `src/build-skill.mjs` from the monorepo config package. `src/pack-skill.mjs` packages and checks the extracted bundle. `yarn verify` runs syntax, links, regression tests and the extracted CLI/MCP recovery smoke test.

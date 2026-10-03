@@ -873,6 +873,22 @@ pub fn execute_local_search(
             map.insert(name, expansion);
         }
     }
+    // Files binary from their leading bytes are outside a text search, not a
+    // coverage gap: disclosed as a count by extension, with a listing.
+    let leading_binaries = parsed
+        .stats
+        .skipped_binary_extensions
+        .as_deref()
+        .filter(|groups| !root.is_file() && !groups.is_empty());
+    if let Some(groups) = leading_binaries {
+        warnings.push(leading_binary_warning(groups));
+        if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+            map.insert(
+                "binarySkipped".into(),
+                leading_binary_listing(query, groups),
+            );
+        }
+    }
     let skip_hint = skipped_target_hint(
         root.is_file(),
         stats.files_searched,
@@ -880,7 +896,7 @@ pub fn execute_local_search(
     )
     .or_else(|| {
         (root.is_file() && parsed.stats.skipped_binary_count.unwrap_or(0) > 0).then(|| {
-            "The target file is binary (NUL byte before any text); it was not searched, and no text tool reads it.".into()
+            "The target file is binary from its leading bytes (a NUL in its header); it was not searched, and no text tool reads it.".into()
         })
     });
     Ok(LocalSearchResult {
@@ -2571,23 +2587,130 @@ mod repair_tests {
     }
 }
 
-/// The binary-quit files a warning names: every root-relative path the
-/// engine reports, then the count of any it could not name
-/// (`a.bin, b.dat and 3 more`).
+/// `binarySkipped` warning: how many files were skipped as binary from
+/// their leading bytes, grouped by extension (`.woff2 54, .png 2`).
+fn leading_binary_warning(groups: &[octocode_engine::types::BinaryExtensionCount]) -> String {
+    let total: u64 = groups.iter().map(|group| u64::from(group.count)).sum();
+    let by_extension = groups
+        .iter()
+        .map(|group| {
+            if group.extension.is_empty() {
+                format!("no extension {}", group.count)
+            } else {
+                format!(".{} {}", group.extension, group.count)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    if total == 1 {
+        format!(
+            "binarySkipped: 1 binary file not searched ({by_extension}); binary from its leading bytes, as rg skips it. next.binarySkipped lists it."
+        )
+    } else {
+        format!(
+            "binarySkipped: {total} binary files not searched ({by_extension}); binary from their leading bytes, as rg skips them. next.binarySkipped lists them."
+        )
+    }
+}
+
+/// Most extensions a structureSearch `extensions` filter takes.
+const MAX_LISTED_EXTENSIONS: usize = 100;
+
+/// A structureSearch `files` query over the searched scope that lists every
+/// skipped binary: by `extensions`, or by a basename regex when one has no
+/// extension (or there are more extensions than the filter takes). It may
+/// also list same-extension text files; it never misses a skipped one.
+fn leading_binary_listing(
+    query: &LocalSearchQuery,
+    groups: &[octocode_engine::types::BinaryExtensionCount],
+) -> Value {
+    let mut listing = json!({
+        "operation": "files",
+        "path": query.path.as_str(),
+        "entryType": "f",
+    });
+    let by_extension = groups.len() <= MAX_LISTED_EXTENSIONS
+        && groups.iter().all(|group| !group.extension.is_empty());
+    if by_extension {
+        listing["extensions"] = json!(
+            groups
+                .iter()
+                .map(|group| group.extension.as_str())
+                .collect::<Vec<_>>()
+        );
+    } else {
+        let extensions = groups
+            .iter()
+            .filter(|group| !group.extension.is_empty())
+            .map(|group| regex::escape(&group.extension))
+            .collect::<Vec<_>>();
+        let mut pattern = String::from(r"^[^.]*\.?$");
+        if !extensions.is_empty() {
+            pattern.push_str(&format!(r"|\.(?i:{})$", extensions.join("|")));
+        }
+        listing["pathRegex"] = json!(pattern);
+    }
+    if let Some(depth) = query.max_depth {
+        listing["maxDepth"] = json!(depth);
+    }
+    if !query.exclude_dir.is_empty() {
+        listing["excludeDir"] = json!(query.exclude_dir);
+    }
+    if !query.default_excludes.defaults() {
+        listing["defaultExcludes"] = json!(false);
+    }
+    if query.no_ignore == Some(true) {
+        listing["noIgnore"] = json!(true);
+    }
+    json!({
+        "tool": ToolId::StructureSearch.as_str(),
+        "query": listing,
+        "why": "List the files skipped as binary.",
+        "confidence": "high",
+    })
+}
+
+/// The binary-cut files a warning names: every root-relative path, files
+/// sharing a directory written once under it (`dir/{a.txt,b.txt}`), then
+/// the count of any the engine could not name (`and 3 more`).
 fn binary_file_list(paths: &[String], total: u32, root: &std::path::Path) -> String {
     if paths.is_empty() {
         return "a file with a NUL byte was".into();
     }
-    let mut names = paths
-        .iter()
-        .map(|path| {
-            let path = std::path::Path::new(path);
-            path.strip_prefix(root)
-                .ok()
-                .filter(|relative| !relative.as_os_str().is_empty())
-                .unwrap_or(path)
-                .to_string_lossy()
-                .into_owned()
+    let mut by_dir = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for path in paths {
+        let path = std::path::Path::new(path);
+        let relative = path
+            .strip_prefix(root)
+            .ok()
+            .filter(|relative| !relative.as_os_str().is_empty())
+            .unwrap_or(path);
+        let dir = relative
+            .parent()
+            .map(|dir| dir.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let name = relative.file_name().map_or_else(
+            || relative.to_string_lossy().into_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        by_dir.entry(dir).or_default().push(name);
+    }
+    let mut names = by_dir
+        .into_iter()
+        .flat_map(|(dir, names)| {
+            let prefix = if dir.is_empty() {
+                String::new()
+            } else {
+                format!("{dir}/")
+            };
+            if names.len() == 1 || dir.is_empty() {
+                names
+                    .into_iter()
+                    .map(|name| format!("{prefix}{name}"))
+                    .collect::<Vec<_>>()
+            } else {
+                vec![format!("{prefix}{{{}}}", names.join(","))]
+            }
         })
         .collect::<Vec<_>>()
         .join(", ");

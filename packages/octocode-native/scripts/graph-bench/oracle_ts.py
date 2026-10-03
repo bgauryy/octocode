@@ -13,8 +13,7 @@ nearest ancestor's. It never downloads one.
 """
 import json, os, re, subprocess, sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from graphbin import decode, file_imports  # noqa: E402
+from graphbin import decode, file_imports
 
 BIN, WS, PROJECT = sys.argv[1], os.path.abspath(sys.argv[2]), os.path.realpath(sys.argv[3])
 TSCONFIG = os.path.join(PROJECT, sys.argv[4] if len(sys.argv) > 4 else "tsconfig.json")

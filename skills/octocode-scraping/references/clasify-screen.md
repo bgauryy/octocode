@@ -38,4 +38,4 @@ For logs, HAR or minified JSON with huge single lines, first use this skill’s 
 
 For uncertain candidates, a scoped `contribution` question can route the next read; hydrate search results only when discarded reads can outweigh preparation and verification. Do not add Scout → Judge stages automatically. Compare total host request, hint and verification tokens; fewer response bytes alone do not establish savings.
 
-Next: verify and cite saved evidence using [extraction-quality.md](extraction-quality.md); stop when it answers the task.
+Next: verify and cite saved evidence using `references/data-contract.md` § Extraction quality; stop when it answers the task.

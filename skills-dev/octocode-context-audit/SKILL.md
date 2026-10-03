@@ -5,14 +5,17 @@ description: "Use when agent sessions feel bloated, slow, or confused, or before
 # Context audit
 
 tools: `node` (zero dependencies)
-related-skill: `octocode-prompt-optimizer`, `octocode-skills`
+related-skill: `octocode-prompt-optimizer`
 output: `<workspace>/.octocode/context-audit/` (`context-audit.json`, `context-audit.html`)
+routes: run the script when you audit; use `octocode-skills` for skill fixes.
 
-Every session pays for its always-loaded context before the first task token. This skill measures that cost, compares it with what agents actually use, and ranks what to cut.
+Every session pays for its always-loaded context before the first task token. This skill measures that cost, compares it with real use, and ranks what to cut.
+
+Flow: `RUN → READ REPORT → FIX high first → RE-RUN and compare totals`.
 
 ## Run
 ```bash
-node <skill>/scripts/context-audit.mjs --workspace <repo> [--days 30] [--all-projects] [--no-probe] [--out DIR] [--json]
+node <skill>/scripts/context-audit.mjs --workspace <repo> [--days 30] [--all-projects] [--no-probe] [--out DIR] [--json]  # run when auditing
 ```
 - `--days` bounds the transcript window (by file mtime); `--all-projects` mines every Claude Code project, not only this workspace.
 - `--no-probe` skips spawning stdio MCP servers (use when a server has side effects on start).
@@ -21,10 +24,10 @@ node <skill>/scripts/context-audit.mjs --workspace <repo> [--days 30] [--all-pro
 ## What it collects
 | Area | Source | Flags |
 |---|---|---|
-| Instructions | root and nested `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`/rules, `~/.claude/CLAUDE.md`, the project memory index | file > 8K chars, always-loaded total > 20K, memory index > 10K; nested repos and agent worktrees are listed, not counted |
-| Skills | `~/.claude/skills`, `.claude/skills`, `.agents/skills` | broken links, one name from different sources, description > 1,024 chars, descriptions total > 12K |
-| MCP | `~/.claude.json` (user + project), `.mcp.json`, `~/.cursor/mcp.json`; stdio servers answer `initialize` + `tools/list` | server that fails to start (with its stderr), instructions > 4K, tool schema > 8K, server total > 60K |
-| Usage | `~/.claude/projects/<workspace>/*.jsonl` | Claude servers or tools never called, skills never invoked, tools with ≥20% error rate, raw grep/cat/find shell calls outnumbering research-tool calls |
+| Instructions | root and nested `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`/rules, `<home>/.claude/CLAUDE.md`, the project memory index | file > 8K chars, always-loaded total > 20K, memory index > 10K; nested repos and agent worktrees are listed, not counted |
+| Skills | `<home>/.claude/skills`, `.claude/skills`, `.agents/skills` | broken links, one name from different sources, description > 1,024 chars, descriptions total > 12K |
+| MCP | `<home>/.claude.json` (user + project), `.mcp.json`, `<home>/.cursor/mcp.json`; stdio servers answer `initialize` + `tools/list` | server that fails to start (with its stderr), instructions > 4K, tool schema > 8K, server total > 60K |
+| Usage | `<home>/.claude/projects/<workspace>/*.jsonl` | Claude servers or tools never called, skills never invoked, tools with ≥20% error rate, raw grep/cat/find shell calls outnumbering research-tool calls |
 
 Budgets are review points (≈ 4 chars per token), not failures. Cursor/other-client servers are measured but not judged by Claude transcripts.
 

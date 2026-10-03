@@ -1,8 +1,6 @@
 # Frozen agent prompt integrity
 
-Load when multiple tasks, workers, agents, or requests must share an unchanged base prompt. Why: cache-friendly text can still drift semantically, and a claimed freeze needs an external invariant.
-
-**Freeze application-owned base bytes; append task overlays.** A frozen base can change only through a new reviewed version, never through a per-agent rewrite.
+Load when multiple tasks, workers, agents, or requests must share an unchanged base prompt. Freeze application-owned base bytes and append task overlays. A frozen base changes only through a new reviewed version, never a per-agent rewrite.
 
 ## Release contract
 
@@ -30,11 +28,8 @@ Platform-injected hidden instructions cannot be hashed by the application. Scope
 
 ## Change gate
 
-When behavior must change, create a candidate base version, show a semantic and byte diff, rerun held-out behavior/security tests, then publish or revert. In-flight tasks stay on their recorded version unless an explicit migration policy authorizes restart. Never mutate a base merely to improve cache hits or squeeze under a context limit; use `references/context/context-budget.md` and `references/context/token-economics.md` to select a behavior-preserving lever.
+When behavior must change, create a candidate base version, show a semantic and byte diff, rerun held-out behavior/security tests, then publish or revert. In-flight tasks stay on their recorded version unless an explicit migration policy authorizes restart. Never mutate a base merely to improve cache hits or squeeze under a context limit; use `../context/context-budget.md` and `../context/token-economics.md` to select a behavior-preserving lever.
 
-## Sources
+Sources: [OpenAI prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching); [Anthropic tool use with prompt caching](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-use-with-prompt-caching) (`tools → system → messages` cache hierarchy).
 
-- OpenAI, [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching) — stable developer/tool prefixes, cache lineage, and prefix-preserving changes.
-- Anthropic, [Tool use with prompt caching](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-use-with-prompt-caching) — tool-definition invalidation and the `tools → system → messages` cache hierarchy.
-
-Next: when defining the overlay/handoff load `references/agents/agent-communication.md`; when diagnosing prefix reuse load `references/context/prompt-caching.md`; when the tool catalog changed load `references/tools/tool-contracts.md` and `references/tools/contract-audit.md`; validate the candidate with `references/flow/evaluation-data.md`.
+Next: overlay/handoff `agent-communication.md`; prefix reuse `../context/prompt-caching.md`; catalog change `../tools/tool-contracts.md` + `../tools/contract-audit.md`; validate the candidate with `octocode-eval-benchmark` (fallback in `../flow/validate-output.md`).

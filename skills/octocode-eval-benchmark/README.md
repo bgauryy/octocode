@@ -2,19 +2,17 @@
 
 Design evals, calibrate judges, and compare agent or workflow changes without confusing leakage or noise with improvement. Use ordinary tests directly when they already establish the required outcome.
 
-The skill follows: frame → validate harness → baseline → develop → sealed verify → decide → learn. `SKILL.md` routes the detailed guidance.
+Flow: frame → validate harness → baseline → develop → sealed verify → decide → learn. `SKILL.md` routes the detailed guidance.
 
 ## Benchmarks and results
 
 [benchmarks/README.md](benchmarks/README.md) owns the shared structure:
-- [document-answering](benchmarks/document-answering/README.md): public questions, source fixtures, worker/judge/optimizer instructions and grading examples.
-- [skill-smoke](benchmarks/skill-smoke/README.md): existing maintenance fixtures and commands.
+- [document-answering](benchmarks/document-answering/README.md): public questions, source fixtures, worker/judge/optimizer instructions, and grading examples.
+- [skill-smoke](benchmarks/skill-smoke/README.md): maintenance fixtures and commands.
 
-Save each execution under `<workspace>/.octocode/benchmarks/<name>/results/<run-id>/` (home fallback for projectless work). Preserve effective settings, outcomes and evidence; use native runner logs where available. Runtime results stay outside the installed skill and outside worker access.
+Save each run under `<workspace>/.octocode/benchmarks/<name>/results/<run-id>/` (home fallback for projectless work). Keep effective settings, outcomes, and evidence; use native runner logs where available. Keep results outside the installed skill and outside worker access.
 
-The examples are development data, not a private benchmark or implemented runner. Keep evaluator questions, answer keys and prior-trial results out of scored workers' context and tools. Task requirements remain visible.
-
-Use `references/failure-repair.md` to diagnose task, grader, environment, leakage or solver defects before choosing a fix. `references/references.md` links the research behind the guidance.
+The examples are development data, not a private benchmark or implemented runner. Keep evaluator questions, answer keys, and prior-trial results out of scored workers' context and tools. Task requirements stay visible.
 
 ## Install and maintain
 
@@ -24,4 +22,4 @@ node scripts/check-description.mjs
 node scripts/eval-skill.mjs --self-test
 ```
 
-Run the local checks from the skill root and use `octocode-skills` to review folder structure. Lexical fixture checks do not prove semantic quality or agent performance.
+Run the checks from the skill root; use `octocode-skills` to review folder structure. Lexical fixture checks do not prove semantic quality or agent performance.

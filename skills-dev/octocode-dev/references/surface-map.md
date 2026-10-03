@@ -1,6 +1,6 @@
 # Surface map
 
-Load when locating any layer of a tool before auditing or editing it. Why: a fix in the wrong layer drifts from the source of truth.
+Load when locating any layer of a tool before auditing or editing it. A fix in the wrong layer drifts from the source of truth.
 
 Paths are relative to the monorepo root; `CORE` = `../octocode-mcp-host/packages/octocode-core`.
 

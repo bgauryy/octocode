@@ -24,11 +24,8 @@ Load when presenting the chat brief, assigning confidence, or preparing an RFC h
 - Architect / Entrepreneur / Product: <what survived>
 - Conceded or contested: <what changed and why>
 
-## Verdict / Risks / Angles
-<strongest synthesis, unknowns, and viable wedge>
-
-## Recommended Next Step
-<one action; no implementation>
+## Verdict / Risks / Angles / Next Step
+<strongest synthesis, unknowns, viable wedge; one next action, no implementation>
 
 ## RFC Handoff
 <only if ready/requested: problem, framing, value, evidence, alternatives, constraints, first slice, open questions, success signal>
@@ -39,4 +36,15 @@ Load when presenting the chat brief, assigning confidence, or preparing an RFC h
 
 When evidence was cited, close with `Sources`: one line per URL/path used above and no new sources. Omit the section for a pure reasoning/framing turn. <!-- style-lint: ignore-line passive-voice -->
 
-Confidence markers for `Evidence by Surface` entries, and Decision-label routing: `references/confidence.md`.
+## Confidence markers
+
+Every prior-art entry carries a marker. Cite fetched pages, exact code, package metadata, PRs, commits, or tests; snippets are leads.
+
+| Marker | Minimum evidence |
+|---|---|
+| strong | independent validated sources, or direct code/data plus strong activity/usage |
+| moderate | one validated source plus corroborating evidence |
+| weak | popularity/marketing/forum only, stale source, or no independent validation |
+
+Marketing stays weak. Present material contradictions. Treat zero prior art as a risk, not a moat.
+Next: Build RFC → `octocode-rfc-generator`; save an approved brief with `references/brief-template.md`; Prototype First → test one unknown; Narrow → tighter user/problem; Park → weak evidence/timing; Do Not Build → prior art or risks dominate.

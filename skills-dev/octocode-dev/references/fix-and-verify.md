@@ -1,6 +1,6 @@
 # Fix and verify
 
-Load before editing and before reporting done. Why: changes cross two repos and a generated embed; the wrong order ships a stale contract that tests still pass on.
+Load before editing and before reporting done. Changes cross two repos and a generated embed; the wrong order ships a stale contract that tests still pass on.
 
 ## Before editing
 

@@ -4,9 +4,9 @@ Scope: <tools> · Mode: audit | audit+fix · Core rev: <sha> (dirty?) · Contrac
 
 ## Summary
 
-| Tool | Contract | Impl | Output | Workflow | Config+Docs | Fixed | Open |
-|---|---|---|---|---|---|---|---|
-| <tool> | ok / n findings | … | … | … | … | n | n |
+| Tool | Contract+Config+Docs | Impl | Output+Workflow | Fixed | Open |
+|---|---|---|---|---|---|
+| <tool> | ok / n findings | … | … | n | n |
 
 ## Findings
 

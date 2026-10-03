@@ -1,6 +1,6 @@
 # Contract and Data-Flow Checks
 
-Load when a contract or external/internal data path crosses a trust, process, package, persistence, or ownership boundary. Why: matching types or a single happy-path test does not prove compatible semantics or safe data movement.
+Load when a contract or external/internal data path crosses a trust, process, package, persistence, or ownership boundary. Matching types or a single happy-path test does not prove compatible semantics or safe data movement.
 
 ## Contract-level checks
 

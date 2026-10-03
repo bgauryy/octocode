@@ -1,10 +1,6 @@
 # Zod agent packet contracts
 
-Load when an agent handoff, tool result, or MCP-facing input/output needs a TypeScript/Zod contract.
-
-**Validate at every trust boundary; keep the packet small.** A schema proves shape; it cannot prove authorization, relevance, or safety.
-
-Adapt the example to the observed host/protocol contract. It is a minimal local pattern, not an interoperability standard or a reason to replace an existing schema.
+Load when an agent handoff, tool result, or MCP-facing input/output needs a TypeScript/Zod contract. Validate at every trust boundary; keep the packet small. A schema proves shape, not authorization, relevance, or safety. Adapt the example to the observed host/protocol; it is a minimal local pattern, not a standard or a reason to replace an existing schema.
 
 ```ts
 import { z } from "zod";
@@ -24,14 +20,6 @@ const Failure = Reply.extend({ kind: z.enum(["blocked", "rejected"]), summary: z
 export const AgentPacket = z.discriminatedUnion("kind", [Request, Result, Failure]);
 ```
 
-## Contract states
-
-| State | Required correlation and recovery |
-|---|---|
-| `request` | message `id`, goal, scope, expected result |
-| `result` | new message `id`, `inReplyTo`, summary, optional artifact |
-| `blocked` / `rejected` | new message `id`, `inReplyTo`, stable error code, retry action |
-
 ## Apply it
 
 - Producer: `AgentPacket.parse(packet)` immediately before sending. Consumer: `safeParse` before routing, storage, or tool use; return a small structured rejection on failure.
@@ -42,9 +30,6 @@ export const AgentPacket = z.discriminatedUnion("kind", [Request, Result, Failur
 - Bump `v` for breaking changes and accept old versions only during an explicit migration window. Convert Zod with `z.toJSONSchema()` only when an external protocol needs JSON Schema.
 - Pair schema validation with authorization, capability checks, semantic validation, and a clear retry/approval path; schemas alone cannot provide them.
 
-## Sources
-- Zod, [Defining schemas](https://zod.dev/api) — discriminated unions and type narrowing.
-- Zod, [JSON Schema](https://zod.dev/json-schema) — stable `z.toJSONSchema()` conversion; `z.fromJSONSchema()` is experimental.
-- A2A, [Protocol specification](https://a2a-protocol.org/dev/specification/) — required-field validation, schema validation, authorization, and injection protections.
+Sources: [Zod schemas](https://zod.dev/api); [Zod JSON Schema](https://zod.dev/json-schema) (`z.toJSONSchema()` stable, `z.fromJSONSchema()` experimental); [A2A spec](https://a2a-protocol.org/dev/specification/).
 
-Next: for protocol and ownership rules load `references/agents/agent-communication.md`; when the schema must align across apps or vendors load `references/agents/cross-app-contracts.md`; for the tool-facing surface load `references/tools/tool-contracts.md`; for context bounds load `references/context/context-budget.md`.
+Next: protocol and ownership `agent-communication.md`; cross-app alignment `cross-app-contracts.md`; tool-facing surface `../tools/tool-contracts.md`.

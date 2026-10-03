@@ -28,4 +28,4 @@ Load when optimizing a skill's `description` — the primary trigger. Why: at st
 5. Pick best by validation pass rate.
 6. Sanity-check with fresh unused queries.
 
-Next: before calling done load `references/skill-review.md`; when scoring trigger fit load `references/quality-rubric.md`.
+Next: before calling done load `references/skill-review.md`; when scoring trigger fit load `references/quality.md`.

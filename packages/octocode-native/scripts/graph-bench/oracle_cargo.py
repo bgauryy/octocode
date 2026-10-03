@@ -11,8 +11,7 @@ lowers recall; that can also mean the manifest declares an unused crate.
 """
 import json, os, re, subprocess, sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from graphbin import EDGE_IMPORTS, NODE_FILE, NODE_PACKAGE, components, decode  # noqa: E402
+from graphbin import EDGE_IMPORTS, NODE_FILE, NODE_PACKAGE, components, decode
 
 BIN, WS, ROOT = sys.argv[1], os.path.abspath(sys.argv[2]), os.path.realpath(sys.argv[3])
 EXAMPLES = 5

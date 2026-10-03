@@ -2,7 +2,10 @@
 //!
 //! Tests construct `ToolRuntime` from an explicit `ConfigInput` so they do not
 //! mutate process environment or race under `cargo test`.
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "each integration-test binary compiles this module and uses a different subset"
+)]
 use octocode_native::config::{ConfigInput, FileInput, RuntimeSurface};
 use octocode_native::runtime::{RuntimeError, ToolOutcome, ToolRuntime};
 use serde_json::{Value, json};

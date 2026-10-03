@@ -1,0 +1,12 @@
+{
+  "$comment": "Default-output (debug:false) fields reported as VERBOSE by competitors.mjs. Report only: enforcement moves to core field classes (RFC S7). Seeded from .octocode/rfc/tool-quality-efficiency-2026-10/research/meaningful-output.md section 4 (SAFE candidates). Checks are predicates in harness/sensors.mjs.",
+  "rules": [
+    { "id": "responsePagination-finished", "key": "responsePagination", "check": "hasMoreFalse", "source": "meaningful-output #2", "note": "envelope pagination present although nothing remains" },
+    { "id": "pagination-duplicates-hint", "key": "pagination", "check": "duplicatesHint", "params": { "fields": ["nextPage", "snapshot"], "queryKeys": { "nextPage": "page" } }, "source": "meaningful-output #3", "note": "pagination.nextPage/snapshot repeat the page continuation's query" },
+    { "id": "warnings-name-list", "key": "warnings", "check": "longListEntry", "params": { "maxBytes": 300, "maxNames": 5 }, "source": "meaningful-output #1, section 5 test 5", "note": "a warning inlines a long non-evidence name list (skipped binary files)" },
+    { "id": "hint-candidates", "key": "candidates", "check": "inHint", "source": "meaningful-output #4", "note": "continuation candidates[] duplicate row data (readCommit/readPr)" },
+    { "id": "partial-triple-encoding", "key": "partialReasons", "check": "coexists", "params": { "with": ["isPartial", "providerLimit"] }, "source": "meaningful-output #5", "note": "partialReasons beside isPartial + providerLimit encodes one disclosure three times" },
+    { "id": "lsp-resolved-symbol-echo", "key": "resolvedSymbol", "check": "echoesQuery", "params": { "fields": [["name", "symbolName"], ["foundAtLine", "lineHint"]] }, "source": "meaningful-output #6", "note": "resolvedSymbol only echoes symbolName/lineHint" },
+    { "id": "hint-confidence-exact", "key": "confidence", "check": "equalsInHint", "params": { "equals": "exact" }, "source": "meaningful-output clasify R4", "note": "continuation confidence:\"exact\" (R4 forbids it; a hint is not proof)" }
+  ]
+}

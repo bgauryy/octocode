@@ -1,6 +1,6 @@
 # Data collection policy
 
-Load when legality, safety, privacy, or account boundaries can matter. Why: scraping mistakes can leak secrets, overload sites, or cross user intent.
+Load when legality, safety, privacy, or account boundaries can matter. Scraping mistakes can leak secrets, overload sites, or cross user intent.
 
 ## Frame before fetch
 - Confirm target URL/domain, purpose, allowed depth, expected output shape, and whether auth/session data is involved. <!-- style-lint: ignore-line passive-voice -->
@@ -21,4 +21,4 @@ Ask before authenticated pages, cookie/profile transfer, CAPTCHA/MFA, anti-bot e
 - Record source URL, fetch time, route, status, and content type.
 - Cite local session files plus original URLs; mark partial/blocked results explicitly.
 
-Next: to close the missing scope questions load `references/user-inputs.md`; once boundaries hold, pick a route with `references/route-selection.md`.
+Next: to close scope questions and pick a route load `references/route-selection.md`.

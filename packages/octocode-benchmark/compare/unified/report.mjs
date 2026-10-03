@@ -4,7 +4,7 @@
 //   node report.mjs --run-id <id>
 import fs from 'node:fs';
 import path from 'node:path';
-import { RESULTS_DIR, UNIFIED_DIR, hashFile, loadQuestions, mean, median, parseArgs, readJson, writeJson } from './lib.mjs';
+import { RESULTS_DIR, TARIFF, UNIFIED_DIR, hashFile, loadQuestions, mean, median, parseArgs, readJson, weightedUsage, writeJson } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 if (!args['run-id']) throw new Error('--run-id is required');
@@ -23,6 +23,8 @@ const k = (n) => (n == null ? '—' : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : 
 const f1 = (n) => (n == null ? '—' : n.toFixed(1));
 const f2 = (n) => (n == null ? '—' : n.toFixed(2));
 const usd = (n) => (n == null ? '—' : `$${n.toFixed(3)}`);
+// Runs recorded before the frozen tariff carry weighted_tokens:null; recompute them from the recorded usage.
+const weighted = (t, r) => (t?.weighted_tokens != null ? t : { ...t, ...weightedUsage(t, { models: r?.actualModels ?? [], cacheCreation: t?.cache_creation ?? null, firstRequestCacheRead: r?.perRequest?.[0]?.cache_read_input_tokens ?? 0 }) });
 const weightedTokens = t => t?.weighted_tokens ?? null;
 const surfaceOf = (q) => q.surface ?? ((q.repos ?? []).some((r) => r.dir) ? 'local' : 'github');
 const catKey = (q) => q.category ?? surfaceOf(q);
@@ -38,7 +40,7 @@ const rows = questions.map((q) => {
     if (finals.length !== pairs.length || finals.some(f => !f.valid || f.graderErrors || (f.workers.includes(w) && !Number.isFinite(f.scores?.[w]?.quality)))) throw new Error(`incomplete/invalid judgment ${q.id}/${w}`);
     const scores = finals.map((f) => f.scores?.[w]?.quality).filter((x) => x != null);
     const quality = scores.length ? mean(scores) : null;
-    const t = r?.tokens;
+    const t = weighted(r?.tokens, r);
     row.w[w] = r ? {
       status: r.status,
       quality,
@@ -46,7 +48,7 @@ const rows = questions.map((q) => {
       completeness: mean(finals.map((f) => f.scores?.[w]?.completeness).filter((x) => x != null)),
       evidence: mean(finals.map((f) => f.scores?.[w]?.evidence).filter((x) => x != null)),
       wrongClaims: finals.flatMap((f) => f.scores?.[w]?.wrongClaims ?? []),
-      totalTokens: t.total_tokens, weightedTokens: weightedTokens(t), contextTokens: t.context_tokens, overheadTokens: t.fixed_overhead_tokens,
+      totalTokens: t.total_tokens, weightedTokens: weightedTokens(t), weightedTokensCold: t.weighted_tokens_cold ?? null, tariffCost: t.tariff_cost_usd ?? null, tariffCostCold: t.tariff_cost_usd_cold ?? null, weightedReason: t.weighted_reason ?? null, contextTokens: t.context_tokens, overheadTokens: t.fixed_overhead_tokens,
       researchTokens: t.research_tokens, outputTokens: t.output_tokens, requests: t.requests,
       actualUsage: { input_tokens: t.input_tokens, cache_creation_input_tokens: t.cache_creation_input_tokens, cache_read_input_tokens: t.cache_read_input_tokens, output_tokens: t.output_tokens }, cacheCreationTTL: t.cache_creation ?? null, accountingSource: t.source,
       provisionalUsage: t.provisional_usage, usageReconciliation: { provisional: t.usage_gaps, modelUsage: t.model_usage_gaps },
@@ -82,18 +84,24 @@ function aggregate(sel) {
     const tools = {};
     for (const x of xs) for (const [c, n] of Object.entries(x.toolCounts ?? {})) tools[c] = (tools[c] ?? 0) + n;
     const qs = xs.map((x) => x.quality).filter((x) => x != null);
+    const weightedKnown = xs.length > 0 && xs.every((x) => x.weightedTokens != null);
+    const known = (key) => (weightedKnown ? sum(key) : null);
     return [w, {
       runs: xs.length, ok: xs.filter((x) => x.status === 'ok').length,
       meanQuality: mean(qs), medianQuality: median(qs),
-      weightedKnown: false, providerCostIncluded: false,
+      weightedKnown, tariff: weightedKnown ? TARIFF.id : null, providerCostIncluded: false,
       classificationProvider: xs.map(x => x.classificationProvider).filter(Boolean),
-      totalTokens: sum('totalTokens'), weightedTokens: null, contextTokens: sum('contextTokens'), overheadTokens: sum('overheadTokens'),
+      totalTokens: sum('totalTokens'), weightedTokens: known('weightedTokens'), weightedTokensCold: known('weightedTokensCold'), tariffCost: known('tariffCost'), tariffCostCold: known('tariffCostCold'), contextTokens: sum('contextTokens'), overheadTokens: sum('overheadTokens'),
       researchTokens: sum('researchTokens'), outputTokens: sum('outputTokens'), requests: sum('requests'),
       cost: sum('cost'), toolCalls: sum('toolCalls'), wallMs: sum('wallMs'), toolErrors: sum('toolErrors'), rowErrors: sum('rowErrors'), nativeRowErrors: sum('nativeRowErrors'), denials: sum('denials'),
       meanTotalTokens: xs.length ? sum('totalTokens') / xs.length : null,
       meanResearchTokens: xs.length ? sum('researchTokens') / xs.length : null,
       efficiency: qs.length && sum('totalTokens') ? (sum('quality') / (sum('totalTokens') / 10_000)) : null,
-      weightedEfficiency: null,
+      weightedEfficiency: weightedKnown && qs.length ? sum('quality') / (sum('weightedTokens') / 10_000) : null,
+      weightedEfficiencyCold: weightedKnown && qs.length ? sum('quality') / (sum('weightedTokensCold') / 10_000) : null,
+      // Q/$: summed quality per dollar (warm = billed; cold = first cached prefix written).
+      qPerDollar: qs.length && sum('cost') > 0 ? sum('quality') / sum('cost') : null,
+      qPerDollarCold: weightedKnown && qs.length ? sum('quality') / sum('tariffCostCold') : null,
       counters, tools,
       isolationFailures: xs.filter((x) => x.isolationOk === false).length,
     }];
@@ -168,11 +176,11 @@ const L = [];
 L.push(`# Unified benchmark — run \`${runId}\``, '');
 L.push(`Workers: ${workers.map((w) => `\`${w}\``).join(', ')} · model ${manifest.model} · ${questions.length} questions × 1 pass · judge ${[...new Set(rows.flatMap(r => r.judge.map(j => j.model)).filter(Boolean))].join(', ')} (blinded X/Y, both orders, tie-break when spread > 2).`);
 L.push(`Build: MCP dist sha256 \`${String(manifest.build?.mcpServerDist).slice(0, 12)}\` · Claude Code ${manifest.claudeVersion}.`, '');
-L.push('Quality 0–10 = correctness 0–5 + completeness 0–3 + evidence 0–2. Tokens: total = all input kinds + output; research is an estimate: total − (first-request context × requests). Weighted tokens are unknown without a frozen model tariff and verified cache TTL. Cost and tokens cover the worker Claude session; classifier provider totals are separate/unknown. Efficiency = quality per 10k total tokens; weighted efficiency = quality per 10k weighted tokens.', '');
+L.push(`Quality 0–10 = correctness 0–5 + completeness 0–3 + evidence 0–2. Tokens: total = all input kinds + output; research is an estimate: total − (first-request context × requests). Weighted tokens are input-token equivalents under the frozen tariff ${TARIFF.id} ($${TARIFF.usdPerMTok.input}/M input, $${TARIFF.usdPerMTok.cacheWrite1h}/M 1h cache write, $${TARIFF.usdPerMTok.cacheRead}/M cache read, $${TARIFF.usdPerMTok.output}/M output); "cold" writes each session's first cached prefix instead of reading it. Q/$ = summed quality per dollar. Cost and tokens cover the worker Claude session; classifier provider totals are separate/unknown. Efficiency = quality per 10k total tokens; weighted efficiency = quality per 10k weighted tokens.`, '');
 
 L.push('## Totals', '');
-L.push('| worker | mean quality | median quality | total tokens | weighted tokens | research tokens | output tokens | requests | tool calls | cost | time | efficiency | weighted efficiency |', '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
-for (const w of workers) { const t = totals[w]; L.push(`| ${w} | ${f2(t.meanQuality)} | ${f1(t.medianQuality)} | ${k(t.totalTokens)} | ${k(t.weightedTokens)} | ${k(t.researchTokens)} | ${k(t.outputTokens)} | ${t.requests} | ${t.toolCalls} | $${t.cost.toFixed(2)} | ${(t.wallMs / 60000).toFixed(1)} min | ${f2(t.efficiency)} | ${f2(t.weightedEfficiency)} |`); }
+L.push('| worker | mean quality | median quality | total tokens | weighted tokens (warm / cold) | research tokens | output tokens | requests | tool calls | cost | time | efficiency | weighted efficiency (warm / cold) | Q/$ (warm / cold) |', '|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
+for (const w of workers) { const t = totals[w]; L.push(`| ${w} | ${f2(t.meanQuality)} | ${f1(t.medianQuality)} | ${k(t.totalTokens)} | ${k(t.weightedTokens)} / ${k(t.weightedTokensCold)} | ${k(t.researchTokens)} | ${k(t.outputTokens)} | ${t.requests} | ${t.toolCalls} | $${t.cost.toFixed(2)} | ${(t.wallMs / 60000).toFixed(1)} min | ${f2(t.efficiency)} | ${f2(t.weightedEfficiency)} / ${f2(t.weightedEfficiencyCold)} | ${f1(t.qPerDollar)} / ${f1(t.qPerDollarCold)} |`); }
 L.push('');
 for (const [key, s] of Object.entries(ratioStats)) {
   L.push(`Per-question ratio ${key}: total tokens mean ${f2(s.totalTokens.mean)}× / median ${f2(s.totalTokens.median)}×; weighted tokens mean ${f2(s.weightedTokens.mean)}× / median ${f2(s.weightedTokens.median)}×; research tokens mean ${f2(s.researchTokens.mean)}× / median ${f2(s.researchTokens.median)}×; cost mean ${f2(s.cost.mean)}× / median ${f2(s.cost.median)}×. Quality delta (${key.split('/')[0]} − ${key.split('/')[1]}): mean ${f2(s.qualityDelta.mean)}, wins/ties/losses ${s.qualityDelta.wins}/${s.qualityDelta.ties}/${s.qualityDelta.losses}.`);

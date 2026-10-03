@@ -796,7 +796,8 @@ Coverage and limits:
 
 - `relevance` (default): for one bare identifier, source files that declare it rank first; then match count, source paths before test/generated/vendored paths, then declaration hits before code and comment/string hits, then path; `files`/`filesWithout` have no count and order by source paths first, then path. `relevance` and `matchCount` keep the 10,000 highest-ranked files across every searched file. Debug `stats` totals count all matched files; `capReason:"maxCollectedFiles"` marks the trimmed list.
 - If no file under `path` can be read, the call fails with `errorCode:"fileAccessFailed"` (exit 5). If some paths are unreadable, the result sets `isPartial` and `terminalLimit`, and `stats.errorCount`/`firstError` report the failures. Zero matches in that result do not prove absence.
-- A file with a NUL byte is searched up to that byte, and matches before it are kept. A `binaryFileSkipped` warning is added and the result is `isPartial` (debug stats also show `capped` and `capReason: binaryQuit`) (with `terminalLimit` when no other continuation exists): no text tool reads past the NUL, so the kept matches are not the file's full set and an empty result does not prove absence.
+- A file that is binary from its leading bytes (a NUL before any text, or after a short single-line header such as a font or database magic that matched nothing) is outside a text search, as rg skips it. It does not make the result partial. A `binarySkipped` warning gives the count by extension, and `next.binarySkipped` is a `structureSearch` `files` query that lists every such file.
+- A file with real text before its first NUL (a match, a complete line, or a long text run) is searched up to that byte, and matches before it are kept. A `binaryFileSkipped` warning names every such file (files sharing a directory as `dir/{a,b}`) and the result is `isPartial` (debug stats also show `capped` and `capReason: binaryQuit`) (with `terminalLimit` when no other continuation exists): no text tool reads past the NUL, so the kept matches are not the file's full set and an empty result does not prove absence.
 - Match values whose secret-shaped text was replaced by `[REDACTED…]` placeholders carry a `redactedMatches` warning; those values are not verbatim source.
 - `regex:"pcre2"` searches have a wall-clock limit. At the limit the result keeps the files finished so far and reports `capReason:"pcre2Deadline"`.
 - Files are opened without following symlinks. A path replaced by a symlink or special file after the walk counts as a read error.
@@ -807,6 +808,7 @@ Row `path` values are relative to the envelope `base`, which is the queried dire
 |----------|------|---------|
 | `nextPage` / `nextMatchPage` | `localSearch` | Continue pagination. Without `pageSize`/`maxMatchesPerFile`, `nextPage` alone walks the rest in pages of about 24 KB. With either set, `nextPage` moves to the next files and `nextMatchPage` to each shown file's next rows; a later match page lists only files that still have rows. |
 | `restart` | `localSearch` | Rerun from page 1 when the result snapshot is stale. |
+| `binarySkipped` | `structureSearch` | List the files skipped as binary from their leading bytes (by extension; it may also list same-extension text files). |
 | `clasify` | `clasify` | Wide pages only (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); present only while `clasify` is available. |
 
 #### Examples

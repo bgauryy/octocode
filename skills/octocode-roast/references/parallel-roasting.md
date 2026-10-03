@@ -1,6 +1,6 @@
 # Parallel roasting — Multi-Agent sin hunting
 
-Load when independent modules or risk categories make delegation worthwhile. Why: divide inspection without duplicating or dropping findings. If the host lacks workers, run the same domains sequentially.
+Load when independent modules or risk categories make delegation worthwhile: divide inspection without duplicating or dropping findings. If the host lacks workers, run the same domains sequentially.
 
 ## Route
 1. Identify independent domains whose inspection can run without shared mutable state.

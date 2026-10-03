@@ -8,32 +8,44 @@ related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Design evaluations that distinguish real improvement from noise, leakage, and grader gaming.
-Flow: `FRAME → VALIDATE HARNESS → BASELINE → DEVELOP → SEALED VERIFY → DECIDE → LEARN`.
+Separate real improvement from noise, leakage, and grader gaming.
+```mermaid
+flowchart LR
+  F["FRAME"] --> H["VALIDATE HARNESS"] --> B["BASELINE"] --> D["DEVELOP"]
+  D -- "KEEP / revert" --> D
+  D -- "candidate selected" --> S["SEALED VERIFY"] --> X["DECIDE"] --> L["LEARN"]
+  X -- "INVALID: correct and version harness, rerun both" --> H
+  F -. "freeze goal, KPI, guardrails, budget, splits" .-> KC["kpi-contract.md"]
+  F -. "build cases from failures; choose or retire a public benchmark" .-> EA["error-analysis.md"]
+  F -. "subject is a multi-stage or multi-agent workflow" .-> MA["multi-agent.md"]
+  H -. "build or extend a runner" .-> EH["eval-harness.md"]
+  H -. "dispatch evaluated workers; audit leakage" .-> CL["clean-lab.md"]
+  H -. "choose graders and metrics; grade tool or multi-turn process" .-> GR["graders.md"]
+  H -. "a model or human must judge quality" .-> LJ["llm-judge.md"]
+  D -. "improve the subject; pick the loop level" .-> AL["agent-loop.md"]
+  S -. "select or accept a candidate; splits, uncertainty, verdicts" .-> HG["held-out-and-guards.md"]
+  X -. "results fail, fluctuate, or improve suspiciously" .-> FR["failure-repair.md"]
+  L -. "improve a skill, harness, or doc; write the report" .-> IL["improve-loop.md"]
+```
+Caption: develop on dev data; open the sealed test once, after selection; dotted edges load a page in `references/`.
 Modes: **ErrorAnalyze** · **Define** · **Run** · **Suite** · **Benchmark** · **Audit**.
-Definitions: `benchmarks/<name>/`; saved runs: `<output>/benchmarks/<name>/results/<run-id>/`. Keep evaluator artifacts outside solver access. Approved source edits retain their paths.
+Pages (load each when its map edge fires): `references/kpi-contract.md` · `references/error-analysis.md` · `references/multi-agent.md` · `references/eval-harness.md` · `references/clean-lab.md` · `references/graders.md` · `references/llm-judge.md` · `references/agent-loop.md` · `references/held-out-and-guards.md` · `references/failure-repair.md` · `references/improve-loop.md`. Audit method provenance: `references/references.md`.
+
+Definitions: `benchmarks/<name>/` (`benchmarks/README.md`); saved runs: `<output>/benchmarks/<name>/results/<run-id>/`. Keep evaluator artifacts outside solver access. Approved source edits keep their paths.
 
 ## Invariants
-- Freeze the goal, primary KPI, meaningful effect threshold, guardrails, trial/selection budget, splits, and executable harness before comparing candidates. Version a corrected harness and rerun both sides.
-- Each evaluated worker starts in a clean lab: only the production-equivalent task, subject instructions, and permitted inputs. Keep evaluator questions, answer keys, expected tool paths, prior attempts, and improvement feedback out of solver context and reachable storage. Isolation includes files, memory, tools, and services, not just chat history.
-- State legitimate task requirements; never hide requirements the grader enforces. Separate those requirements from solution hints. A deployment instruction being evaluated is part of the subject; an answer-specific coaching overlay is leakage.
-- Use development feedback for iteration, validation for candidate selection, and a sealed final test for confirmation. Repeated holdout feedback makes it development data. Record exposure and candidate count.
-- Grade observable outcomes with deterministic checks where possible; calibrate model judges against independent human labels for subjective quality. A fresh judge or a judge council is not automatically accurate.
-- Keep exploratory KEEP separate from final ACCEPT. Uncertain evidence is INCONCLUSIVE; compromised trials are INVALID. Neither proves the candidate failed or improved.
-- Public benchmarks orient; representative private tasks support product decisions. Public regex fixtures and self-tests check the grader, not generalization or agent behavior.
+- Freeze the goal, primary KPI, meaningful effect threshold, guardrails, trial and selection budget, splits, and executable harness before you compare candidates. Version a corrected harness and rerun both sides.
+- Each evaluated worker starts in a clean lab: only the production-equivalent task, subject instructions, and permitted inputs. Keep evaluator questions, answer keys, expected tool paths, prior attempts, and improvement feedback out of solver context and reachable storage.
+- State legitimate task requirements; never hide requirements the grader enforces. Keep solution hints out. A deployment instruction under evaluation is part of the subject; an answer-specific coaching overlay is leakage.
+- Use development feedback to iterate, validation to select, and a sealed final test to confirm. Repeated holdout feedback makes it development data. Record exposure and candidate count.
+- Grade observable outcomes with deterministic checks where possible. Calibrate model judges against independent human labels for subjective quality. Before freezing, check positive, negative, ambiguous, and bypass examples.
+- Select the candidate before you open final results; compare it with the baseline under the same conditions. Capture failures after the verdict; a suite or grader change starts a new version.
+- Keep failures, Unknowns, grader errors, infrastructure errors, retries, and cost in the denominator and the report.
+- Development KEEP is provisional. Final verdicts are ACCEPT, REVERT, INCONCLUSIVE (uncertain), or INVALID (compromised); the last two prove neither failure nor improvement.
+- Public benchmarks orient; representative private tasks support product decisions. Public fixtures, regex checks, and self-tests check the grader, never generalization or agent behavior.
+- `octocode-subagent` owns spawn mechanics; this skill owns how a multi-agent subject is measured.
 
-## Workflow and routes
-1. **Frame:** use `references/error-analysis.md` for observed failures; `references/kpi-contract.md` connects the goal, measures and decision before an experiment.
-2. **Validate harness:** use `benchmarks/README.md` when creating definitions or per-run results; `references/eval-harness.md` owns cases and run records; `references/clean-lab.md` owns solver/evaluator access. Choose graders with `references/eval-techniques.md`; use `references/llm-judge.md` when a model grades quality. Check positive, negative, ambiguous, and bypass examples before freezing.
-3. **Baseline and develop:** run `references/agent-loop.md` on development data. Use `references/nested-loops.md` when deciding whether to change the subject, suite, or search strategy.
-4. **Verify and decide:** `references/held-out-and-guards.md` owns sealed testing, uncertainty, and release verdicts. Select the candidate before opening final results; compare it with the baseline under the same conditions.
-5. **Learn:** use `references/failure-repair.md` when diagnosing failures or suspicious gains; capture failures after the verdict; suite or grader changes start a new version. Use `references/improve-loop.md` for skill/harness changes and `references/output.md` for honest before/after reporting.
-
-## Conditional routes
-- Multi-agent subject: `references/subagent-cookbook.md` owns role separation, communication and outcome metrics. `references/graph-of-loops.md` owns dependency/attribution checks; `references/graph-failure-modes.md` owns shared-state and Goodhart risks. Use `octocode-subagent` only for authorized spawn mechanics.
-- When grading tool or multi-turn tasks: `references/trajectory-grading.md` grades required constraints without prescribing an incidental solution path. Freeze live catalog/schemas; distinguish lexical `localSearch`, structural `astSearch`, exact `localFetch`, and semantic `lspSearch` evidence.
-- When selecting a public suite: `references/benchmarking.md`. Method provenance and limitations: `references/references.md`.
-- When another skill owns the next action: `octocode-research` proves code claims; `octocode-brainstorming` explores unresolved options; `octocode-prompt-optimizer` improves wording; `octocode-skills` reviews folders; `octocode-rfc-generator` handles consequential design decisions.
+Other owners: `octocode-research` proves code claims; `octocode-brainstorming` explores options; `octocode-prompt-optimizer` improves wording; `octocode-skills` reviews folders; `octocode-rfc-generator` decides consequential designs.
 
 ## Maintainer verification
-After maintainer edits, use `scripts/check-description.mjs` for metadata and `scripts/eval-skill.mjs --self-test` for grader mechanics, then run the `octocode-skills` review. `benchmarks/skill-smoke/README.md` documents case/batch checks. Public fixtures check grader mechanics; use isolated behavioral trials before claiming performance gains. Report formatting is flexible.
+After maintainer edits, run `node scripts/check-description.mjs` (metadata), `node scripts/eval-skill.mjs --self-test` (grader mechanics), then the `octocode-skills` review. `benchmarks/skill-smoke/README.md` documents case and batch checks.

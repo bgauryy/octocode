@@ -1,6 +1,6 @@
 ---
 name: octocode-clean-agentic-code
-description: "Use when behavior-preserving cleanup must remove dead exports, shims, aliases, duplicate logic, patch kludges, stale prose/config/schemas/dependencies/tests, misplaced or oversized files/folders, or agent residue such as reinvention, scope creep, narration, error masking, and special-cased tests. Triggers include clean up, remove legacy, dead code audit, god file, spaghetti code, unused deps, test hygiene, remove AI slop/metadata, and stale numbers. Not for feature work, behavioral refactors, or critique-only requests → octocode-roast."
+description: "Use when behavior-preserving cleanup must remove dead exports, shims, aliases, duplicate logic, patch kludges, stale prose/config/schemas/dependencies/tests, misplaced or oversized files/folders, agent residue such as reinvention, scope creep, narration, type/lint suppressions, speculative abstraction, error masking, and test or grader gaming, or dated instruction cruft in prompts, AGENTS.md/CLAUDE.md, skills, and tool descriptions (verification rituals, emphasis boosters, scaffolds, stale few-shot, contradictory rules, dated model config). Triggers include clean up, remove legacy, dead code audit, god file, spaghetti code, unused deps, test hygiene, remove AI slop/metadata, prompt cruft, outdated instructions, and stale numbers. Not for feature work, behavioral refactors, or critique-only requests → octocode-roast."
 ---
 
 # Octocode clean agentic code
@@ -8,51 +8,41 @@ description: "Use when behavior-preserving cleanup must remove dead exports, shi
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+routes: load a reference only when it changes the next action; otherwise keep the rule here.
 
 Remove dead weight and agent residue without changing observable behavior.
+Reports go to `<output>/octocode-clean-agentic-code/`; scratch goes to `<output>/tmp/octocode-clean-agentic-code/`. Chat-only findings stay in chat; source edits keep their named paths.
 
-Flow: `SCOPE → AUDIT → INVENTORY → TRIAGE → CONSENT → EXCISE → VERIFY`.
-
-Reports: `<output>/octocode-clean-agentic-code/`; scratch: `<output>/tmp/octocode-clean-agentic-code/`. Chat-only findings stay in chat; source edits keep their named paths.
+```mermaid
+flowchart LR
+    S["SCOPE"] --> AU["AUDIT"] --> I["INVENTORY"] --> T{"TRIAGE"}
+    T -- "hides a failure" --> R["Report only"]
+    T -- "spaghetti knot" --> K["Inventory, keep out of batch"]
+    T -- "safe batch" --> C["CONSENT"] --> E["EXCISE"] --> V["VERIFY"]
+    V -- "next batch" --> T
+    S -. "at startup or when choosing a phase" .-> PB["cleanup-playbook.md"]
+    AU -. "dead export, duplicate, patch kludge, junk prose" .-> SC["smell-catalog.md"]
+    AU -. "agent-written: reinvention, scope creep, narration, audit order" .-> AD["agentic-defects.md"]
+    AU -. "suppressions, one-implementation abstraction, annotation churn, scratch scripts" .-> AB["agentic-bloat.md"]
+    AU -. "god file, misplaced layer, crossed phases, flag branches, deep nesting" .-> ST["structure.md"]
+    AU -. "verbose comments, dead JSDoc, god docs, redundant config keys" .-> DC["doc-config-hygiene.md"]
+    AU -. "narration, pasted probe output, provenance trails, stale counts" .-> DR["decision-residue.md"]
+    AU -. "schema, type, or dependency redundancy" .-> DH["declaration-hygiene.md"]
+    AU -. "prompt or tool-description cruft; before editing it" .-> IC["instruction-cruft.md"]
+    AU -. "iteration files, untracked skips, rigid mocks, env-coupled tests; replacement test" .-> TH["test-hygiene.md"]
+    R -. "error masking, null defaults, stubs, insecure deps, placeholder credentials" .-> AC["agentic-correctness.md"]
+    R -. "weak oracles, co-edited assertions, patched graders, CI weakening" .-> TG["test-gaming.md"]
+```
+Caption: every batch loops through VERIFY; disguised failures and knots never enter a batch; dotted edges load a page in `references/`.
+Pages (load each when its map edge fires): `references/cleanup-playbook.md` · `references/smell-catalog.md` · `references/agentic-defects.md` · `references/agentic-bloat.md` · `references/structure.md` · `references/doc-config-hygiene.md` · `references/decision-residue.md` · `references/declaration-hygiene.md` · `references/instruction-cruft.md` · `references/test-hygiene.md` · `references/agentic-correctness.md` · `references/test-gaming.md`.
 
 ## Lobby rules
 - Before deleting an export or adapter, inspect its exact source, references, entrypoints, and config. Use LSP references for symbols and callers for callable relationships; AST topology supplies candidate file edges. Empty results do not exclude dynamic or external consumers.
-- Never change behavior. If removal requires a behavioral change, flag it and stop.
+- Never change behavior. For instruction text, behavior means every outcome, constraint, and contract the text decides. If removal requires a behavioral change, flag it and stop.
 - Separate dead weight from code that disguises a failure; report the second class instead of deleting it.
 - Use safe batches; run the repo's checks after each. Read their output, never a summary.
 - Keep edits within the requested cleanup scope. Reuse existing authorization for that scope; ask only when a proposed deletion or behavior change exceeds it.
 - Config cleanup that affects runtime behavior needs explicit consent. Never touch lockfiles, generated output, or build artifacts.
 - Spaghetti is forbidden. Detect tangled control flow, and refuse any edit that creates or extends it: a new flag, nested branch, wrapper, or copied function. Report the knot and leave it out of the batch.
 
-## Smell classes
-
-| Class | Examples |
-|-------|----------|
-| Dead exports | re-exports, barrel aliases, legacy adapter shims, compatibility stubs |
-| Duplicate logic | copy-pasted blocks, near-identical helpers, reinvented library code, parallel subsystems |
-| Patch kludges | inline regex fixups, monkey-patches, always-true environment conditionals |
-| Junk prose | syntax-narration comments, dead comment blocks, god docs, stale TODOs, change narration |
-| Decision residue | decision narration, pasted probe output, provenance trails, process metadata, stale counts, restated facts |
-| Schema / type redundancy | type aliases that only rename, duplicate interfaces, stale protocol stubs, redundant enums |
-| Dependency junk | unused deps, duplicate declarations, version misalignment, phantom deps, unresolvable names |
-| Test debt | numbered/dated iteration files, skipped tests with no ticket, rigid mocks coupling to private internals, redundant stubs with no expect reference, environment-coupled tests, unused beforeEach/afterEach setup |
-| Agent residue | scope-creep leftovers, zero-dependent new files, error-masking catch blocks, special-cased tests |
-| Spaghetti | tangled control flow: crossed phases, flag-driven branches, nesting that mixes unrelated decisions |
-
-## Smart routes — load only what the current step needs
-- At startup or when choosing a phase (SCOPE, AUDIT, INVENTORY, TRIAGE, CONSENT, EXCISE, VERIFY), load `references/cleanup-playbook.md` — per-phase steps, class-specific audit queries, inventory table, and check contract.
-- When classifying a smell as shim, re-export, duplicate, alias, or patch kludge, load `references/smell-catalog.md` — full taxonomy with detection queries and confidence rules for each class.
-- When the target was written or edited by a coding agent, load `references/agentic-defects.md` — reinvention, scope-creep, and narration signatures that differ from human debt; when ordering that audit, load `references/agentic-evidence.md` — measured prevalence per class and the claims that stay unproven.
-- When a smell hides a wrong result rather than dead weight, load `references/agentic-correctness.md` — the report-only tier with its escalation protocol.
-- When evaluating file placement, folder cohesion, god-file size, or god-folder concerns, load `references/hierarchy-rules.md` — one-file-one-concern, one-folder-one-domain, size limits, and move protocol.
-- When a target or a proposed edit has tangled control flow, or a cleanup would add a branch, flag, wrapper, or copy to keep a knot alive, load `references/spaghetti.md` — detection signals and which knots may still enter an excision batch.
-- When reviewing inline comments or docs for verbosity, dead prose, or god-doc patterns, load `references/doc-hygiene.md` — cut/keep rules for comments, JSDoc, and docs; when inspecting config files for length, redundant keys, or misplaced settings, load `references/config-hygiene.md` — length limits and consent gate.
-- When reviewing type definitions, interfaces, enums, schemas, or protocol shapes for redundancy or aliasing, load `references/schema-hygiene.md` — type-alias rules and duplicate interface detection; when auditing package.json files for unused, duplicate, misaligned, or phantom dependencies, load `references/dependency-hygiene.md` — unused-dep checks, version alignment, and consent gate.
-- When code, comments, skills, or docs record how a decision was made — probe output, provenance, process metadata, or counts nobody re-derives — load `references/decision-residue.md` — residue types, the number test, and what to keep.
-- When the task involves removing numbered/dated iteration test files, skipped tests, rigid mocks, redundant stubs, or unused test setup, load `references/test-hygiene.md` — the test smell classes, the evidence each delete requires, and the excision protocol.
-- When writing replacement tests after removing legacy or rigid ones (to recover lost coverage), load `references/test-quality.md` — isolation patterns, naming conventions, and the coverage replacement rule.
-- For symbol proof, caller lists, import graphs, or structural search, use `octocode-research`.
-
-## Related routes
-- Related: `octocode-research` for blast-radius evidence, `octocode-roast` for smell inventory, `octocode-eval-benchmark` for metrics, `octocode-skills` for folder changes. No scripts.
+Related: `octocode-research` (symbol proof, callers, import graphs, blast radius) · `octocode-prompt-optimizer` (instruction rewrites that change intent) · `octocode-roast` (smell inventory) · `octocode-architect` (structural untangles) · `octocode-eval-benchmark` (metrics) · `octocode-skills` (folder changes). No scripts.

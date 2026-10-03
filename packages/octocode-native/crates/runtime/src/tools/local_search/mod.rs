@@ -2148,18 +2148,21 @@ mod tests {
         assert!(again.to_string().contains("item59"), "{again}");
     }
 
-    /// Every file searched only up to a NUL is a coverage gap: the warning
-    /// names each one, not the first few and a count.
+    /// Every file cut at a NUL after real text is a coverage gap: the
+    /// warning names each one, files sharing a directory grouped under it,
+    /// and none summarized as a count.
     #[test]
-    fn every_binary_cut_file_is_named() {
+    fn every_text_cut_file_is_named_grouped_by_directory() {
         let root = tempfile::tempdir().expect("fixture directory");
+        fs::create_dir_all(root.path().join("deep/dir")).expect("fixture dir");
         for index in 0..8 {
             fs::write(
-                root.path().join(format!("mixed{index}.txt")),
+                root.path().join(format!("deep/dir/mixed{index}.txt")),
                 b"alpha before\0alpha after\n",
             )
             .expect("fixture");
         }
+        fs::write(root.path().join("top.txt"), b"alpha before\0alpha after\n").expect("fixture");
         let (policy, security) = policy_for(root.path());
         let request = ls_query(
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
@@ -2167,21 +2170,148 @@ mod tests {
         );
         let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
             .expect("search");
+        assert!(result.is_partial);
         let warning = result
             .warnings
             .iter()
             .find(|w| w.starts_with("binaryFileSkipped:"))
             .expect("binary warning");
-        for index in 0..8 {
-            assert!(warning.contains(&format!("mixed{index}.txt")), "{warning}");
-        }
+        let names = (0..8)
+            .map(|index| format!("mixed{index}.txt"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(
+            warning.starts_with(&format!(
+                "binaryFileSkipped: top.txt, deep/dir/{{{names}}} were searched"
+            )),
+            "{warning}"
+        );
         assert!(!warning.contains("more"), "{warning}");
+    }
+
+    /// Files binary from their leading bytes (a font's magic, then a NUL)
+    /// are outside a text search, as rg skips them: no partial result, a
+    /// count grouped by extension instead of every path, and an exact
+    /// structureSearch continuation that lists them all.
+    #[test]
+    fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::create_dir_all(root.path().join("fonts/a")).expect("fixture dir");
+        for index in 0..30 {
+            fs::write(
+                root.path()
+                    .join(format!("fonts/a/Font-{index}-0123456789abcdef.woff2")),
+                b"wOF2\0\x01\0\0alpha",
+            )
+            .expect("fixture");
+        }
+        fs::write(
+            root.path().join("logo.png"),
+            b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR",
+        )
+        .expect("fixture");
+        fs::write(root.path().join("a.txt"), "alpha\n").expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        let body = serde_json::to_value(&result).expect("serialize");
+        assert!(!result.is_partial, "{body}");
+        assert!(!result.terminal_limit, "{body}");
+        assert_eq!(result.status, SearchStatus::Success, "{body}");
+        assert_eq!(result.stats.cap_reason, None, "{body}");
+        assert_eq!(
+            result.warnings,
+            [
+                "binarySkipped: 31 binary files not searched (.woff2 30, .png 1); binary from their leading bytes, as rg skips them. next.binarySkipped lists them."
+            ],
+            "{body}"
+        );
+        let text = body.to_string();
+        assert!(!text.contains("Font-0"), "{text}");
+
+        let listing = &body["next"]["binarySkipped"];
+        assert_eq!(listing["tool"], "structureSearch", "{body}");
+        let mut query = listing["query"].clone();
+        assert_eq!(query["operation"], "files", "{listing}");
+        assert_eq!(
+            query["extensions"],
+            serde_json::json!(["woff2", "png"]),
+            "{listing}"
+        );
+        query["goal"] = serde_json::json!("test");
+        query["reasoning"] = serde_json::json!("test");
+        let query: crate::tools::structure_search::StructureSearchQuery =
+            serde_json::from_value(query).expect("structureSearch query");
+        let listed = crate::tools::structure_search::execute_structure(
+            &query,
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+        );
+        let listed = listed.expect("listing runs").to_string();
+        for index in 0..30 {
+            assert!(
+                listed.contains(&format!("Font-{index}-0123456789abcdef.woff2")),
+                "{listed}"
+            );
+        }
+        assert!(listed.contains("logo.png"), "{listed}");
+        assert!(!listed.contains("a.txt"), "{listed}");
+    }
+
+    /// An extensionless binary cannot be named by `extensions`, so the
+    /// listing continuation matches basenames instead and still reaches it.
+    #[test]
+    fn an_extensionless_leading_nul_binary_is_listed_by_basename() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        fs::write(root.path().join("store"), b"SQLite format 3\0alpha").expect("fixture");
+        fs::write(root.path().join("x.woff2"), b"wOF2\0\x01\0\0alpha").expect("fixture");
+        fs::write(root.path().join("README"), "plain text\n").expect("fixture");
+        fs::write(root.path().join("a.txt"), "alpha\n").expect("fixture");
+        let (policy, security) = policy_for(root.path());
+        let request = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
+            None,
+        );
+        let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        assert!(!result.is_partial);
+        assert!(
+            result.warnings[0].starts_with(
+                "binarySkipped: 2 binary files not searched (no extension 1, .woff2 1)"
+            ),
+            "{:?}",
+            result.warnings
+        );
+        let mut query = result.next.as_ref().expect("next")["binarySkipped"]["query"].clone();
+        assert!(query.get("extensions").is_none(), "{query}");
+        query["goal"] = serde_json::json!("test");
+        query["reasoning"] = serde_json::json!("test");
+        let query: crate::tools::structure_search::StructureSearchQuery =
+            serde_json::from_value(query).expect("structureSearch query");
+        let listed = crate::tools::structure_search::execute_structure(
+            &query,
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+        );
+        let listed = listed.expect("listing runs").to_string();
+        assert!(listed.contains("store"), "{listed}");
+        assert!(listed.contains("x.woff2"), "{listed}");
+        assert!(!listed.contains("a.txt"), "{listed}");
     }
 
     #[test]
     fn opaque_binary_files_in_scope_do_not_make_a_search_partial() {
         // An object-file header puts a NUL before any text: rg skips such
-        // files, nothing text-searchable is lost, and no warning is owed.
+        // files and nothing text-searchable is lost, so only their count is
+        // disclosed.
         let body = search_fixture(
             &[
                 ("addon.node", "\u{7f}ELF\u{2}\u{1}\u{1}\u{0}needle\n"),
@@ -2195,9 +2325,11 @@ mod tests {
         assert_ne!(body["isPartial"], true, "{body}");
         assert_ne!(body["terminalLimit"], true, "{body}");
         assert_ne!(body["status"], "partial", "{body}");
-        assert!(
-            body.get("warnings")
-                .is_none_or(|w| w.as_array().is_some_and(Vec::is_empty)),
+        assert_eq!(
+            body["warnings"],
+            serde_json::json!([
+                "binarySkipped: 1 binary file not searched (.node 1); binary from its leading bytes, as rg skips it. next.binarySkipped lists it."
+            ]),
             "{body}"
         );
         assert!(
@@ -2228,7 +2360,10 @@ mod tests {
     #[test]
     fn an_empty_result_with_a_binary_cut_is_partial_not_empty() {
         let body = search_fixture(
-            &[("blob.dat", "header\u{0}needle after the nul\n")],
+            &[(
+                "blob.dat",
+                "a text line\nanother\n\u{0}needle after the nul\n",
+            )],
             ls_query(
                 serde_json::json!({"searchText": "needle".to_string()}),
                 None,

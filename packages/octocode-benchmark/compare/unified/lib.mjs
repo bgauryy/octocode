@@ -286,6 +286,43 @@ export function parseStream(stream) {
 }
 
 /**
+ * Frozen model tariff (USD per million tokens), recovered from run tri-20261002:
+ * every one of its 90 sessions' result.usage reproduces total_cost_usd with it
+ * (max error 3e-17; RFC tool-quality-efficiency red-team F-1). Weighted tokens
+ * are input-token equivalents: Σ tokens × price / price.input, so
+ * cost = weighted × price.input / 1e6. Only 1h cache writes were observed, so a
+ * run with 5m writes or another model gets no weighted value (never a guess).
+ */
+export const TARIFF = Object.freeze({
+  id: 'claude-sonnet-5-5@tri-20261002',
+  models: Object.freeze(['claude-sonnet-5-5']),
+  usdPerMTok: Object.freeze({ input: 2, cacheWrite1h: 4, cacheRead: 0.2, output: 10 }),
+});
+
+/**
+ * Weighted tokens and tariff cost of one usage total under TARIFF.
+ *   warm: as billed (the cached prefix was a cache hit).
+ *   cold: the first request's cache read is written (1h) instead, i.e. a
+ *         session that starts after the cache TTL or with a per-user prefix.
+ */
+export function weightedUsage(usage, { models = [], cacheCreation = null, firstRequestCacheRead = 0 } = {}) {
+  const p = TARIFF.usdPerMTok;
+  if (!usage) return { weighted_tokens: null, weighted_reason: 'no usage' };
+  const unknown = models.filter(m => !TARIFF.models.includes(m));
+  if (!models.length || unknown.length) return { weighted_tokens: null, weighted_reason: `model ${unknown.join(',') || 'unknown'} not in frozen tariff ${TARIFF.id}` };
+  const write5m = Number(cacheCreation?.ephemeral_5m_input_tokens ?? 0);
+  if (usage.cache_creation_input_tokens > 0 && !cacheCreation) return { weighted_tokens: null, weighted_reason: 'cache write TTL unknown' };
+  if (write5m > 0) return { weighted_tokens: null, weighted_reason: '5m cache writes are not covered by the frozen tariff' };
+  const usd = usage.input_tokens * p.input + usage.cache_creation_input_tokens * p.cacheWrite1h + usage.cache_read_input_tokens * p.cacheRead + usage.output_tokens * p.output;
+  const coldUsd = usd + firstRequestCacheRead * (p.cacheWrite1h - p.cacheRead);
+  return {
+    weighted_tokens: usd / p.input, weighted_tokens_cold: coldUsd / p.input,
+    tariff_cost_usd: usd / 1e6, tariff_cost_usd_cold: coldUsd / 1e6,
+    tariff: TARIFF.id, weighted_reason: null,
+  };
+}
+
+/**
  * Token accounting for one run (see README "How tokens are computed").
  *   context_i  = input + cache_creation + cache_read of request i (everything the model processed)
  *   total      = Σ context_i + Σ output_i
@@ -327,8 +364,11 @@ export function tokenAccounting(parsed) {
     model_usage_gaps: final && modelTotals ? Object.fromEntries(USAGE_KEYS.map(k => [k, final[k] - modelTotals[k]])) : null,
     cache_creation: Array.isArray(parsed) ? null : parsed.cacheCreation,
     overhead_research_estimated: true,
-    weighted_tokens: null,
-    weighted_reason: 'No versioned tariff; use reported cost and cache TTL breakdown.',
+    ...weightedUsage(usage, {
+      models: Array.isArray(parsed) ? [...new Set(perRequest.map(r => r.model).filter(Boolean))] : (parsed.actualModels?.length ? parsed.actualModels : [...new Set(perRequest.map(r => r.model).filter(Boolean))]),
+      cacheCreation: Array.isArray(parsed) ? null : parsed.cacheCreation,
+      firstRequestCacheRead: requests ? perRequest[0].cache_read_input_tokens : 0,
+    }),
     max_request_context: perRequest.reduce((m, r) => Math.max(m, ctx(r)), 0),
   };
 }
@@ -506,6 +546,11 @@ function selfTest() {
   assert(t.context_tokens === 1010 + 1205, 'context');
   assert(t.total_tokens === 2315, 'total');
   assert(t.fixed_overhead_tokens === 2020 && t.research_tokens === 295, 'overhead/research');
+  assert(t.weighted_tokens === null && /not in frozen tariff/.test(t.weighted_reason), 'no weighted value without a tariffed model');
+  const w = weightedUsage(u(10, 25599, 71077, 3617), { models: ['claude-sonnet-5-5'], cacheCreation: { ephemeral_1h_input_tokens: 25599, ephemeral_5m_input_tokens: 0 }, firstRequestCacheRead: 7031 });
+  assert(Math.abs(w.tariff_cost_usd - 0.1528014) < 1e-12 && Math.abs(w.weighted_tokens - 76400.7) < 1e-6, `tariff reproduces a recorded session cost (got ${w.tariff_cost_usd})`);
+  assert(Math.abs(w.tariff_cost_usd_cold - w.tariff_cost_usd - 7031 * 3.8 / 1e6) < 1e-12, 'cold cache writes the first cached prefix');
+  assert(weightedUsage(u(1, 10, 0, 1), { models: ['claude-sonnet-5-5'], cacheCreation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 10 } }).weighted_tokens === null, '5m writes are not guessed');
   assert(m.toolErrors.length === 1 && m.answer === 'final', 'errors/answer');
   assert(applyCounters([{ label: 'ms', inputKey: 'matchString' }, { label: 'a', tool: '__a$' }], m.toolCalls).ms === 2, 'counter');
   assert(isolationCheck({ isolation: { allowedToolPattern: '^mcp__x__', requiredMcpServers: ['x'] } }, m).ok, 'isolation ok');

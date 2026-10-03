@@ -233,7 +233,6 @@ pub(crate) struct Call {
     pub kind: String,
     /// Syntactic receiver type of a member call (`Store` for `s.save()`),
     /// from the engine fact; `None` when the parser could not read it.
-    #[allow(dead_code)]
     pub receiver_type: Option<String>,
     /// File that the module prefix of a Rust qualified callee names
     /// (`crate::portable::sanitize` → `src/portable.rs`); `None` when the

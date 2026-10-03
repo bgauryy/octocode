@@ -11,23 +11,47 @@
 // paths; queries carry short agent-sized briefs; a task's `unfiltered` shell
 // recipe (a first try without answer knowledge: no jq/--json field picks, no
 // pre-known line ranges) is reported next to the expert recipe.
-// Sensors per octocode response: nextShare (bytes under `next` / response
-// bytes), next entries per row, and never-trim (every truncation signal has
-// an executable continuation or a terminal-limit disclosure).
+// Sensors per octocode response: nextShare / hintsShare (bytes under `next` /
+// `hints` over response bytes) and leadShare (lead continuations wherever they
+// live), lead entries per menu (cap 2; `next` pages are uncapped), and
+// never-trim (every truncation signal has an executable continuation or a
+// terminal-limit disclosure). Shape-agnostic: `next` = pages (today also
+// leads), `hints` = leads + text (today prose strings); see harness/sensors.mjs.
+// RFC tool-quality-efficiency S1 sensors (harness/sensors.mjs):
+//   schema errors   MCP/CLI input-validation errors per task (target 0)
+//   verbose fields  default-output fields from harness/verbose-fields.json (report only)
+//   verbatim replay a bounded sample of every task's continuations runs unchanged and must validate
+//   byte gate       per task vs a pinned anchor and a rolling baseline in results/
+//                   (competitors-anchor.json, competitors-rolling.json): bytes or calls
+//                   > 1.5× a baseline while the shell ratio worsens fails; local tasks also
+//                   fail when unique evidence shrinks or never-trim violations grow. Each
+//                   record keeps a body hash and key byte shares to name the growing key.
 //
 // Usage: node harness/competitors.mjs [--only=L01,G03] [--kind=local|github|clasify] [--save-as=<results name>]
+//        [--update-rolling]  accepted run (every check passed): merge this run into the rolling baseline
+//        [--update-anchor]   explicit re-anchor: merge this run into the pinned anchor (and rolling);
+//                            allowed when only byte-gate checks failed
+//        [--self-test]       run the sensor self-tests (no server)
 // Env:   OCTOCODE_COMPETITOR_CLASIFY=1   run the clasify tasks (paid provider calls)
 //        OCTOCODE_COMPETITOR_GITHUB=0    skip GitHub/network tasks
 //        OCTOCODE_COMPETITOR_NORMALIZE=0 legacy run: octocode-root workspace, question as goal
 //        OCTOCODE_COMPETITOR_STRICT_NEXT=1  fail a row with more than NEXT_ENTRY_CAP next entries
 //        OCTOCODE_COMPETITOR_BASH_TOOL_BYTES  Bash tool definition estimate (default 1200)
+//        OCTOCODE_COMPETITOR_REPLAY_MAX=3   continuations replayed verbatim per task (0 = off)
 //        RG_BIN                          ripgrep binary (else rg on PATH, else Claude Code's embedded rg)
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ROOT, checks, expandShared, inventoryRows, nextHints, startServer, structureFiles, writeResults } from './mcp-client.mjs';
+import { RESULTS, ROOT, checks, expandShared, inventoryRows, nextHints, startServer, structureFiles, writeResults } from './mcp-client.mjs';
+import {
+  ANCHOR_FILE, GATE_FACTOR, ROLLING_FILE, allHintEntries, baselineRecord, bodyHash, bytesUnderKey, callRows, canonical, describeFlag, envelopeContainer,
+  gateTask, hintEntries, isHintContainer, isHintKey, keyBytes, keyShares, leadBytes, loadVerboseRules, maxLeadEntries, mergeCounts, schemaErrors, selfTest, verboseFields,
+} from './sensors.mjs';
+
+if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { tasks: ALL } = JSON.parse(fs.readFileSync(path.join(HERE, 'competitor-tasks.json'), 'utf8'));
@@ -39,6 +63,9 @@ const NORMALIZED = process.env.OCTOCODE_COMPETITOR_NORMALIZE !== '0';
 // Real agent briefs run about 14–32 chars (goal) and 11–25 (reasoning).
 const REASONING = NORMALIZED ? 'Need line-level evidence' : 'Answer the task question.';
 const NEXT_ENTRY_CAP = 2;
+const REPLAY_MAX = Number(process.env.OCTOCODE_COMPETITOR_REPLAY_MAX ?? 3);
+const VERBOSE_RULES = loadVerboseRules();
+const sha16 = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex').slice(0, 16);
 const arg = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const only = arg('only')?.split(',');
 const kinds = arg('kind')?.split(',');
@@ -208,8 +235,9 @@ async function runOctocode(task, ws) {
       const order = step.walk;
       const seen = new Set();
       const queue = [];
+      // Page walkers read `next` only (leads live in `hints` under the new contract).
       const enqueue = (entry, minIndex) => {
-        for (const h of nextHints(entry.sc)) {
+        for (const h of nextHints(entry.sc).filter(x => /\.next(?:\.|$)/.test(x.path))) {
           const name = h.path.split('.').at(-1);
           const index = order.indexOf(name);
           if (index < minIndex) continue;
@@ -273,7 +301,7 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
       for (const name of node.files) if (typeof name === 'string') { ev.files.add(dir + name); ev.fileRows.push(dir + name); }
     }
     for (const [key, child] of Object.entries(node)) {
-      if (key === 'next') continue;
+      if (isHintKey(key)) continue;
       if (key === 'unsearchedFiles' && Array.isArray(child)) { if (unsearched) for (const s of child) { const m = /^!\w+ (.+)$/.exec(s); if (m) ev.files.add(m[1]); } continue; }
       if (key === 'changedFiles' && Array.isArray(child) && child.some(c => typeof c === 'string' || (c && !('path' in c)))) { for (const f of inventoryRows(child)) if (f.path) ev.files.add(f.path); continue; }
       if (key === 'from' || key === 'displayRange') continue;
@@ -348,48 +376,22 @@ function evaluate(truth, ev) {
 const emptyEvidence = () => ({ pairs: [], files: new Set(), fileRows: [], pairFiles: new Set(), text: '' });
 
 // ---------- sensors ----------
-/** Bytes of every `next` value in a response (key included), envelope pagination too. */
-function nextBytes(value) {
-  let total = 0;
-  const walk = node => {
-    if (!node || typeof node !== 'object') return;
-    for (const [key, child] of Object.entries(node)) {
-      if (key === 'next' && child && typeof child === 'object') { total += JSON.stringify(child).length + 7; continue; }
-      walk(child);
-    }
-  };
-  walk(value);
-  return total;
-}
-const isHint = v => !!v && typeof v === 'object' && typeof v.tool === 'string' && v.query && typeof v.query === 'object';
-/** `{name, hint}` for each entry of a `next` value (a map of named hints, an array, or one hint). */
-function nextEntries(next, name = 'next') {
-  if (!next || typeof next !== 'object') return [];
-  if (isHint(next)) return [{ name, hint: next }];
-  if (Array.isArray(next)) return next.filter(isHint).map(hint => ({ name, hint }));
-  return Object.entries(next).filter(([, v]) => isHint(v)).map(([k, hint]) => ({ name: k, hint }));
-}
-/** Largest number of entries in any one `next` object under a node (a row's or an item's menu). */
+/** Bytes under every `next` key in a response (key included), envelope pagination too. */
+const nextBytes = value => bytesUnderKey(value, 'next');
+/** Bytes under every `hints` key (leads and text). */
+const hintsBytes = value => bytesUnderKey(value, 'hints');
+/** Largest number of entries in any one continuation menu under a node (a row's or an item's). */
 function maxNextEntries(node) {
   let max = 0;
   const walk = n => {
     if (!n || typeof n !== 'object') return;
     for (const [key, child] of Object.entries(n)) {
-      if (key === 'next') max = Math.max(max, nextEntries(child).length);
+      if (isHintContainer(key, child)) max = Math.max(max, hintEntries(child).length);
       else walk(child);
     }
   };
   walk(node);
   return max;
-}
-/** Every `next` entry anywhere under a node. */
-function allNextEntries(node, out = []) {
-  if (!node || typeof node !== 'object') return out;
-  for (const [key, child] of Object.entries(node)) {
-    if (key === 'next') out.push(...nextEntries(child));
-    else allNextEntries(child, out);
-  }
-  return out;
 }
 // A paging continuation (it reaches the rest of the same evidence), as
 // opposed to a lead to a different read (read, readFixPr, viewRepo, …).
@@ -406,7 +408,7 @@ function trimSignals(node, at, windowed, out = []) {
   if (!node || typeof node !== 'object') return out;
   if (Array.isArray(node)) { node.forEach((child, i) => trimSignals(child, `${at}[${i}]`, windowed, out)); return out; }
   for (const [key, value] of Object.entries(node)) {
-    if (key === 'next' || key === 'responsePagination') continue;
+    if (isHintKey(key) || key === 'responsePagination') continue;
     const here = `${at}.${key}`;
     if ((key === 'hasMore' || key === 'truncated') && value === true) out.push({ at: here, signal: key });
     else if ((key === 'isPartial' || key === 'partial') && value === true && !windowed) out.push({ at: here, signal: key });
@@ -428,16 +430,19 @@ const hasTerminalLimit = node => JSON.stringify(node ?? null).includes('"termina
 function responseSensors(entry) {
   // nextEntriesMax counts the largest single `next` menu (row- or item-level).
   const sc = entry.raw;
-  const out = { bytes: entry.bytes, nextBytes: 0, nextEntriesMax: 0, nextNames: [], violations: [] };
+  const out = { bytes: entry.bytes, nextBytes: 0, hintsBytes: 0, leadBytes: 0, nextEntriesMax: 0, leadEntriesMax: 0, nextNames: [], violations: [] };
   if (!sc || typeof sc !== 'object') return out;
   out.nextBytes = nextBytes(sc);
+  out.hintsBytes = hintsBytes(sc);
+  out.leadBytes = leadBytes(sc);
   const queries = Array.isArray(entry.args?.queries) ? entry.args.queries : [entry.args ?? {}];
-  const envelopeNext = nextEntries(sc.responsePagination?.next);
+  const envelopeNext = hintEntries(envelopeContainer(sc));
   // Tool rows; a clasify matrix reports per-query rows, else the whole response is one row.
   const rows = Array.isArray(sc.results) ? sc.results : Array.isArray(sc.queries) ? sc.queries : [sc];
   rows.forEach((row, i) => {
     out.nextEntriesMax = Math.max(out.nextEntriesMax, maxNextEntries(row));
-    const inRow = allNextEntries(row);
+    out.leadEntriesMax = Math.max(out.leadEntriesMax, maxLeadEntries(row));
+    const inRow = allHintEntries(row);
     out.nextNames.push(...inRow.map(e => e.name));
     const query = queries[row?.index ?? i] ?? queries[0] ?? {};
     const windowed = WINDOW_KEYS.some(k => k in query);
@@ -458,15 +463,67 @@ function taskSensors(entries, evidenceSteps) {
   const per = entries.map(responseSensors);
   const bytes = per.reduce((a, s) => a + s.bytes, 0);
   const next = per.reduce((a, s) => a + s.nextBytes, 0);
+  const hints = per.reduce((a, s) => a + s.hintsBytes, 0);
+  const leads = per.reduce((a, s) => a + s.leadBytes, 0);
+  const share = n => (bytes ? +(n / bytes).toFixed(3) : 0);
   const walks = evidenceSteps.filter(s => s.walk);
   return {
-    nextBytes: next, nextShare: bytes ? +(next / bytes).toFixed(3) : 0,
+    nextBytes: next, nextShare: share(next), hintsBytes: hints, hintsShare: share(hints), leadBytes: leads, leadShare: share(leads),
     nextEntriesMax: Math.max(0, ...per.map(s => s.nextEntriesMax)),
+    leadEntriesMax: Math.max(0, ...per.map(s => s.leadEntriesMax)),
     nextNames: [...new Set(per.flatMap(s => s.nextNames))],
     violations: per.flatMap(s => s.violations),
     // The recipe followed every continuation it walks to the end.
     followedAll: walks.length > 0 && walks.every(s => s.exhausted),
+    ...s1Sensors(entries),
   };
+}
+
+/** S1 sensors over a recipe's responses: schema errors, verbose fields, body hash and key byte shares. */
+function s1Sensors(entries) {
+  const schema = entries.map(schemaErrors);
+  const verbose = {};
+  for (const e of entries) mergeCounts(verbose, verboseFields(e, VERBOSE_RULES));
+  const kb = keyBytes(entries);
+  return {
+    schemaErrors: schema.reduce((a, x) => a + x.count, 0),
+    schemaErrorDetails: schema.filter(x => x.count).map(x => `${x.codes.join(',')}: ${x.detail}`.slice(0, 200)),
+    verbose, verboseBytes: Object.entries(verbose).reduce((a, [k, v]) => a + (k === 'debugRows' ? 0 : v.bytes), 0),
+    bodyHash: bodyHash(entries), keyBytes: kb, keyShares: keyShares(kb),
+  };
+}
+
+/**
+ * Verbatim replay (C-3): every continuation offered in a task's responses runs
+ * unchanged and must validate. Continuations the recipe already executed
+ * count as replayed; up to REPLAY_MAX others (in offer order) are called once.
+ */
+async function replayHints(entries, ws) {
+  const executed = new Set();
+  for (const e of entries) {
+    executed.add(`${e.tool}:${canonical(e.args)}`);
+    for (const q of callRows(e.args)) executed.add(`${e.tool}:${canonical(q)}`);
+  }
+  const seen = new Set();
+  const offered = [];
+  for (const e of entries) for (const h of nextHints(e.raw)) {
+    const key = `${h.tool}:${canonical(h.query)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    offered.push({ name: h.path.split('.').at(-1), hint: { tool: h.tool, query: h.query }, byRecipe: executed.has(key) });
+  }
+  // CLI-only tools (ghCloneRepo, astRewrite) clone or write; they are counted, not replayed.
+  const client = await clientFor(ws);
+  const onMcp = o => client.tools.some(t => t.name === o.hint.tool);
+  const sample = offered.filter(o => !o.byRecipe && onMcp(o)).slice(0, Math.max(0, REPLAY_MAX));
+  const replays = [];
+  for (const o of sample) {
+    if (o.hint.tool === 'ghSearchCode') await paceCodeSearch();
+    const e = await mcp({ ws }, o.hint.tool, asCall(o.hint, {}));
+    const schema = schemaErrors(e);
+    replays.push({ name: o.name, tool: o.hint.tool, surface: e.surface, ok: schema.count === 0, schemaErrors: schema.count, codes: schema.codes, isError: e.isError, rateLimited: e.isError && RATE_LIMIT.test(e.text), bytes: e.bytes, ms: e.ms, detail: schema.count ? schema.detail : undefined });
+  }
+  return { offered: offered.length, byRecipe: offered.filter(o => o.byRecipe).length, cliOnly: offered.filter(o => !o.byRecipe && !onMcp(o)).length, replayed: replays.length, failed: replays.filter(r => !r.ok).length, replays };
 }
 
 // ---------- task runner ----------
@@ -488,12 +545,17 @@ async function octocodeSide(task, truth, ws) {
     const ev = emptyEvidence();
     for (const s of run?.evidenceSteps ?? []) for (const e of entries.slice(s.from, s.to)) octocodeEvidence(e, ev, s);
     const verdict = error ? { ok: false, fails: [error.message] } : evaluate(truth, ev);
-    return {
-      ...verdict, calls: entries.length, bytes: entries.reduce((a, e) => a + e.bytes, 0), ms: entries.reduce((a, e) => a + e.ms, 0),
+    // Coverage facts the byte gate pairs with: unique evidence seen.
+    const evidence = { pairs: new Set(ev.pairs.map(p => `${norm(p.file)}:${p.line}`)).size, files: new Set([...ev.files, ...ev.pairFiles, ...ev.pairs.map(p => p.file)].map(norm)).size };
+    const out = {
+      ...verdict, evidence, calls: entries.length, bytes: entries.reduce((a, e) => a + e.bytes, 0), ms: entries.reduce((a, e) => a + e.ms, 0),
       sensors: taskSensors(entries, run?.evidenceSteps ?? []),
-      steps: entries.map(e => ({ tool: e.tool, surface: e.surface, ms: e.ms, bytes: e.bytes, nextBytes: nextBytes(e.raw), isError: e.isError })),
+      steps: entries.map(e => ({ tool: e.tool, surface: e.surface, ms: e.ms, bytes: e.bytes, nextBytes: nextBytes(e.raw), hintsBytes: hintsBytes(e.raw), isError: e.isError })),
       errors: entries.filter(e => e.isError).map(e => e.text.slice(0, 200)),
     };
+    // Responses for the replay sensor; dropped before results are written.
+    Object.defineProperty(out, 'entries', { value: entries, enumerable: false });
+    return out;
   }
 }
 
@@ -533,9 +595,11 @@ async function runTask(task) {
   } else unfiltered = { ...competitor, sameAsExpert: true };
   if (coldOcto) octocode.coldMs = coldOcto.ms;
   if (coldComp) competitor.coldMs = coldComp.ms;
+  if (REPLAY_MAX > 0) octocode.replay = await replayHints(octocode.entries, ws);
   const ratio = (a, b) => (b > 0 ? +(a / b).toFixed(2) : null);
   return {
     status: 'ran', workspace: ws || '.', truth, octocode, competitor, unfiltered,
+    recipeHash: { octocode: sha16(task.octocode), shell: sha16(task.competitor) },
     ratios: { calls: ratio(octocode.calls, competitor.calls), bytes: ratio(octocode.bytes, competitor.bytes), ms: ratio(octocode.ms, competitor.ms) },
     unfilteredRatios: { calls: ratio(octocode.calls, unfiltered.calls), bytes: ratio(octocode.bytes, unfiltered.bytes), ms: ratio(octocode.ms, unfiltered.ms) },
   };
@@ -582,11 +646,16 @@ for (const task of selected) {
       if (s.followedAll) check(`${task.id} ${task.tool}: never-trim (every truncation has a continuation or terminal-limit disclosure)`, false, `${s.violations.length} violations: ${detail}`);
       else console.log(`INFO [competitors] ${task.id}: never-trim violations ${s.violations.length} — ${detail}`);
     }
-    if (s && s.nextEntriesMax > NEXT_ENTRY_CAP) {
-      const detail = `${s.nextEntriesMax} next entries in one row (cap ${NEXT_ENTRY_CAP}): ${s.nextNames.join(',')}`;
-      if (process.env.OCTOCODE_COMPETITOR_STRICT_NEXT === '1') check(`${task.id} ${task.tool}: next entries per row ≤ ${NEXT_ENTRY_CAP}`, false, detail);
+    // R2: the cap applies to lead menus (hints, or today's non-page next entries); pages are uncapped.
+    if (s && s.leadEntriesMax > NEXT_ENTRY_CAP) {
+      const detail = `${s.leadEntriesMax} lead entries in one menu (cap ${NEXT_ENTRY_CAP}): ${s.nextNames.join(',')}`;
+      if (process.env.OCTOCODE_COMPETITOR_STRICT_NEXT === '1') check(`${task.id} ${task.tool}: lead entries per menu ≤ ${NEXT_ENTRY_CAP}`, false, detail);
       else console.log(`INFO [competitors] ${task.id}: ${detail}`);
     }
+    if (s?.schemaErrors) check(`${task.id} ${task.tool}: no schema (input-validation) errors`, false, `${s.schemaErrors}: ${s.schemaErrorDetails.join(' | ')}`);
+    const rp = r.octocode.replay;
+    if (rp?.failed) check(`${task.id} ${task.tool}: continuations replay verbatim (C-3)`, false, rp.replays.filter(x => !x.ok).map(x => `${x.tool} ${x.name}: ${x.detail}`).join(' | '));
+    if (s?.verboseBytes) console.log(`INFO [competitors] ${task.id}: verbose default fields ${s.verboseBytes} B — ${Object.entries(s.verbose).filter(([k]) => k !== 'debugRows').map(([k, v]) => `${k}×${v.count} ${v.bytes} B`).join(', ')}`);
   } else if (r.status === 'error') {
     check(`${task.id} ${task.tool}: harness ran the task`, false, r.error);
   } else console.log(`SKIP [competitors] ${task.id} ${task.tool}: ${r.skipReason}`);
@@ -595,12 +664,31 @@ for (const c of clients.values()) c.close();
 fs.rmSync(CT, { recursive: true, force: true });
 
 const ran = results.filter(r => r.status === 'ran');
+
+// ---------- byte-regression gate (pinned anchor + rolling baseline) ----------
+const readBaseline = name => { try { return JSON.parse(fs.readFileSync(path.join(RESULTS, name), 'utf8')); } catch { return null; } };
+const baselines = { anchor: readBaseline(ANCHOR_FILE), rolling: readBaseline(ROLLING_FILE) };
+const gated = [];
+for (const r of ran) {
+  r.gate = gateTask({ id: r.id, ...baselineRecord(r) }, baselines);
+  if (r.gate.flags.length) { gated.push(r.id); check(`byte gate ${r.id} ${r.tool}: within ${GATE_FACTOR}× of anchor and rolling (bytes, calls, evidence)`, false, r.gate.flags.map(describeFlag).join('; ')); }
+  else if (r.gate.notes.some(n => /recipe changed/.test(n))) console.log(`INFO [competitors] ${r.id}: ${r.gate.notes.join('; ')}`);
+}
+if (baselines.anchor || baselines.rolling) check(`byte gate: no task regressed vs ${['anchor', 'rolling'].filter(k => baselines[k]).join(' + ')}`, gated.length === 0, gated.length ? gated.join(',') : `${ran.length} tasks`);
+else console.log(`INFO [competitors] byte gate: no baseline yet (seed with --update-anchor)`);
+const schemaTotal = ran.reduce((a, r) => a + (r.octocode.sensors?.schemaErrors ?? 0), 0);
+check('schema errors: 0 input-validation errors across recipes', schemaTotal === 0, `${schemaTotal}`);
+const replayRows = ran.map(r => r.octocode.replay).filter(Boolean);
+const replayFailed = replayRows.reduce((a, x) => a + x.failed, 0);
+if (REPLAY_MAX > 0) check('verbatim replay: every replayed continuation validates', replayFailed === 0, `${replayRows.reduce((a, x) => a + x.replayed, 0)} replayed + ${replayRows.reduce((a, x) => a + x.byRecipe, 0)} run by recipes of ${replayRows.reduce((a, x) => a + x.offered, 0)} offered; ${replayFailed} failed`);
+
 const table = ran.map(r => ({
   id: r.id, tool: r.tool, oOk: r.octocode.ok ? 'Y' : 'N', cOk: r.competitor.ok ? 'Y' : 'N', uOk: r.unfiltered.sameAsExpert ? '=' : r.unfiltered.ok ? 'Y' : 'N',
   oCalls: r.octocode.calls, cCalls: r.competitor.calls, uCalls: r.unfiltered.calls,
   oBytes: r.octocode.bytes, cBytes: r.competitor.bytes, uBytes: r.unfiltered.bytes, 'bytes×': r.ratios.bytes, 'u bytes×': r.unfilteredRatios.bytes,
   oMs: r.octocode.ms, cMs: r.competitor.ms, 'ms×': r.ratios.ms,
-  nextShare: r.octocode.sensors?.nextShare, nextMax: r.octocode.sensors?.nextEntriesMax, trimViol: r.octocode.sensors?.violations.length,
+  nextShare: r.octocode.sensors?.nextShare, hintsShare: r.octocode.sensors?.hintsShare, leadMax: r.octocode.sensors?.leadEntriesMax, trimViol: r.octocode.sensors?.violations.length,
+  schemaErr: r.octocode.sensors?.schemaErrors, verboseB: r.octocode.sensors?.verboseBytes, replay: r.octocode.replay ? `${r.octocode.replay.replayed - r.octocode.replay.failed}/${r.octocode.replay.replayed}+${r.octocode.replay.byRecipe}` : '', gate: r.gate?.flags.length ? 'FAIL' : r.gate?.notes.length === 2 && r.gate.notes.every(n => /no baseline/.test(n)) ? '—' : 'ok',
 }));
 console.table(table);
 const tally = (metric, arm = 'competitor') => {
@@ -618,8 +706,11 @@ const toolSummary = Object.fromEntries(Object.entries(perTool).map(([tool, rows]
   tasks: rows.length, octocodeCorrect: rows.filter(r => r.octocode.ok).length, competitorCorrect: rows.filter(r => r.competitor.ok).length, unfilteredCorrect: rows.filter(r => r.unfiltered.ok).length,
   medianCallsRatio: median(rows.map(r => r.ratios.calls)), medianBytesRatio: median(rows.map(r => r.ratios.bytes)), medianMsRatio: median(rows.map(r => r.ratios.ms)),
   medianBytesRatioUnfiltered: median(rows.map(r => r.unfilteredRatios.bytes)),
-  medianNextShare: median(rows.map(r => r.octocode.sensors?.nextShare)), maxNextEntriesPerRow: Math.max(0, ...rows.map(r => r.octocode.sensors?.nextEntriesMax ?? 0)),
+  medianNextShare: median(rows.map(r => r.octocode.sensors?.nextShare)), medianHintsShare: median(rows.map(r => r.octocode.sensors?.hintsShare)), medianLeadShare: median(rows.map(r => r.octocode.sensors?.leadShare)),
+  maxNextEntriesPerRow: Math.max(0, ...rows.map(r => r.octocode.sensors?.nextEntriesMax ?? 0)), maxLeadEntriesPerMenu: Math.max(0, ...rows.map(r => r.octocode.sensors?.leadEntriesMax ?? 0)),
   neverTrimViolations: rows.reduce((a, r) => a + (r.octocode.sensors?.violations.length ?? 0), 0),
+  schemaErrors: rows.reduce((a, r) => a + (r.octocode.sensors?.schemaErrors ?? 0), 0),
+  verboseBytes: rows.reduce((a, r) => a + (r.octocode.sensors?.verboseBytes ?? 0), 0),
 }]));
 console.table(toolSummary);
 const overall = {
@@ -633,11 +724,55 @@ const overall = {
   bytesLeUnfiltered: ran.filter(r => r.octocode.bytes <= r.unfiltered.bytes).length,
   wins: { correctness: tally('ok'), calls: tally('calls'), bytes: tally('bytes'), ms: tally('ms'), bytesVsUnfiltered: tally('bytes', 'unfiltered') },
   medianNextShare: median(ran.map(r => r.octocode.sensors?.nextShare)),
-  rowsOverNextCap: ran.filter(r => (r.octocode.sensors?.nextEntriesMax ?? 0) > NEXT_ENTRY_CAP).map(r => r.id),
+  medianHintsShare: median(ran.map(r => r.octocode.sensors?.hintsShare)),
+  medianLeadShare: median(ran.map(r => r.octocode.sensors?.leadShare)),
+  rowsOverNextCap: ran.filter(r => (r.octocode.sensors?.leadEntriesMax ?? 0) > NEXT_ENTRY_CAP).map(r => r.id),
   neverTrimViolations: ran.flatMap(r => (r.octocode.sensors?.violations ?? []).map(v => ({ id: r.id, followedAll: r.octocode.sensors.followedAll, ...v }))),
+  schemaErrors: { total: schemaTotal, byTask: Object.fromEntries(ran.filter(r => r.octocode.sensors?.schemaErrors).map(r => [r.id, r.octocode.sensors.schemaErrors])) },
+  verboseFields: (() => {
+    const byRule = {};
+    for (const r of ran) for (const [k, v] of Object.entries(r.octocode.sensors?.verbose ?? {})) {
+      if (k === 'debugRows') continue;
+      const x = (byRule[k] ??= { tasks: [], count: 0, bytes: 0 });
+      x.tasks.push(r.id); x.count += v.count; x.bytes += v.bytes;
+    }
+    return { totalBytes: Object.values(byRule).reduce((a, x) => a + x.bytes, 0), byRule };
+  })(),
+  replay: REPLAY_MAX > 0 ? {
+    perTaskMax: REPLAY_MAX,
+    offered: replayRows.reduce((a, x) => a + x.offered, 0), byRecipe: replayRows.reduce((a, x) => a + x.byRecipe, 0), cliOnly: replayRows.reduce((a, x) => a + x.cliOnly, 0),
+    replayed: replayRows.reduce((a, x) => a + x.replayed, 0), failed: replayFailed, rateLimited: replayRows.reduce((a, x) => a + x.replays.filter(y => y.rateLimited).length, 0),
+    runtimeErrors: ran.flatMap(r => (r.octocode.replay?.replays ?? []).filter(y => y.ok && y.isError && !y.rateLimited).map(y => `${r.id} ${y.tool} ${y.name}`)),
+  } : null,
+  byteGate: { factor: GATE_FACTOR, anchor: baselines.anchor ? { at: baselines.anchor.updatedAt, tasks: Object.keys(baselines.anchor.tasks).length } : null, rolling: baselines.rolling ? { at: baselines.rolling.updatedAt, tasks: Object.keys(baselines.rolling.tasks).length } : null, flagged: gated },
 };
 console.log('overall', JSON.stringify({ ...overall, neverTrimViolations: overall.neverTrimViolations.length }));
+console.table(overall.verboseFields.byRule);
 const { results: checkResults, failed } = summary();
+
+// Baselines: rolling only on an accepted run; the anchor only on an explicit flag.
+const build = () => {
+  const dist = path.join(ROOT, 'packages/octocode-mcp/dist/index.js');
+  const addon = fs.readdirSync(path.join(ROOT, 'packages/octocode-native')).find(f => /^octocode-native\..+\.node$/.test(f));
+  const stat = addon && fs.statSync(path.join(ROOT, 'packages/octocode-native', addon));
+  return { mcpDist: fs.existsSync(dist) ? sha16(fs.readFileSync(dist, 'utf8')) : null, nativeAddon: stat ? { file: addon, bytes: stat.size, mtime: stat.mtime.toISOString() } : null };
+};
+const writeBaseline = (name, role) => {
+  const prev = readBaseline(name);
+  const tasks = { ...(prev?.tasks ?? {}) };
+  for (const r of ran) tasks[r.id] = baselineRecord(r);
+  const env = { clasify: process.env.OCTOCODE_COMPETITOR_CLASIFY === '1', github: process.env.OCTOCODE_COMPETITOR_GITHUB !== '0', normalized: NORMALIZED };
+  fs.writeFileSync(path.join(RESULTS, name), JSON.stringify({ version: 1, role, factor: GATE_FACTOR, updatedAt: new Date().toISOString(), seededAt: prev?.seededAt ?? new Date().toISOString(), build: build(), env, tasks }, null, 2));
+  console.log(`baseline: wrote ${role} ${name} (${ran.length} tasks updated, ${Object.keys(tasks).length} total)`);
+};
+const onlyGateFailed = failed.every(f => f.name.startsWith('byte gate'));
+if (process.argv.includes('--update-anchor')) {
+  if (onlyGateFailed) { writeBaseline(ANCHOR_FILE, 'anchor'); writeBaseline(ROLLING_FILE, 'rolling'); }
+  else console.log('baseline: anchor NOT updated — checks other than the byte gate failed');
+} else if (process.argv.includes('--update-rolling')) {
+  if (!failed.length) writeBaseline(ROLLING_FILE, 'rolling');
+  else console.log('baseline: rolling NOT updated — run not accepted');
+}
 const payload = { at: new Date().toISOString(), node: process.version, overhead, overall, toolSummary, table, tasks: results, checks: checkResults };
 const file = writeResults('competitors', payload);
 const saveAs = arg('save-as');

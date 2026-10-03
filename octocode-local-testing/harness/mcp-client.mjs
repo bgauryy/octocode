@@ -115,13 +115,13 @@ export function expandShared(sc) {
   return copy;
 }
 
-/** Explicit tool/query hints and the bare next.clasify self-continuation. */
+/** Explicit tool/query hints and the bare clasify self-continuation (under `hints` or the legacy `next` key). */
 export function nextHints(value, pathLabel = '') {
   const hints = [];
   const walk = (node, at) => {
     if (!node || typeof node !== 'object') return;
     if (typeof node.tool === 'string' && node.query && typeof node.query === 'object') hints.push({ ...node, path: at });
-    else if (at.endsWith('.next.clasify') && Array.isArray(node.resources) && Array.isArray(node.questions)) hints.push({ tool: 'clasify', query: node, path: at });
+    else if (/\.(?:hints|next)\.clasify$/.test(at) && Array.isArray(node.resources) && Array.isArray(node.questions)) hints.push({ tool: 'clasify', query: node, path: at });
     for (const [key, child] of Object.entries(node)) walk(child, `${at}.${key}`);
   };
   walk(value, pathLabel);

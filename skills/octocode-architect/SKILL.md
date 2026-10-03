@@ -12,7 +12,24 @@ routes: load/run a reference, doc, or script only when it changes the next actio
 
 Model the system, test architecture hypotheses against code and runtime evidence, then make the smallest authorized, verified improvement.
 
-Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
+```mermaid
+flowchart LR
+    F[FRAME] --> M[MODEL] --> P[PROVE]
+    P --> E{"Edits authorized and seam proven?"}
+    E -- yes --> C[CHANGE] --> V[VERIFY]
+    E -- no --> R["Findings + plan"]
+    M -. "layers, ownership, blast radius" .-> L["architecture-lenses.md"]
+    M -. "path crosses trust or process boundary" .-> D["contract-data-flow-checks.md"]
+    P -. "correctness, complexity, concurrency" .-> A["algorithm-review.md"]
+    P -. "topology, cycles, dead code, hot paths" .-> T["architecture-analysis.md"]
+    C -. "before any source edit" .-> CD["change-discipline.md"]
+    V -. "agent-authored work" .-> AC["agent-defect-classes.md"]
+    V -. "class prevalence disputed" .-> AE["agent-defect-evidence.md"]
+    V -. "consequential result needs a decision record" .-> O["output-contracts.md"]
+```
+Skill map: `FRAME → MODEL → PROVE → CHANGE → VERIFY`; dotted edges load a reference. Review-only requests end at findings and a plan.
+
+Pages (load when its map edge applies): `references/architecture-lenses.md` · `references/contract-data-flow-checks.md` · `references/algorithm-review.md` · `references/architecture-analysis.md` · `references/change-discipline.md` · `references/agent-defect-classes.md` · `references/agent-defect-evidence.md` · `references/output-contracts.md`
 
 ## Rules
 
@@ -29,10 +46,10 @@ Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
 ## Workflow
 
 1. **FRAME** — state the decision, quality attribute (performance/maintainability/correctness), scope, and consequence. Pin the review target (commit, branch, or working tree) and run baseline sensors before findings. Stop if the decision is open-ended without a named attribute — clarify first.
-2. **MODEL** — map boundaries, contracts, and representative data/control flows from exact source using `octocode-research`. Load `references/architecture-lenses.md` when layers, ownership, or blast radius need a structured lens. Load `references/contract-data-flow-checks.md` when a path crosses trust or process boundaries.
-3. **PROVE** — confirm hypotheses with exact code, AST/LSP identity, and tests before reporting a finding. Rate each finding `confirmed | likely | candidate | dismissed`: confirmed needs exact code plus an executed command or test; anything weaker names the missing decisive evidence. A fixture or test proves a hypothesis only if it could fail it: give every identity the hypothesis distinguishes (IDs, SHAs, paths, versions, roots) a distinct value, and make a negative test assert the specific error, not any rejection. When a sharper fixture contradicts a finding, dismiss it and keep the disproof. Load `references/algorithm-review.md` for correctness/complexity/concurrency questions. Load `references/architecture-analysis.md` for dependency topology, cycles, dead code, or hot paths.
-4. **CHANGE** — only when the request authorizes edits and evidence names a specific seam. Implement one vertical slice; keep cleanup within the changed area. Load `references/refactoring.md` and `references/delivery-discipline.md` before any source edit.
-5. **VERIFY** — rerun the pre-change checks and confirm the diff is within authorized scope. Review-only requests stop here and return findings + a plan, not edits. Load `references/agent-defect-classes.md` for agent-authored work quality checks, and `references/agent-defect-evidence.md` when a class's prevalence or rigor is disputed. Load `references/output-contracts.md` when a consequential result needs an explicit decision record.
+2. **MODEL** — map boundaries, contracts, and representative data/control flows from exact source using `octocode-research`.
+3. **PROVE** — confirm hypotheses with exact code, AST/LSP identity, and tests before reporting a finding. Rate each finding `confirmed | likely | candidate | dismissed`: confirmed needs exact code plus an executed command or test; anything weaker names the missing decisive evidence. A fixture or test proves a hypothesis only if it could fail it: give every identity the hypothesis distinguishes (IDs, SHAs, paths, versions, roots) a distinct value, and make a negative test assert the specific error, not any rejection. When a sharper fixture contradicts a finding, dismiss it and keep the disproof.
+4. **CHANGE** — only when the request authorizes edits and evidence names a specific seam. Implement one vertical slice; keep cleanup within the changed area.
+5. **VERIFY** — rerun the pre-change checks and confirm the diff is within authorized scope. Review-only requests stop here and return findings + a plan, not edits.
 
 ## Gates
 
@@ -42,5 +59,6 @@ Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
 - Bookkeeping follows the repo and release contract: update only required docs, manifests, versions, generated artifacts, lockfiles, changelogs, or snapshots.
 - Unimplemented reachable paths fail explicitly. Tests prove outcomes, not merely calls.
 - Chat-only output stays in chat. Requested source edits stay in their named repo; do not create planning artifacts unless asked.
+- Write findings in STE-80. Show evidenced flows and wiring as Mermaid diagrams, not dense prose. HTML explainers are for people on request, never agent context (`references/output-contracts.md`).
 
-Skill maintenance: run `node scripts/eval-architect.mjs --self-test` and `node scripts/eval-architect.mjs --json` after editing rules or `evals/cases.json`, then the `octocode-skills` review; load `references/references.md` only when auditing where these rules come from.
+Skill maintenance: run `node scripts/eval-architect.mjs --self-test` and `node scripts/eval-architect.mjs --json` after editing rules or `evals/cases.json`, then the `octocode-skills` review; `README.md` § Sources lists where these rules come from.

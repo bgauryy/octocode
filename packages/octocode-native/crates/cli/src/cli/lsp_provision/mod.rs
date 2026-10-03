@@ -160,7 +160,6 @@ fn marker_path(bin_path: &Path) -> PathBuf {
 /// Decode the downloaded asset into the final executable bytes.
 fn extract_binary(asset: &ManifestAsset, raw: &[u8]) -> Result<Vec<u8>, String> {
     match asset.archive {
-        ArchiveKind::None => Ok(raw.to_vec()),
         ArchiveKind::Gz => {
             use flate2::read::GzDecoder;
             let mut decoder = GzDecoder::new(raw);
@@ -180,10 +179,6 @@ fn extract_binary(asset: &ManifestAsset, raw: &[u8]) -> Result<Vec<u8>, String> 
                 )
             })
         }
-        ArchiveKind::TarGz | ArchiveKind::TarXz => Err(
-            "Archive format is not supported; install the server via your package manager."
-                .to_string(),
-        ),
     }
 }
 
@@ -914,18 +909,6 @@ mod tests {
             sha256: None,
         };
         assert!(extract_binary(&asset, &zip_with(&[("x", b"y")])).is_err());
-    }
-
-    #[test]
-    fn tar_archives_are_unsupported() {
-        let asset = ManifestAsset {
-            url: "u",
-            archive: ArchiveKind::TarGz,
-            bin_name: "x",
-            bin_path: None,
-            sha256: None,
-        };
-        assert!(extract_binary(&asset, b"whatever").is_err());
     }
 
     #[test]

@@ -33,11 +33,13 @@ use ignore::{WalkBuilder, WalkState};
 
 use crate::search::classify;
 use crate::search::ripgrep_parser::{FileEntry, RawMatch, assemble_file, strip_trailing_newline};
+use crate::text::file_extension::get_extension_internal;
 use crate::text::utf8_offsets::{
     byte_to_char_offset_inner, ceil_char_boundary, floor_char_boundary,
 };
 use crate::types::{
-    RipgrepFile, RipgrepMatch, RipgrepParseResult, RipgrepSearchOptions, RipgrepStats,
+    BinaryExtensionCount, RipgrepFile, RipgrepMatch, RipgrepParseResult, RipgrepSearchOptions,
+    RipgrepStats,
 };
 
 pub trait RipgrepPathFilter: Send + Sync {
@@ -149,6 +151,11 @@ const PCRE2_LIMITS: Pcre2Limits = Pcre2Limits {
 /// it would otherwise be lost; beyond this offset the earlier buffers were
 /// already searched and reported normally.
 const MAX_BINARY_PREFIX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Leading bytes a format header occupies. A first NUL inside them, before
+/// any line break, ends a binary signature (font, database, archive magic),
+/// not text cut short.
+const LEADING_BINARY_BYTES: usize = 1024;
 
 #[cfg(feature = "pcre2")]
 /// Live PCRE2 worker count (including abandoned-but-still-running workers).
@@ -354,6 +361,8 @@ struct CollectResult {
     binary_files: Vec<String>,
     binary_file_count: u32,
     skipped_binary_count: u32,
+    /// Skipped binary files per lowercased extension, most files first.
+    skipped_binary_extensions: Vec<BinaryExtensionCount>,
     /// The caller cancelled the search before the walk finished (`cancelled`).
     cancelled: bool,
     error_count: u32,
@@ -379,6 +388,7 @@ struct CollectState {
     binary_files: Mutex<Vec<String>>,
     binary_file_count: AtomicU32,
     skipped_binary_count: AtomicU32,
+    skipped_binary_extensions: Mutex<HashMap<String, u32>>,
     cancelled: AtomicBool,
     /// Set when the walk must end now (deadline, cancellation, driver timeout).
     stop: AtomicBool,
@@ -403,6 +413,7 @@ impl CollectState {
             binary_files: Mutex::new(Vec::new()),
             binary_file_count: AtomicU32::new(0),
             skipped_binary_count: AtomicU32::new(0),
+            skipped_binary_extensions: Mutex::new(HashMap::new()),
             cancelled: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             error_count: AtomicU32::new(0),
@@ -410,9 +421,20 @@ impl CollectState {
         }
     }
 
-    /// Remember a file searched only up to its first NUL byte. The kept
-    /// paths are the smallest in path order, so the list does not depend on
-    /// which walk worker finished first.
+    /// Count a file that is binary from its leading bytes under its
+    /// extension (lowercased, as structureSearch matches extensions).
+    fn record_skipped_binary(&self, path: &Path) {
+        self.skipped_binary_count.fetch_add(1, Ordering::Relaxed);
+        let extension = get_extension_internal(&path.to_string_lossy(), true, "");
+        if let Ok(mut groups) = self.skipped_binary_extensions.lock() {
+            let count = groups.entry(extension).or_insert(0);
+            *count = count.saturating_add(1);
+        }
+    }
+
+    /// Remember a file searched only up to its first NUL byte. The snapshot
+    /// sorts the paths, so the list does not depend on which walk worker
+    /// finished first.
     fn record_binary(&self, path: &Path) {
         self.binary_quit.store(true, Ordering::Relaxed);
         let _ = self
@@ -490,6 +512,25 @@ impl CollectState {
                 .unwrap_or_default(),
             binary_file_count: self.binary_file_count.load(Ordering::Relaxed),
             skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),
+            skipped_binary_extensions: self
+                .skipped_binary_extensions
+                .lock()
+                .map(|groups| {
+                    let mut groups = groups
+                        .iter()
+                        .map(|(extension, count)| BinaryExtensionCount {
+                            extension: extension.clone(),
+                            count: *count,
+                        })
+                        .collect::<Vec<_>>();
+                    groups.sort_by(|a, b| {
+                        b.count
+                            .cmp(&a.count)
+                            .then_with(|| a.extension.cmp(&b.extension))
+                    });
+                    groups
+                })
+                .unwrap_or_default(),
             cancelled: self.cancelled.load(Ordering::Relaxed),
             error_count: self.error_count.load(Ordering::Relaxed),
             first_error,
@@ -817,7 +858,6 @@ fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, u64)> {
     Ok((file, meta.len()))
 }
 
-/// Read the first `len` bytes of an already-open file.
 /// Bytes before a first NUL that read as text: valid UTF-8 without control
 /// bytes other than whitespace and ESC. Binary headers (PNG, ELF, Mach-O,
 /// archives) fail this within their first bytes.
@@ -829,6 +869,17 @@ fn is_text_prefix(prefix: &[u8]) -> bool {
     })
 }
 
+/// Whether a file quit at its first NUL is binary from its leading bytes,
+/// and so outside a text search the way rg skips it: the bytes before the
+/// NUL are not text, or they are a short single-line header that matched
+/// nothing. A match, a complete text line, or a long text run before the
+/// NUL is searchable text the cut leaves unread.
+fn is_leading_binary(prefix: &[u8], matched: bool) -> bool {
+    !is_text_prefix(prefix)
+        || (!matched && prefix.len() < LEADING_BINARY_BYTES && !prefix.contains(&b'\n'))
+}
+
+/// Read the first `len` bytes of an already-open file.
 fn read_prefix(file: &std::fs::File, len: u64) -> std::io::Result<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut handle = file;
@@ -1003,7 +1054,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         prefix_searcher.search_slice(self.matcher, &prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
-        outcome.opaque = !is_text_prefix(&prefix);
+        outcome.opaque = is_leading_binary(&prefix, outcome.matched_lines > 0);
         Ok(outcome)
     }
 }
@@ -1178,7 +1229,7 @@ fn collect<M: Matcher + Sync>(
             state.files_searched.fetch_add(1, Ordering::Relaxed);
             state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
             if outcome.opaque {
-                state.skipped_binary_count.fetch_add(1, Ordering::Relaxed);
+                state.record_skipped_binary(path);
             } else if outcome.binary {
                 // Text after the NUL was not searched: coverage is partial.
                 state.record_binary(path);
@@ -1345,6 +1396,7 @@ fn build_result(
         binary_files,
         binary_file_count,
         skipped_binary_count,
+        skipped_binary_extensions,
         cancelled,
         error_count,
         first_error,
@@ -1454,6 +1506,8 @@ fn build_result(
         binary_files: (!binary_files.is_empty()).then_some(binary_files),
         binary_file_count: binary_quit.then_some(binary_file_count),
         skipped_binary_count: (skipped_binary_count > 0).then_some(skipped_binary_count),
+        skipped_binary_extensions: (!skipped_binary_extensions.is_empty())
+            .then_some(skipped_binary_extensions),
     };
 
     RipgrepParseResult { files, stats }

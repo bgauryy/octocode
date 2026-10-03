@@ -1,6 +1,6 @@
 # Architecture Lenses
 
-Load when modeling a consequential design, boundary, interface, flow, or unfamiliar path. Why: one view hides dependencies and ownership that another exposes.
+Load when modeling a consequential design, boundary, interface, flow, or unfamiliar path. One view hides dependencies and ownership that another exposes.
 
 ## Start with wiring
 

@@ -13,7 +13,8 @@ Usage:
   node scripts/validate-rfc.mjs --help
 
 Checks primary mode, required sections, decision-blocker closure, step dependency
-order, acceptance links, KPI traceability, and rollback-threshold ownership.
+order, acceptance links, KPI traceability, rollback-threshold ownership, and
+mermaid diagram types (unknown type = error; an RFC with no diagram = warning).
 --draft checks an exploratory RFC's structure and explicit Draft/none declarations;
 it permits declared open blockers and rejects common covert recommendation or
 execution language. This bounded lint does not certify prose truth.`;
@@ -169,6 +170,7 @@ function validateFiles(files, { draft = false } = {}) {
     }
   }
   if (draft && !hasRfc) errors.push('--draft requires RFC.md; standalone plans use readiness checks.');
+  errors.push(...diagramFindings(files).errors);
 
   if (hasPlan) {
     const context = section(files['PLAN.md'], 'Plan Context');
@@ -218,6 +220,33 @@ function validateFiles(files, { draft = false } = {}) {
   }
 
   return errors;
+}
+
+const MERMAID_TYPES = new Set([
+  'flowchart', 'graph', 'sequenceDiagram', 'classDiagram', 'stateDiagram', 'stateDiagram-v2', 'erDiagram',
+  'journey', 'gantt', 'pie', 'quadrantChart', 'requirementDiagram', 'gitGraph', 'C4Context', 'C4Container',
+  'C4Component', 'C4Dynamic', 'C4Deployment', 'mindmap', 'timeline', 'zenuml', 'sankey-beta', 'xychart-beta',
+  'block-beta', 'packet-beta', 'kanban', 'architecture-beta', 'radar-beta', 'treemap-beta',
+]);
+
+// Mermaid blocks must open with a known diagram keyword; an RFC without any diagram only warns.
+function diagramFindings(files) {
+  const errors = [];
+  const warnings = [];
+  for (const [name, content] of Object.entries(files)) {
+    const blocks = [...content.matchAll(/^```mermaid[^\n]*\n([\s\S]*?)^```/gm)];
+    for (const [, body] of blocks) {
+      const first = body.split('\n').map((line) => line.trim()).find((line) => line && !line.startsWith('%%'));
+      const keyword = first?.split(/\s+/)[0];
+      if (!keyword || !MERMAID_TYPES.has(keyword)) {
+        errors.push(`${name}: mermaid block starts with unknown diagram type "${keyword ?? ''}".`);
+      }
+    }
+    if (name === 'RFC.md' && blocks.length === 0) {
+      warnings.push('RFC.md: no mermaid diagram; show flows, comparisons, proportions or plan dependencies as diagrams (references/rfc-diagrams.md).');
+    }
+  }
+  return { errors, warnings };
 }
 
 function validateSteps(name, content) {
@@ -418,7 +447,20 @@ KPI.md owns the measurable rollback threshold.
   if (!validateFiles({ 'RFC.md': draftRfc }).some(error => error.includes('decision blockers'))) {
     throw new Error('Default readiness must still reject open blockers.');
   }
-  console.log(JSON.stringify({ valid: true, selfTest: true, cases: 24 }));
+  const diagramRfc = `${validRfc}\n\`\`\`mermaid\nflowchart LR\n  A --> B\n\`\`\`\n`;
+  const diagramCases = [
+    ['known diagram', diagramRfc, 0, 0],
+    ['unknown diagram type', diagramRfc.replace('flowchart LR', 'flowchar LR'), 1, 0],
+    ['no diagram warns only', validRfc, 0, 1],
+  ];
+  for (const [label, rfc, errorCount, warningCount] of diagramCases) {
+    const errors = validateFiles({ 'RFC.md': rfc });
+    const { warnings } = diagramFindings({ 'RFC.md': rfc });
+    if (errors.length !== errorCount || warnings.length !== warningCount) {
+      throw new Error(`Diagram self-test ${label}: ${JSON.stringify({ errors, warnings })}`);
+    }
+  }
+  console.log(JSON.stringify({ valid: true, selfTest: true, cases: 27 }));
 }
 
 const args = process.argv.slice(2);
@@ -438,11 +480,14 @@ if (targets.length !== 1 || targets[0].startsWith('-')) {
 }
 
 try {
-  const errors = validateFiles(loadFiles(targets[0]), { draft });
+  const files = loadFiles(targets[0]);
+  const errors = validateFiles(files, { draft });
+  const { warnings } = diagramFindings(files);
   const result = {
     valid: errors.length === 0, target: path.resolve(targets[0]),
     mode: draft ? 'draft' : 'readiness',
     ...(draft ? { reviewReady: false, semanticLint: 'bounded-pattern-check' } : {}), errors,
+    ...(warnings.length ? { warnings } : {}),
   };
   console.log(JSON.stringify(result, null, 2));
   if (errors.length) {

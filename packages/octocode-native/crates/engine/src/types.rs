@@ -216,13 +216,24 @@ pub struct RipgrepStats {
     pub error_count: Option<u32>,
     /// Bounded first failure detail. Counts include every observed failure.
     pub first_error: Option<String>,
-    /// Files searched only up to their first NUL byte (`binaryQuit`), in path
-    /// order and bounded; `binary_file_count` counts all of them.
+    /// Files searched only up to their first NUL byte (`binaryQuit`) after
+    /// real text, every one in path order; `binary_file_count` counts them.
     pub binary_files: Option<Vec<String>>,
     pub binary_file_count: Option<u32>,
-    /// Opaque binary files (first NUL before any text) skipped like rg skips
+    /// Files binary from their leading bytes (a NUL before any text, or
+    /// after a short header that matched nothing), skipped like rg skips
     /// them. Nothing text-searchable was lost, so they are not a coverage gap.
     pub skipped_binary_count: Option<u32>,
+    /// `skipped_binary_count` per lowercased extension ("" for none), most
+    /// files first.
+    pub skipped_binary_extensions: Option<Vec<BinaryExtensionCount>>,
+}
+
+#[cfg_attr(feature = "napi-addon", napi(object))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryExtensionCount {
+    pub extension: String,
+    pub count: u32,
 }
 
 #[cfg_attr(feature = "napi-addon", napi(object))]

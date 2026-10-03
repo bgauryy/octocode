@@ -22,11 +22,18 @@ if (args.includes('--help')) {
   --self-test  run collection, routing, standalone-runtime, and usage-error regressions
   --help       this text
 
-Navigation gates treat the skill as a map: SKILL.md is the lobby, every local file reference stays
+Navigation gates treat the skill as a map: SKILL.md is the lobby with a Mermaid map of every reference
+page (references/, docs/, scripts/docs/) and its trigger, at most 12 reference pages of at most 100 lines;
+every local file reference stays
 inside the folder, and every shipped file is reachable from the lobby, README, or another used file.
 Exit 1 on any ERROR.`);
   process.exit(0);
 }
+
+const MAX_REFERENCE_LINES = 100;
+const MAX_REFERENCES = 12;
+const MAP_PAGE = /^(?:references|docs|scripts\/docs)\/.+\.md$/;
+const MAP_ROOT = /^(?:references|docs|scripts\/docs)\//;
 
 function isSkillDir(dir) {
   return existsSync(join(dir, 'SKILL.md')) && statSync(join(dir, 'SKILL.md')).isFile();
@@ -252,7 +259,26 @@ function checkSkill(dir) {
       refTexts.set(rel, text);
       for (const p of linkedPaths(text)) referenced.add(p);
       if (!/^#\s+/m.test(text)) warn('reference-h1', `${rel} should have an H1.`);
-      if (refLines > 50) warn('reference-long', `${rel} is ${refLines} lines; the limit is 50 — split it or cut filler.`);
+      if (refLines > MAX_REFERENCE_LINES) warn('reference-long', `${rel} is ${refLines} lines; the limit is ${MAX_REFERENCE_LINES} — cut filler or duplication.`);
+    }
+  }
+
+  // Skill map: the lobby draws every reference page in one Mermaid diagram, with the trigger on the edge,
+  // so an agent sees all routes and when to take them on the first screen.
+  const mapPages = files.filter((rel) => MAP_PAGE.test(rel) && basename(rel) !== 'references.md');
+  const refPages = mapPages.filter((rel) => rel.startsWith('references/'));
+  if (refPages.length > MAX_REFERENCES) {
+    warn('references-many', `${refPages.length} reference pages; the limit is ${MAX_REFERENCES} — merge pages that serve one decision or one moment of use.`);
+  }
+  if (mapPages.length) {
+    const mermaid = [...lobby.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
+    if (!mermaid) {
+      warn('lobby-map-missing', 'SKILL.md needs a Mermaid skill map: flow phases plus every reference page, each on an edge labeled with its trigger.');
+    } else {
+      const missing = mapPages.filter((rel) => !mermaid.includes(rel.replace(MAP_ROOT, '')));
+      if (missing.length) {
+        warn('lobby-map-incomplete', `the SKILL.md Mermaid map does not show ${missing.join(', ')}; add each page as a node on an edge labeled with its trigger.`);
+      }
     }
   }
 
@@ -437,6 +463,19 @@ Run the hook test and stop.
       );
     }
     writeFileSync(join(skillDir, 'README.md'), '# Hook skill\n');
+
+    mkdirSync(join(skillDir, 'references'), { recursive: true });
+    writeFileSync(join(skillDir, 'references', 'guide.md'), '# Guide\n\nLoad when the hook fails. Next: the step ends here.\n');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\nIf the hook fails, load `references/guide.md`.\n');
+    if (!checkSkill(skillDir).findings.some((f) => f.code === 'lobby-map-missing')) throw new Error('lobby-map-missing regression');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "hook fails" .-> G["guide.md"]\n```\nIf the hook fails, load `references/guide.md`.\n');
+    const mapped = checkSkill(skillDir).findings.filter((f) => f.code.startsWith('lobby-map'));
+    if (mapped.length) throw new Error(`lobby-map false positive: ${JSON.stringify(mapped)}`);
+    writeFileSync(join(skillDir, 'references', 'extra.md'), '# Extra\n\nLoad when the hook is slow. Next: the step ends here.\n');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "hook fails" .-> G["guide.md"]\n```\nIf the hook fails, load `references/guide.md`. If it is slow, load `references/extra.md`.\n');
+    if (!checkSkill(skillDir).findings.some((f) => f.code === 'lobby-map-incomplete')) throw new Error('lobby-map-incomplete regression');
+    rmSync(join(skillDir, 'references'), { recursive: true, force: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
 
     writeFileSync(join(skillDir, 'unused-probe.txt'), 'temporary probe\n');
     const unusedFindings = checkSkill(skillDir).findings;

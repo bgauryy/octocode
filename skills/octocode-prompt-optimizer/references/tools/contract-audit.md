@@ -1,8 +1,6 @@
 # Cross-tool contract audit
 
-Load when a server exposes more than one tool, or after editing any server instruction, description, or schema. Why: every tool can be correct alone while the set contradicts itself.
-
-**Audit the set, not the tool.** Reviewing one description shows whether it reads well; reviewing all of them shows whether an agent can tell them apart and carry one field's meaning from one call to the next.
+Load when a server exposes more than one tool, or after editing any server instruction, description, or schema. Audit the set, not the tool: each tool can be correct alone while the set contradicts itself. If a human cannot say which tool applies, an agent cannot either ([Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)).
 
 ## Sweep
 
@@ -41,8 +39,6 @@ Unresolved: <contradiction needing an owner decision>
 
 Report only the pairs and fields you compared. An unexamined tool is a gap, not a pass.
 
-## Sources
-- Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — distinguishable tools, consistent naming, and evaluation-driven tool sets.
-- Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) — unique tool names, declared schemas, deterministic discovery, and versioned result contracts.
+Sources: [Anthropic, writing tools](https://www.anthropic.com/engineering/writing-tools-for-agents); [MCP Tools spec](https://modelcontextprotocol.io/specification/2026-07-28/server/tools).
 
-Next: to repair a finding in its owning layer load `references/tools/tool-contracts.md`; for version-specific wire findings load `references/tools/mcp-wire-contract.md`; when the same semantics cross agent apps load `references/agents/cross-app-contracts.md`; for wording load `references/writing/behavior.md`; prove selection with `references/flow/evaluation-data.md`; record repairs in `references/flow/fix.md` and confirm them in `references/flow/validate.md`.
+Next: repair in the owning layer `tool-contracts.md`; wire findings `mcp-wire-contract.md`; cross-app semantics `../agents/cross-app-contracts.md`; prove selection with `octocode-eval-benchmark`; record repairs in `../flow/fix.md`.

@@ -1,6 +1,6 @@
 # Implementation audit
 
-Load when tracing a tool's inputs and data flow through the native runtime. Why: the schema is a promise; this lane proves the code keeps it without waste.
+Load when tracing a tool's inputs and data flow through the native runtime. This lane proves the code keeps the schema's promise without waste.
 
 ## Schema ↔ implementation alignment
 
@@ -35,3 +35,5 @@ Trace one real call per variant: `$OCTO <tool> '<json>'` → `contracts/prepare.
 ## Record
 
 Per finding: hop, file:line, reproducing call, measured cost if claimed, fix owner (core vs native vs engine).
+
+Next: load `references/output-audit.md` to judge what the tool returns.

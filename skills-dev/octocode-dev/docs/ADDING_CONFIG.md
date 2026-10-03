@@ -1,21 +1,12 @@
 # Adding configuration to Octocode
 
-This guide explains how to add settings and credentials without creating TypeScript/Rust drift. User-facing settings are documented in `<repo>/docs/CONFIGURATION.md` and credential flows in `<repo>/docs/AUTHENTICATION.md`; package layout and build commands are in [DEVELOPMENT.md](DEVELOPMENT.md).
+How to add settings and credentials without TypeScript/Rust drift. User-facing settings: `<repo>/docs/CONFIGURATION.md`. Credential flows: `<repo>/docs/AUTHENTICATION.md`. Package layout and build commands: [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Architecture
 
-`packages/octocode-config/config-contract.json` is the only declaration of configuration field policy. It owns:
+`packages/octocode-config/config-contract.json` is the only declaration of configuration field policy. It owns file paths and section membership; input and resolved types; defaults and inherited defaults; environment names and alias priority; ranges, enum values, URL/path semantics, and unknown-key membership; dotenv trust (`all`, `home`, or `never`); credential exclusion from `ResolvedConfig`; and user-facing descriptions and generated reference data.
 
-- file paths and section membership;
-- input and resolved types;
-- defaults and inherited defaults;
-- environment names and alias priority;
-- ranges, enum values, URL/path semantics, and unknown-key membership;
-- dotenv trust (`all`, `home`, or `never`);
-- credential exclusion from `ResolvedConfig`;
-- user-facing descriptions and generated reference data.
-
-The TypeScript generator validates the contract against `config-contract.schema.json` (Ajv); both build paths then consume it:
+The TypeScript generator validates the contract against `config-contract.schema.json` (Ajv). Both build paths then consume it:
 
 ```text
 packages/octocode-config/config-contract.json
@@ -33,11 +24,12 @@ contract metadata → generic TypeScript resolver/validator
 contract metadata → generic Rust resolver/validator
 ```
 
-The interpreters contain language mechanics—reading JavaScript objects or `serde_json::Value`, parsing environment strings, and constructing diagnostics. They contain no per-setting field lists.
-
-Do not edit generated files. Do not add a setting directly to `types.ts`, `defaults.ts`, `resolverSections.ts`, `validator.ts`, Rust config structs, `resolver.rs`, or `validation.rs`.
-
-`@octocodeai/config` owns this policy. Its `.` entry (the config loader) uses only Node builtins; Ajv is a build/test dependency. The package's `./schema` and `./mcp` subpaths re-export `@octocodeai/octocode-core`, and its tool-contract generator reads core (see the [contract pipeline](DEVELOPMENT.md#contract-pipeline)), but configuration code under `src/config` and `src/tokens` never imports core: core owns tool contracts, config owns configuration and environment policy.
+- The interpreters contain language mechanics only (reading JavaScript objects or `serde_json::Value`, parsing environment strings, building diagnostics). They contain no per-setting field lists.
+- Do not edit generated files; the next generation or build discards the edit.
+- Do not add a setting directly to `types.ts`, `defaults.ts`, `resolverSections.ts`, `validator.ts`, Rust config structs, `resolver.rs`, or `validation.rs`. Field-specific logic in one resolver brings back language drift.
+- Do not copy a default or range into docs. The generated settings reference owns those facts.
+- `@octocodeai/config` owns this policy. Its `.` entry (the config loader) uses only Node builtins; Ajv is a build/test dependency.
+- The `./schema` and `./mcp` subpaths re-export `@octocodeai/octocode-core`, and the tool-contract generator reads core (see the [contract pipeline](DEVELOPMENT.md#contract-pipeline)). Configuration code under `src/config` and `src/tokens` never imports core: core owns tool contracts, config owns configuration and environment policy.
 
 ## Source precedence and file policy
 
@@ -52,21 +44,20 @@ process environment / MCP client env block
   → generated default
 ```
 
-Resolution is per field: the first source holding a valid value wins, so an invalid value in one layer falls through to the next. A workspace `.octocoderc` field whose environment binding is protected (`dotenv` other than `all`) is ignored with a `workspace_config_protected` warning — the same boundary as the workspace `.env`. User-facing details, including warning diagnostics, are in `<repo>/docs/CONFIGURATION.md#how-settings-override-each-other`.
+- Resolution is per field. The first source with a valid value wins; an invalid value falls through to the next layer.
+- A workspace `.octocoderc` field whose environment binding is protected (`dotenv` other than `all`) is ignored with a `workspace_config_protected` warning, the same boundary as the workspace `.env`. Details: `<repo>/docs/CONFIGURATION.md#how-settings-override-each-other`.
+- CLI and MCP load both `.env` files. Node helpers load the supplied workspace by default; an explicit `trusted:false` opts out. Native executable LSP-project trust is separate.
+- Missing or blank file values fall back to the next source.
 
-CLI and MCP load both `.env` files. Node helpers load the supplied workspace by default; an explicit `trusted:false` opts out. Native executable LSP-project trust is separate. Missing or blank file values fall back to the next source.
-
-The contract's dotenv policy controls file propagation:
-
-| Policy | Meaning |
+| Dotenv policy | Meaning |
 |---|---|
 | omitted or `all` | Loads from workspace or global Octocode `.env`. |
-| `home` | May be loaded from the trusted home `.env`, never a project `.env`. |
+| `home` | May load from the trusted home `.env`, never a project `.env`. |
 | `never` | Shell/CI/MCP environment only; never loaded from either `.env` file. |
 
 ## Add a normal setting
 
-For an existing section, adding a normal setting requires one authoritative edit in `config-contract.json` and regeneration.
+In an existing section, a normal setting needs one edit in `config-contract.json` and a regeneration.
 
 Example (hypothetical; not a shipped field): `output.maxResults`, with `OCTOCODE_MAX_RESULTS`, range 1–500, and default 50:
 
@@ -94,27 +85,16 @@ Example (hypothetical; not a shipped field): `output.maxResults`, with `OCTOCODE
 }
 ```
 
-Numeric values use `minimum + span` for the maximum and `minimum + min(defaultOffset, span)` for the default. This representation makes inverted ranges impossible by construction. Enum defaults are the first value in `values`; runtime-surface defaults are the first surface.
-
-Then regenerate:
+- Numeric maximum is `minimum + span`; default is `minimum + min(defaultOffset, span)`. Inverted ranges are impossible by construction.
+- Enum defaults are the first value in `values`. Runtime-surface defaults are the first surface.
 
 ```bash
 yarn workspace @octocodeai/config generate:config-contract
 ```
 
-That one declaration generates:
+That one declaration generates `OutputConfigOptions.maxResults?: number`, `RequiredOutputConfig.maxResults: number`, the resolved default, environment precedence and integer parsing, clamping and validation bounds, unknown-key recognition, Rust `OutputConfig.max_results`, Rust resolution and validation metadata, and the settings-reference row and complete example.
 
-- `OutputConfigOptions.maxResults?: number`;
-- `RequiredOutputConfig.maxResults: number`;
-- the resolved default;
-- environment precedence and integer parsing;
-- clamping and validation bounds;
-- unknown-key recognition;
-- Rust `OutputConfig.max_results`;
-- Rust resolution and validation metadata;
-- the settings-reference row and complete example.
-
-Add a focused test proving behavior that is not already guaranteed by the generic interpreter—for example, a downstream feature gate that consumes the new value. Do not add language-parity tests that restate the field declaration manually.
+Add a focused test only for behavior the generic interpreter does not guarantee, for example a downstream feature gate that consumes the value. Do not add language-parity tests that restate the field declaration.
 
 ### Supported field shapes
 
@@ -129,11 +109,11 @@ Add a focused test proving behavior that is not already guaranteed by the generi
 | `enum` | generated literal union / Rust string | `values`, optional `defaultFrom` |
 | `schemaVersion` | schema version | reserved for the root version field |
 
-A `null` input means “unset/use the next source.” A `null` generated default becomes an optional string or nullable array where appropriate.
+A `null` input means “unset; use the next source.” A `null` generated default becomes an optional string or nullable array where appropriate.
 
 ### Environment aliases and invalid input
 
-Bindings are keyed by environment variable and sorted by `priority`; lower numbers win:
+Bindings are keyed by environment variable and sorted by `priority`; lower numbers win. Every environment binding must be in the contract; otherwise source labeling, protection, docs, and both resolvers cannot derive it.
 
 ```json
 "env": {
@@ -142,18 +122,16 @@ Bindings are keyed by environment variable and sorted by `priority`; lower numbe
 }
 ```
 
-Optional binding properties:
-
-- `normalize: "trim"` trims a string;
-- `normalize: "lower"` trims and lowercases it;
-- `invalid: "skip"` ignores an invalid environment value and tries the next source;
-- `invalid: "default"` makes an invalid environment value select the generated default rather than file config.
-
-`skip` is the default. Use `default` only when invalid environment input is intentionally authoritative, as with output format.
+| Optional property | Effect |
+|---|---|
+| `normalize: "trim"` | Trims a string. |
+| `normalize: "lower"` | Trims and lowercases. |
+| `invalid: "skip"` (default) | Ignores an invalid environment value and tries the next source. |
+| `invalid: "default"` | An invalid environment value selects the generated default, not file config. Use only when invalid environment input is intentionally authoritative (as with output format). |
 
 ### Inherited defaults
 
-Use `defaultFrom` rather than copying another default:
+Use `defaultFrom`; do not copy another default:
 
 ```json
 "extension.storage.mode": {
@@ -167,7 +145,7 @@ Both generators reject unresolved or cyclic inheritance. At runtime inheritance 
 
 ### Add a new section
 
-Declare the section and its fields in the same contract. `file` controls whether it is accepted in `.octocoderc`; `resolved` controls whether it appears in generated `ResolvedConfig` types.
+Declare the section and its fields in the same contract. `file` controls whether `.octocoderc` accepts it; `resolved` controls whether it appears in generated `ResolvedConfig` types.
 
 ```json
 "cache": {
@@ -178,13 +156,12 @@ Declare the section and its fields in the same contract. `file` controls whether
 }
 ```
 
-Nested sections use dotted names such as `output.pagination`. Parent sections must also be declared, even when their `fields` object is empty.
-
-`typeName` preserves a public TypeScript name when automatic PascalCase is unsuitable. `rustTypeName` does the same for generated Rust structs. These are compatibility metadata, not field policy.
+- Nested sections use dotted names such as `output.pagination`. Declare parent sections too, even with an empty `fields` object.
+- `typeName` keeps a public TypeScript name when automatic PascalCase is unsuitable; `rustTypeName` does the same for Rust structs. These are compatibility metadata, not field policy.
 
 ## Add credentials and protected environment keys
 
-Credential values must never appear in `ResolvedConfig`, logs, inspection output, or generated diagnostics. They are read from `effective_env` in Rust or `process.env` in TypeScript consumers.
+Credential values never appear in `ResolvedConfig`, logs, inspection output, or generated diagnostics. Consumers read them from `effective_env` in Rust or `process.env` in TypeScript.
 
 ### Pattern A: credential without a `.octocoderc` field
 
@@ -199,7 +176,8 @@ Declare an environment entry, not a resolved config field:
 }
 ```
 
-`dotenv: "all"` accepts process, workspace and global values through the shared loader. Use `never` only for a deliberate process-only policy, such as bootstrap settings; it adds the name to the generated protected-key sets.
+- `dotenv: "all"` accepts process, workspace, and global values through the shared loader.
+- Use `never` only for a deliberate process-only policy, such as bootstrap settings; it adds the name to the generated protected-key sets. Do not use `all` for protected infrastructure: a trusted project's `.env` can override it.
 
 Read it without copying it into a loggable structure:
 
@@ -212,22 +190,24 @@ let key = config.env_value("MY_SERVICE_API_KEY")
 const key = process.env.MY_SERVICE_API_KEY?.trim() || undefined;
 ```
 
-If the variable changes resolved configuration source labeling, add `configSource: true`. Authentication-only variables usually should not.
+Add `configSource: true` only if the variable changes resolved configuration source labeling. Authentication-only variables usually do not.
 
 ### GitHub token priority
 
-GitHub tokens are Pattern A entries with `tokenPriority`. Lower numbers win. The generator derives `ENV_TOKEN_VARS`, token-source types, and protected-key sets from these declarations:
+GitHub tokens are Pattern A entries with `tokenPriority`; lower numbers win. The generator derives `ENV_TOKEN_VARS`, token-source types, and protected-key sets from these declarations. Do not add a token array elsewhere.
 
 ```json
 "OCTOCODE_TOKEN": { "dotenv": "all", "tokenPriority": 0 },
 "GH_TOKEN": { "dotenv": "all", "tokenPriority": 1 }
 ```
 
-Choose the credential source before alias order: process → workspace `.octocode/.env` → global `.env`. A workspace alias must beat a global canonical key. Declared alias order breaks ties within the same source. Do not add a token array elsewhere.
+Source beats alias order: process → workspace `.octocode/.env` → global `.env`. A workspace alias beats a global canonical key. Declared alias order breaks ties within one source.
 
 ### Pattern B: environment preferred, trusted `.octocoderc` fallback
 
-Mark each secret field `credential: true` (allowed on `string`, `url`, and `path` fields) and choose its binding policy: `all` for both trusted `.env` files, `home` for home only, or `never` for process environment only. The generators exclude credential fields from `ResolvedConfig` even inside a `resolved: true` section, so a section may mix credentials with ordinary settings; an all-credential section may instead be `resolved: false`:
+- Mark each secret field `credential: true` (allowed on `string`, `url`, and `path`). Without it, the secret enters `ResolvedConfig`, and inspection or point lookup can expose it.
+- Choose its binding policy: `all` for both trusted `.env` files, `home` for home only, `never` for process environment only.
+- Generators exclude credential fields from `ResolvedConfig` even inside a `resolved: true` section, so a section may mix credentials with ordinary settings. An all-credential section may be `resolved: false`.
 
 ```json
 "myService": {
@@ -252,23 +232,22 @@ Mark each secret field `credential: true` (allowed on `string`, `url`, and `path
 }
 ```
 
-The generic Rust credential adapter applies environment-first file fallback into `effective_env`. The generated input type and generic validators recognize the credential fields in `.octocoderc`, but generated resolved types exclude them. An existing credential alias from either file prevents the canonical `.octocoderc` fallback from replacing it.
+- The generic Rust credential adapter applies environment-first file fallback into `effective_env`.
+- The generated input type and generic validators recognize credential fields in `.octocoderc`; generated resolved types exclude them.
+- An existing credential alias from either file prevents the canonical `.octocoderc` fallback from replacing it.
+- Reference: the `classification` section is `resolved: true`. `classification.api` (`dotenv: "all"`) and `classification.apiHost` (`dotenv: "home"`) are credential fields and never enter `ResolvedConfig`; `classification.type` and `classification.maxConcurrency` resolve normally.
 
-Classification is the reference: the `classification` section is `resolved: true`; `classification.api` (`dotenv: "all"`) and `classification.apiHost` (`dotenv: "home"`) are credential fields and never enter `ResolvedConfig`, while `classification.type` and `classification.maxConcurrency` resolve normally.
-
-Tests for Pattern B must prove:
+Pattern B tests must prove:
 
 1. process environment wins over `.octocoderc`;
 2. `.octocoderc` fills an absent value, and a workspace `.octocoderc` beats the home one;
 3. workspace `.env` wins over global, including across different aliases;
-4. missing/blank file values fall back, while the explicit process classification opt-out remains disabled;
+4. missing/blank file values fall back, while the explicit process classification opt-out stays disabled;
 5. `Debug`, inspection JSON, and `get_config_value` do not contain the secret.
 
-Run `yarn workspace @octocodeai/config test:tokens:acceptance` after building CLI/MCP to verify outgoing credential selection with synthetic keys and a loopback provider.
+After you build CLI/MCP, run `yarn workspace @octocodeai/config test:tokens:acceptance` to verify outgoing credential selection with synthetic keys and a loopback provider.
 
 ## Read resolved configuration
-
-### TypeScript
 
 ```ts
 import { loadOctocodercLayers, resolveConfigFields } from '@octocodeai/config';
@@ -279,9 +258,7 @@ const timeout = config.network.timeout;
 const format = config.output.format;
 ```
 
-The section-specific `resolveGitHub`, `resolveOutput`, and similar exports remain compatibility adapters. They all delegate to the generic contract interpreter; do not put field logic in them.
-
-### Rust
+The section-specific `resolveGitHub`, `resolveOutput`, and similar exports are compatibility adapters. They delegate to the generic contract interpreter; do not put field logic in them.
 
 ```rust
 let timeout_ms = config.resolved.network.timeout as u64;
@@ -289,22 +266,14 @@ let format = &config.resolved.output.format;
 let classification_key = config.env_value("OCTOCODE_CLASSIFICATION_API");
 ```
 
-Rust resolved structs are generated at build time. `crates/runtime/build.rs` reads `config-contract.json` through a manifest-relative path, so native-only builds do not depend on a prior TypeScript generation step or the working directory. It does not re-validate the meta-schema (the TypeScript generator does); its renderer fails closed on missing or mistyped fields.
+Rust resolved structs are generated at build time. `crates/runtime/build.rs` reads `config-contract.json` through a manifest-relative path, so native-only builds do not depend on a prior TypeScript generation or the working directory. It does not re-validate the meta-schema (the TypeScript generator does); its renderer fails closed on missing or mistyped fields.
 
 ## Generated artifacts and checks
 
-Source files:
-
-- `packages/octocode-config/config-contract.json` — authoritative policy;
-- `packages/octocode-config/config-contract.schema.json` — contract meta-schema.
-
-Generated files:
-
-- `packages/octocode-config/src/config/contract.generated.ts`;
-- `<repo>/docs/generated/CONFIG_SETTINGS.md`;
-- Rust `$OUT_DIR/config_contract.rs` (build output, never commit it).
-
-Commands:
+| Kind | Files |
+|---|---|
+| Source | `packages/octocode-config/config-contract.json` (policy); `packages/octocode-config/config-contract.schema.json` (meta-schema) |
+| Generated | `packages/octocode-config/src/config/contract.generated.ts`; `<repo>/docs/generated/CONFIG_SETTINGS.md`; Rust `$OUT_DIR/config_contract.rs` (build output, never commit it) |
 
 ```bash
 yarn workspace @octocodeai/config generate:config-contract
@@ -317,14 +286,13 @@ cargo check --manifest-path packages/octocode-native/crates/runtime/Cargo.toml
 cargo test --manifest-path packages/octocode-native/crates/runtime/Cargo.toml --lib config::
 ```
 
-After native/runtime changes, rebuild native and the consuming CLI or MCP interface ([build commands](DEVELOPMENT.md#build-test-lint)), then exercise the real CLI path.
+After native/runtime changes, rebuild native and the consuming CLI or MCP interface ([build commands](DEVELOPMENT.md#build-test-lint)), then exercise the real CLI path. A compile-only test misses CLI/MCP loading, redaction, and interface wiring.
 
 ## Contributor checklist
 
 ### Normal setting
 
-- [ ] Add the field once in `config-contract.json`.
-- [ ] Use a contract type and encode default, environment binding, constraint, description, and trust policy there.
+- [ ] Add the field once in `config-contract.json`, with a contract type, default, environment binding, constraint, description, and trust policy.
 - [ ] Regenerate TypeScript and documentation.
 - [ ] Add a consumer test for the setting's effect.
 - [ ] Run config lint/tests/build and native config tests.
@@ -337,16 +305,3 @@ After native/runtime changes, rebuild native and the consuming CLI or MCP interf
 - [ ] For Pattern B, set `credential: true` on each secret field.
 - [ ] Verify no secret reaches `ResolvedConfig`, diagnostics, `Debug`, or inspection output.
 - [ ] Test process environment, home `.env`, project `.env`, and workspace/home `.octocoderc` precedence as applicable (see `packages/octocode-native/crates/runtime/src/config/layering_tests.rs`).
-
-## Common mistakes
-
-| Mistake | Result |
-|---|---|
-| Editing a generated TypeScript or Rust file | The next generation/build discards the edit. |
-| Adding field-specific logic to one resolver | Reintroduces language drift and bypasses contract generation. |
-| Copying a default or range into docs | Documentation can drift; generated settings reference owns those facts. |
-| Declaring a secret without `credential: true` | It enters `ResolvedConfig`, so inspection or point lookup can expose it. |
-| Using `dotenv: "all"` for protected infrastructure | A trusted project's `.env` can override the value. |
-| Omitting an environment binding from the contract | Source labeling, protection, docs, and both resolvers cannot derive it. |
-| Importing core from configuration code | Inverts package ownership; configuration policy must stay independent of tool contracts. |
-| Testing only compilation | Misses actual CLI/MCP loading, redaction, and interface wiring. |

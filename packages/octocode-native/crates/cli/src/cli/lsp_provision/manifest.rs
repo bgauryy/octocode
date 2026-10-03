@@ -5,18 +5,12 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Archive encodings the manifest can declare. Only `None`/`Gz`/`Zip` are
-/// extractable here (parity with TS); tar variants are detect-and-instruct.
-/// `None`/`TarGz`/`TarXz` are absent from current manifest data but kept for
-/// schema parity with the TS `ArchiveKind` union and its extraction handling.
-#[allow(dead_code)]
+/// Archive encodings the manifest declares. Add a variant together with the
+/// manifest entry that uses it and its extraction arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ArchiveKind {
-    None,
     Gz,
     Zip,
-    TarGz,
-    TarXz,
 }
 
 /// One platform's downloadable asset for a server.
