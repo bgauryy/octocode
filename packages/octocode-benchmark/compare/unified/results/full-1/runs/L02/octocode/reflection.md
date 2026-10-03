@@ -1,0 +1,7 @@
+1. **Helped:** The `localSearch` for the literal "prohibited to prevent data loss" gave me `base.py:1301` and `:1328` in one call. A `localFetch` of lines 1280–1345 then showed the whole check body. A second `localSearch` for `_prepare_related_fields_for_save` listed the call sites (`base.py:864`, `query.py:794`, `query.py:1042`). I ran that search in parallel with the fetch, which saved a round trip.
+
+2. **Did not help:** My first `localSearch` failed validation because I passed `contextLines` as a string. Passing `queries` as a JSON string rather than an array made this easy to get wrong. I never read the method header (1276–1279), so I don't know the `fields` default or its docstring. I only saw the opening of the `query.py:1042` call, so I couldn't say which operation it belongs to. I also didn't confirm that `_is_pk_set` is what I described, or check the pinned commit. The user gave the local checkout, and I assumed it was at that commit without verifying.
+
+3. **Next time:** I'd fetch a slightly wider range (1270–1335) to include the signature. I'd read one line of context around `query.py:1042` to name its operation. I'd read `_is_pk_set` too.
+
+4. **Confidence:** High for the location and mechanism, since I read that code directly. Medium for completeness, because of the unread call site and the unchecked commit.

@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` was the fastest step. It used an identifier regex (`hashFloodingDetected|MAX_RUN...`) restricted to a few files. That found `ImmutableSet.java` and the key method names in one call. The `localFetch` of lines 640–960 then gave the whole mechanism: `insertInHashTable`, `maxRunBeforeFallback`, `hashFloodingDetected` and `JdkBackedSetBuilderImpl`. The last `localSearch` added the map and multiset analogues and two confirmed line anchors (`ImmutableSet.java:725`, `:744`).
+
+2. **Did not help:** My first `localFetch` failed validation because I left out `goal` and `reasoning`, so I had to repeat it. The fetched content had no line numbers. I had to infer the lines for `insertInHashTable` and other locations by counting, and I flagged those as approximate. I also never read the map and multiset overflow behavior.
+
+3. **Next time:** Include `goal` and `reasoning` on every call. Run a `localSearch` on `insertInHashTable` and `MAX_RUN_MULTIPLIER` alongside the first search, so every cited line comes from a search hit. Read `RegularImmutableMap` around line 250 if the map case matters.
+
+4. **Confidence:** High for the core answer (`ImmutableSet` falls back to a `HashSet`-backed set when it detects long probe runs), because I read the code directly. Medium for the exact line numbers of some symbols, and for the map and multiset details, which I only saw as constants.

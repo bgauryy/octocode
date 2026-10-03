@@ -57,6 +57,10 @@ export async function run(cdp) {
   });
 
 
+  // The runner navigated before run(); reload once so the listeners above see
+  // the page load. Delete this for kept-tab follow-ups (--no-reload) that must keep state.
+  await cdp.send('Page.reload', {});
+
   const MONITOR_MS = 10000;
   console.log(`[METRIC] Monitoring for ${MONITOR_MS / 1000}s...`);
   await new Promise(r => setTimeout(r, MONITOR_MS));

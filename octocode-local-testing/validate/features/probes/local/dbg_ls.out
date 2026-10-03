@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "searchText": "helper", "regex": "literal", "debug": true}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"stats":{"totalOccurrences":4,"matchedLines":4,"filesMatched":2,"filesSearched":5,"bytesSearched":22104,"capped":false},"files":[{"path":"b.ts","matches":[{"line":1,"value":"export function helper(n: number): number {"},{"line":2,"value":"  console.log('helper', n);"}]},{"path":"a.ts","matches":[{"line":1,"value":"import { helper } from './b';"},{"line":4,"value":"  const y = helper(x);"}]}]},"meta":{"evidence":{"kind":"lexical","confidence":"medium"}}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

@@ -1,0 +1,7 @@
+1. **Helped:** The first `rg -n "generateEtags"` call, with test, docs and markdown globs excluded, gave the whole picture at once: config definition, schema, `base-server`, `send-payload.ts:66`, `router-server.ts:665` and the template call sites. The second Bash call printed line ranges around each hit, so I could read the behavior without opening whole files. It also confirmed the checkout's HEAD SHA matched the pinned commit.
+
+2. **Did not help:** The first `rg` output included noise from a turbopack test fixture and `crates/next-build-test`. My second call was a batch of several `sed` ranges plus a redundant `rg` and `git log`. It cut off the top of `send-payload.ts`, so I needed a third call to see `sendEtagResponse`. I did not read `serveStatic` or the `send` library. I also did not check image optimization or other paths that might set ETags on their own, and I said so in the answer.
+
+3. **Next time:** I'd read `send-payload.ts` from line 1 in the same call as the first hit list. I'd also run a quick `rg "etag"` (case-insensitive) outside the config path to rule out other ETag sources.
+
+4. **Confidence:** High for the main flow: config to `renderOpts` to `sendRenderResult`, the `generateEtags && payload !== null` gate, and the `etag` option passed to `serveStatic`. I saw those lines directly. It's medium for what `serveStatic` does with `etag: false`, because I inferred that from the code comment and didn't read the library.

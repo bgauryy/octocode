@@ -1,0 +1,168 @@
+{
+  "default": {
+    "tools": [
+      "clasify",
+      "ghSearchRepo",
+      "ghSearchCode",
+      "ghStructure",
+      "ghGetFileContent",
+      "ghSearchHistory",
+      "ghGetHistoryItem",
+      "artifactSearch",
+      "localSearch",
+      "structureSearch",
+      "astSearch",
+      "localFetch",
+      "lspSearch"
+    ],
+    "instructionsLen": 3926,
+    "stderr": ""
+  },
+  "cases": {
+    "missingGoal": {
+      "isError": true,
+      "rowErrors": 0,
+      "text": "Input validation error: Invalid arguments for tool localSearch: queries.0: goal: Invalid input: expected nonoptional, received undefined, queries.0: reasoning: Invalid input: expected nonoptional, received undefined"
+    },
+    "sixQueries": {
+      "isError": true,
+      "rowErrors": 0,
+      "text": "Input validation error: Invalid arguments for tool localSearch: queries: Too big: expected array to have <=5 items"
+    },
+    "unknownField": {
+      "isError": true,
+      "rowErrors": 0,
+      "text": "Input validation error: Invalid arguments for tool localSearch: queries.0: Remove unknown field 'bogusField', queries.0: Valid fields: goal, reasoning, followUp, debug, searchText, path, caseMode, wholeWord, invertMatch, include, exclude, excludeDir, defaultExcludes, noIgnore, hidden, contextLines, matchContentLength, maxMatchesPerFile, maxDepth, multiline, sort, langType, matchPage, page, snapsho"
+    },
+    "outOfRange": {
+      "isError": true,
+      "rowErrors": 0,
+      "text": "Input validation error: Invalid arguments for tool localSearch: queries.0.contextLines: Too big: expected number to be <=100"
+    },
+    "notFound": {
+      "isError": true,
+      "rowErrors": 1,
+      "text": "result: 0 (error)\nresolvedPath: /Users/bgaryy/code/octocode/nope-does-not-exist.md\nerror: 'File not found: nope-does-not-exist.md. Verify the path with structureSearch operation:\"files\".'\nerrorCode: fileAccessFailed\nhints:\n- Verify the path with structureSearch operation:\"files\", then retry the exact path.\n",
+      "sc": "{\"results\":[{\"index\":0,\"data\":{\"errorCode\":\"fileAccessFailed\",\"error\":\"File not found: nope-does-not-exist.md. Verify the path with structureSearch operation:\\\"files\\\".\",\"resolvedPath\":\"/Users/bgaryy/code/octocode/nope-does-not-exist.md\",\"hints\":[\"Verify the path with structureSearch operation:\\\"files\\\", then retry the exact path.\"]},\"status\":\"error\"}]}"
+    },
+    "empty": {
+      "isError": false,
+      "rowErrors": 0,
+      "text": "status: empty\nstats:\n  totalOccurrences: 0\n  filesSearched: 15\nhints:\n- No matches. Try caseMode:\"insensitive\", a shorter term, regex:\"literal\" if searchText has metacharacters.\n",
+      "sc": "{\"results\":[{\"index\":0,\"data\":{\"stats\":{\"totalOccurrences\":0,\"filesSearched\":15},\"hints\":[\"No matches. Try caseMode:\\\"insensitive\\\", a shorter term, regex:\\\"literal\\\" if searchText has metacharacters.\"]},\"status\":\"empty\"}]}"
+    },
+    "unknownTool": {
+      "isError": true,
+      "rowErrors": 0,
+      "text": "{\"code\":-32602,\"message\":\"Tool fooTool not found\"}"
+    },
+    "betaTool": {
+      "isError": true,
+      "rowErrors": 0,
+      "text": "{\"code\":-32602,\"message\":\"Tool astTopology not found\"}"
+    },
+    "cloneTool": {
+      "isError": true,
+      "rowErrors": 0,
+      "text": "{\"code\":-32602,\"message\":\"Tool ghCloneRepo not found\"}"
+    },
+    "followUpNoGoal": {
+      "isError": false,
+      "rowErrors": 0,
+      "text": "base: /Users/bgaryy/code/octocode/docs\nwarnings:\n- Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.\nfiles:\n- path: OCTOCODE_TOOLS.md\n  matches:\n  - line: 114\n    value: '| `astRewrite` | CLI only | Opt-in beta feature (`OCT",
+      "sc": "{\"results\":[{\"index\":0,\"data\":{\"warnings\":[\"Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.\"],\"files\":[{\"path\":\"OCTOCODE_TOOLS.md\",\"matches\":[{\"line\":114,\"value\":\"| `astRewrite` | CLI only | Opt-in beta feature (`OCTOCODE_"
+    },
+    "batchRow1NoGoal": {
+      "isError": false,
+      "rowErrors": 1,
+      "text": "base: /Users/bgaryy/code/octocode/docs\nresults:\n- index: 0\n  data:\n    warnings:\n    - Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.\n    files:\n    - path: OCTOCODE_TOOLS.md\n      matches:\n      - line: 114\n        value",
+      "sc": "{\"results\":[{\"index\":0,\"data\":{\"warnings\":[\"Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.\"],\"files\":[{\"path\":\"OCTOCODE_TOOLS.md\",\"matches\":[{\"line\":114,\"value\":\"| `astRewrite` | CLI only | Opt-in beta feature (`OCTOCODE_"
+    },
+    "parity": {
+      "isError": false,
+      "rowErrors": 0,
+      "text": "base: /Users/bgaryy/code/octocode/docs\nwarnings:\n- Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.\nfiles:\n- path: OCTOCODE_TOOLS.md\n  matches:\n  - line: 1351\n    value: trusted when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`",
+      "sc": "{\"results\":[{\"index\":0,\"data\":{\"warnings\":[\"Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.\"],\"files\":[{\"path\":\"OCTOCODE_TOOLS.md\",\"matches\":[{\"line\":1351,\"value\":\"trusted when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true` or w"
+    },
+    "parityDebug": {
+      "isError": false,
+      "rowErrors": 0,
+      "text": "base: /Users/bgaryy/code/octocode/docs\nmeta:\n  evidence:\n    kind: lexical\n    confidence: medium\n  diagnostics:\n    codes:\n    - continuationMissing\n    partial: true\nstats:\n  totalOccurrences: 2\n  matchedLines: 2\n  filesMatched: 2\n  filesSearched: 15\n  bytesSearched: 272210\n  capped: false\nfiles:\n- path: OCTOCODE_TOOLS.md\n  matches:\n  - line: 1351\n    value: trusted when `OCTOCODE_TRUST_PROJECT_",
+      "sc": "{\"results\":[{\"index\":0,\"data\":{\"stats\":{\"totalOccurrences\":2,\"matchedLines\":2,\"filesMatched\":2,\"filesSearched\":15,\"bytesSearched\":272210,\"capped\":false},\"files\":[{\"path\":\"OCTOCODE_TOOLS.md\",\"matches\":[{\"line\":1351,\"value\":\"trusted when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true` or when it is the start\"}]},{\"path\":\"generated/CONFIG_SETTINGS.md\",\"matches\":[{\"line\":126,\"value\":\"| `OCTOCODE_TRUST_PROJEC"
+    }
+  },
+  "beta": {
+    "tools": [
+      "clasify",
+      "ghSearchRepo",
+      "ghSearchCode",
+      "ghStructure",
+      "ghGetFileContent",
+      "ghSearchHistory",
+      "ghGetHistoryItem",
+      "artifactSearch",
+      "localSearch",
+      "structureSearch",
+      "astSearch",
+      "astTopology",
+      "localFetch",
+      "lspSearch"
+    ],
+    "instructionsLen": 3960,
+    "stderr": ""
+  },
+  "noKey": {
+    "tools": [
+      "ghSearchRepo",
+      "ghSearchCode",
+      "ghStructure",
+      "ghGetFileContent",
+      "ghSearchHistory",
+      "ghGetHistoryItem",
+      "artifactSearch",
+      "localSearch",
+      "structureSearch",
+      "astSearch",
+      "localFetch",
+      "lspSearch"
+    ],
+    "instructionsLen": 3596,
+    "stderr": ""
+  },
+  "noKeyBothBlank": {
+    "tools": [
+      "ghSearchRepo",
+      "ghSearchCode",
+      "ghStructure",
+      "ghGetFileContent",
+      "ghSearchHistory",
+      "ghGetHistoryItem",
+      "artifactSearch",
+      "localSearch",
+      "structureSearch",
+      "astSearch",
+      "localFetch",
+      "lspSearch"
+    ],
+    "instructionsLen": 3596,
+    "stderr": ""
+  },
+  "disableEnv": {
+    "tools": [
+      "clasify",
+      "ghSearchCode",
+      "ghStructure",
+      "ghGetFileContent",
+      "ghSearchHistory",
+      "ghGetHistoryItem",
+      "artifactSearch",
+      "localSearch",
+      "structureSearch",
+      "astSearch",
+      "localFetch",
+      "lspSearch"
+    ],
+    "instructionsLen": 3900,
+    "stderr": ""
+  }
+}

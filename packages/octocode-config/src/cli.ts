@@ -10,7 +10,7 @@
 import path from 'node:path';
 import {
   getOctocodeHome,
-  getConfigSync,
+  isPersistentStorageEnabled,
   loadOctocodeEnv,
   loadOctocoderc,
   propagateOctocodeEnv,
@@ -29,7 +29,7 @@ Usage:
 
 Env files loaded (in precedence order):
   <home>/.env                             Global keys (OCTOCODE_HOME or ~/.octocode)
-  <cwd>/.octocode/.env                    Project keys (trusted mode only)
+  <cwd>/.octocode/.env                    Workspace keys (override global)
 `);
   process.exit(0);
 }
@@ -67,7 +67,7 @@ if (args.includes('--keys')) {
 // Default: status
 const { map, sources } = loadOctocodeEnv({ home, cwd: process.cwd(), trusted: true });
 const rc = loadOctocoderc(home);
-const resolved = getConfigSync();
+const storageMode = isPersistentStorageEnabled() ? 'persistent' : 'memory';
 const globalKeys = Object.values(sources).filter(s => s === 'global').length;
 const projectKeys = Object.values(sources).filter(s => s === 'project').length;
 
@@ -75,7 +75,7 @@ console.log(`Octocode home:   ${home}`);
 console.log(`Global .env:     ${path.join(home, '.env')}`);
 console.log(`Project .env:    ${path.join(process.cwd(), '.octocode', '.env')}`);
 console.log(`Keys loaded:     ${Object.keys(map).length} (${globalKeys} global, ${projectKeys} project)`);
-console.log(`Storage mode:    ${resolved.storage.mode}`);
+console.log(`Storage mode:    ${storageMode}`);
 if (Object.keys(rc).length > 0) {
   console.log(`Config (.octocoderc): ${Object.keys(rc).join(', ')}`);
 }

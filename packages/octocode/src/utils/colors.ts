@@ -1,6 +1,4 @@
-import type { ColorName } from '../types/index.js';
-
-const colors: Record<ColorName, string> = {
+const colors = {
   reset: '\x1b[0m',
   bright: '\x1b[1m',
   dim: '\x1b[2m',
@@ -17,7 +15,9 @@ const colors: Record<ColorName, string> = {
   bgYellow: '\x1b[43m',
   bgBlue: '\x1b[44m',
   bgMagenta: '\x1b[45m',
-};
+} as const;
+
+export type ColorName = keyof typeof colors;
 
 function colorsEnabled(): boolean {
   if (process.env.NO_COLOR) {

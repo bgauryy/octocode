@@ -1,0 +1,183 @@
+{
+  "qid": "L06",
+  "pairKey": "octocode-npm__rg-gh",
+  "label": "order1",
+  "subjectSha": "406d00abdcacbba33462cf0e44f0504da7d4fff0e5b45cb7201527935f88e65d",
+  "model": "claude-opus-5-5",
+  "X": "octocode-npm",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "7707b5f443bc2c146ea8d2a7829c78dcb47b708da7faf17411d0d42221e05469",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate full trace including next-server.ts forwarding, send-payload decision, 304 logic, static-file etag option. Did not read etag.ts, so the hash and format are missing (admitted). 'app routes' wording is slightly ambiguous."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; skips the NextNodeServer.sendRenderResult forwarding step; isDynamic line cited as :63 (actually 64); 'sent in full' is slightly imprecise for streamed results. Did not cover the etag hash (admitted)."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode-npm": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate full trace including next-server.ts forwarding, send-payload decision, 304 logic, static-file etag option. Did not read etag.ts, so the hash and format are missing (admitted). 'app routes' wording is slightly ambiguous."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; skips the NextNodeServer.sendRenderResult forwarding step; isDynamic line cited as :63 (actually 64); 'sent in full' is slightly imprecise for streamed results. Did not cover the etag hash (admitted)."
+    }
+  },
+  "preferredWorker": "octocode-npm",
+  "reference_issues": "none",
+  "cost_usd": 0.1149712,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 9306,
+        "cache_read_input_tokens": 22096,
+        "output_tokens": 1804,
+        "context_tokens": 31408,
+        "total_tokens": 33212,
+        "first_request_context": 8912,
+        "fixed_overhead_tokens": 26736,
+        "research_tokens": 6476,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 9306,
+          "cache_read_input_tokens": 22096,
+          "output_tokens": 20
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1784
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9306,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 11678
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1149712,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9306,
+    "cache_read_input_tokens": 22096,
+    "output_tokens": 1804,
+    "context_tokens": 31408,
+    "total_tokens": 33212,
+    "first_request_context": 8912,
+    "fixed_overhead_tokens": 26736,
+    "research_tokens": 6476,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 9306,
+      "cache_read_input_tokens": 22096,
+      "output_tokens": 20
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1784
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9306,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 11678
+  },
+  "timedOut": false
+}

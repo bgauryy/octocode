@@ -1,0 +1,1 @@
+{"goal":"g","reasoning":"r","resources":[{"id":"tree","context":{"tool":"structureSearch","query":{"reasoning":"r","operation":"tree","path":"/Users/bgaryy/code/octocode/docs"}}}],"questions":[{"id":"q","questionType":"locate","target":"where config precedence is described"}]}

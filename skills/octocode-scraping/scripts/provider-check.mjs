@@ -22,7 +22,7 @@ if (!explicit) {
   const result = {
     auto: true,
     selected: provider.name,
-    priority: 'cdp → direct (keyless); scrapingant only via --provider or non-html mode',
+    priority: 'direct HTTP; cdp only after evidence requires rendering/interaction; scrapingant only via --provider or non-html mode',
   };
   if (provider.requiresApiKey) {
     const present = Boolean(process.env[provider.apiKeyEnv]?.trim());

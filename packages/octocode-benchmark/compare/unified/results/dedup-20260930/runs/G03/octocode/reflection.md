@@ -1,0 +1,7 @@
+1. **Helped:** I made one `ghGetHistoryItem` call with `operation: pullRequest`, `content.body: true`, `changedFiles: true` and `patches.mode: "all"`. It returned the PR body, all four file patches and the new test file in one response. That covered both the bug and the fix. I didn't need any search, structure or file-read calls.
+
+2. **Did not help:** The patches came back with elided hunks (`...` markers), so some context lines were missing. I flagged that in my answer instead of fetching the full files. I didn't read the merge commit or `pool-base.js` at `mergeCommitSha`. Because of that, I can't cite exact line numbers, and my answer cites file paths and patch content only. The PR body was short. The root cause came from the code comments in the diff and the test names.
+
+3. **Next time:** I'd follow the PR call with a `ghGetFileContent` read of `lib/dispatcher/pool-base.js` at the merge commit. That would confirm the elided hunks and give `path:line` citations. I'd also check the PR's linked issues and review comments with `content.comments`.
+
+4. **Confidence:** Medium-high. The diff is explicit about which behavior changed and why, and the tests match my reading. The remaining risk is what sat in the elided hunks, and that I didn't verify the merged state.

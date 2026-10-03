@@ -1,0 +1,43 @@
+{
+  "name": "@octocodeai/codex-plugin",
+  "version": "0.1.0",
+  "description": "Octocode code research tools and public skills for Codex",
+  "type": "module",
+  "license": "MIT",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-codex-plugin"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "plugin.json",
+    "mcp.json",
+    "skills/",
+    "assets/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "build:dev": "node scripts/build.ts",
+    "lint": "node ../../node_modules/prettier/bin/prettier.cjs --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test tests/package.test.ts",
+    "test:smoke": "node scripts/smoke.ts",
+    "verify": "yarn build && yarn lint && yarn typecheck && yarn test",
+    "prepack": "yarn build && yarn typecheck && yarn test",
+    "prepublishOnly": "yarn verify && node scripts/release-check.ts"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@types/node": "^24.13.4",
+    "ajv": "^8.20.0",
+    "typescript": "^6.0.3"
+  }
+}

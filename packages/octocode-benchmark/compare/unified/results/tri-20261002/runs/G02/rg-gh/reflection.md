@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call fetched `pulls/13824/files` with a jq filter on the key files, and it gave nearly the whole answer. It returned the `counter.rs` validator, the `_generate_schema.py` change, the `input_python.rs` lax and strict logic, and the JSON Schema change. The third call pulled the test patches and the body of issue #13704. The tests supplied concrete evidence for error types, strict mode and constraints. The first call, `pulls/13824`, confirmed the PR was merged and gave the merge SHA.
+
+2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. It was harmless noise, but it appeared each time. I never read the pre-PR code, so every "before" claim was inferred from the removed diff lines, and I never confirmed the old strict-mode behaviour. I cited diff hunks rather than `path:line` numbers at the pinned commit, which the task asked for. I also named a mapping table in `_validators.py` without seeing its name, and I said so in the answer.
+
+3. **Next time:** I would fetch the old `_generate_schema.py` and `_validators.py` at the parent commit with `gh api repos/.../contents/<path>?ref=<sha>`. I would also look at the old `test_counter.py` and the `_mapping_schema` code. That would let me state the before-behaviour from evidence and give real line numbers.
+
+4. **Confidence:** Medium-high on the "after" behaviour, because it comes straight from the diff and tests. Medium on the "before" comparison, because it is inferred.

@@ -1,0 +1,36 @@
+{
+  // ── Runtime storage ─────────────────────────────────────────────────────
+  // "persistent" (default) enables the response cache, clone cache, and
+  // materialization. Was "memory" which silently disabled ghCloneRepo and
+  // all disk caches for the MCP/CLI tools.
+  "storage": {
+    "mode": "persistent"
+  },
+
+  // ── Network ───────────────────────────────────────────────────────────────
+  "network": {
+    // Raise above default 30 s for large repo clones / slow connections.
+    "timeout": 60000,
+    "maxRetries": 3
+  },
+
+  // ── GitHub ────────────────────────────────────────────────────────────────
+  "github": {
+    "apiUrl": "https://api.github.com"
+  },
+
+  // ── Output ────────────────────────────────────────────────────────────────
+  "output": {
+    "format": "yaml",
+    "pagination": {
+      "defaultCharLength": 20000
+    }
+  },
+
+  // ── Pi extension internal (read by octocode-pi-extension, not the rc schema)
+  "extension": {
+    "storage": {
+      "mode": "persistent"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetFileContent` call used `matchString: "proxy"` with `contextLines: 0`. It returned a compact map of the matching lines. That showed me where `_get_proxy_map`, the `_mounts` construction and `_init_proxy_transport` sit. It gave me the line numbers for the second call. The second `ghGetFileContent` call was a batch of two `startLine`/`endLine` ranges (238–254 and 684–800). It returned the deciding code, including `_transport_for_url`, in one round trip. I passed the full SHA as `branch`, so the reads were pinned to the commit.
+
+2. **Did not help:** The first call's output was fragmented. It had many "lines omitted" gaps, and it also matched the async client's duplicate sections. I had to make a second call anyway, because the match view never showed `_transport_for_url`, whose body doesn't contain "proxy". I didn't read `URLPattern.matches` (in `_utils.py`), `get_environment_proxies`, or the callers of `_transport_for_url`. Because of that, the sort order and the `no_proxy` handling are stated as unverified in my answer.
+
+3. **Next time:** I would batch a `matchString` read and the ranges together. I would also search for `_transport_for_url` and `class URLPattern` directly. Then I could confirm the matching and ordering rules in the same round.
+
+4. **Confidence:** High for the core flow: proxy map, then `_mounts`, then first-match in `_transport_for_url`. I read that code directly at the pinned commit. Medium for the environment-proxy and ordering details, which I didn't read.

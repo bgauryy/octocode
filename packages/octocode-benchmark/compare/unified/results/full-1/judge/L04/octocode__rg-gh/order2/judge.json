@@ -1,0 +1,104 @@
+{
+  "qid": "L04",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "53fc320c08be4257cf080b60087bdbf21fc847ca81abe0785da750823db7499b",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Claims self/cls filtering applies in create_schema_from_function on this path; it doesn't because from_function always passes non-empty filter_args"
+      ],
+      "notes": "Flow is correct overall. Doesn't cite pydantic.py:247 precedence or the :276 __doc__ assignment, and admits it didn't read the v2 subset model. Many line numbers are approximate. Omits RunnableConfig filtering."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Claims self/cls are dropped for methods on this path; it doesn't happen because filter_args is always non-empty from from_function"
+      ],
+      "notes": "Thorough and precise citations (base.py:343, 153-167, 196-200; pydantic.py:247, 276; function_calling.py:756-767, 784-786). Omits RunnableConfig filtering in _filter_schema_args."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Claims self/cls filtering applies in create_schema_from_function on this path; it doesn't because from_function always passes non-empty filter_args"
+      ],
+      "notes": "Flow is correct overall. Doesn't cite pydantic.py:247 precedence or the :276 __doc__ assignment, and admits it didn't read the v2 subset model. Many line numbers are approximate. Omits RunnableConfig filtering."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Claims self/cls are dropped for methods on this path; it doesn't happen because filter_args is always non-empty from from_function"
+      ],
+      "notes": "Thorough and precise citations (base.py:343, 153-167, 196-200; pydantic.py:247, 276; function_calling.py:756-767, 784-786). Omits RunnableConfig filtering in _filter_schema_args."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.10532,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 9723,
+    "cache_read_input_tokens": 14000,
+    "output_tokens": 16,
+    "context_tokens": 23727,
+    "total_tokens": 23743,
+    "first_request_context": 11375,
+    "fixed_overhead_tokens": 22750,
+    "research_tokens": 993,
+    "max_request_context": 12352
+  },
+  "timedOut": false
+}

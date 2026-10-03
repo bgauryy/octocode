@@ -1,0 +1,129 @@
+{
+  "qid": "G03",
+  "worker": "octocode",
+  "started": "2026-09-30T07:06:27.520Z",
+  "promptSha256": "13bcdbb19ad0193a1fb23c8928cdaa2e489ac2f407f1854ba1cc51e064647153",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 12169,
+  "status": "ok",
+  "answer": "**The bug:** A client that a pool had taken out of rotation could still pick up queued requests. It also became unreachable from `pool.close()` and `pool.destroy()`.\n\nThe PR body (author's audit-test findings) describes it this way: after a failed connect, a removed client could still pick up queued requests. The pool reported zero connections while the socket was open. `pool.destroy()` neither aborted the request nor closed the socket.\n\nThe patch comments give the cause. In `Pool`'s `connectionError` handler (`lib/dispatcher/pool.js`) and `RoundRobinPool`'s (`lib/dispatcher/round-robin-pool.js`), the failed client was only spliced out of `kClients`. It was not closed, because the old code assumed \"the client cannot be closed in this state\". Its drain listener kept pulling requests from the pool queue onto it. Because it was no longer in `kClients`, `pool.destroy()` couldn't reach it. The same gap applied to clients evicted by `clientTtl`, which are removed while still running in-flight requests. In that case `pool.close()` didn't wait for them either.\n\n**The fix** (all in `lib/dispatcher/`):\n\n1. **New retire state in `pool-base.js`.** `kRetireClient(client)` removes the client from `kClients` and calls `client.close(cb)`. A closed client stops taking requests from the pool queue via `kOnDrain`, but it finishes the requests it already has. The pool records the client in a new `kRetiring` map. The map value is a promise that resolves when the close callback fires, and the entry is deleted at that point. The callback form is used because factory-supplied dispatchers may not return a promise. `kRemoveClient` now delegates to `kRetireClient`.\n2. **`close()` and `destroy()` cover retiring clients.** The duplicated close-all loops are merged into a `closeClients(pool)` helper. It closes the live clients and also awaits the `kRetiring` promises, so `pool.close()` waits for evicted clients to finish. `kDestroy` now also calls `destroy(err)` on the clients in `kRetiring`, so in-flight requests get `UND_ERR_DESTROYED` and the sockets close.\n3. **`connectionError` handlers in `pool.js` and `round-robin-pool.js`.** They now call `kRetireClient(target)` instead of a bare splice. Because the retired client no longer drains the queue, they also call `kDrainQueue` when `this[kQueued] > 0`, so queued requests go to another or new client. `Pool` previously did this only when `resumeQueued` was set. `RoundRobinPool` gains the call.\n\n**Tests:** `test/pool-retired-clients.js` covers `Pool` and `RoundRobinPool`. The cases are:\n- A queued request goes to a new client after a connect failure.\n- `destroy()` aborts requests queued behind a connection error.\n- `destroy()` aborts in-flight requests on a client evicted by `clientTtl`.\n- `close()` waits for a client evicted by `clientTtl`.\n\n**Caveats:** I read the PR diff, not the merged tree, so the line numbers are not confirmed against the merge commit. The `kOnDrain` behavior is stated in the patch comments; I didn't open that code.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10733,
+    "cache_read_input_tokens": 78335,
+    "output_tokens": 744,
+    "context_tokens": 89072,
+    "total_tokens": 89816,
+    "first_request_context": 40808,
+    "fixed_overhead_tokens": 81616,
+    "research_tokens": 8200,
+    "max_request_context": 48264
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3277,
+      "cache_read_input_tokens": 37529,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7456,
+      "cache_read_input_tokens": 40806,
+      "output_tokens": 712
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10733,
+    "cache_read_input_tokens": 78335,
+    "output_tokens": 1248
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1248,
+      "cacheReadInputTokens": 78335,
+      "cacheCreationInputTokens": 10733,
+      "webSearchRequests": 0,
+      "costUSD": 0.071087,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.071087,
+  "duration_ms": 10843,
+  "num_turns": 2,
+  "toolCallCount": 1,
+  "toolCounts": {
+    "mcp__octocode__ghGetHistoryItem": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0,
+    "followUp uses": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"nodejs\",\"repo\":\"undici\",\"operation\":\"pullRequest\",\"number\":5881,\"goal\":\"understand bug and fix\",\"reasoning\":\"read PR\",\"content\":{\"body\":true,\"changedFiles\":true,\"patches\":{\"mode\":\"all\"}}}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** I made one `ghGetHistoryItem` call on PR 5881 with `body`, `changedFiles` and `patches: {mode: \"all\"}`. It returned the PR description, the full patches for `pool-base.js`, `pool.js`, `round-robin-pool.js` and the new test file, all in one response. The author's inline comments in the patch explained the cause. That was enough to answer the question, and I made no other calls.\n\n**2. Did not help:** Nothing failed and nothing was repeated. The patches were minified with `...` elisions, so I couldn't cite line numbers, and I said so. I did not check the claim about `kOnDrain` in the source. The PR body was thin: its Bug Fixes section said \"N/A\" and it linked no issue.\n\n**3. Next time:** I would also call `ghGetFileContent` on `lib/dispatcher/pool-base.js` at the merge commit. That would confirm the `kOnDrain` behavior and give real `path:line` citations. I would also run `ghSearchHistory` for a linked issue to see the original report.\n\n**4. Confidence:** Medium-high. The PR patch and the author's comments state the mechanism directly. The residual uncertainty is the missing line citations and the unread `kOnDrain` code.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1303,
+      "cache_read_input_tokens": 48262,
+      "output_tokens": 1,
+      "context_tokens": 49567,
+      "total_tokens": 49568,
+      "first_request_context": 49567,
+      "fixed_overhead_tokens": 49567,
+      "research_tokens": 1,
+      "max_request_context": 49567
+    },
+    "cost_usd": 0.0901654,
+    "toolCallsAttempted": 0
+  }
+}

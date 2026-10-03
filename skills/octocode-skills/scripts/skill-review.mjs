@@ -19,14 +19,21 @@ if (args.includes('--help')) {
   no folders   every skill under the nearest skills/ root (or the current folder if it is a skill)
   folder       one skill folder, or a collection whose immediate children are skill folders
   --json       machine-readable findings
-  --self-test  run collection, usage-error, and frontmatter-route regressions
+  --self-test  run collection, routing, standalone-runtime, and usage-error regressions
   --help       this text
 
-Navigation gates treat the skill as a map: SKILL.md is the lobby, every local file reference stays
+Navigation gates treat the skill as a map: SKILL.md is the lobby with a Mermaid map of every reference
+page (references/, docs/, scripts/docs/) and its trigger, at most 12 reference pages of at most 100 lines;
+every local file reference stays
 inside the folder, and every shipped file is reachable from the lobby, README, or another used file.
 Exit 1 on any ERROR.`);
   process.exit(0);
 }
+
+const MAX_REFERENCE_LINES = 100;
+const MAX_REFERENCES = 12;
+const MAP_PAGE = /^(?:references|docs|scripts\/docs)\/.+\.md$/;
+const MAP_ROOT = /^(?:references|docs|scripts\/docs)\//;
 
 function isSkillDir(dir) {
   return existsSync(join(dir, 'SKILL.md')) && statSync(join(dir, 'SKILL.md')).isFile();
@@ -69,7 +76,7 @@ function frontmatter(text) {
 
 function linkedPaths(text) {
   const hits = [];
-  const rx = /`((?:references|scripts|assets|scheme)\/[^`]+?)`|\((?:(\.\/)?((?:references|scripts|assets|scheme)\/[^)]+))\)/g;
+  const rx = /`((?:references|scripts|assets|scheme|docs)\/[^`]*?)`|\((?:(\.\/)?((?:references|scripts|assets|scheme|docs)\/[^)]*))\)/g;
   let m;
   while ((m = rx.exec(text))) {
     const raw = (m[1] || m[3]).split('#')[0].trim();
@@ -98,7 +105,7 @@ const ENTRY_CUE = /\b(load when|use when|read when|apply when|when you|before |a
 
 /** A named directory (`assets/hooks/`) stands in for the files under it. */
 function mentionedDirs(text) {
-  return [...new Set((text.match(/(?:references|scripts|assets|scheme)\/[A-Za-z0-9._-]*\//g) || []))];
+  return [...new Set((text.match(/(?:references|scripts|assets|scheme|docs)\/[A-Za-z0-9._-]*\//g) || []))];
 }
 
 /** Every runnable file under scripts/, so the lobby can be checked for completeness. */
@@ -185,7 +192,7 @@ const STALE_OCTOCODE_CONTRACTS = [
   {
     pattern:
       /\btools\s+(?:local\.(?:text|find|tree|fetch)|github\.(?:tree|code|repo|fetch)|local_(?:ripgrep|view_structure|find_files|fetch_content))\b/,
-    fix: 'use a current public tool name and operation from `tools --json`',
+    fix: 'use a current public tool name and operation from `scheme --compact`',
   },
 ];
 
@@ -214,6 +221,19 @@ function checkSkill(dir) {
 
   if (!fm) error('frontmatter-missing', 'SKILL.md must start with YAML frontmatter.');
   if (fm && fm.name !== basename(dir)) error('name-mismatch', `frontmatter name (${fm.name}) must match folder (${basename(dir)}).`);
+  // Agent Skills spec: 1-64 chars of a-z, 0-9, and single hyphens, no leading or trailing hyphen.
+  if (fm?.name && (fm.name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(fm.name))) {
+    error('name-format', `name (${fm.name}) must be 1-64 chars of a-z, 0-9, and single hyphens, not at either end.`);
+  }
+  // Anthropic API and claude.ai uploads reject these; other hosts accept them, so warn only.
+  if (fm?.name && /anthropic|claude/i.test(fm.name)) warn('name-reserved', 'name contains the reserved word "anthropic" or "claude"; claude.ai and the Skills API reject it.');
+  if ([fm?.name, fm?.description].some((value) => value && /<\/?[A-Za-z][^>]*>/.test(value))) {
+    warn('frontmatter-xml', 'name and description must not contain XML tags; claude.ai and the Skills API reject them.');
+  }
+  // Agent Skills spec: compatibility is 1-500 chars when present.
+  if (fm?.compatibility !== undefined && (fm.compatibility.length === 0 || fm.compatibility.length > 500)) {
+    error('compatibility-length', 'compatibility must be 1-500 chars when present.');
+  }
   if (!fm?.description) error('description-missing', 'frontmatter description is required.');
   if (fm?.description && !/^Use when\b/i.test(fm.description.replace(/^>-\s*/, '').trim())) {
     warn('description-trigger', 'description should lead with “Use when …”.');
@@ -223,23 +243,28 @@ function checkSkill(dir) {
 
   const lobby = bodyWithoutFrontmatter(skill);
   const conventions = [
-    ['lobby-tools-convention', /^tools:\s*`npx octocode`\s*\/\s*`octocode-mcp`\s*$/m,
-      'declare `tools: npx octocode / octocode-mcp` below the H1.'],
-    ['lobby-related-skill-convention', /^related-skill:\s*`[a-z0-9][a-z0-9-]*`\s*$/m,
-      'declare one `related-skill: <skill-name>` below the H1.'],
-    ['lobby-output-convention', /^output:\s*`<workspace>\/\.octocode\/`\s+for workspace work\s*\|\s*`<home>\/\.octocode\/`\s+when no workspace applies\s*$/m,
-      'declare the workspace-versus-home `output:` decision below the H1.'],
-    ['lobby-routes-convention', /^routes:\s*.*\breference\b.*\bdoc\b.*\bscript\b.*\bnext action\b.*$/mi,
-      'declare when a reference, doc, or script earns a route below the H1.'],
+    ['lobby-tools-convention', /^tools:[ \t]*\S[^\n]*$/m,
+      'declare the actual commands or host tools on a `tools:` line below the H1.'],
+    ['lobby-output-convention', /^output:[ \t]*\S[^\n]*$/m,
+      'declare where artifacts/state go, or explicitly state none, on an `output:` line below the H1.'],
+    ['lobby-routes-convention', /^routes:[ \t]*[^\n]*\b(use|load|run|read|when|before|after|for)\b[^\n]*$/mi,
+      'declare when or why to use supporting files on a `routes:` line below the H1.'],
   ];
+  const hasMap = /```mermaid\b/.test(lobby);
   for (const [code, pattern, message] of conventions) {
+    // The skill map's trigger-labelled edges are the routes declaration; a routes: line would repeat it.
+    if (code === 'lobby-routes-convention' && hasMap) continue;
     if (!pattern.test(lobby)) error(code, message);
+  }
+
+  if (/^related-skill:/m.test(lobby) && !/^related-skill:[ \t]*`[a-z0-9][a-z0-9-]*`[ \t]*$/m.test(lobby)) {
+    error('lobby-related-skill-convention', 'when useful, declare one `related-skill: <skill-name>`; omit it when no related skill is needed.');
   }
 
   if (!existsSync(join(dir, 'README.md'))) warn('readme-missing', 'README.md is recommended for standalone skills.');
 
   const refsDir = join(dir, 'references');
-  const referenced = new Set(linkedPaths(skill));
+  const referenced = new Set([...texts].filter(([rel, text]) => rel.endsWith('.md') && text != null).flatMap(([, text]) => linkedPaths(text)));
   const fromLobby = new Set(linkedPaths(skill));
   const refTexts = new Map();
   if (existsSync(refsDir)) {
@@ -250,7 +275,26 @@ function checkSkill(dir) {
       refTexts.set(rel, text);
       for (const p of linkedPaths(text)) referenced.add(p);
       if (!/^#\s+/m.test(text)) warn('reference-h1', `${rel} should have an H1.`);
-      if (refLines > 50) warn('reference-long', `${rel} is ${refLines} lines; the limit is 50 — split it or cut filler.`);
+      if (refLines > MAX_REFERENCE_LINES) warn('reference-long', `${rel} is ${refLines} lines; the limit is ${MAX_REFERENCE_LINES} — cut filler or duplication.`);
+    }
+  }
+
+  // Skill map: the lobby draws every reference page in one Mermaid diagram, with the trigger on the edge,
+  // so an agent sees all routes and when to take them on the first screen.
+  const mapPages = files.filter((rel) => MAP_PAGE.test(rel) && basename(rel) !== 'references.md');
+  const refPages = mapPages.filter((rel) => rel.startsWith('references/'));
+  if (refPages.length > MAX_REFERENCES) {
+    warn('references-many', `${refPages.length} reference pages; the limit is ${MAX_REFERENCES} — merge pages that serve one decision or one moment of use.`);
+  }
+  if (mapPages.length) {
+    const mermaid = [...lobby.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
+    if (!mermaid) {
+      warn('lobby-map-missing', 'SKILL.md needs a Mermaid skill map: flow phases plus every reference page, each on an edge labeled with its trigger.');
+    } else {
+      const missing = mapPages.filter((rel) => !mermaid.includes(rel.replace(MAP_ROOT, '')));
+      if (missing.length) {
+        warn('lobby-map-incomplete', `the SKILL.md Mermaid map does not show ${missing.join(', ')}; add each page as a node on an edge labeled with its trigger.`);
+      }
     }
   }
 
@@ -289,7 +333,7 @@ function checkSkill(dir) {
   }
 
   // Navigation gates: the lobby is the map. It lists routed references, scripts, and schemes with when/how, plus the workflow.
-  const dirs = mentionedDirs(skill);
+  const dirs = [...mentionedDirs(skill), ...fromLobby].filter((path) => path.endsWith('/'));
   const listedInLobby = (rel) => fromLobby.has(rel) || skill.includes(rel) || dirs.some((d) => rel.startsWith(d));
 
   if (!/^\s*(?:\*\*)?(?:flow|workflow)/im.test(skill) && !/^##+\s+workflow/im.test(skill)) {
@@ -364,7 +408,7 @@ function checkSkill(dir) {
   }
 
   for (const line of routeLines(skill)) {
-    if (/^\s*\|/.test(line)) continue;
+    if (/^\s*\||^tools:/.test(line)) continue;
     if (!ROUTE_CONDITION.test(line)) {
       warn('route-condition', `route has no when/why cue: "${line.trim().slice(0, 70)}"`);
     }
@@ -420,6 +464,22 @@ Run the hook test and stop.
     }
     writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
 
+    const frontmatterCases = [
+      [validLobby.replace(/^name: hook-skill$/m, 'name: Hook--Skill'), 'name-format'],
+      [validLobby.replace(/^name: hook-skill$/m, `name: ${'a'.repeat(65)}`), 'name-format'],
+      [validLobby.replace(/^name: hook-skill$/m, 'name: claude-hook'), 'name-reserved'],
+      [validLobby.replace(/^description: .*$/m, 'description: "Use when testing <b>tags</b>."'), 'frontmatter-xml'],
+      [validLobby.replace(/^(description: .*)$/m, `$1\ncompatibility: ${'x'.repeat(501)}`), 'compatibility-length'],
+    ];
+    for (const [text, code] of frontmatterCases) {
+      writeFileSync(join(skillDir, 'SKILL.md'), text);
+      if (!checkSkill(skillDir).findings.some((f) => f.code === code)) throw new Error(`${code} regression`);
+    }
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^(description: .*)$/m, '$1\ncompatibility: Requires Node.js 20+'));
+    const validCompat = checkSkill(skillDir).findings;
+    if (validCompat.length) throw new Error(`compatibility false positive: ${JSON.stringify(validCompat)}`);
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
+
     writeFileSync(
       join(skillDir, 'README.md'),
       `# Hook skill\n\nRun \`${['npx', 'octocode', 'skill', '--name', 'hook-skill'].join(' ')}\`.\n`
@@ -435,6 +495,19 @@ Run the hook test and stop.
       );
     }
     writeFileSync(join(skillDir, 'README.md'), '# Hook skill\n');
+
+    mkdirSync(join(skillDir, 'references'), { recursive: true });
+    writeFileSync(join(skillDir, 'references', 'guide.md'), '# Guide\n\nLoad when the hook fails. Next: the step ends here.\n');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\nIf the hook fails, load `references/guide.md`.\n');
+    if (!checkSkill(skillDir).findings.some((f) => f.code === 'lobby-map-missing')) throw new Error('lobby-map-missing regression');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "hook fails" .-> G["guide.md"]\n```\nIf the hook fails, load `references/guide.md`.\n');
+    const mapped = checkSkill(skillDir).findings.filter((f) => f.code.startsWith('lobby-map'));
+    if (mapped.length) throw new Error(`lobby-map false positive: ${JSON.stringify(mapped)}`);
+    writeFileSync(join(skillDir, 'references', 'extra.md'), '# Extra\n\nLoad when the hook is slow. Next: the step ends here.\n');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "hook fails" .-> G["guide.md"]\n```\nIf the hook fails, load `references/guide.md`. If it is slow, load `references/extra.md`.\n');
+    if (!checkSkill(skillDir).findings.some((f) => f.code === 'lobby-map-incomplete')) throw new Error('lobby-map-incomplete regression');
+    rmSync(join(skillDir, 'references'), { recursive: true, force: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
 
     writeFileSync(join(skillDir, 'unused-probe.txt'), 'temporary probe\n');
     const unusedFindings = checkSkill(skillDir).findings;
@@ -505,6 +578,38 @@ Run the hook test and stop.
       || outsideMessages.includes(`'${bareFilePrefix}'`)) {
       throw new Error(`outside-file regression: ${JSON.stringify(outsideFindings)}`);
     }
+
+    const runtimeDir = join(root, 'standalone-runtime');
+    mkdirSync(join(runtimeDir, 'scripts', 'hooks'), { recursive: true });
+    writeFileSync(join(runtimeDir, 'SKILL.md'), `---
+name: standalone-runtime
+description: Use when coordinating workers through a bundled native runtime.
+---
+# Runtime
+tools: \`scripts/worker\` (CLI or MCP)
+output: Shared database selected by the caller; commands return JSON.
+routes: Use \`scripts/\` for generated runtime and host adapters; run command help for setup.
+## Workflow
+Start the runtime, execute work, then stop.
+`);
+    writeFileSync(join(runtimeDir, 'scripts', 'worker'), Buffer.from([127, 69, 76, 70, 0]));
+    writeFileSync(join(runtimeDir, 'scripts', 'SHA256SUMS'), 'checksum  worker\n');
+    writeFileSync(join(runtimeDir, 'scripts', 'hooks', 'native-selected.ps1'), 'Write-Output "ready"\n');
+    const runtimeErrors = () => checkSkill(runtimeDir).findings.filter(f => f.level === 'ERROR');
+    if (runtimeErrors().length) throw new Error(`standalone runtime regression: ${JSON.stringify(runtimeErrors())}`);
+    writeFileSync(join(runtimeDir, 'unrouted.txt'), 'still unused\n');
+    if (!runtimeErrors().some(f => f.code === 'unused-file')) throw new Error('directory routing must not hide unrelated unused files');
+    rmSync(join(runtimeDir, 'unrouted.txt'));
+    const runtimeLobby = readFileSync(join(runtimeDir, 'SKILL.md'), 'utf8');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby + '\nRun `scripts/missing-worker`.\n');
+    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('directory routing must not hide missing literal files');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby + '\nUse `docs/missing/` for setup.\n');
+    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('missing directory must fail');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby.replace(/^tools:.*$/m, 'tools: '));
+    if (!runtimeErrors().some(f => f.code === 'lobby-tools-convention')) throw new Error('blank tools declaration must fail');
+    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby);
+    writeFileSync(join(runtimeDir, 'README.md'), '# Runtime\nRun `scripts/missing-readme-command`.\n');
+    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('README missing route must fail');
 
     let rejectedMissing = false;
     try { expandTarget(join(root, 'missing')); } catch { rejectedMissing = true; }

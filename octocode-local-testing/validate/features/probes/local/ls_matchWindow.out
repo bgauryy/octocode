@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/manyhits.txt", "searchText": "value_10", "resultView": "matchOnly", "matchWindow": 5}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"files":[{"path":"manyhits.txt","matches":[{"line":10,"column":15,"value":"…edle value_10"}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

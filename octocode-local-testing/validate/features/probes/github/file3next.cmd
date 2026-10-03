@@ -1,0 +1,1 @@
+ghGetFileContent {"chunkSize":2000,"chunkType":"lines","minify":"none","offset":574,"path":"source/index.ts","fullContent":false,"owner":"sindresorhus","repo":"is","branch":"e9c026c611c1160eaad50da00be4e676b626018f","followUp":true}

@@ -1,0 +1,94 @@
+{
+  "qid": "L20",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "8e81054e31d6f8036ae6c95bc064017e3756adffd450a1a8c5f78c9596a92ea0",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All four direct call sites plus the helper's downstream users are correct. Omits the indirect fileloader shouldAddFile and checker reporting effects of the resolution diagnostic, but per the acceptable variations that still earns full credit. Useful extras: showconfig, the declscompiler DefaultValueDescription, project.go."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Essentially the same coverage as X. The checker description slightly understates the not-found condition. Adds a list of likely affected tests. Citations verified."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All four direct call sites plus the helper's downstream users are correct. Omits the indirect fileloader shouldAddFile and checker reporting effects of the resolution diagnostic, but per the acceptable variations that still earns full credit. Useful extras: showconfig, the declscompiler DefaultValueDescription, project.go."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Essentially the same coverage as X. The checker description slightly understates the not-found condition. Adds a list of likely affected tests. Citations verified."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.09502479999999999,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8328,
+    "cache_read_input_tokens": 12924,
+    "output_tokens": 11,
+    "context_tokens": 21256,
+    "total_tokens": 21267,
+    "first_request_context": 10299,
+    "fixed_overhead_tokens": 20598,
+    "research_tokens": 669,
+    "max_request_context": 10957
+  },
+  "timedOut": false
+}

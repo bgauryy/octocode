@@ -1,10 +1,11 @@
 import * as esbuild from 'esbuild';
+import { execFileSync } from 'node:child_process';
 import { builtinModules } from 'module';
 import { chmodSync, readFileSync, writeFileSync } from 'fs';
 import { rm } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { assertDeclaredRuntimeImports } from '../../scripts/runtime-import-contract.mjs';
+import { assertDeclaredRuntimeImports } from '../../skills-dev/octocode-dev/scripts/runtime-import-contract.mjs';
 import { stageSkills } from './scripts/stage-skills.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,8 +18,8 @@ const nodeExternals = [
 ];
 
 // Published runtime dependencies stay external. This keeps the CLI a true
-// interface package and leaves tools-core responsible for its own dependency
-// graph instead of partially inlining it into this bundle.
+// interface package and leaves native and shared packages responsible for their dependency graphs
+// instead of partially inlining them into this bundle.
 const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
 const external = [...nodeExternals, ...runtimeExternals];
@@ -27,6 +28,7 @@ await rm('out', { recursive: true, force: true });
 
 const monorepoSkillsDir = resolve(__dirname, '..', '..', 'skills');
 const packageSkillsDir = resolve(__dirname, 'skills');
+execFileSync(process.execPath, [resolve(monorepoSkillsDir, 'octocode-agents-communication/src/build-skill.mjs')], { stdio: 'inherit' });
 stageSkills(monorepoSkillsDir, packageSkillsDir);
 console.log('✓ skills staged → skills/');
 
@@ -47,6 +49,7 @@ const buildResult = await esbuild.build({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     'process.env.NODE_ENV': '"production"',
+    __OCTOCODE_BUNDLED__: 'true',
   },
   logLevel: 'info',
 });

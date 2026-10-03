@@ -1,0 +1,182 @@
+{
+  "qid": "G08",
+  "pairKey": "octocode__octocode-npm",
+  "label": "order1",
+  "subjectSha": "9309d8fe723d3320289618972ed3787c80d084fd56495efda12852894c0ea083",
+  "model": "claude-opus-5-5",
+  "X": "octocode-npm",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "1c5700380bbfc3e90b8e9c1463723b08e37b424e05aaad1ca15b73fd6100a4b1",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause (getOwnPropertyDescriptor trap didn't subscribe for absent props, untracked source?.v) and accurate fix details verified against the PR diff. Contrast with the has trap is mentioned only briefly. No merge SHA and no pre-fix line citations; cites the PR and the hunk at line 204."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Slight overstatement that the getOwnPropertyDescriptor trap had 'no reactive dependency'; the old trap did call get(s) when a value descriptor and a source existed"
+      ],
+      "notes": "Fix description is correct and matches the diff, and it correctly contrasts the has trap. The root-cause wording is a bit less precise than X's. No merge SHA."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode-npm": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause (getOwnPropertyDescriptor trap didn't subscribe for absent props, untracked source?.v) and accurate fix details verified against the PR diff. Contrast with the has trap is mentioned only briefly. No merge SHA and no pre-fix line citations; cites the PR and the hunk at line 204."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Slight overstatement that the getOwnPropertyDescriptor trap had 'no reactive dependency'; the old trap did call get(s) when a value descriptor and a source existed"
+      ],
+      "notes": "Fix description is correct and matches the diff, and it correctly contrasts the has trap. The root-cause wording is a bit less precise than X's. No merge SHA."
+    }
+  },
+  "preferredWorker": "octocode-npm",
+  "reference_issues": "none",
+  "cost_usd": 0.101333,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 8354,
+        "cache_read_input_tokens": 21085,
+        "output_tokens": 1513,
+        "context_tokens": 29445,
+        "total_tokens": 30958,
+        "first_request_context": 8579,
+        "fixed_overhead_tokens": 25737,
+        "research_tokens": 5221,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 8354,
+          "cache_read_input_tokens": 21085,
+          "output_tokens": 787
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -726
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8354,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 10726
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.101333,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8354,
+    "cache_read_input_tokens": 21085,
+    "output_tokens": 1513,
+    "context_tokens": 29445,
+    "total_tokens": 30958,
+    "first_request_context": 8579,
+    "fixed_overhead_tokens": 25737,
+    "research_tokens": 5221,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 8354,
+      "cache_read_input_tokens": 21085,
+      "output_tokens": 787
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -726
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8354,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 10726
+  },
+  "timedOut": false
+}

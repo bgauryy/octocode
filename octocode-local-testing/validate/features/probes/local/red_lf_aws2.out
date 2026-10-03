@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/aws2.py"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"aws2.py","content":"[REDACTED-ENVVARSECRETS]\n[REDACTED-AWSSECRETACCESSKEY]\"\n[REDACTED-ENVVARSECRETS]\n","warnings":["redactedContent: 3 secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."],"totalLines":3,"returnedLines":3}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec"}

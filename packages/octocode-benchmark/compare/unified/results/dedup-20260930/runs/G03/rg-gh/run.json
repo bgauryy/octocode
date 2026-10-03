@@ -1,0 +1,106 @@
+{
+  "qid": "G03",
+  "worker": "rg-gh",
+  "started": "2026-09-30T19:54:26.406Z",
+  "promptSha256": "13bcdbb19ad0193a1fb23c8928cdaa2e489ac2f407f1854ba1cc51e064647153",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 13303,
+  "status": "ok",
+  "answer": "**Direct answer:** PR #5881 (merged as `da911f087c62952640fdacccf4e759b295ad300c`) fixes a bug where a client removed from a pool's rotation could still pull requests off the pool's shared queue. The pool no longer tracked that client, so `pool.destroy()` couldn't reach it and `pool.close()` didn't wait for it. The fix adds a \"retiring\" state that closes removed clients, stops them draining the queue, and keeps them reachable by `close()` and `destroy()` until they finish.\n\n**The bug** (from the PR body and the diff)\n- After a failed connect, a client was dropped from `pool[kClients]` by a bare `splice`. This happened in the `connectionError` handlers in `lib/dispatcher/pool.js` and `lib/dispatcher/round-robin-pool.js`. The same happened to clients evicted by `clientTtl` in `pool.js`.\n- The client was not closed. The old comment in `pool.js` said \"Do not use kRemoveClient here, as it will close the client, but the client cannot be closed in this state.\"\n- Its drain listener stayed attached, so it kept taking queued requests.\n- Because it was no longer in `kClients`, `pool.destroy()` and `pool.close()` skipped it.\n- The PR author reports the symptoms: the pool showed zero connections while the socket was open, and `destroy()` neither aborted the request nor closed the socket.\n\n**The fix**\n- **`lib/dispatcher/pool-base.js`**\n  - A new `kRetiring` map holds clients that have been removed but haven't finished closing. It maps each client to a promise that resolves once the close completes.\n  - A new `[kRetireClient](client)` method splices the client out of `kClients`. It then registers the client in `kRetiring` and calls `client.close(cb)`. The callback form is used because factory-supplied dispatchers may not return a promise. When the close finishes, the callback deletes the entry and resolves the promise.\n  - `kRemoveClient` now calls `kRetireClient`.\n  - A new `closeClients(pool)` helper replaces three copies of the close-all loop. It also awaits the `kRetiring` promises, so `pool.close()` waits for retired clients.\n  - `[kDestroy]` now also calls `destroy(err)` on every client in `kRetiring`.\n- **`pool.js` and `round-robin-pool.js`**\n  - The `connectionError` handler, and the `clientTtl` eviction in `pool.js`, now call `kRetireClient(target)` instead of just splicing.\n  - Both now also call `kDrainQueue(origin, targets.slice(1))` when `this[kQueued] > 0`. This hands queued requests to another, possibly new, client. `pool.js` previously did this only when `resumeQueued` was set. `round-robin-pool.js` did not do it at all.\n- **Tests:** `test/pool-retired-clients.js` (new, 228 lines) runs for both `Pool` and `RoundRobinPool`. It covers four cases:\n  - A queued request goes to a new client after a connection error.\n  - `destroy()` aborts requests queued behind a connection error.\n  - `destroy()` aborts in-flight requests on a client evicted by `clientTtl`.\n  - `close()` waits for a client evicted by `clientTtl`.\n\n**Uncertainty:** I read the diff and PR metadata only. I didn't run the tests or check the code against a local checkout. The diff shows the drain listener stays attached, but I didn't trace how `kOnDrain` excludes closed clients, so that mechanism is taken from the diff comments.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10750,
+    "cache_read_input_tokens": 6981,
+    "output_tokens": 745,
+    "context_tokens": 17735,
+    "total_tokens": 18480,
+    "first_request_context": 5048,
+    "fixed_overhead_tokens": 10096,
+    "research_tokens": 8384,
+    "max_request_context": 12687
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3111,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7639,
+      "cache_read_input_tokens": 5046,
+      "output_tokens": 729
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10750,
+    "cache_read_input_tokens": 6981,
+    "output_tokens": 1316
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1316,
+      "cacheReadInputTokens": 6981,
+      "cacheCreationInputTokens": 10750,
+      "webSearchRequests": 0,
+      "costUSD": 0.0575642,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0575642,
+  "duration_ms": 12065,
+  "num_turns": 2,
+  "toolCallCount": 1,
+  "toolCounts": {
+    "Bash:gh": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files; gh pr diff 5881 -R nodejs/undici\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** I made one Bash call, `gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files` chained with `gh pr diff 5881`, and it gave me everything. The PR body described the symptom. The diff showed the mechanism (`kRetiring`, `kRetireClient`, `closeClients`, the `kDrainQueue` additions) and had comments explaining the intent. The new test file confirmed the intended behaviours. The local checkouts were irrelevant, so I skipped them.\n\n2. **Did not help:** Nothing failed and I made no repeated calls. The diff output was long because the 228-line test file was included. My answer cites the PR diff, not `path:line` at a pinned commit, because I never looked at the merged source. I also didn't follow the `kOnDrain` code. My claim that a closed client stops draining rests on the diff comments, and I flagged that as uncertain.\n\n3. **Next time:** I'd add a second call with `gh api` to fetch `lib/dispatcher/pool-base.js` at the merge commit, `da911f0`. That would give me real line numbers and let me check the `kOnDrain` logic. I'd also pipe the diff through `head` or filter out the test file. A check of the linked issue or review comments might show whether the author hit a specific user-reported bug.\n\n4. **Confidence:** High on what the bug is and how the fix works, because the diff is primary evidence. Medium on the drain-exclusion detail and on line-level citations, which I didn't verify.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1423,
+      "cache_read_input_tokens": 12685,
+      "output_tokens": 1,
+      "context_tokens": 14110,
+      "total_tokens": 14111,
+      "first_request_context": 14110,
+      "fixed_overhead_tokens": 14110,
+      "research_tokens": 1,
+      "max_request_context": 14110
+    },
+    "cost_usd": 0.0709072,
+    "toolCallsAttempted": 0
+  }
+}

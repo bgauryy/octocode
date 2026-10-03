@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetHistoryItem` call (PR body plus `changedFiles`) gave the motivation and the two open Miri issues, #5047 and #5054, in one shot. The second call used `matchString: "miri"` with `matchContext: 1`. It returned every Miri-related hunk across the PR, so I didn't have to page through files. The third call, with `files` selected, filled in the paginated `tcp_*` patches. I found the "why" for each ignore in the `ignore = "..."` strings and comments.
+
+2. **Did not help:** The second call's output was large, about 20k characters. It included UDP and Unix-socket doc-comment rewordings that didn't matter for the question. Several `tcp_*` patches came back truncated ("hasMore"), so the third call was needed. I never fetched changed-files page 2, so my file list may be incomplete. The tool also can't show the post-merge state of the files. I couldn't confirm what remains ignored beyond what the diff showed. I also didn't check whether Miri issues #5047 and #5054 have since been fixed.
+
+3. **Next time:** I'd run the `matchString` query with `fileFilter` for `tokio/tests/**`, plus a narrower one for `ignore`. I'd also fetch the changed-files page 2. If I needed the current state, I'd use `ghSearchCode` or `ghGetFileContent` at the merge SHA.
+
+4. **Confidence:** Medium-high. The listed ignores and reasons come straight from the diff. The completeness claim is weaker, since I never read the second changed-files page and the current state of Miri #5047 and #5054 is unknown.

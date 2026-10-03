@@ -1,0 +1,182 @@
+{
+  "qid": "G03",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "ab9f4996f6d2775b5ddd9352b9ab70db7b87cbb25f3e95639e5215b1662b04f0",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "c92a2cbacb3e99bbea5ea9a510f8bd7e9fccb21f357cb485f33417948a871a18",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; doesn't explicitly name the pre-existing kOnDrain guard but states closed clients stop taking queued requests. Omits the done-flag/already-retiring guard detail and one of the four tests. No line citations, only files and the merge SHA."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and slightly more thorough: the destroyed/already-retiring skip, the drain listener, close() resolving early, all four tests, and RoundRobinPool's new imports. No path:line citations; says it read only the diff."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; doesn't explicitly name the pre-existing kOnDrain guard but states closed clients stop taking queued requests. Omits the done-flag/already-retiring guard detail and one of the four tests. No line citations, only files and the merge SHA."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and slightly more thorough: the destroyed/already-retiring skip, the drain listener, close() resolving early, all four tests, and RoundRobinPool's new imports. No path:line citations; says it read only the diff."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1614644,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 14998,
+        "cache_read_input_tokens": 28382,
+        "output_tokens": 1789,
+        "context_tokens": 43386,
+        "total_tokens": 45175,
+        "first_request_context": 9487,
+        "fixed_overhead_tokens": 28461,
+        "research_tokens": 16714,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 14998,
+          "cache_read_input_tokens": 28382,
+          "output_tokens": 13
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1776
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 14998,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 17370
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1614644,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 14998,
+    "cache_read_input_tokens": 28382,
+    "output_tokens": 1789,
+    "context_tokens": 43386,
+    "total_tokens": 45175,
+    "first_request_context": 9487,
+    "fixed_overhead_tokens": 28461,
+    "research_tokens": 16714,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 14998,
+      "cache_read_input_tokens": 28382,
+      "output_tokens": 13
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1776
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 14998,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 17370
+  },
+  "timedOut": false
+}

@@ -1,6 +1,6 @@
 # PLAN.md / IMPLEMENTATION.md template — build document
 
-Load when writing a standalone `PLAN.md` or RFC-linked `IMPLEMENTATION.md`. Why: resolve execution questions, make acceptance explicit, then order build and verification by dependency. Reference the primary artifact; never restate its goals or scope.
+Load when writing a standalone `PLAN.md` or RFC-linked `IMPLEMENTATION.md`.
 ```markdown
 # {Plan | Implementation}: {Title}
 
@@ -40,7 +40,6 @@ Verification asks whether the build matches design; validation asks whether the 
 - Trigger: `KPI.md` §Decision Rule when present; otherwise the inline Acceptance Contract
 - Flags/canary/percentage gate and rollback procedure
 - Owner/approver
-When `KPI.md` exists, it owns the measurable rollback threshold; this procedure references that threshold.
 ```
-Gate: decision blockers closed before direction selection; every execution question is resolved or explicitly deferred. Every step depends only on a prerequisite or earlier step, links to acceptance, and has a verification check; reorder or split any step that fails. Include estimates only when requested and evidence-based.
-Next: record provenance with `references/rfc-resources.md`, then validate through `references/workflow.md` § Validate and deliver.
+Gate: reorder or split any step that breaks the lobby step rule. Include estimates only when requested and evidence-based.
+Next: record provenance with `references/research-playbook.md` § RESOURCES.md, then validate through `references/workflow.md` § Validate and deliver.

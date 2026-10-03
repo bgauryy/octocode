@@ -1,0 +1,7 @@
+**Helped:** The first `localSearch` (regex on StaleNaN/endOfRunStaleness/iterDone) located nearly every relevant function in one call. The batched `localGetFileContent` with explicit line ranges (1660-1740, 1056-1085, 1160-1180, 1405-1425, 1955-1970) gave exact bytes for the core mechanism. The `disableEndOfRunStalenessMarkers` search showed the reload/manager path.
+
+**Did not help:** My first batched `localGetFileContent` failed validation because query 4 used `matchString` with a line range. That one bad row discarded the whole batch and cost a retry. The second `localSearch` partly repeated the first and truncated matches, so some snippets were cut off. I never read the code around `scrape.go:364`, `manager.go:559`, or the `:1784` empty-body branch beyond the search snippets. I also never read the failed-scrape path.
+
+**Next time:** Check the schema before combining options like `matchString` with ranges. Read `:355-372` and the scrape/append error handling directly instead of leaning on search snippets. Use `lspGetSemantics` references on `forEachStale` or `updateStaleMarkers` to confirm every call site.
+
+**Confidence:** High for the core mechanism, since I saw it in exact line reads. Medium for the reload and failed-scrape details, which I flagged as unverified in my answer.

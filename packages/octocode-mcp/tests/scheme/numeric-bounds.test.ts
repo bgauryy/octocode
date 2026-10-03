@@ -1,30 +1,30 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
-import { FileContentQueryBaseLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubPullRequestSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { ArtifactSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { LocalFetchContentQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstFilesQuerySchema } from '@octocodeai/octocode-core/schema';
-import { LocalRipgrepQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstFilesystemTreeQuerySchema } from '@octocodeai/octocode-core/schema';
-import { LspSearchQuerySchema } from '@octocodeai/octocode-core/schema';
+import { FileContentQueryLocalSchema } from '@octocodeai/config/schema';
+import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/config/schema';
+import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/config/schema';
+import { SearchPullRequestsLocalSchema } from '@octocodeai/config/schema';
+import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/config/schema';
+import { ArtifactSearchQueryLocalSchema } from '@octocodeai/config/schema';
+import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
+import { StructureFilesQuerySchema } from '@octocodeai/config/schema';
+import { LocalSearchQuerySchema } from '@octocodeai/config/schema';
+import { StructureTreeQuerySchema } from '@octocodeai/config/schema';
+import { LspSearchQuerySchema } from '@octocodeai/config/schema';
 
 const SENTINEL = 9007199254740991;
 
 const schemas: Record<string, z.ZodTypeAny> = {
-  'fileContent(remote)': FileContentQueryBaseLocalSchema,
+  'fileContent(remote)': FileContentQueryLocalSchema,
   'code(remote)': GitHubCodeSearchQueryLocalSchema,
   'repos(remote)': GitHubReposSearchSingleQueryLocalSchema,
-  'pullRequests(remote)': GitHubPullRequestSearchQueryLocalSchema,
+  'pullRequests(remote)': SearchPullRequestsLocalSchema,
   'viewRepoStructure(remote)': GitHubViewRepoStructureQueryLocalSchema,
   'artifactSearch(remote)': ArtifactSearchQueryLocalSchema,
   'fetchContent(local)': LocalFetchContentQuerySchema,
-  astFiles: AstFilesQuerySchema,
-  ripgrep: LocalRipgrepQuerySchema,
-  astFilesystemTree: AstFilesystemTreeQuerySchema,
+  structureFiles: StructureFilesQuerySchema,
+  localSearch: LocalSearchQuerySchema,
+  structureTree: StructureTreeQuerySchema,
   lspSemantic: LspSearchQuerySchema,
 };
 
@@ -52,7 +52,12 @@ describe('numeric schema fields are bounded (#C1)', () => {
   }
 
   it('local view offsets accept safe integers and reject fractional or unsafe values', () => {
-    const query = { path: '/fixture.txt', chunkType: 'bytes' as const };
+    const query = {
+      mainGoal: 'test goal',
+      reasoning: 'exercise offset bounds',
+      path: '/fixture.txt',
+      chunkType: 'bytes' as const,
+    };
     expect(
       LocalFetchContentQuerySchema.safeParse({ ...query, offset: SENTINEL })
         .success
@@ -64,27 +69,46 @@ describe('numeric schema fields are bounded (#C1)', () => {
     }
   });
 
-  it('github.code clamps page 0 to page 1 (relaxed page field)', () => {
+  it('github.code rejects page 0 instead of rewriting caller input', () => {
     const r = GitHubCodeSearchQueryLocalSchema.safeParse({
       keywords: ['x'],
       page: 0,
     });
-    expect(r.success).toBe(true);
-    if (r.success) expect(r.data.page).toBe(1);
+    expect(r.success).toBe(false);
   });
 
-  it('clamps contextLines:120 to 100 instead of rejecting (FC-2)', () => {
-    const r = FileContentQueryBaseLocalSchema.safeParse({
+  it('rejects contextLines above the documented maximum', () => {
+    const query = (contextLines: number) => ({
+      mainGoal: 'test goal',
+      reasoning: 'exercise contextLines bounds',
       owner: 'o',
       repo: 'r',
       path: 'a.ts',
       matchString: 'foo',
-      contextLines: 120,
+      contextLines,
     });
-    expect(r.success).toBe(true);
-    if (r.success) {
-      expect((r.data as { contextLines?: number }).contextLines).toBe(100);
-    }
+    const contextLinesSchema = z.toJSONSchema(FileContentQueryLocalSchema)
+      .properties?.contextLines;
+    const maximum =
+      typeof contextLinesSchema === 'object'
+        ? contextLinesSchema.maximum
+        : undefined;
+    expect(maximum).toBeTypeOf('number');
+    if (typeof maximum !== 'number') return;
+    // Values between the runtime clamp and the maximum are accepted (and
+    // clamped natively); only values past the published maximum reject.
+    expect(FileContentQueryLocalSchema.safeParse(query(120)).success).toBe(
+      true
+    );
+    expect(FileContentQueryLocalSchema.safeParse(query(maximum)).success).toBe(
+      true
+    );
+    const r = FileContentQueryLocalSchema.safeParse(query(maximum + 1));
+    expect(r.success).toBe(false);
+    if (!r.success)
+      expect(r.error.issues.map(i => i.path.join('.'))).toEqual([
+        'contextLines',
+      ]);
   });
 
   it('rejects a negative LSP line without changing the observed anchor', () => {
@@ -100,7 +124,9 @@ describe('numeric schema fields are bounded (#C1)', () => {
   it('pullRequests: content.patches.ranges line arrays are bounded (reject above the cap)', () => {
     // The SENTINEL is above the 1e9 line-number cap -> rejected as too_big,
     // and the cap is never the ±MAX_SAFE_INTEGER sentinel.
-    const r = GitHubPullRequestSearchQueryLocalSchema.safeParse({
+    const r = SearchPullRequestsLocalSchema.safeParse({
+      mainGoal: 'test goal',
+      reasoning: 'exercise patch line bounds',
       owner: 'o',
       repo: 'r',
       prNumber: 1,
@@ -128,7 +154,9 @@ describe('numeric schema fields are bounded (#C1)', () => {
     }
 
     // A value exactly at the cap is accepted.
-    const ok = GitHubPullRequestSearchQueryLocalSchema.safeParse({
+    const ok = SearchPullRequestsLocalSchema.safeParse({
+      mainGoal: 'test goal',
+      reasoning: 'exercise patch line bounds',
       owner: 'o',
       repo: 'r',
       prNumber: 1,

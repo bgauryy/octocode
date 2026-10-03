@@ -1,50 +1,43 @@
-# Ollama CLI Reference
+# Ollama CLI and Invoke
 
-Load when inventorying models, invoking the worker, or debugging CLI behavior. Why: exact tags and lifecycle flags decide whether an offload runs at all.
+Load when you inventory models, invoke the worker, or debug CLI or serving behavior. Exact tags and serving knobs decide whether output parses.
 
-Commands and flags verified against local `ollama --help` / subcommand help (Ollama CLI on the agent host). Official docs: https://github.com/ollama/ollama · library hub: https://ollama.com/library · key families: [gemma4](https://ollama.com/library/gemma4) · [qwen2.5](https://ollama.com/library/qwen2.5). Gotcha: `ollama -v` can show a **client** build different from the **server** (`ollama serve`) — prefer live `run`/`show` behavior and upgrade the CLI if flags diverge.
+Docs: https://github.com/ollama/ollama · https://ollama.com/library. `ollama -v` can show a client build that differs from the server; trust live `run`/`show` behavior and upgrade the CLI if flags diverge.
 
-**Global:** `ollama --help` · `ollama -v` (version). Env:
+Env: `OLLAMA_HOST` (default `127.0.0.1:11434`) · `OLLAMA_WORKER_MODEL` (exact selected name) · `OLLAMA_WORKER_KEEPALIVE` (script default `5m`).
 
-| Variable | Meaning |
+- Inventory: `ollama list` (`ls`) · `ollama ps` (loaded; warmth never overrides tier fit) · `ollama show MODEL` (`--parameters`, `--system`, `--modelfile`, `--template`, `-v`) for unfamiliar models.
+- Lifecycle: `serve` (often already a service) · `pull` · `rm` (**ask the requester first**) · `cp SRC DST` · `create NAME -f Modelfile` · `stop MODEL` · `signin`/`signout` (not needed locally).
+- Run: `ollama run MODEL [PROMPT]`, non-interactive only: prompt argument or `< packet.txt` (stdin, what the script uses). No REPL or TTY loops.
+
+| Run flag | When |
 |---|---|
-| `OLLAMA_HOST` | Server address (default `127.0.0.1:11434`) |
-| `OLLAMA_WORKER_MODEL` | Exact model name this skill selected (skill-specific) |
-| `OLLAMA_WORKER_KEEPALIVE` | Default keepalive for `scripts/ollama-worker.sh` (default `5m`) |
+| `--format json` | JSON jobs; also instruct JSON in the prompt |
+| `--keepalive 5m` | Required for map-reduce; `0` unloads (after a tier switch, to free VRAM) |
+| `--think=false` | Default for bulk; one argv (`--think false` makes `false` the model name) |
+| `--think=true` / `--hidethinking` | Deeper reasoning / hide thinking spans |
+| `--verbose` / `--nowordwrap` | Timing debug / cleaner capture |
 
-## Lifecycle
+`ollama run` has no `temperature` or `num_ctx` flag: use the script's `--temperature` / `--num-ctx` (HTTP `/api/generate`) or a Modelfile. HTTP: `$OLLAMA_HOST/api/tags` (list), `/api/ps`, `/api/generate`, `/api/chat`; prefer the skill scripts.
 
-| Command | Use |
-|---|---|
-| `ollama serve` | Start server (often already running as a service) |
-| `ollama pull MODEL` | Download a model — **ask user before pulling** |
-| `ollama rm MODEL` | Delete a local model — **ask user** |
-| `ollama cp SRC DST` | Copy/rename a local model |
-| `ollama create NAME -f Modelfile` | Build custom model from Modelfile |
-| `ollama stop MODEL` | Stop a running model |
-| `ollama signin` / `signout` | ollama.com auth (not required for local run) |
-
-**Inventory (required every offload)**
 ```bash
-ollama list          # alias: ollama ls
-ollama ps            # models currently loaded in memory
-ollama show MODEL    # add --parameters | --system | --modelfile | --template | -v
+./scripts/ollama-health.sh                                   # daemon only
+./scripts/ollama-health.sh --model "$OLLAMA_WORKER_MODEL"    # after ROUTE
+./scripts/ollama-worker.sh --model "$OLLAMA_WORKER_MODEL" --think=false --keepalive 5m --job summarize \
+  --input shard.txt --schema schema-hint.txt --out .octocode/worker/shard-001.json
+./scripts/ollama-worker.sh --model "$OLLAMA_WORKER_MODEL" --format-json --temperature 0.2 \
+  --keepalive 5m --job extract --input shard.txt --out .octocode/worker/shard-001.json
 ```
 
-**Agent rules:** copy model names **exactly** from `ollama list`, including `:tag`. Before selecting an unfamiliar model, use `show` to inspect size, context, and capabilities. Use `ps` to avoid loading a huge model when a fitting small model is warm; this optimization never replaces tier fit.
+The script builds a constrained prompt and calls `ollama run`, or `/api/generate` when `--temperature`, `--num-ctx`, or `--http` is set; it writes `--out` when set. Keep artifacts under `.octocode/worker/`; never commit secrets.
 
-**Safe defaults for this skill:** 1) Health: `./scripts/ollama-health.sh` 2) Inventory: `ollama list` 3) Select: `export OLLAMA_WORKER_MODEL='<exact-tag>'` 4) Verify: `./scripts/ollama-health.sh --model "$OLLAMA_WORKER_MODEL"` 5) Run: `./scripts/ollama-worker.sh --model "$OLLAMA_WORKER_MODEL" --job summarize --input shard.txt --out .octocode/worker/out.txt`
+- `temperature` 0.1–0.3 for structured jobs; the model default suits draft and caption.
+- One model per map-reduce job; swapping 7B↔32B mid-set thrashes RAM/VRAM. `--temperature` / `--num-ctx` force HTTP and do not combine with `--image`; use the CLI for vision.
 
-## Do / Don't
-
-| Do | Don't |
+| Failure | Action |
 |---|---|
-| `ollama list` then pick | Hardcode `llama3.2` without checking |
-| Exact tagged names | Prefix-match (`llama3.2` ≠ `llama3.2-vision`) |
-| `--format json` + schema text for structured jobs | Ask embed models to summarize |
-| `--keepalive` on every shard invoke | Rely on accidental warm loads |
-| Size shards to `num_ctx` (+ headroom) | Stuff a huge page into default ctx and hope |
-| One model per map-reduce job | Swap 7B↔32B mid-shard set (VRAM thrash) |
-| Ask before `pull` / `rm` | Download multi-GB models silently |
+| Truncated or empty (undersized `num_ctx` silently cuts the prompt start) | Shrink the shard or raise `--num-ctx` above shard tokens plus headroom; retry once |
+| Invalid JSON (aggressive quantization breaks it first) | `--format-json` + `--temperature 0.2`; else cascade a tier or solo |
+| Cold shards | `--keepalive` |
 
-Next: for `ollama run` flags, non-interactive patterns, and HTTP equivalents load `references/ollama-cli-run.md`; for the script path and serving knobs load `references/ollama-invoke.md`.
+Next: gate the return with `references/local-ollama.md`.

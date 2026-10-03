@@ -1,329 +1,172 @@
-import path from 'node:path';
-import type { OctocodeConfig, ValidationResult } from './types.js';
-import { CONFIG_SCHEMA_VERSION } from './types.js';
 import {
-  MIN_TIMEOUT,
-  MAX_TIMEOUT,
-  MIN_RETRIES,
-  MAX_RETRIES,
-  MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-  MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-} from './defaults.js';
+  CONFIG_FIELDS,
+  CONFIG_SCHEMA_VERSION,
+  type ConfigFieldSpec,
+} from './contract.generated.js';
+import type { ValidationResult } from './types.js';
 
-function validateUrl(url: unknown, field: string): string | null {
-  if (url === undefined || url === null) return null;
-
-  if (typeof url !== 'string') {
-    return `${field}: Must be a string`;
-  }
-
-  try {
-    const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return `${field}: Only http/https URLs allowed`;
-    }
-    return null;
-  } catch {
-    return `${field}: Invalid URL format`;
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function validateNumberRange(
-  value: unknown,
-  field: string,
-  min: number,
-  max: number
-): string | null {
-  if (value === undefined || value === null) return null;
-
-  if (typeof value !== 'number' || isNaN(value)) {
-    return `${field}: Must be a number`;
+function getPath(root: unknown, fieldPath: string): unknown {
+  let current = root;
+  for (const part of fieldPath.split('.')) {
+    if (!isRecord(current)) return undefined;
+    current = current[part];
   }
-
-  if (value < min || value > max) {
-    return `${field}: Must be between ${min} and ${max}`;
-  }
-
-  return null;
-}
-
-function validateBoolean(value: unknown, field: string): string | null {
-  if (value === undefined || value === null) return null;
-
-  if (typeof value !== 'boolean') {
-    return `${field}: Must be a boolean`;
-  }
-
-  return null;
-}
-
-function validateStringArray(value: unknown, field: string): string | null {
-  if (value === undefined || value === null) return null;
-
-  if (!Array.isArray(value)) {
-    return `${field}: Must be an array`;
-  }
-
-  for (let i = 0; i < value.length; i++) {
-    if (typeof value[i] !== 'string') {
-      return `${field}[${i}]: Must be a string`;
-    }
-  }
-
-  return null;
+  return current;
 }
 
 function isAbsoluteOrHomePath(value: string): boolean {
   return (
-    value.startsWith('~') ||
-    path.isAbsolute(value) ||
+    value.startsWith('/') ||
+    /^~(?:[\\/]|$)/.test(value) ||
     /^[A-Za-z]:[\\/]/.test(value)
   );
 }
 
 function hasTraversalSegment(value: string): boolean {
-  return value.split(/[\\/]+/).includes('..');
+  return value.split(/[\\/]/).includes('..');
 }
 
-function validateLocalPathValue(value: string, field: string): string | null {
-  if (value.trim() === '') return `${field}: empty or whitespace-only path`;
-  if (!isAbsoluteOrHomePath(value)) {
-    return `${field}: must be absolute path or start with ~ (got "${value}")`;
-  }
-  if (hasTraversalSegment(value)) {
-    return `${field}: path traversal (..) not allowed (got "${value}")`;
-  }
-  return null;
-}
-
-// Rejects empty strings, relative paths, and path traversal attempts.
-function validateAllowedPathElements(paths: unknown[]): string[] {
-  const errors: string[] = [];
-  for (let i = 0; i < paths.length; i++) {
-    const p = paths[i];
-    if (typeof p !== 'string') continue;
-    const error = validateLocalPathValue(p, `local.allowedPaths[${i}]`);
-    if (error) errors.push(error);
-  }
-  return errors;
-}
-
-function validateNullableStringArray(
-  value: unknown,
-  field: string
-): string | null {
-  if (value === undefined) return null;
-  if (value === null) return null;
-
-  return validateStringArray(value, field);
-}
-
-function validateString(value: unknown, field: string): string | null {
-  if (value === undefined || value === null) return null;
-
-  if (typeof value !== 'string') {
-    return `${field}: Must be a string`;
-  }
-
-  return null;
-}
-
-function validateGitHub(github: unknown, errors: string[]): void {
-  if (github === undefined || github === null) return;
-
-  if (typeof github !== 'object' || Array.isArray(github)) {
-    errors.push('github: Must be an object');
+function validateUrl(fieldPath: string, value: string, errors: string[]): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    errors.push(`${fieldPath}: Invalid URL format`);
     return;
   }
-
-  const gh = github as Record<string, unknown>;
-
-  const apiUrlError = validateUrl(gh.apiUrl, 'github.apiUrl');
-  if (apiUrlError) errors.push(apiUrlError);
-}
-
-function validateStorage(storage: unknown, errors: string[]): void {
-  if (storage === undefined || storage === null) return;
-  if (typeof storage !== 'object' || Array.isArray(storage)) {
-    errors.push('storage: Must be an object');
-    return;
-  }
-  const mode = (storage as Record<string, unknown>).mode;
-  if (mode !== undefined && mode !== 'persistent' && mode !== 'memory') {
-    errors.push('storage.mode: Must be "persistent" or "memory"');
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    errors.push(`${fieldPath}: Only http/https URLs allowed`);
   }
 }
 
-function validateExtension(extension: unknown, errors: string[]): void {
-  if (extension === undefined || extension === null) return;
-  if (typeof extension !== 'object' || Array.isArray(extension)) {
-    errors.push('extension: Must be an object');
-    return;
-  }
-  const ext = extension as Record<string, unknown>;
-  // Reuse validateStorage but prefix any errors with 'extension.'
-  const storageErrors: string[] = [];
-  validateStorage(ext.storage, storageErrors);
-  errors.push(...storageErrors.map(e => `extension.${e}`));
-}
-
-function validateLocal(local: unknown, errors: string[]): void {
-  if (local === undefined || local === null) return;
-
-  if (typeof local !== 'object' || Array.isArray(local)) {
-    errors.push('local: Must be an object');
-    return;
-  }
-
-  const loc = local as Record<string, unknown>;
-
-  const enabledError = validateBoolean(loc.enabled, 'local.enabled');
-  if (enabledError) errors.push(enabledError);
-
-  const enableCloneError = validateBoolean(
-    loc.enableClone,
-    'local.enableClone'
-  );
-  if (enableCloneError) errors.push(enableCloneError);
-
-  const allowedPathsError = validateStringArray(
-    loc.allowedPaths,
-    'local.allowedPaths'
-  );
-  if (allowedPathsError) {
-    errors.push(allowedPathsError);
-  } else if (Array.isArray(loc.allowedPaths)) {
-    const pathErrors = validateAllowedPathElements(
-      loc.allowedPaths as unknown[]
+function validatePath(fieldPath: string, value: string, errors: string[]): void {
+  if (value.trim() === '') {
+    errors.push(`${fieldPath}: empty or whitespace-only path`);
+  } else if (!isAbsoluteOrHomePath(value)) {
+    errors.push(
+      `${fieldPath}: must be absolute path (starting with /, ~/, or a Windows drive)`
     );
-    errors.push(...pathErrors);
-  }
-
-  if (loc.workspaceRoot !== undefined && loc.workspaceRoot !== null) {
-    const workspaceRootError = validateString(
-      loc.workspaceRoot,
-      'local.workspaceRoot'
-    );
-    if (workspaceRootError) {
-      errors.push(workspaceRootError);
-    } else if (typeof loc.workspaceRoot === 'string') {
-      const pathError = validateLocalPathValue(
-        loc.workspaceRoot,
-        'local.workspaceRoot'
-      );
-      if (pathError) errors.push(pathError);
-    }
+  } else if (hasTraversalSegment(value)) {
+    errors.push(`${fieldPath}: must not contain '..' traversal segments`);
   }
 }
 
-function validateTools(tools: unknown, errors: string[]): void {
-  if (tools === undefined || tools === null) return;
-
-  if (typeof tools !== 'object' || Array.isArray(tools)) {
-    errors.push('tools: Must be an object');
-    return;
-  }
-
-  const t = tools as Record<string, unknown>;
-
-  const enabledError = validateNullableStringArray(t.enabled, 'tools.enabled');
-  if (enabledError) errors.push(enabledError);
-
-  const disabledError = validateNullableStringArray(
-    t.disabled,
-    'tools.disabled'
-  );
-  if (disabledError) errors.push(disabledError);
-}
-
-function validateNetwork(network: unknown, errors: string[]): void {
-  if (network === undefined || network === null) return;
-
-  if (typeof network !== 'object' || Array.isArray(network)) {
-    errors.push('network: Must be an object');
-    return;
-  }
-
-  const net = network as Record<string, unknown>;
-
-  const timeoutError = validateNumberRange(
-    net.timeout,
-    'network.timeout',
-    MIN_TIMEOUT,
-    MAX_TIMEOUT
-  );
-  if (timeoutError) errors.push(timeoutError);
-
-  const retriesError = validateNumberRange(
-    net.maxRetries,
-    'network.maxRetries',
-    MIN_RETRIES,
-    MAX_RETRIES
-  );
-  if (retriesError) errors.push(retriesError);
-}
-
-function validateLsp(lsp: unknown, errors: string[]): void {
-  if (lsp === undefined || lsp === null) return;
-
-  if (typeof lsp !== 'object' || Array.isArray(lsp)) {
-    errors.push('lsp: Must be an object');
-    return;
-  }
-
-  const l = lsp as Record<string, unknown>;
-
-  const configPathError = validateString(l.configPath, 'lsp.configPath');
-  if (configPathError) errors.push(configPathError);
-}
-
-function validateOutput(output: unknown, errors: string[]): void {
-  if (output === undefined || output === null) return;
-
-  if (typeof output !== 'object' || Array.isArray(output)) {
-    errors.push('output: Must be an object');
-    return;
-  }
-
-  const out = output as Record<string, unknown>;
-
-  if (out.format !== undefined) {
-    if (typeof out.format !== 'string') {
-      errors.push('output.format: Must be a string');
-    } else if (!['yaml', 'json'].includes(out.format)) {
-      errors.push('output.format: Must be one of: yaml, json');
-    }
-  }
-
-  if (out.pagination !== undefined && out.pagination !== null) {
-    if (typeof out.pagination !== 'object' || Array.isArray(out.pagination)) {
-      errors.push('output.pagination: Must be an object');
-    } else {
-      const pagination = out.pagination as Record<string, unknown>;
-      const defaultCharLengthError = validateNumberRange(
-        pagination.defaultCharLength,
-        'output.pagination.defaultCharLength',
-        MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
-        MAX_OUTPUT_DEFAULT_CHAR_LENGTH
-      );
-      if (defaultCharLengthError) errors.push(defaultCharLengthError);
-    }
-  }
-}
-
-function warnUnknownObjectKeys(
+function validateField(
+  field: ConfigFieldSpec,
   value: unknown,
-  prefix: string,
-  knownKeys: readonly string[],
+  errors: string[],
   warnings: string[]
 ): void {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return;
+  if (value === undefined) return;
+  if (value === null && field.type !== 'schemaVersion') return;
+
+  switch (field.type) {
+    case 'schemaVersion':
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
+        errors.push(`${field.path}: Must be an integer`);
+      } else if (value > CONFIG_SCHEMA_VERSION) {
+        warnings.push(
+          `Configuration version ${value} is newer than supported version ${CONFIG_SCHEMA_VERSION}`
+        );
+      }
+      return;
+    case 'boolean':
+      if (typeof value !== 'boolean') errors.push(`${field.path}: Must be a boolean`);
+      return;
+    case 'number':
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        errors.push(`${field.path}: Must be a number`);
+      } else if (
+        (field.minimum !== undefined && value < field.minimum) ||
+        (field.maximum !== undefined && value > field.maximum)
+      ) {
+        errors.push(
+          `${field.path}: Must be between ${field.minimum} and ${field.maximum}`
+        );
+      }
+      return;
+    case 'stringArray':
+      if (!Array.isArray(value)) {
+        errors.push(`${field.path}: Must be an array`);
+        return;
+      }
+      value.forEach((item, index) => {
+        const itemPath = `${field.path}[${index}]`;
+        if (typeof item !== 'string') {
+          errors.push(`${itemPath}: Must be a string`);
+        } else if (field.itemFormat === 'path') {
+          validatePath(itemPath, item, errors);
+        }
+      });
+      return;
+    case 'enum':
+      if (typeof value !== 'string') {
+        errors.push(`${field.path}: Must be a string`);
+      } else if (!field.values?.includes(value)) {
+        const expected =
+          field.enumStyle === 'quotedOr'
+            ? field.values!.map(item => JSON.stringify(item)).join(' or ')
+            : `one of: ${field.values!.join(', ')}`;
+        errors.push(`${field.path}: Must be ${expected}`);
+      }
+      return;
+    case 'url':
+    case 'path':
+    case 'string':
+      if (typeof value !== 'string') {
+        errors.push(`${field.path}: Must be a string`);
+      } else if (field.type === 'url') {
+        validateUrl(field.path, value, errors);
+      } else if (field.type === 'path') {
+        validatePath(field.path, value, errors);
+      }
+      return;
   }
-  const known = new Set(knownKeys);
-  for (const key of Object.keys(value)) {
-    if (!known.has(key)) {
-      warnings.push(`Unknown configuration key: ${prefix}.${key}`);
+}
+
+function sectionPaths(): string[] {
+  return [
+    ...new Set(
+      CONFIG_FIELDS.filter(field => field.file)
+        .map(field => field.section)
+        .filter(Boolean)
+        .flatMap(section => {
+          const parts = section.split('.');
+          return parts.map((_, index) => parts.slice(0, index + 1).join('.'));
+        })
+    ),
+  ];
+}
+
+function warnUnknownKeys(config: Record<string, unknown>, warnings: string[]): void {
+  const sections = sectionPaths();
+  const knownAt = new Map<string, Set<string>>([['', new Set(['$schema'])]]);
+  for (const field of CONFIG_FIELDS.filter(candidate => candidate.file)) {
+    const known = knownAt.get(field.section) ?? new Set<string>();
+    known.add(field.key);
+    knownAt.set(field.section, known);
+  }
+  for (const section of sections) {
+    const parent = section.includes('.') ? section.slice(0, section.lastIndexOf('.')) : '';
+    const key = section.slice(section.lastIndexOf('.') + 1);
+    const known = knownAt.get(parent) ?? new Set<string>();
+    known.add(key);
+    knownAt.set(parent, known);
+  }
+
+  for (const [section, known] of knownAt) {
+    const value = section === '' ? config : getPath(config, section);
+    if (!isRecord(value)) continue;
+    for (const key of Object.keys(value)) {
+      if (!known.has(key)) {
+        warnings.push(
+          `Unknown configuration key: ${section.length === 0 ? key : `${section}.${key}`}`
+        );
+      }
     }
   }
 }
@@ -331,103 +174,27 @@ function warnUnknownObjectKeys(
 export function validateConfig(config: unknown): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
-
-  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+  if (!isRecord(config)) {
     return {
       valid: false,
-      errors: ['Configuration must be a JSON object'],
-      warnings: [],
+      errors: ['Configuration must be an object'],
+      warnings,
     };
   }
 
-  const cfg = config as Record<string, unknown>;
-
-  if (cfg.version !== undefined) {
-    if (typeof cfg.version !== 'number' || !Number.isInteger(cfg.version)) {
-      errors.push('version: Must be an integer');
-    } else if (cfg.version > CONFIG_SCHEMA_VERSION) {
-      warnings.push(
-        `version: Config version ${cfg.version} is newer than supported version ${CONFIG_SCHEMA_VERSION}`
-      );
+  for (const section of sectionPaths()) {
+    const value = getPath(config, section);
+    if (value !== undefined && value !== null && !isRecord(value)) {
+      errors.push(`${section}: Must be an object`);
     }
   }
 
-  validateGitHub(cfg.github, errors);
-  validateLocal(cfg.local, errors);
-  validateTools(cfg.tools, errors);
-  validateNetwork(cfg.network, errors);
-  validateLsp(cfg.lsp, errors);
-  validateOutput(cfg.output, errors);
-  validateStorage(cfg.storage, errors);
-  validateExtension(cfg.extension, errors);
-
-  warnUnknownObjectKeys(cfg.github, 'github', ['apiUrl'], warnings);
-  warnUnknownObjectKeys(
-    cfg.local,
-    'local',
-    ['enabled', 'enableClone', 'allowedPaths', 'workspaceRoot'],
-    warnings
-  );
-  warnUnknownObjectKeys(cfg.storage, 'storage', ['mode'], warnings);
-  warnUnknownObjectKeys(cfg.extension, 'extension', ['storage'], warnings);
-  if (typeof cfg.extension === 'object' && cfg.extension !== null && !Array.isArray(cfg.extension)) {
-    warnUnknownObjectKeys((cfg.extension as Record<string, unknown>).storage, 'extension.storage', ['mode'], warnings);
-  }
-  warnUnknownObjectKeys(
-    cfg.tools,
-    'tools',
-    ['enabled', 'disabled'],
-    warnings
-  );
-  warnUnknownObjectKeys(
-    cfg.network,
-    'network',
-    ['timeout', 'maxRetries'],
-    warnings
-  );
-  warnUnknownObjectKeys(cfg.lsp, 'lsp', ['configPath'], warnings);
-  warnUnknownObjectKeys(
-    cfg.output,
-    'output',
-    ['format', 'pagination'],
-    warnings
-  );
-  if (
-    typeof cfg.output === 'object' &&
-    cfg.output !== null &&
-    !Array.isArray(cfg.output)
-  ) {
-    warnUnknownObjectKeys(
-      (cfg.output as Record<string, unknown>).pagination,
-      'output.pagination',
-      ['defaultCharLength'],
-      warnings
-    );
+  for (const field of CONFIG_FIELDS.filter(candidate => candidate.file)) {
+    const parent = field.section === '' ? config : getPath(config, field.section);
+    if (parent === undefined || !isRecord(parent)) continue;
+    validateField(field, parent[field.key], errors, warnings);
   }
 
-  const knownKeys = new Set([
-    '$schema',
-    'version',
-    'github',
-    'local',
-    'tools',
-    'network',
-    'lsp',
-    'output',
-    'storage',
-    'extension',
-  ]);
-
-  for (const key of Object.keys(cfg)) {
-    if (!knownKeys.has(key)) {
-      warnings.push(`Unknown configuration key: ${key}`);
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-    config: errors.length === 0 ? (config as OctocodeConfig) : undefined,
-  };
+  warnUnknownKeys(config, warnings);
+  return { valid: errors.length === 0, errors, warnings };
 }

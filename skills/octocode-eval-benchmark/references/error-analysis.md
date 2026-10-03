@@ -1,28 +1,21 @@
-# Error Analysis
-Load before writing new eval cases or when the suite feels generic. Why: evals must come from real failure modes, not vanity metrics.
+# Error analysis and benchmarks
+Load before you write new eval cases, when the suite feels generic, or when you choose or trust a public benchmark. Evals come from real failure modes, not vanity metrics.
 
-## Process (Hamel-style)
-1. **Dataset** — gather representative traces (prod, dogfood, or synthetic starter).
-2. **Open coding** — domain expert notes the *first* clear failure per trace (journaling).
-3. **Axial coding** — cluster notes into a **failure taxonomy**; count frequency.
-4. **Saturation** — stop when ~20 new traces add no new category (still review a meaningful batch).
-5. **Write evals** — one grader/case family per top failure mode; attach `failureSignature`.
+1. **Dataset**: gather representative traces (production, dogfood, or a synthetic starter).
+2. **Open coding**: a domain expert notes the *first* clear failure per trace.
+3. **Axial coding**: cluster notes into a failure taxonomy; count frequency.
+4. **Saturation**: stop when more representative traces no longer change the taxonomy. Inspect rare high-impact failures separately.
+5. **Write evals**: one grader or case family per top failure mode, with a `failureSignature` (`mechanism:…|cause:…`) for mining and host verification records.
 
-## Outputs
-| Artifact | Use |
-|---|---|
-| Failure taxonomy | Prioritize what to measure |
-| Top-N modes | Capability suite targets |
-| Signatures | `mechanism:…\|cause:…` for mining / Awareness reflect |
-| New cases | Suite loop growth |
+- Skip generic platform metrics (toxicity, helpfulness) unless your taxonomy has them.
+- Rank by frequency × impact; make rare critical failures explicit guardrails. Keep representative sampling separate from enriched stress tests.
+- Revisit after product or model shifts. Fix or tag the first upstream break; it causes downstream noise.
 
-## Rules
-- Do not start from generic platform metrics (“toxicity”, “helpfulness”) unless they appear in your taxonomy.
-- Frequency beats rarity — evals aren’t free; cover what happens.
-- Revisit after product/model shifts; taxonomies rot.
-- Upstream errors cause downstream noise — fix/tag the first break.
-
-## Link to loops
-Error analysis feeds the **suite loop**; experiments then hill-climb those cases; meta loop changes the program when the same signatures recur.
-
-Next: add cases → `eval-harness.md`; choose public vs private benches → `benchmarking.md`.
+## Public benchmarks
+- A public gain without a transcript audit is weak evidence.
+- Check construct validity: does the benchmark measure the skill you care about?
+- Assume contamination on famous benchmarks (items or paraphrases in training, prompts, or RAG).
+- Scores near ceiling leave no hill: graduate to harder tasks or a new suite.
+- 0% pass@100 often means a broken task or grader, not a weak agent.
+- Coding (SWE-style): issue + repository snapshot → agent patch → tests → read transcripts. Passing tests are not merge-ready; a saturated board is never sole proof.
+- Retire a contaminated, saturated, or gaming-dominated benchmark to regression smoke; build a fresh private capability suite.

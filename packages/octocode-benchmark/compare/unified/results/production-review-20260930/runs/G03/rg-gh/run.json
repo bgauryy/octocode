@@ -1,0 +1,106 @@
+{
+  "qid": "G03",
+  "worker": "rg-gh",
+  "started": "2026-09-30T18:44:31.518Z",
+  "promptSha256": "13bcdbb19ad0193a1fb23c8928cdaa2e489ac2f407f1854ba1cc51e064647153",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 13560,
+  "status": "ok",
+  "answer": "**The bug:** a client that a pool had removed from rotation could still pull queued requests from the pool. After a failed connect, the pool reported zero connections while a socket was still open. `pool.destroy()` neither aborted the request nor closed that socket. The PR author describes this in the PR body (https://github.com/nodejs/undici/pull/5881).\n\n**Why it happened:**\n- **Client kept draining the pool queue.** In `Pool` and `RoundRobinPool`, the `connectionError` handler only spliced the client out of `kClients`. It did not close it. The client's drain listener stayed active, so it kept taking requests from the pool queue. The removed comment in `pool.js` says as much: \"Do not use kRemoveClient here, as it will close the client…\".\n- **Client unreachable by destroy/close.** Once spliced out, the client was no longer in `kClients`. `pool.destroy()` and `pool.close()` only iterated `kClients`, so they never reached it. The same gap applied to clients evicted by `clientTtl`: `kRemoveClient` closed them but then forgot them.\n\n**How the fix works** (merge commit `da911f0`):\n1. **`lib/dispatcher/pool-base.js`: new `kRetireClient`.**\n   - It removes the client from `kClients`.\n   - It skips the client if it is already destroyed or already retiring.\n   - Otherwise it records the client in a new `kRetiring` map (client → promise).\n   - It then calls `client.close(cb)`. The callback removes the entry and resolves the promise. The callback form is used because custom `factory` dispatchers may not return a promise.\n   - A closed client stops taking queued requests, but it still finishes the requests it already has.\n   - `kRemoveClient` now calls `kRetireClient`.\n2. **Retired clients stay reachable.**\n   - `kDestroy` also destroys every client in `kRetiring`.\n   - A new `closeClients(pool)` helper replaces three copy-pasted close loops. It closes live clients and also awaits the `kRetiring` promises, so `pool.close()` waits for retired clients to finish.\n3. **`pool.js` and `round-robin-pool.js`: `connectionError` handlers.**\n   - They now call `kRetireClient(target)` instead of only splicing.\n   - If `this[kQueued] > 0`, they call `kDrainQueue(origin, targets.slice(1))`. This hands the queued requests to another, possibly new, client. `Pool` does this as well as its existing `resumeQueued` case. `RoundRobinPool` gains this call, along with the `kDrainQueue` and `kQueued` imports.\n4. **Tests:** the new `test/pool-retired-clients.js` runs against both `Pool` and `RoundRobinPool`. It covers four cases:\n   - A queued request goes to a new client after a connect failure.\n   - `destroy()` aborts requests queued behind a connection error.\n   - `destroy()` aborts in-flight requests on a client evicted by `clientTtl`.\n   - `close()` waits for a client evicted by `clientTtl`.\n\n**Uncertainty:** I read the PR diff and metadata through `gh`. I did not check out the merge commit, so I have not cited line numbers in the final source. I also did not run the tests.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10771,
+    "cache_read_input_tokens": 6977,
+    "output_tokens": 734,
+    "context_tokens": 17752,
+    "total_tokens": 18486,
+    "first_request_context": 5044,
+    "fixed_overhead_tokens": 10088,
+    "research_tokens": 8398,
+    "max_request_context": 12708
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3107,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7664,
+      "cache_read_input_tokens": 5042,
+      "output_tokens": 718
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10771,
+    "cache_read_input_tokens": 6977,
+    "output_tokens": 1201
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1201,
+      "cacheReadInputTokens": 6977,
+      "cacheCreationInputTokens": 10771,
+      "webSearchRequests": 0,
+      "costUSD": 0.0564974,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0564974,
+  "duration_ms": 11878,
+  "num_turns": 2,
+  "toolCallCount": 1,
+  "toolCounts": {
+    "Bash:gh": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files,url; gh pr diff 5881 -R nodejs/undici\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "**1. Helped:** I made one Bash call, `gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files,url; gh pr diff 5881 -R nodejs/undici`. It returned the PR description, file list, merge commit and full diff. The diff's code comments and the added test file explained the bug and the fix, so I needed no further calls.\n\n**2. Did not help:** Nothing failed and I made no repeated calls. The diff was long, mostly because of the 228-line test file. The session had no local undici checkout, so I couldn't cite line numbers at the merge commit. The PR body's \"Bug Fixes\" section said \"N/A\", so I had to work out the bug from the rationale text and the diff. I also couldn't run the tests.\n\n**3. Next time:** I would check the linked issue and the PR review comments with `gh pr view --comments` or `gh issue view` to see whether they add context. If line citations mattered, I would fetch the merged files with `gh api repos/nodejs/undici/contents/lib/dispatcher/pool-base.js?ref=da911f0` and grep them for line numbers.\n\n**4. Confidence:** High for the bug mechanism and the fix design, because both come straight from the diff and the PR's own comments. Medium-high overall. The answer has no file:line citations because I didn't read the merged source. I also didn't run the code or the tests.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1306,
+      "cache_read_input_tokens": 12706,
+      "output_tokens": 2,
+      "context_tokens": 14014,
+      "total_tokens": 14016,
+      "first_request_context": 14014,
+      "fixed_overhead_tokens": 14014,
+      "research_tokens": 2,
+      "max_request_context": 14014
+    },
+    "cost_usd": 0.06887660000000001,
+    "toolCallsAttempted": 0
+  }
+}

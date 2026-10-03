@@ -1,0 +1,50 @@
+{
+  "qid": "L13",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 6,
+      "correctness": 4,
+      "completeness": 1,
+      "evidence": 1,
+      "perJudgment": [
+        6,
+        6
+      ],
+      "wrongClaims": [
+        "Says the propagated deletion is a DEL; it is UNLINK when lazyfree-lazy-expire is enabled",
+        "t_string.c line range 468-478 is off (getGenericCommand/getCommand are at 456-472)",
+        "Says the master propagates a DEL; it is UNLINK when lazyfree-lazy-expire is enabled",
+        "CLIENT_MASTER check applies only when masterhost is set or cluster mode is on, not in general"
+      ]
+    },
+    "rg-gh": {
+      "quality": 8,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        8
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.28473400000000004
+}

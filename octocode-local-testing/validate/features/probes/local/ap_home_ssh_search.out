@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/.ssh", "searchText": "ssh", "resultView": "files"}
+# env: {'ALLOWED_PATHS': '/Users/bgaryy'}
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"error":"Path '~/.ssh' is in an ignored directory or matches an ignored pattern","errorCode":"fileAccessFailed","hints":["Broaden searchText, path, or filters."]},"status":"error"}]}

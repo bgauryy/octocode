@@ -1,17 +1,21 @@
 {
   "name": "@octocodeai/config",
-  "private": true,
-  "description": "Octocode unified env + config loader — zero deps, shared by MCP, CLI, extension, agent, and standalone skills.",
-  "version": "20.0.0",
+  "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared tool-contract hub ('./schema', './mcp') and the generated TypeScript/Rust tool input and output types, built from @octocodeai/octocode-core.",
+  "version": "20.1.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": {
     "octocode-config": "./dist/cli.js"
   },
   "bugs": "https://github.com/bgauryy/octocode/issues",
+  "dependencies": {
+    "@octocodeai/octocode-core": "19.1.6"
+  },
   "devDependencies": {
     "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.0",
+    "ajv": "^8.20.0",
     "esbuild": "^0.28.2",
+    "json-schema-to-typescript": "16.0.0",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.0"
@@ -24,6 +28,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/contracts/schema.d.ts",
+      "import": "./dist/contracts/schema.js"
+    },
+    "./mcp": {
+      "types": "./dist/contracts/mcp.d.ts",
+      "import": "./dist/contracts/mcp.js"
     }
   },
   "files": [
@@ -49,11 +61,17 @@
     "directory": "packages/octocode-config"
   },
   "scripts": {
-    "build": "node build.mjs",
+    "build": "node scripts/generate-config-contract.ts && node scripts/generate-tool-contract.ts --check && node build.mjs",
+    "check:config-contract": "node scripts/generate-config-contract.ts --check",
+    "check:core-contract-sync:published": "node scripts/check-core-contract-sync.cjs",
+    "check:tool-contract": "node scripts/generate-tool-contract.ts --check",
     "clean": "rm -rf dist/",
-    "lint": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "generate:config-contract": "node scripts/generate-config-contract.ts",
+    "generate:tool-contract": "node scripts/generate-tool-contract.ts",
+    "lint": "node scripts/generate-config-contract.ts --check && node scripts/generate-tool-contract.ts --check && node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:tokens:acceptance": "cd ../.. && node packages/octocode-config/tests/token-precedence.acceptance.mjs",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "typecheck": "yarn lint",
     "verify": "yarn lint && yarn test && yarn build"

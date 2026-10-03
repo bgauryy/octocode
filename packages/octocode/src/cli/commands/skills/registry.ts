@@ -63,6 +63,19 @@ export interface SkillPathResult {
   error?: string;
 }
 
+/**
+ * A skill name is used as a single path segment (`path.join(skillsHome, name)`)
+ * everywhere it's resolved to a filesystem location. Restricting it to this
+ * charset rejects `/`, `\`, and any leading `.` — which also rules out `..`
+ * and hidden-dotfile segments — so a name can never escape its intended
+ * directory via path traversal.
+ */
+const SKILL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function isValidSkillName(name: string): boolean {
+  return SKILL_NAME_PATTERN.test(name);
+}
+
 /** Resolve and validate a standalone local skill folder for `skill --add`. */
 export function getSkillFromPath(
   sourcePath: string,
@@ -97,7 +110,7 @@ export function getSkillFromPath(
 
   const folderName = path.basename(skillDir);
   const installName = nameOverride ?? frontmatter.name;
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(installName)) {
+  if (!isValidSkillName(installName)) {
     return { error: `Invalid skill name: "${installName}".` };
   }
   if (!nameOverride && frontmatter.name !== folderName) {
@@ -217,6 +230,19 @@ export function getSkill(nameOrFolder: string): SkillInfo | null {
       s => s.name === nameOrFolder || s.folder === nameOrFolder
     ) ?? null
   );
+}
+
+/** Skills removed from the bundle → the bundled skill that now owns their guidance. */
+export const RETIRED_SKILLS: Readonly<Record<string, string>> = {
+  'octocode-clasify': 'octocode-research',
+};
+
+/** Suffix for "not found" errors when the name is a retired skill; empty otherwise. */
+export function retiredHint(name: string): string {
+  const owner = RETIRED_SKILLS[name];
+  return owner
+    ? ` "${name}" was retired and merged into "${owner}"; install "${owner}" and run \`octocode skill remove ${name}\`.`
+    : '';
 }
 
 /**

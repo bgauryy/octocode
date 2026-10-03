@@ -1,0 +1,182 @@
+{
+  "qid": "L02",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "3a476e1b7dd7272048c5960a542d01dc30c1781c4414921d2b31a88e4a1b306a",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "d2a30012f2768a128ce601009167268ccd17ee39f98d098957cb6debe4a9f394",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate overall. Line refs are off by about 1 (1295 vs 1296, 1297-1298 vs 1298-1299). The message is shown as 'save()' though the operation name is parameterized. The bulk_update caller is only guessed, and the fields-subset behavior for bulk_update is not tied to it."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Line citations are exact. The message is correctly parameterized by operation name. The fields-subset skip is mentioned, but the bulk_update caller is unconfirmed ('probably bulk_update'), so key fact 2 is partial."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate overall. Line refs are off by about 1 (1295 vs 1296, 1297-1298 vs 1298-1299). The message is shown as 'save()' though the operation name is parameterized. The bulk_update caller is only guessed, and the fields-subset behavior for bulk_update is not tied to it."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Line citations are exact. The message is correctly parameterized by operation name. The fields-subset skip is mentioned, but the bulk_update caller is unconfirmed ('probably bulk_update'), so key fact 2 is partial."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.08122599999999999,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 7485,
+        "cache_read_input_tokens": 11050,
+        "output_tokens": 956,
+        "context_tokens": 18539,
+        "total_tokens": 19495,
+        "first_request_context": 8682,
+        "fixed_overhead_tokens": 17364,
+        "research_tokens": 2131,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 7485,
+          "cache_read_input_tokens": 11050,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -948
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7485,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 9857
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.08122599999999999,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7485,
+    "cache_read_input_tokens": 11050,
+    "output_tokens": 956,
+    "context_tokens": 18539,
+    "total_tokens": 19495,
+    "first_request_context": 8682,
+    "fixed_overhead_tokens": 17364,
+    "research_tokens": 2131,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 7485,
+      "cache_read_input_tokens": 11050,
+      "output_tokens": 8
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -948
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7485,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 9857
+  },
+  "timedOut": false
+}

@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}
+# env: None
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"errorCode":"fileAccessFailed","error":"Path is not a regular file: octocode-local-testing/bench/validate/features/probes/local/fx/src","resolvedPath":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src","hints":["Verify the path with structureSearch operation:\"files\", then retry the exact path."]},"status":"error"}]}

@@ -1,0 +1,7 @@
+1. **Helped:** I made one Bash call, `gh pr view 3866 -R pallets/click --json title,body,state,mergeCommit,files,url`, chained with `gh pr diff 3866 | head -300`. The PR body gave the intent: the three cases and the link to #3827. The diff gave the implementation: `_check_name_is_usable`, `_check_name_is_normalized`, and their call sites in `Option._parse_decls` and `Argument._parse_decls`. One round trip was enough, and the CHANGES.md and upgrade-guide hunks confirmed the wording.
+
+2. **Did not help:** `head -300` cut the diff off inside the test files. I never read the rest of the tests, including `test_deprecations.py`, and I said so in my answer. The diff also has no line numbers at the pinned commit, so my citations name files and functions instead. I did not check the merge commit 06b2a678 in a local checkout, so I never confirmed the code as it exists now.
+
+3. **Next time:** I would run `gh pr diff -- src/click/core.py`, or `gh api` on the merge commit, to get exact line numbers. I would also read `tests/test_deprecations.py` separately to confirm the exact warning messages.
+
+4. **Confidence:** High on what is deprecated and which declarations warn, because the PR body, the changelog and the code all agree. Medium-high on details such as the `expose_value=False` paths. Those come from diff hunks I read without the surrounding file.

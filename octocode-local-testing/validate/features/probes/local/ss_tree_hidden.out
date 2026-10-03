@@ -1,0 +1,5 @@
+# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "tree", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "maxDepth": 0, "hidden": true}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"fx","entries":[".github/",".hidden/","many/","package.json (54B)","sec/","src/"],"summary":"6 entries (1 files, 5 dirs, 54B)"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local"}

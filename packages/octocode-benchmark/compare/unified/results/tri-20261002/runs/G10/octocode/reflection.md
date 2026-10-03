@@ -1,0 +1,7 @@
+1. **Helped:** The second `ghGetHistoryItem` call, with `matchString: "miri"` plus an `include: ["files"]` row, was the fastest step. It returned compact hunks showing only the Miri-related lines across all 37 files, including the exact ignore reasons. The PR body in the first call gave the motivation and the two upstream Miri issues (#5047, #5054) directly.
+
+2. **Did not help:** The first call returned truncated, noisy patches (`isPartial`, 12 unfinished files), so it was largely redundant once the second call ran. I never fetched the `uds_*` diffs or `uds_stream.rs`, which the output offered as `next.continuePatch`. I also never opened `ghGetFileContent` to check any ignore at the merge commit. The second call's response was itself paginated (page 1 of 2), and I did not fetch page 2. The matchString hunks showed no surrounding test names, so I could not always say which test an ignore attached to. For example, the two `rt_common` ignores citing #5047 are unnamed.
+
+3. **Next time:** Start with the `matchString: "miri"` call, then follow `next.continuePatch` for the leftover `uds_*` file. Use `ghGetFileContent` with `matchString` to confirm test names for the key ignores.
+
+4. **Confidence:** Medium-high on the PR summary and the TCP and Miri-limitation reasons, since they come straight from diff lines. Medium on completeness of the UDS and "still not run" list, because I skipped the `uds_*` patches and page 2. I flagged both gaps in the answer.

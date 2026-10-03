@@ -1,0 +1,145 @@
+{
+  "qid": "G01",
+  "worker": "octocode",
+  "started": "2026-09-30T07:09:00.170Z",
+  "promptSha256": "26c3af8d4abd78157db4bb2644f84b65dc7945c392c8bef57e9070f42b09c806",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 27899,
+  "status": "ok",
+  "answer": "PR #16403 is merged (merge commit `4b3949cd`). It adds built-in OpenTelemetry to `FastAPI()`. It is on by default, adds a hard dependency, and can install exporters at lifespan startup.\n\nI read the diffs for `applications.py`, `routing.py`, `background.py` and `pyproject.toml`, and the full `fastapi/telemetry/_runtime.py`. I did not read `telemetry/_asgi.py` (446 lines) or `telemetry/_api.py` (276 lines). I also did not read the tests or docs, and I saw only the first part of the `pyproject.toml` patch. Anything I say about span or metric contents is therefore not verified.\n\n## Runtime behavior changes\n\n**1. Telemetry is on by default.**\n- `FastAPI.__init__` takes a new `telemetry: TelemetryConfig | None` argument.\n- The defaults are tracing, metrics, logs and `operation_spans` all `True`, `auto_configure=True`, and the providers `None`, meaning the global ones (`applications.py`, ~L1030).\n- `__call__` routes http/websocket scopes through `NativeTelemetry` when it is enabled. If the scope already has a `\"fastapi.telemetry\"` key, or telemetry is disabled, it falls back to the plain Starlette path.\n- Before delegating, it builds `middleware_stack` eagerly if it is `None`. It also calls `_legacy_otel(self.middleware_stack)`, which presumably detects the contrib instrumentation middleware and avoids double instrumentation. I did not confirm that.\n\n**2. New middleware order.** `ExceptionTelemetryMiddleware` is inserted right after `ServerErrorMiddleware` and before user middleware. Every app's middleware stack changes, whether or not it uses OpenTelemetry.\n\n**3. Extra work on the request path.** New `_operation(name=...)` context managers wrap these steps:\n- endpoint execution (`routing.py`, `run_endpoint_function`)\n- dependency solving\n- response serialization\n- websocket dependencies and endpoint\n- each background task (`BackgroundTasks.__call__` is overridden in `background.py`)\n\nSync endpoints now go through `_run_sync_endpoint` inside `run_in_threadpool`, instead of calling the function directly.\n\n**4. Data captured on a per-request telemetry object.** `request`, `body`, solved `values` and `errors`, and `websocket` are stored on it. `_validation_failed(...)` is called before validation errors are raised. `_route_selected(...)` is called at about seven routing sites, including redirect-slash handling, low-priority matches, mounts and included routers. The redirect branch replicates the `_IncludedRouter._match` walk.\n\n**5. Lifespan wrapper and environment auto-configuration** (`_runtime.py`).\n- On `lifespan.startup`, `_configure_from_environment` adds OTLP exporters from `OTEL_*` variables.\n- It runs only if `auto_configure` is on and `OTEL_SDK_DISABLED` is not `true`.\n- If no global provider is configured, it creates and installs an SDK provider with `shutdown_on_exit=False`. Otherwise it attaches its own processor or reader to the existing provider.\n- Flush happens on shutdown and startup-failed lifespan messages, via `run_sync`. There is also an `atexit` shutdown hook.\n\n**6. Dependencies** (`pyproject.toml`).\n- `opentelemetry-api>=1.44.0` becomes a hard dependency for every FastAPI install.\n- A new `opentelemetry` extra adds the SDK and the OTLP http exporter, and `standard` gets the same.\n\n## What a reviewer should watch\n\n- **Default-on with a hard dependency.** Everyone pays for `_operation` wrappers and the new middleware. Check the overhead when no SDK is installed, since the API should be a no-op. There is no benchmark in what I read.\n- **Startup can now fail.** `_configure_from_environment` raises `FastAPIError`, then sends `lifespan.startup.failed`, in three cases:\n  - an exporter other than `otlp` or `none`\n  - a protocol other than `http/protobuf`\n  - the SDK packages missing\n  \n  An app that was fine before could refuse to start if it has `OTEL_EXPORTER_OTLP_ENDPOINT` set and no extra installed. That is a behavior break to weigh. Note also that `OTEL_TRACES_EXPORTER=console` or `grpc` now raises instead of being ignored.\n- **Coexistence with other OpenTelemetry setups.**\n  - Contrib `FastAPIInstrumentor` and `opentelemetry-instrument` auto-instrumentation could double-instrument or double-export. `_legacy_otel` handles only the first case, as far as I saw.\n  - FastAPI \"does not inspect or deduplicate other components' exporters\" (its own docstring). That is a duplicate-export risk with no automatic guard.\n  - The `ProxyMeterProvider` special case matches a Logfire class by module and name string. That is brittle.\n- **Global state and races.** Module-level `_owned` and `_configured` lists, an `RLock` and `atexit` are all used. Multiple apps in one process, test isolation, and the \"another component configured the global provider concurrently\" branch (`provider.shutdown()` then re-attach) deserve scrutiny.\n- **`_flush` is called without the lock.** It iterates a snapshot of `_owned`, while `_shutdown` takes the lock. Compare the two.\n- **Lifespan behavior.** Configuration happens inside `wrapped_receive`, on receiving startup. `lifespan.shutdown.*` messages now trigger a synchronous `force_flush` in a thread. That can delay shutdown if the collector is unreachable, and I saw no timeout.\n- **Data exposure.** The request body and solved dependency values are retained on a telemetry object for the request's life. Check what `_api.py` and `_asgi.py` actually put in span attributes or logs. This is a PII risk, and I did not verify it.\n- **Routing changes are invasive.** `_route_selected` is scattered through `routing.py`, including a redirect branch that re-walks `_IncludedRouter` matches. Check that it has no side effects on match results and is cheap when telemetry is off.\n- **Size and process.**\n  - The PR is +5251/−46 across 36 files, and the description says it was AI-assisted.\n  - The follow-up commit (the file was last modified 2026-09-29) and the author's note that Sentry and Logfire were consulted suggest the API was still moving. It was merged three days after opening.\n  - The author says internals will be refactored soon, so the private hooks (`_operation`, `_route_selected`) may change.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 16608,
+    "cache_read_input_tokens": 120764,
+    "output_tokens": 88,
+    "context_tokens": 137378,
+    "total_tokens": 137466,
+    "first_request_context": 40816,
+    "fixed_overhead_tokens": 122448,
+    "research_tokens": 15018,
+    "max_request_context": 54139
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3285,
+      "cache_read_input_tokens": 37529,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1607,
+      "cache_read_input_tokens": 40814,
+      "output_tokens": 50
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 11716,
+      "cache_read_input_tokens": 42421,
+      "output_tokens": 6
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 16608,
+    "cache_read_input_tokens": 120764,
+    "output_tokens": 3077
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 3077,
+      "cacheReadInputTokens": 120764,
+      "cacheCreationInputTokens": 16608,
+      "webSearchRequests": 0,
+      "costUSD": 0.12136680000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 73,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.12136680000000001,
+  "duration_ms": 26777,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__ghGetHistoryItem": 2,
+    "mcp__octocode__ghGetFileContent": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0,
+    "followUp uses": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"operation\":\"pullRequest\",\"number\":16403,\"goal\":\"Get PR overview\",\"reasoning\":\"Start with summary and file inventory\",\"content\":{\"body\":true,\"changedFiles\":true}}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"fastapi/telemetry/_runtime.py\",\"branch\":\"4b3949cd9e5932f76217131fceabc74145c3db24\",\"fullContent\":true,\"goal\":\"runtime\",\"reasoning\":\"core\"},{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"fastapi/telemetry/_api.py\",\"branch\":\"4b3949cd9e5932f76217131fceabc74145c3db24\",\"fullContent\":true,\"goal\":\"api\",\"reasoning\":\"core\"},{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"docs/en/docs/advanced/opentelemetry.md\",\"branch\":\"4b3949cd9e5932f76217131fceabc74145c3db24\",\"fullContent\":true,\"goal\":\"docs\",\"reasoning\":\"intended behavior\"}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"operation\":\"pullRequest\",\"number\":16403,\"fileFilter\":{\"paths\":[\"fastapi/applications.py\",\"fastapi/routing.py\",\"fastapi/background.py\",\"pyproject.toml\"]},\"content\":{\"patches\":{\"mode\":\"all\"}},\"goal\":\"diff of runtime files\",\"reasoning\":\"see behavior changes\"}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `ghGetHistoryItem` call (body plus `changedFiles`) gave the merge SHA, the file inventory and the size in one shot. The second `ghGetHistoryItem` call, with `fileFilter` on four paths and `patches: all`, returned the diffs I needed for `applications.py`, `routing.py` and `background.py`. I did not have to page through 36 files. `ghGetFileContent` on `_runtime.py` at the merge SHA gave the environment auto-configuration logic with line-level detail.\n\n2. **Did not help:** I batched three files in one `ghGetFileContent` call. The response was paginated at the response level, so only `_runtime.py` came back. `_api.py` and the docs were left on page 2, and I never fetched it. I also never read `_asgi.py`, the tests or the rest of the `pyproject.toml` patch, which was truncated. My answer flagged these gaps. Its claims about span contents and data exposure remain unverified.\n\n3. **Next time:** Fetch the big files one per call, or set `responseCharLength` high enough for all three. Continue the `next` pagination when it is offered. Use `matchString` on the patch for `attributes` or `body` to check for PII exposure. Read `_asgi.py` with `minify: symbols` first.\n\n4. **Confidence:** Medium. The routing, lifespan and dependency claims are grounded in diffs I read. The telemetry contents and the double-instrumentation behavior are inferred, not verified.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2582,
+      "cache_read_input_tokens": 54137,
+      "output_tokens": 1,
+      "context_tokens": 56721,
+      "total_tokens": 56722,
+      "first_request_context": 56721,
+      "fixed_overhead_tokens": 56721,
+      "research_tokens": 1,
+      "max_request_context": 56721
+    },
+    "cost_usd": 0.14754620000000002,
+    "toolCallsAttempted": 0
+  }
+}

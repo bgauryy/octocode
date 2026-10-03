@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
-  console.log('Usage: har-ingest-to-scrape.mjs [--scraping-skill-dir <dir>] <har> [har-ingest options]\n\nOptional dependency: octocode-scraping. Install it beside this skill or pass its folder with --scraping-skill-dir.');
+  console.log('Usage: har-ingest-to-scrape.mjs [--scraping-skill-dir <dir>] --session-dir <dir> (--har <file.har> | --from-cdp-dir <run>) [har-ingest options]\n\nOptional dependency: octocode-scraping. Install it beside this skill or pass its folder with --scraping-skill-dir.');
   process.exit(0);
 }
 const options = args.flatMap((value, index) => value === '--scraping-skill-dir' ? [index] : []);

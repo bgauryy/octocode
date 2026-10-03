@@ -1,0 +1,60 @@
+# cargo-deny configuration for octocode-native.
+# Run: yarn deny   (requires: cargo install cargo-deny)
+
+[graph]
+targets = [
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-pc-windows-msvc" },
+]
+
+# ── Advisories (security CVEs) ────────────────────────────────────────────────────────────────
+# Schema v2: `vulnerability`/`unsound`/`notice` were removed (and now error);
+# vulnerability and unsound advisories always fail. `unmaintained` has no
+# "warn" level anymore — `workspace` fails only for direct dependencies, the
+# closest match to the old warn-on-transitive intent.
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+unmaintained = "workspace"
+yanked = "deny"
+
+# ── Licenses ──────────────────────────────────────────────────────────────────────────────
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "OpenSSL",
+]
+# Schema v2: `unlicensed`/`copyleft`/`allow-osi-fsf-free`/`default` were removed
+# (and now error); anything not in `allow` is denied.
+confidence-threshold = 0.8
+
+# ── Bans (duplicate crates, banned crates) ────────────────────────────────────────────────
+[bans]
+multiple-versions = "warn"   # warn on duplicated semver-incompatible crates
+wildcards = "deny"          # no wildcard versions in Cargo.toml
+allow-wildcard-paths = true # versionless path deps between our publish=false crates
+skip = [
+    # Known intentional duplicates — update this list after each dep upgrade
+    # { name = "example", version = "=0.1.0" },
+]
+
+# ── Sources (crate registry allow-list) ──────────────────────────────────────────────────
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

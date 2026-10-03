@@ -1,0 +1,144 @@
+{
+  "qid": "G06",
+  "worker": "rg-gh",
+  "started": "2026-09-30T07:09:56.352Z",
+  "promptSha256": "8d7513b46b250a4395b78b60019bad1a9f95ec6edade08bc1a533c492504ebd2",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 24815,
+  "status": "ok",
+  "answer": "**Short answer:** `Client` builds a sorted table of URL patterns (`self._mounts`) when it is constructed. For each request, `_transport_for_url` returns the first pattern that matches the URL. If a pattern matches and its transport is a proxy transport, the request goes through that proxy. If the matching entry is `None`, or nothing matches, it uses the direct transport `self._transport`. I read the code through the GitHub API at `b5addb64f0161ff6bfe94c124ef76f6a1fba5254`. Line numbers below are in `httpx/_client.py` unless noted.\n\n**1. Building the proxy map at construction**\n- `allow_env_proxies = trust_env and transport is None`, then `proxy_map = self._get_proxy_map(proxy, allow_env_proxies)` (lines 685–686).\n- `_get_proxy_map` (239–251) has three cases:\n  - If an explicit `proxy=` is given, the map is `{\"all://\": Proxy(...)}`, so every URL is proxied.\n  - If `proxy` is `None` and env proxies are allowed, the map comes from `get_environment_proxies()`.\n  - Otherwise the map is empty, so all traffic is direct.\n- `get_environment_proxies` is at `httpx/_utils.py:30-75`:\n  - It reads `getproxies()` for the `http`, `https` and `all` schemes and maps them to keys like `http://`.\n  - Each `NO_PROXY` entry becomes a pattern mapped to `None`, meaning \"direct\", such as `all://*example.com`.\n  - `NO_PROXY=*` returns `{}`, which disables all proxying (`_utils.py:51-56`).\n\n**2. Building the mounts**\n- `self._mounts` (697–709) maps `URLPattern(key)` to `None` if the proxy is `None`, or else to a transport created by `_init_proxy_transport`.\n- User-supplied `mounts=` entries override or extend this table (711–714).\n- The table is then sorted with `dict(sorted(self._mounts.items()))` (716).\n\n**3. Sort order**\n- `URLPattern.priority` (`_utils.py:~200-210`) orders patterns from most to least specific:\n  1. Patterns with a port come first.\n  2. Longer hosts come next.\n  3. Longer schemes come after that.\n- `__lt__` compares on this priority.\n- Because of this order, a `NO_PROXY` pattern like `all://*example.com` (longer host) is checked before the generic `http://` proxy pattern.\n\n**4. Matching per request**\n- `_send_single_request` calls `transport = self._transport_for_url(request.url)` (1005).\n- `_transport_for_url` (760–770) loops over `self._mounts`. On the first `pattern.matches(url)`, it returns `self._transport` if the mapped transport is `None`, and the mapped transport otherwise. If nothing matches, it returns `self._transport`.\n- `URLPattern.matches` (`_utils.py:192-203`) checks the scheme (empty for `all`), then the host regex, then the port.\n\n**Caveat:** if you pass a custom `transport=`, env proxies are ignored (line 685). An explicit `proxy=` or `mounts=` is still applied.\n\nI did not run anything. Everything above comes from reading the source. The `priority` line range in `_utils.py` is approximate.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 8602,
+    "cache_read_input_tokens": 28682,
+    "output_tokens": 894,
+    "context_tokens": 37294,
+    "total_tokens": 38188,
+    "first_request_context": 5040,
+    "fixed_overhead_tokens": 25200,
+    "research_tokens": 12988,
+    "max_request_context": 10539
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3103,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 351,
+      "cache_read_input_tokens": 5038,
+      "output_tokens": 30
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1617,
+      "cache_read_input_tokens": 5389,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2308,
+      "cache_read_input_tokens": 7006,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1223,
+      "cache_read_input_tokens": 9314,
+      "output_tokens": 815
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 8602,
+    "cache_read_input_tokens": 28682,
+    "output_tokens": 1815
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1815,
+      "cacheReadInputTokens": 28682,
+      "cacheCreationInputTokens": 8602,
+      "webSearchRequests": 0,
+      "costUSD": 0.058314399999999995,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.058314399999999995,
+  "duration_ms": 23695,
+  "num_turns": 6,
+  "toolCallCount": 5,
+  "toolCounts": {
+    "Bash:cd": 4,
+    "Bash:gh": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos; ls; find . -maxdepth 3 -name httpx -type d | head; \"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh api repos/encode/httpx/commits/b5addb64f0 --jq .sha\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; gh api -H \\\"Accept: application/vnd.github.raw\\\" \\\"repos/encode/httpx/contents/httpx/_client.py?ref=b5addb64f0161ff6bfe94c124ef76f6a1fba5254\\\" > c.py; rg -n \\\"proxy|proxies|mounts|_transport_for_url|def _init_transport|def _init_proxy\\\" c.py | head -80\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; sed -n 239,253p c.py; sed -n 683,717p c.py; sed -n 760,772p c.py; gh api -H \\\"Accept: application/vnd.github.raw\\\" \\\"repos/encode/httpx/contents/httpx/_utils.py?ref=b5addb64f0161ff6bfe94c124ef76f6a1fba5254\\\" > u.py; rg -n \\\"def get_environment_proxies\\\" -A45 u.py; rg -n \\\"class URLPattern\\\" -A75 u.py | rg -n \\\"def |priority|sort|__lt__|matches\\\" \"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; sed -n 162,235p u.py; sed -n 1000,1008p c.py\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The `gh api` call that downloaded `httpx/_client.py` at the pinned SHA was the fastest route. Saving it to `/tmp/c.py` let me search it locally. The `rg` for `proxy|proxies|mounts|_transport_for_url` pointed me straight to lines 239, 685–716, 760 and 1005. Fetching `_utils.py` the same way gave me `get_environment_proxies` and `URLPattern`. Because I pinned the SHA, the line numbers are reliable.\n\n2. **Did not help:** My first `find` and `ls` of the local repos directory found nothing for httpx, so that call was wasted. The shell cwd also kept resetting, so I had to `cd /tmp` every time. My `rg -A75 | rg` filter on `URLPattern` showed only the docstring lines, so I had to make a second fetch with `sed 162,235p`. That second fetch is why the `priority` line range in my answer is approximate (`~200-210`) when I could have given it exactly. I also did not open `_init_proxy_transport` (lines 740–758), so I never saw how the proxy transport is constructed.\n\n3. **Next time:** I would run `gh api` for the pinned SHA first, without searching local directories. I would print exact ranges with `sed -n` or `rg -n` and skip the piped greps. I would cite exact line numbers for every claim.\n\n4. **Confidence:** High on the overall mechanism, because I read the code for every step. Medium-high on the exact line numbers. Only the `priority` range is approximate.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1339,
+      "cache_read_input_tokens": 10537,
+      "output_tokens": 1,
+      "context_tokens": 11878,
+      "total_tokens": 11879,
+      "first_request_context": 11878,
+      "fixed_overhead_tokens": 11878,
+      "research_tokens": 1,
+      "max_request_context": 11878
+    },
+    "cost_usd": 0.0709818,
+    "toolCallsAttempted": 0
+  }
+}

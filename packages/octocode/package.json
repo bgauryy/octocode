@@ -1,19 +1,14 @@
 {
   "name": "octocode",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
-  "version": "19.1.0",
+  "version": "19.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": "./out/octocode.js",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
-    "@octocodeai/config": "20.0.0",
-    "@octocodeai/octocode-engine": "19.1.0",
-    "@octocodeai/octocode-tools-core": "19.1.0",
-    "@octokit/auth-oauth-device": "^8.0.5",
-    "@octokit/oauth-methods": "^6.0.5",
-    "@octokit/request": "^10.0.16",
-    "open": "^11.0.3"
+    "@octocodeai/config": "20.1.0",
+    "@octocodeai/octocode-native": "20.0.0"
   },
   "devDependencies": {
     "@octocodeai/octocode-skill-installer": "workspace:*",
@@ -21,11 +16,9 @@
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
-    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
-    "vitest": "^5.0.0",
-    "zod": "^4.6.2"
+    "vitest": "^5.0.0"
   },
   "bundledDependencies": [
     "@octocodeai/config"
@@ -63,23 +56,19 @@
     "directory": "packages/octocode"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn lint && node build.mjs && node scripts/bundle-docs.mjs",
-    "release": "node ../../scripts/release.mjs --target cli",
-    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
+    "build": "yarn lint && node build.mjs && node scripts/bundle-docs.mjs",
+    "build:dev": "node build.mjs",
     "clean": "rm -rf out/",
     "lint": "node ../../node_modules/eslint/bin/eslint.js src tests",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src tests --fix",
-    "prepack": "yarn readme:sync && node scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
+    "prepack": "node scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
     "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "start": "node ./out/octocode.js",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "test:watch": "node ../../node_modules/vitest/vitest.mjs --watch",
     "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit",
-    "validate:mcp": "npx tsx scripts/validate-mcp-registry.ts",
-    "validate:mcp:json": "npx tsx scripts/validate-mcp-registry.ts --json",
-    "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp"
+    "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "type": "module"
 }

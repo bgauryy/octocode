@@ -1,0 +1,7 @@
+1. **Helped:** Two calls in one batch got me most of the answer. `ghGetHistoryItem` (operation `issue`, #18837) gave the symptom. `ghSearchHistory` (operation `pullRequests`, keywords `["18837"]`, state `merged`) found PR #18838 immediately. A single `ghGetHistoryItem` on that PR with `patches: {mode: "all"}` and `changedFiles` returned the full diff, so no file reads were needed.
+
+2. **Did not help:** The issue had zero comments, so the `comments` option added nothing. I never read `proxy.js` at the merge commit, so I never saw the `has` trap itself. I also didn't read the PR's comments or reviews for maintainer rationale. The PR author was `svelte-triage-bot[bot]`, and I didn't mention that. The PR body's test results are the PR's own claims, which I couldn't verify. My `proxy.js` line reference (hunk at 204) comes from the diff header, not a file read.
+
+3. **Next time:** I would also fetch `proxy.js` at the merge SHA (via file content fetch) to confirm the `has` trap and the final `getOwnPropertyDescriptor` code. I'd read PR #18838's discussion and reviews too.
+
+4. **Confidence:** Medium-high. The diff clearly shows the change, and the `Object.hasOwn` → `getOwnPropertyDescriptor` mapping is standard JS behavior. The root-cause explanation is an inference from the diff, not stated in the issue, and I said so in the answer.

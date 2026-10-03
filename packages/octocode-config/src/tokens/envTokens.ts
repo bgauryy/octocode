@@ -1,22 +1,19 @@
 /**
  * Token resolution from environment variables.
  *
- * Priority order (highest → lowest):
- *   OCTOCODE_TOKEN → GH_TOKEN → GITHUB_TOKEN → GITHUB_PERSONAL_ACCESS_TOKEN
- *
- * All four vars are in PROTECTED_KEYS and must never come from .env files.
- * They are read directly from process.env (set by the shell or MCP client).
+ * Priority is the canonical order in `ENV_TOKEN_VARS`. Callers can pass an
+ * effective environment populated by propagateOctocodeEnv: explicit values
+ * win across credential aliases, then workspace .env, then home .env.
+ * Alias priority here breaks ties within the winning source.
+ * These helpers do not load files or mutate the environment.
  */
 import type { TokenSource } from './types.js';
+import {
+  ENV_TOKEN_VARS,
+  type EnvTokenVar,
+} from '../config/contract.generated.js';
 
-export const ENV_TOKEN_VARS = [
-  'OCTOCODE_TOKEN',
-  'GH_TOKEN',
-  'GITHUB_TOKEN',
-  'GITHUB_PERSONAL_ACCESS_TOKEN',
-] as const;
-
-export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
+export { ENV_TOKEN_VARS, type EnvTokenVar };
 
 /** Return the first non-empty token value found in env, or null. */
 export function getTokenFromEnv(env: NodeJS.ProcessEnv = process.env): string | null {
@@ -31,7 +28,7 @@ export function getTokenFromEnv(env: NodeJS.ProcessEnv = process.env): string | 
 export function getEnvTokenSource(env: NodeJS.ProcessEnv = process.env): TokenSource {
   for (const envVar of ENV_TOKEN_VARS) {
     const token = env[envVar];
-    if (token && token.trim()) return `env:${envVar}` as TokenSource;
+    if (token && token.trim()) return `env:${envVar}`;
   }
   return null;
 }
@@ -50,7 +47,7 @@ export function resolveEnvToken(
     if (token?.trim()) {
       return {
         token: token.trim(),
-        source: `env:${envVar}` as Exclude<TokenSource, null | 'octocode-storage' | 'gh-cli'>,
+        source: `env:${envVar}`,
       };
     }
   }

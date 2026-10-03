@@ -18,8 +18,6 @@ For platform validation, go straight to the relevant vendor: OpenAI/Anthropic/Go
 - A trend surface alone is `weak`; require an independent source or direct repository/package/paper data for `moderate`/`strong`.
 - For scientific/technical claims, check papers, and publisher/official sources before accepting blog or marketing summaries.
 - Match sources to the domain: product → momentum + competitors; technical → papers; code-adjacent → repository/package; add AI/security sources only when relevant.
-- Fetch only the decisive sources unless you request a landscape map.
 - Record the dated signal—release/activity/citation/ranking/velocity—not merely presence.
-- Apply the `references/confidence.md` markers and the `references/tools.md` formal-source ladder to every citation.
 
-Next: to corroborate a dated signal in repository/package data use the technical-evidence route in `SKILL.md`; to dispatch a Trend and Source Scout load `references/web-search-workers.md`; once momentum is settled continue the flow at stress-test with `references/debate.md`. <!-- style-lint: ignore-line passive-voice -->
+Next: to corroborate a dated signal in repository/package data use the technical-evidence route in `SKILL.md`; to dispatch a Trend and Source Scout use the worker topology in `references/tools.md`; once momentum is settled continue the flow at stress-test with `references/debate.md`. <!-- style-lint: ignore-line passive-voice -->

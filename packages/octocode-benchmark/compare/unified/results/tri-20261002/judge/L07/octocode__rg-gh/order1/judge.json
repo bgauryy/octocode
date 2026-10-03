@@ -1,0 +1,187 @@
+{
+  "qid": "L07",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "8ab6cf5af82de3f577c3567e7304acdbe118082026f9eb2ef3bacd1fb020f64b",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "e67777a131d1603e99e214988365903a7e1efb1a52e2f21018d9c69ed01c65fc",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts are accurate. Fact 2 is only partly covered: isRedirectError is named, but the slice(2,-2).join(';') parsing isn't explained. The permanentRedirect citation (62-67, actual 55-61) is wrong, and the redirect() and isRedirectError ranges are slightly off."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with precise citations. It correctly says the line-9839 branch doesn't set cookies. Fact 2 is partial: the decoder helpers are cited, but isRedirectError's validation isn't described."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts are accurate. Fact 2 is only partly covered: isRedirectError is named, but the slice(2,-2).join(';') parsing isn't explained. The permanentRedirect citation (62-67, actual 55-61) is wrong, and the redirect() and isRedirectError ranges are slightly off."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with precise citations. It correctly says the line-9839 branch doesn't set cookies. Fact 2 is partial: the decoder helpers are cited, but isRedirectError's validation isn't described."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.12169920000000001,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 10851,
+        "cache_read_input_tokens": 36996,
+        "output_tokens": 1373,
+        "context_tokens": 47855,
+        "total_tokens": 49228,
+        "first_request_context": 9543,
+        "fixed_overhead_tokens": 38172,
+        "research_tokens": 11056,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 10851,
+          "cache_read_input_tokens": 36996,
+          "output_tokens": 36
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1337
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10851,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 13223
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 4,
+      "toolCounts": {
+        "Bash:invocation": 3,
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.12169920000000001,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 5,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 10851,
+    "cache_read_input_tokens": 36996,
+    "output_tokens": 1373,
+    "context_tokens": 47855,
+    "total_tokens": 49228,
+    "first_request_context": 9543,
+    "fixed_overhead_tokens": 38172,
+    "research_tokens": 11056,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 10851,
+      "cache_read_input_tokens": 36996,
+      "output_tokens": 36
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1337
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10851,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 13223
+  },
+  "timedOut": false
+}

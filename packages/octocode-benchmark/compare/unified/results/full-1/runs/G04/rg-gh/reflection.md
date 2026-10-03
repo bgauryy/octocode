@@ -1,0 +1,7 @@
+1. **Helped:** The first call, `gh pr view 3866 -R pallets/click --json title,body,state,mergeCommit,files,url`, gave the PR's intent, its merge SHA and its file list in one shot. The second call fetched the full diff and filtered it with `awk` down to `src/` and `CHANGES.md`. That call showed the real check logic (`_check_name_is_usable`, `_check_name_is_normalized`) and where each check is called. The diff was the authoritative source, so I didn't need a checkout.
+
+2. **Did not help:** The second command was clumsy. It ran `gh pr diff` twice: first with `-- src/click/core.py CHANGES.md`, which `gh pr diff` doesn't support and which I silenced with `2>/dev/null`, then again with the `awk` filter. That was redundant, and the first attempt's output was either empty or unclear. Diff hunks give no absolute line numbers, so I couldn't cite `path:line` at the pinned commit. I also never opened the tests, so I didn't confirm the warning behavior by running it. The changelog wording and the docs wording differ slightly, and I didn't reconcile them.
+
+3. **Next time:** I'd fetch the diff once and pipe it through `awk`. To get real line numbers, I'd run `gh api` on the file contents at the merge SHA `06b2a678`, or `rg -n` in a local checkout. I'd also skim `tests/test_deprecations.py` to confirm the exact warning cases.
+
+4. **Confidence:** High on what is deprecated and which declarations warn, because it comes straight from the code diff and the PR body. Medium on completeness, because I didn't read the tests or check for follow-up changes.

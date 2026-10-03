@@ -51,10 +51,13 @@ describe('published package release contract', () => {
   });
 
   it('advertises canonical MCP tool names without client prefixes', async () => {
-    const { DIRECT_TOOL_DEFINITIONS } =
-      await import('@octocodeai/octocode-core/schema');
+    const { DIRECT_TOOL_DEFINITIONS, isCliOnlyTool } =
+      await import('@octocodeai/config/schema');
+    // CLI-only tools mutate the machine and are never registered by MCP.
     expect(dxtManifest.tools.map(tool => tool.name).sort()).toEqual(
-      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name).sort()
+      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name)
+        .filter(name => !isCliOnlyTool(name))
+        .sort()
     );
   });
 

@@ -1,27 +1,35 @@
 import { describe, it, expect } from 'vitest';
 import {
-  AstFilesQuerySchema,
-  AstFilesystemTreeQuerySchema,
   LOCAL_MAX_DEPTH,
   LOCAL_MAX_LIMIT,
   LspSearchQuerySchema,
-} from '@octocodeai/octocode-core/schema';
+  StructureFilesQuerySchema,
+  StructureTreeQuerySchema,
+} from '@octocodeai/config/schema';
 
 describe.each([
-  ['files', AstFilesQuerySchema],
-  ['tree', AstFilesystemTreeQuerySchema],
-] as const)('astSearch %s limit bounds', (operation, schema) => {
+  ['files', StructureFilesQuerySchema],
+  ['tree', StructureTreeQuerySchema],
+] as const)('structureSearch %s limit bounds', (operation, schema) => {
   it.each([-5, LOCAL_MAX_LIMIT + 1])(
     'rejects out-of-range limit %s without clamping',
     limit => {
-      expect(schema.safeParse({ operation, path: '.', limit }).success).toBe(
-        false
-      );
+      expect(
+        schema.safeParse({
+          mainGoal: 'test goal',
+          reasoning: 'exercise limit bounds',
+          operation,
+          path: '.',
+          limit,
+        }).success
+      ).toBe(false);
     }
   );
 
   it('accepts limit at the maximum', () => {
     const result = schema.safeParse({
+      mainGoal: 'test goal',
+      reasoning: 'exercise limit bounds',
       operation,
       path: '.',
       limit: LOCAL_MAX_LIMIT,
@@ -31,16 +39,25 @@ describe.each([
   });
 
   it('accepts an omitted limit', () => {
-    expect(schema.safeParse({ operation, path: '.' }).success).toBe(true);
+    expect(
+      schema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise limit bounds',
+        operation,
+        path: '.',
+      }).success
+    ).toBe(true);
   });
 });
 
-describe('astSearch filesystem tree depth bounds', () => {
+describe('structureSearch tree depth bounds', () => {
   it.each([-1, LOCAL_MAX_DEPTH + 1])(
     'rejects out-of-range depth %s without clamping',
     maxDepth => {
       expect(
-        AstFilesystemTreeQuerySchema.safeParse({
+        StructureTreeQuerySchema.safeParse({
+          mainGoal: 'test goal',
+          reasoning: 'exercise depth bounds',
           operation: 'tree',
           path: '.',
           maxDepth,
@@ -52,7 +69,9 @@ describe('astSearch filesystem tree depth bounds', () => {
   it.each([0, LOCAL_MAX_DEPTH])(
     'accepts depth at the boundary %s',
     maxDepth => {
-      const result = AstFilesystemTreeQuerySchema.safeParse({
+      const result = StructureTreeQuerySchema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise depth bounds',
         operation: 'tree',
         path: '.',
         maxDepth,
@@ -65,6 +84,8 @@ describe('astSearch filesystem tree depth bounds', () => {
 
 describe('LspSearchQuerySchema depth bound', () => {
   const base = {
+    mainGoal: 'test goal',
+    reasoning: 'exercise depth bounds',
     uri: '/tmp/x.ts',
     operation: 'callers',
     symbolName: 'x',
@@ -94,7 +115,7 @@ describe('LspSearchQuerySchema depth bound', () => {
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.depth).toBe(LOCAL_MAX_DEPTH);
+      expect(result.data).toMatchObject({ depth: LOCAL_MAX_DEPTH });
     }
   });
 });

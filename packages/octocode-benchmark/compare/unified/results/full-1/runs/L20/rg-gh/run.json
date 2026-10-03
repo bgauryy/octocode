@@ -1,0 +1,128 @@
+{
+  "qid": "L20",
+  "worker": "rg-gh",
+  "started": "2026-09-30T07:15:01.113Z",
+  "promptSha256": "675015fe22b2f6a1b16991b71847184eb8663a76e414b46b09799f9bc5c39da9",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 20352,
+  "status": "ok",
+  "answer": "Changing the default computation means editing `CompilerOptions.GetResolveJsonModule()` at `tsc/internal/core/compileroptions.go:270`. That method is the only place the default is computed. Every effect below comes from its callers. Paths are relative to `tsc/internal/`, and I found the callers by searching the non-test Go code.\n\n**Where the default is computed**\n- The method returns the explicit `ResolveJsonModule` tristate if it is set (`core/compileroptions.go:271-272`).\n- Otherwise it returns `true` when `GetEmitModuleKind()` is `Node20` or `NodeNext`, with a `TODO in 6.0: add Node16/Node18` (`:275-278`).\n- Otherwise it returns `true` when `GetModuleResolutionKind()` is `Bundler` (`:279`).\n- The default therefore depends on `module` and `moduleResolution`, and indirectly on `target`, because those getters compute their own defaults. `tsoptions/showconfig.go:47` declares those three dependencies.\n\n**What a change would affect**\n- **Module resolution:** `module/resolver.go:118` adds `extensionsJson` to the resolver state when the getter is true (and it isn't a type-reference directive). This decides whether `.json` files resolve at all.\n- **Resolution diagnostics:** `module/util.go:140-144` uses it to choose the \"Module '{0}' was resolved to '{1}', but '--resolveJsonModule' is not used\" message (TS7042).\n- **Checker:** `checker/checker.go:15666-15667` reports \"Cannot find module … Consider using '--resolveJsonModule'\" (TS2732) for unresolved `.json` imports when the getter is false.\n- **Supported extensions:** `tsoptions.GetSupportedExtensionsWithJsonIfResolveJsonModule` (`tsoptions/tsconfigparsing.go:2050`) adds `.json` when the getter is true. Its callers are:\n  - `compiler/fileloader.go:159`, which stores the result and uses it at `:681` when loading files.\n  - `compiler/program.go:249`.\n  - `tsoptions/tsconfigparsing.go:1961-1971`, so tsconfig `include` matching via `ReadDirectory` can pick up `.json` files.\n  - `ls/string_completions.go:1069`, which affects path completions in the language service.\n- **`--showConfig`:** `tsoptions/showconfig.go:47` prints the computed value, so the output would change.\n- **Inferred projects:** `project/project.go:218` sets `ResolveJsonModule: core.TSTrue` explicitly. It is unaffected by a change to the default.\n- **Option definition:** `tsoptions/declscompiler.go:969-975` declares the option with `DefaultValueDescription: false` and `AffectsModuleResolution: true`. This is a static description, so it would be out of sync if the computed default changes.\n\n**Tests**\n- Test files reference the option in many places: `tsoptions/tsconfigparsing_test.go`, `execute/tsctests/*`, and many `fourslash/tests/*` (for example `completionsPathsJsonModule*`, `getEditsForFileRename_resolveJsonModule`). I did not inspect them. Baselines that rely on the current default would likely change.\n\n**Uncertainty**\n- I did not find where TS5070 and TS5071 (`resolveJsonModule` with `classic` resolution, or with `module` none/system/umd) are emitted in the non-generated, non-test Go code. Only their message definitions turned up, so I can't say whether validation exists or interacts with a new default.\n- I did not trace every caller of the getter's dependencies, `GetEmitModuleKind` and `GetModuleResolutionKind`.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 14354,
+    "cache_read_input_tokens": 28044,
+    "output_tokens": 56,
+    "context_tokens": 42406,
+    "total_tokens": 42462,
+    "first_request_context": 5146,
+    "fixed_overhead_tokens": 20584,
+    "research_tokens": 21878,
+    "max_request_context": 16291
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3209,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 20
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1087,
+      "cache_read_input_tokens": 5144,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8503,
+      "cache_read_input_tokens": 6231,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1555,
+      "cache_read_input_tokens": 14734,
+      "output_tokens": 4
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 14354,
+    "cache_read_input_tokens": 28044,
+    "output_tokens": 1773
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1773,
+      "cacheReadInputTokens": 28044,
+      "cacheCreationInputTokens": 14354,
+      "webSearchRequests": 0,
+      "costUSD": 0.0807708,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 67,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0807708,
+  "duration_ms": 19264,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "Bash:cd": 3
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript; git log -1 --format=%H; ls; ls _submodules 2>/dev/null; rg -il resolveJsonModule --glob '*.go' | head -30\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd tsc/internal; rg -n -i 'resolveJsonModule' --glob '!*_test.go' --glob '!diagnostics_generated.go' .\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd core; sed -n 265,290p compileroptions.go; cd ..; sed -n 210,222p project/project.go; sed -n 112,122p module/resolver.go; sed -n 2048,2060p tsoptions/tsconfigparsing.go; rg -n 'GetResolveJsonModule' --glob '*_test.go' . | head; rg -n 'resolveJsonModule' -i tsoptions/declscompiler.go -A12 | head -20\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first call was `rg -il resolveJsonModule --glob '*.go'`. It showed right away that the Go compiler lives under `tsc/internal`. The second call, `rg -n -i` with the test and generated-file globs excluded, gave every real usage in one pass. The third call read the getter body and the main call sites (`project.go`, `resolver.go`, `tsconfigparsing.go`, `declscompiler.go`). That gave me most of the evidence.\n\n2. **Did not help:** The second `rg` did not exclude `diagnostics/loc/*.generated.json`, so the localized translations flooded the output. I also never looked for where TS5070 and TS5071 are emitted, so that gap is in my answer. I did not read the test files, so the claim that baselines would change is an inference. I did not read `module/util.go:140-175` beyond the grep hit, so my TS7042 description rests on the message name and the `needResolveJsonModule` helper name. I did not verify `fileloader.go:681` beyond the grep line. Its role in loading files is my reading of the field name.\n\n3. **Next time:** I would restrict the search with `--type go` from the start. I would also run one `rg` for `GetEmitModuleKind|GetModuleResolutionKind` and one for `5070|5071` to close the open questions.\n\n4. **Confidence:** Medium-high. The getter and its call sites are confirmed by line numbers I saw. The parts I left open are the TS5070/5071 emission and the effect on tests.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1662,
+      "cache_read_input_tokens": 16289,
+      "output_tokens": 1,
+      "context_tokens": 17953,
+      "total_tokens": 17954,
+      "first_request_context": 17953,
+      "fixed_overhead_tokens": 17953,
+      "research_tokens": 1,
+      "max_request_context": 17953
+    },
+    "cost_usd": 0.0957106,
+    "toolCallsAttempted": 0
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "qid": "G07",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "97835d4cb0ef1cad0c1e352b7dbfeced4fb9bf1cc1775038154155ba4d95ffc0",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "User middleware described as 'in the order given' without noting add_middleware insert(0) semantics (imprecise)"
+      ],
+      "notes": "Accurate core; missing add_middleware insert(0), ServerErrorMiddleware http-only and always re-raise; routing per-route wrap unverified. Honest about gaps."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers all key facts with precise, correct line citations; ServerErrorMiddleware details verified against source. Only routing.py call sites left unverified (stated)."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "User middleware described as 'in the order given' without noting add_middleware insert(0) semantics (imprecise)"
+      ],
+      "notes": "Accurate core; missing add_middleware insert(0), ServerErrorMiddleware http-only and always re-raise; routing per-route wrap unverified. Honest about gaps."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers all key facts with precise, correct line citations; ServerErrorMiddleware details verified against source. Only routing.py call sites left unverified (stated)."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1225892,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 11817,
+    "cache_read_input_tokens": 13786,
+    "output_tokens": 14,
+    "context_tokens": 25607,
+    "total_tokens": 25621,
+    "first_request_context": 11161,
+    "fixed_overhead_tokens": 22322,
+    "research_tokens": 3299,
+    "max_request_context": 14446
+  },
+  "timedOut": false
+}

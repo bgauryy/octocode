@@ -1,48 +1,20 @@
 # Smell Catalog
 
-Load when classifying a target as dead, duplicate, kludge, or junk prose. Why: class determines the evidence bar and excision protocol.
+Load to classify a target as dead, duplicate, or kludge. Comments: `references/doc-config-hygiene.md`. Tests: `references/test-hygiene.md`. Agent-authored code: `references/agentic-defects.md`.
 
-## Re-exports and barrel aliases
+| Class | Signal | Delete only when |
+|---|---|---|
+| Re-export | `export { X } from './X'`, no added logic | References, import paths, package exports, and external API obligations are traced |
+| Barrel | `export * from './module'` that only re-namespaces | Imports and public entrypoints are inspected; graph absence cannot exclude external consumers |
+| Alias | `export default aliasedName` wrapping another export | Both references and the observable export behavior match |
+| Legacy shim | `// legacy`, `// compat`, `// deprecated`, `// removed in vX` | No caller needs it to reach the real path |
+| Adapter | Maps an old API shape to the new | All call sites use the new shape |
+| Version branch | `if (legacyMode)` / `if (version < X)` | Never true in any live config |
+| Duplicate body | Near-identical bodies in two modules | AST structural match; bodies diffed |
+| Duplicate constants | Copy-pasted constant blocks | A text search for the literal confirms all sites |
+| Parallel helpers | Same consumers import two helpers | The graph confirms both edges; a canonical helper is chosen |
+| Regex fixup | `str.replace(/old-value/, …)` at module scope | The value is correctable at its source |
+| Prototype patch | `Object.assign(prototype, …)` outside tests | The patched object is internal and owned |
+| Dead env check | Always true in deployed config | Confirmed on all deployment targets |
 
-| Signal | Verification required |
-|--------|----------------------|
-| `export { X } from './X'` with no added logic | Trace references, import paths, package exports, and external API obligations |
-| `export * from './module'` barrel that only re-namespaces | Inspect import candidates and public entrypoints; graph absence cannot exclude external consumers |
-| `export default aliasedName` wrapping another export | Compare alias/original references and observable export behavior |
-
-## Legacy shims and compatibility stubs
-
-| Signal | Verification required |
-|--------|----------------------|
-| Comment: `// legacy`, `// compat`, `// deprecated`, `// removed in vX` | No caller that cannot use the real path |
-| Adapter function mapping old API shape to new | All call sites confirmed on the new shape |
-| `if (legacyMode)` / `if (version < X)` conditionals | Branch never true in any live config |
-
-## Duplicate logic
-
-| Signal | Verification required |
-|--------|----------------------|
-| Near-identical function bodies in different modules | AST structural match; diff the two bodies |
-| Copy-pasted constant blocks | Text search for the literal; confirm all sites |
-| Parallel helpers imported by the same consumers | Graph: both edges confirmed; canonical chosen |
-
-Keep the canonical copy; update all callers before deleting the duplicate.
-
-## Patch kludges and regex fixups
-
-| Signal | Verification required |
-|--------|----------------------|
-| `str.replace(/old-value/, …)` at module scope | Value correctable at its source |
-| `Object.assign(prototype, …)` outside tests | Patched object is internal and owned |
-| Env check always true in deployed config | Confirmed across all deployment targets |
-
-## Junk prose
-
-| Type | Remove when |
-|------|------------|
-| Syntax narration (`// increment counter`) | Always |
-| Dead comment block (`/* old impl */`) | Always |
-| TODO with no ticket or owner | Confirm it is obsolete or captured elsewhere; age alone does not establish that |
-| `@deprecated` JSDoc with no migration path | After caller updates complete |
-
-Next: when the class is confirmed, load `references/cleanup-playbook.md` for the TRIAGE and EXCISE phases. Test smells have their own evidence bar in `references/test-hygiene.md`. When the code was agent-authored, load `references/agentic-defects.md` for signatures this catalog does not cover.
+Next: TRIAGE and EXCISE in `references/cleanup-playbook.md`.

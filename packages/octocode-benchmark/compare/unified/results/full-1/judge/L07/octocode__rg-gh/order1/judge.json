@@ -1,0 +1,92 @@
+{
+  "qid": "L07",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "0ef538160aa5d42d7088d6bcd95595722342929ce7c6f56bbeecf11073c50460",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and complete across all entry points. Some line citations are off by 5+ lines (permanentRedirect 61-66 vs 55-61; decoders 75-97 vs 70-93). Correctly says the prerender copy doesn't append cookies."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct where it commits, with exact decode expressions and basePath prefixing. Hedges on 307/308/303. Missing the meta-tag details (fact 4), the route-handler 303 logic (fact 5, partial) and server-action behaviour (fact 6). Few precise line citations for the redirect.ts claims."
+    },
+    "preferred": "X",
+    "reference_issues": "Minor: the reference says prerenderToStream (app-render.tsx:9839-9846) uses the 'same pattern' as the page-render catch, but that copy does not append mutable cookies."
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and complete across all entry points. Some line citations are off by 5+ lines (permanentRedirect 61-66 vs 55-61; decoders 75-97 vs 70-93). Correctly says the prerender copy doesn't append cookies."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct where it commits, with exact decode expressions and basePath prefixing. Hedges on 307/308/303. Missing the meta-tag details (fact 4), the route-handler 303 logic (fact 5, partial) and server-action behaviour (fact 6). Few precise line citations for the redirect.ts claims."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "Minor: the reference says prerenderToStream (app-render.tsx:9839-9846) uses the 'same pattern' as the page-render catch, but that copy does not append mutable cookies.",
+  "cost_usd": 0.1155974,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10215,
+    "cache_read_input_tokens": 13007,
+    "output_tokens": 16,
+    "context_tokens": 23226,
+    "total_tokens": 23242,
+    "first_request_context": 10382,
+    "fixed_overhead_tokens": 20764,
+    "research_tokens": 2478,
+    "max_request_context": 12844
+  },
+  "timedOut": false
+}

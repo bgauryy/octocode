@@ -1,39 +1,23 @@
 # Octocode Research
 
-Investigate local code, external repositories, packages, history, failures, reviews, and implementation plans with exact evidence.
-
-## Use when
-
-- You need callers, imports, paths, affected-area analysis, or safe-delete proof.
-- You must locate behavior or analyze the root cause of a failure.
-- An upstream repository, package registry, commit, or pull request can answer the question.
-- A planned change needs evidence before editing and verification afterward.
-
-Skip this skill when a trivial edit's impact is already known. Documentation writing belongs to `octocode-documentation`; skill folders belong to `octocode-skills`; open-ended idea exploration belongs to `octocode-brainstorming`.
-
-## Workflow
-
-```text
-FRAME → CLASSIFY → MODEL → SEARCH → READ EXACT → PROVE → DECIDE/PATCH → VERIFY
-```
-
-Search results are leads. Findings use exact repository paths, package versions, commits, pull requests, or URLs with explicit confidence. Empty results describe only the searched lane.
-
-## Tools
-
-Prefer current Octocode MCP tools. The monorepo uses its built CLI; installed skills use `npx -y octocode`. Choose text for lexical anchors, AST for syntax, LSP for identity, and graph for file topology. A known exact target skips discovery. See `references/tool-examples.md` for all ten tools and `references/references.md` for primary sources.
-
-## Install
+Investigate code, repositories, packages, docs, history, failures, and reviews with exact evidence before a claim or a change. Agent rules live in `SKILL.md`.
 
 ```bash
 npx -y octocode skill install octocode-research
 ```
 
-## Maintainer verification
+## Sources
+Installed tool schemas control accepted fields. Re-verify sources when behavior may have changed.
 
-```bash
-node scripts/check-description.mjs
-node scripts/check-guidance.mjs --self-test
-```
+| Claim area | Primary source |
+|---|---|
+| Octocode fields, limits, availability | `scheme`, `scheme <name> --view query --compact`, then implementation + tests |
+| GitHub search scope, caps | [REST search](https://docs.github.com/en/rest/search/search) |
+| Refs, pagination, rate limits | [Contents](https://docs.github.com/en/rest/repos/contents), [pagination](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api), [best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api) |
+| PRs, commits | [Pull requests](https://docs.github.com/en/rest/pulls/pulls), [Commits](https://docs.github.com/en/rest/commits/commits) |
+| npm / PyPI / Go | [npm registry](https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md), [PyPI JSON](https://docs.pypi.org/api/json/), [Go API](https://pkg.go.dev/v1/api) |
+| Semantics | [LSP 3.17](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) |
+| Skill structure | [Agent Skills specification](https://agentskills.io/specification) |
 
-Then run the `octocode-skills` review against this folder.
+## Maintain this skill
+`GOAL + failing check → BASELINE → smallest coherent change → MEASURE → ACCEPT | REVERT`. Run the checks named at the end of `SKILL.md` before and after, then the `octocode-skills` folder review with zero errors. Never edit a check to match the text. These are offline contract checks. Effectiveness claims need real tasks with graded outcomes (`octocode-eval-benchmark`).

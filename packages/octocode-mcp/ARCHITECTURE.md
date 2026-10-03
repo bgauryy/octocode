@@ -1,113 +1,93 @@
-# Octocode MCP Architecture
+# Octocode MCP architecture
 
-`octocode-mcp` is a **thin MCP server**. It owns process lifecycle, tool
-registration, and output safety. It owns **no** business logic, schemas, or tool
-metadata. Execution lives in `@octocodeai/octocode-tools-core`; contracts live in
-`@octocodeai/octocode-core`; native search/minify/LSP live in `octocode-engine`. The
-MCP package wires those into the MCP SDK and runs them.
+`octocode-mcp` is a thin stdio adapter around `@octocodeai/octocode-native`.
+It owns transport registration and process startup. It does not implement,
+select, sanitize, or execute tools in TypeScript.
 
-## Boundary
+## Runtime boundary
 
-- **Transport**: MCP SDK v2 `StdioServerTransport` from
-  `@modelcontextprotocol/server/stdio` (stdio only — no HTTP).
-- **Entry**: `src/index.ts` → `startServer()` → stdio transport.
-- **Public API**: `src/public.ts` is the declared package surface for programmatic
-  consumers. It re-exports tools-core; workspace interfaces import tools-core
-  directly. Internal `register*Tool` functions are intentionally absent.
-- Import descriptions and schemas from core, and runners from tools-core.
-  Keep data shaping in tools-core.
+- `src/index.ts` starts the native MCP adapter and reports startup failures.
+- `src/native/index.ts` loads `NativeRuntime`, reads its catalog, registers the
+  enabled tools with MCP SDK v2, forwards each call to `executeMcp()`, forwards
+  cancellation, and closes the transport before it closes the runtime.
+- `src/public.ts` exposes typed wrappers for embedding the same native adapter.
+- `@octocodeai/config/schema` supplies the core-owned Standard Schema objects needed
+  by `McpServer.registerTool()`. Public contracts remain owned by core.
+- `@octocodeai/octocode-native` owns configuration, policy, validation,
+  execution, response shaping, sanitization, pagination, and shutdown of tool
+  resources.
 
-## Startup (`src/index.ts`)
+There is no TypeScript tool fallback or runtime selector. If the native binding is
+missing or invalid, startup fails closed.
 
-`startServer()` runs a fixed sequence, then connects the transport:
+## Tool registration
 
-1. `initialize()` — core bootstrap, including the persisted cache-maintenance due-check.
-2. `configureSecurity()` + register `getOctocodeDir()` as an allowed root.
-3. `initializeProviders()` — GitHub / GitLab / Bitbucket.
-5. `initializeSession()`, then `createServer()` + `registerAllTools()`.
+The canonical/native catalog contains sixteen tools. MCP can register fourteen
+read tools when all availability gates pass; it registers only the available
+subset: `astTopology` is a beta feature requiring `OCTOCODE_BETA=true` (or
+`local.beta:true`), filtered from discovery while the gate is off.
+`ghCloneRepo` and `astRewrite` mutate the machine and are CLI-only: the native
+catalog marks them `unavailableReason: "cliOnly"` on MCP and rejects direct
+calls, and
+`clasify` requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
 
-After the transport connects, `startCacheGC()` schedules the next persisted maintenance deadline with an unreferenced timer. This is deadline-based scheduling from the shared 24-hour marker, not a fresh interval measured from each MCP start, so CLI and MCP processes observe the same gate. A cross-process lock prevents overlapping sweeps.
+`createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
+adapter omits tools with `available: false`; this keeps both default-off tools
+out of MCP discovery rather than advertising unusable contracts. For every
+available tool, it:
 
-The server uses core's `buildMcpInstructions(enabledToolNames)` so instructions
-match the configured tool subset.
-Process handlers wire SIGINT/SIGTERM/STDIN-close/uncaught/unhandled to a single
-`gracefulShutdown` that stops the cache-maintenance scheduler, clears runtime caches, and closes the server
-within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
+1. looks up the matching core-owned Standard Schema definition;
+2. registers its title, description, and core-owned published input schema; MCP discovery intentionally
+   omits annotations and output schemas while tool results remain structured;
+3. runs native lossless input normalization before canonical Standard Schema
+   validation, then forwards the validated arguments to `NativeRuntime.executeMcp()`;
+4. forwards MCP cancellation to `NativeRuntime.cancel()`.
 
-## Tool Registration (`src/tools/`)
+A catalog entry without a matching registration schema is a startup error. This
+prevents the advertised native catalog and the MCP surface from drifting.
 
-- `toolConfig.ts` — maps tools-core's `ALL_TOOLS` runtime attachments
-  through `createToolRegistration`, producing `ALL_TOOLS: McpToolConfig[]`.
-- `toolsManager.ts` — `registerTools()`: wraps the server with output
-  sanitization, filters tools (local/clone gates + filter config), then
-  batch-registers and summarizes outcomes.
-- `registrationExecutor.ts` — registers tools in parallel; per-tool failures are
-  isolated and reported (`success` / `failed`), never fatal unless zero tools
-  register.
-- `toolFilters.ts` — `isLocal`/`isClone` capability gates plus
-  `TOOLS_TO_RUN` (exclusive) vs `DISABLE_TOOLS` selection;
-  `isDefault` tools register unless disabled.
-- `registerTool.ts` — the single adapter for local and remote tools. It forwards
-  the core-owned title, description, and input schema; selects the matching
-  security boundary; and sets `openWorldHint` from the security class.
+The published input schema is a compact superset for agent discovery, not the
+validator. Canonical core schemas remain strict: malformed encoded arrays and
+invalid list items are rejected. Valid JSON-encoded arrays and supported scalar
+strings are normalized by the same native path used by CLI. Mixed bulk calls
+with valid rows preserve indexed invalid-row errors rather than dropping rows.
 
-The public catalog is:
+Shared agent guidance is returned once in MCP `initialize.instructions`, built
+by core through `@octocodeai/config/mcp` for the available tools. `tools/list`
+descriptions contain only tool-specific guidance; never prefix them with the
+server instructions. A client may project server instructions into its model
+context differently, so inspect the raw MCP response before attributing repeated
+host metadata to server registration.
 
-- **GitHub**: `ghSearch`, `ghGetFileContent`, `ghSearchHistory`,
-  `ghGetHistoryItem`, and `ghCloneRepo`.
-- **Package**: `artifactSearch`.
-- **Local**: `localSearch`, `astSearch`, and `localFetch`.
-- **LSP**: `lspSearch`.
+## Lifecycle
 
-## Output Safety (`src/utils/secureServer.ts`)
+`startNativeMcp()` connects `StdioServerTransport`. Its returned `close()` method
+is idempotent and closes the transport before the native runtime. The native
+runtime owns request admission, cancellation, worker cleanup, caches, LSP
+clients, and other execution resources. MCP constructs that runtime with a
+300-second execution deadline, matching CLI and staying strictly above the
+configured cold-start-plus-one-request budget: initialize, Java's 120-second
+readiness wait, request retries, retry delays, and transport overhead. The same
+outer cap still bounds multi-request hierarchy traversals.
 
-`withOutputSanitization()` is a `Proxy` over `McpServer` that intercepts
-`registerTool`/`registerResource`. Every tool callback is wrapped so its result
-is passed through `sanitizeCallToolResult` (secret masking via
-`ContentSanitizer` + `maskSensitiveData`), and thrown errors are normalized,
-sanitized, and converted to a safe tool error result instead of crashing the
-server.
+## Distribution
 
-## Dependencies
+The package ships the bundled JavaScript adapter, bundled public declarations,
+and `dist/docs/`. The native root package selects its matching platform addon at
+installation time.
 
-There are two different dependency views:
+`package.json` defines the build and verification entry points. The real
+boundary checks are:
 
-- **Source/build**: `@octocodeai/octocode-tools-core` resolves to the workspace
-  during local development. The MCP source imports its runners and shared
-  utilities, and imports public contracts from core; `buildConfig.mjs` keeps runtime dependencies
-  external in `dist/index.js` and `dist/public.js`.
-- **Published runtime**: npm users install the direct dependencies declared in
-  `package.json`: MCP SDK v2's `@modelcontextprotocol/server`, tools-core, and
-  core, and Zod. Client SDK v2 is test-only. Tools-core owns its native-engine
-  dependencies, including the matching platform addon.
-- **Types**: `dist/public.d.ts` is bundled into one consumer-facing declaration
-  file while tools-core remains an explicit runtime dependency.
+- `tests/native/node-boundary.mjs` for direct adapter registration, execution,
+  filtering, and close behavior;
+- `tests/integration/stdio.acceptance.mjs` for the built stdio server;
+- native Rust tests under `packages/octocode-native` for tool behavior and
+  safety contracts.
 
-Publish order follows the runtime graph: publish the engine platform packages,
-then the engine root and tools-core, then `octocode-mcp`.
+Acceptance fixtures live in a normal workspace subtree and are removed after
+the run; placing them under a Git-ignored directory would test ignore rules
+instead of discovery and rewriting.
 
-## Distribution Artifacts
-
-`package.json#files` ships generated/static files alongside `dist/`:
-
-- `README.md` — **not** hand-authored here. `yarn readme:sync` (runs before
-  `build`/`build:dev`/`prepack`) copies the root `README.md` in via
-  `scripts/sync-package-readmes.mjs`. Edit the root `README.md`, never this
-  package's copy directly — it is gitignored and overwritten on every sync.
-- `manifest.json` — Claude Desktop / DXT extension manifest. Declares the
-  `mcp_octocode_*`-prefixed tool catalog, `user_config` fields, and platform
-  compatibility for the desktop-extension install path.
-- `server.json` — MCP registry submission (`io.github.bgauryy/octocode-mcp`),
-  validated against the `2025-10-17` server schema. Declares the npm package
-  identifier/version the registry resolves and the `env` vars a client may set.
-- `LICENSE` — MIT, copied as-is.
-- `dist/docs/` — a build-time copy of the repository-level developer and agent
-  documentation. `scripts/bundle-docs.mjs` refreshes it on every MCP build so
-  the published server carries the same docs without requiring a checkout.
-
-`manifest.json` and `server.json` are **hand-maintained** — no build step syncs
-their `version` or tool list from `package.json` or core's `ALL_TOOLS`. When
-the tool catalog changes or a release ships, update both files' `version`
-fields and `manifest.json#tools` alongside `package.json#version`.
-`tests/packageRelease.test.ts` checks versions, canonical tool names, and
-desktop setting interpolation. Runtime registration derives from tools-core.
+Publish the native platform packages and native root package before publishing
+`octocode-mcp`.

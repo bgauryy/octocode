@@ -1,7 +1,7 @@
 import type { CLICommand, ParsedArgs } from '../types.js';
 import { EXIT } from '../exit-codes.js';
 import { getBool, getString } from '../options.js';
-import { c, bold, dim } from '../../utils/colors.js';
+import { bold, dim } from '../../utils/colors.js';
 import { runList } from './skills/commands/list.js';
 import { runInstall, type InstallOptions } from './skills/commands/install.js';
 import { runRemove } from './skills/commands/remove.js';
@@ -48,16 +48,19 @@ ${bold('Install options')}
 ${bold('Remove options')}
   --all                   Remove all installed skills
   --platform <p>          Remove only specified platform link(s)  ${dim('(home kept)')}
+  --force                 Also delete real directories that are not Octocode links
   --dry-run               Preview without deleting
 
 ${bold('Check options')}
   --platform <p>          Check specific platforms only
   --workspace             Also check <cwd>/.agents/skills
-  --fix                   Re-install missing/broken locations automatically
+  --fix                   Refresh stale/broken installs in place (adds no new locations)
+  --dry-run               With --fix: preview fixes without writing
   --no-env                Skip env param checks
 
 ${bold('Global flags')}
   --json                  Machine-readable JSON output
+  --json-errors           Emit structured JSON errors on stdout
   --help                  Show this help
 
 ${bold('Examples')}
@@ -69,6 +72,72 @@ ${bold('Examples')}
   octocode skill check --fix
   octocode skill info octocode-research
 `);
+}
+
+/** Flags each subcommand reads; any other skill flag is a usage error there. */
+const SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
+  list: ['json'],
+  info: ['json'],
+  check: ['platform', 'workspace', 'fix', 'dry-run', 'no-env', 'json'],
+  install: [
+    'add',
+    'platform',
+    'all',
+    'mode',
+    'force',
+    'upgrade',
+    'global',
+    'project-dir',
+    'workspace',
+    'path',
+    'dry-run',
+    'json',
+  ],
+  remove: ['all', 'platform', 'force', 'dry-run', 'json'],
+  help: [],
+};
+/** Flags every subcommand accepts. */
+const GLOBAL_FLAGS = ['help', 'json-errors', 'no-color', 'redact-emails'];
+
+function editDistance(left: string, right: string): number {
+  let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j++) {
+      current[j] = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + (left[i - 1] === right[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length]!;
+}
+
+/**
+ * The usage error for the first flag `command` does not read: a flag of
+ * another subcommand names where it applies; an unknown flag names the
+ * nearest flag `command` accepts.
+ */
+function unknownFlagError(
+  command: string,
+  options: ParsedArgs['options']
+): string | undefined {
+  const accepted = [...(SUBCOMMAND_FLAGS[command] ?? []), ...GLOBAL_FLAGS];
+  const flag = Object.keys(options).find(key => !accepted.includes(key));
+  if (flag === undefined) return undefined;
+  const owners = Object.entries(SUBCOMMAND_FLAGS)
+    .filter(([, flags]) => flags.includes(flag))
+    .map(([name]) => name);
+  if (owners.length > 0) {
+    return `Unknown option for skill ${command}: --${flag} (it applies to skill ${owners.join(', ')})`;
+  }
+  const nearest = accepted
+    .map(name => ({ name, distance: editDistance(flag, name) }))
+    .filter(({ distance }) => distance <= 2)
+    .sort((a, b) => a.distance - b.distance)[0];
+  return `Unknown option: --${flag}${nearest ? ` (did you mean --${nearest.name}?)` : ''}`;
 }
 
 function subcommand(args: ParsedArgs): string {
@@ -115,7 +184,46 @@ export const skillCommand: CLICommand = {
   ],
   handler: (args: ParsedArgs) => {
     const json = getBool(args.options, 'json');
+    const jsonErrors = getBool(args.options, 'json-errors');
+    const fail = (message: string): void => {
+      if (jsonErrors)
+        console.log(
+          JSON.stringify({
+            kind: 'octocode.toolError',
+            version: 1,
+            error: message,
+          })
+        );
+      else if (json)
+        console.log(JSON.stringify({ success: false, error: message }));
+      else console.error(message);
+      process.exitCode = EXIT.USAGE;
+    };
     const command = subcommand(args);
+    // An unknown subcommand is reported by name below, before its flags.
+    const flagError = SUBCOMMANDS.has(command)
+      ? unknownFlagError(command, args.options)
+      : undefined;
+    if (flagError) return fail(flagError);
+    for (const option of skillCommand.options ?? []) {
+      if (
+        option.hasValue &&
+        args.options[option.name] !== undefined &&
+        typeof args.options[option.name] !== 'string'
+      ) {
+        return fail(`--${option.name} requires a value.`);
+      }
+    }
+    if (
+      args.options.mode !== undefined &&
+      !['copy', 'symlink', 'auto'].includes(String(args.options.mode))
+    ) {
+      return fail('--mode expects copy|symlink|auto.');
+    }
+    if (getBool(args.options, 'help')) {
+      printBundledSkillHelp();
+      return;
+    }
 
     switch (command) {
       case 'list':
@@ -126,12 +234,10 @@ export const skillCommand: CLICommand = {
         const skillName = positionalAfterSubcommand(args)[0];
         if (!skillName) {
           const msg = 'Usage: octocode skill info <skill-name>';
-          if (json) console.log(JSON.stringify({ success: false, error: msg }));
-          else console.error(`\n  ${c('red', '✗')} ${msg}\n`);
-          process.exitCode = EXIT.USAGE;
+          fail(msg);
           return;
         }
-        runInfo(skillName, { json });
+        runInfo(skillName, { json, jsonErrors });
         return;
       }
 
@@ -143,8 +249,10 @@ export const skillCommand: CLICommand = {
           platform: platformOption(args),
           workspace: getBool(args.options, 'workspace'),
           fix: getBool(args.options, 'fix'),
+          dryRun: getBool(args.options, 'dry-run'),
           noEnv: getBool(args.options, 'no-env'),
           json,
+          jsonErrors,
         });
         return;
 
@@ -166,6 +274,7 @@ export const skillCommand: CLICommand = {
           upgrade: getBool(args.options, 'upgrade'),
           dryRun: getBool(args.options, 'dry-run'),
           json,
+          jsonErrors,
         };
         runInstall(installNames(args), opts);
         return;
@@ -178,7 +287,9 @@ export const skillCommand: CLICommand = {
             all: getBool(args.options, 'all'),
             platform: platformOption(args),
             dryRun: getBool(args.options, 'dry-run'),
+            force: getBool(args.options, 'force'),
             json,
+            jsonErrors,
           }
         );
         return;
@@ -188,22 +299,9 @@ export const skillCommand: CLICommand = {
         return;
 
       default:
-        if (json) {
-          console.log(
-            JSON.stringify({
-              success: false,
-              error: `Unknown skill command: "${command}"`,
-            })
-          );
-        } else {
-          console.error(
-            `\n  ${c('red', '✗')} Unknown skill command: "${command}"`
-          );
-          console.error(
-            `  Run ${c('cyan', 'octocode skill help')} for usage.\n`
-          );
-        }
-        process.exitCode = EXIT.NOT_FOUND;
+        fail(
+          `Unknown skill command: "${command}". Run octocode skill help for usage.`
+        );
     }
   },
 };

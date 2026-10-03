@@ -70,8 +70,14 @@ function octocodeOutputBase() {
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
 const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-const OUTPUT_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', timestamp);
-mkdirSync(OUTPUT_DIR, { recursive: true, mode: 0o700 });
+const RUNS_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools');
+mkdirSync(RUNS_DIR, { recursive: true, mode: 0o700 });
+const OUTPUT_DIR = (() => {
+  for (let n = 1; ; n++) {
+    const dir = join(RUNS_DIR, n === 1 ? timestamp : `${timestamp}-${n}`);
+    try { mkdirSync(dir, { mode: 0o700 }); return dir; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  }
+})();
 const SESSION_META_DIR = join(OCTOCODE_OUTPUT_BASE, 'tmp', 'chrome-devtools', 'session-meta', `port-${PORT}`);
 mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
 
@@ -84,7 +90,7 @@ const CONFIG_ENTRY_REAL = safePath(CONFIG_ENTRY);
 const OUTPUT_REAL = safePath(OUTPUT_DIR);
 const SESSION_META_REAL = safePath(SESSION_META_DIR);
 
-const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'mandatory-stealth.mjs', 'human-input.mjs', 'dom-actionability.mjs'];
+const HELPERS = ['sourcemap-resolver.mjs', 'undercover.mjs', 'mandatory-stealth.mjs', 'human-input.mjs', 'dom-actionability.mjs', 'ax-snapshot.mjs'];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
   const dst = join(TMPDIR_RAW, helper);
@@ -140,6 +146,16 @@ const permFlags = [
 // never the parent env where tokens/cookies may live.
 const SCRIPT_ENV_ALLOWLIST = [
   'MONITOR_MS',
+  'MONITOR_URL',
+  'SHOT_FULL',
+  'SHOT_SELECTOR',
+  'SHOT_FORMAT',
+  'SHOT_QUALITY',
+  'SHOT_SCALE',
+  'SHOT_ANNOTATE',
+  'BODY_URL',
+  'BODY_MATCH',
+  'BODY_WAIT_MS',
   'SLOW_MS',
   'MAX_STDOUT_ITEMS',
   'DOM_SELECTOR',
@@ -147,13 +163,42 @@ const SCRIPT_ENV_ALLOWLIST = [
   'DOM_ACTION',
   'DOM_VALUE',
   'DOM_STABILITY_MS',
+  'DOM_INPUT',
+  'DOM_KEY',
+  'DOM_SETTLE_MS',
+  'DOM_DIALOG',
+  'DOM_STEPS',
+  'DOM_WAIT_TEXT',
+  'DOM_WAIT_MS',
+  'DOM_TO_REF',
+  'DOM_TO_SELECTOR',
+  'DOM_DIFF',
   'SNAPSHOT_DEPTH',
   'SNAPSHOT_MAX',
+  'SNAPSHOT_STDOUT',
+  'SNAPSHOT_TEXT',
+  'SNAPSHOT_PAGE',
+  'SNAPSHOT_ROOT',
+  'SNAPSHOT_VIEWPORT',
+  'SNAPSHOT_OUTLINE',
+  'SNAPSHOT_CONTEXT',
+  'SNAPSHOT_URLS',
+  'SNAPSHOT_CLICKABLE',
   'WEBMCP_ACTION',
   'WEBMCP_TOOL',
   'WEBMCP_INPUT',
   'WEBMCP_FRAME',
   'WEBMCP_WAIT_MS',
+  // cdp-checks knobs: which page to measure and how long to observe it. None of these carry secrets.
+  'MEASURE_URL',
+  'MEASURE_EXISTING',
+  'PERF_WAIT_MS',
+  'PERF_SLOW_RESOURCE_MS',
+  'NET_WAIT_MS',
+  'NET_SLOW_MS',
+  'STORAGE_WAIT_MS',
+  'STEALTH_CHECK_URL',
+  'AFFILIATES_CHECK_URL',
 ];
 const scriptEnv = Object.fromEntries(
   SCRIPT_ENV_ALLOWLIST

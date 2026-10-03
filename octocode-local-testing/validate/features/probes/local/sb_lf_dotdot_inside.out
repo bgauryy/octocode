@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/../src/a.ts", "startLine": 1, "endLine": 1}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"a.ts","content":"import { helper } from './b';\n","totalLines":13,"sourceLineRanges":[{"start":1,"end":1}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/../src"}

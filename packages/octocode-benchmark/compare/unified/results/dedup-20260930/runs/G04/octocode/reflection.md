@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetHistoryItem` call (pullRequest 3866 with body and changedFiles) gave the title, the author's summary and the file inventory in one round trip. Its `next.getSelectedPatches` hint was accurate. The second call, with `patches.mode: selected` for `src/click/core.py` and `CHANGES.md`, returned the exact warning conditions and messages. Two calls were enough, and I sent no redundant queries.
+
+2. **Did not help:** The patch view is condensed, with `...` elisions and no absolute line numbers. I couldn't give `path:line` citations, so I cited the merge commit SHA instead. I never read the tests or the docs diff. I also didn't check later changes on `main`. My claim about `Option` names that are not lower-cased rests on the diff and CHANGES.md text alone. I never ran it.
+
+3. **Next time:** I'd follow up with `ghGetFileContent` at `mergeCommitSha` (`matchString: _check_name_is_usable`) to get real line numbers. I'd also make a fetch for the `test_deprecations.py` patch (same `ghGetHistoryItem` tool) to confirm the exact declarations that warn.
+
+4. **Confidence:** Medium-high. The behavior comes straight from the merged diff and matches the PR body and CHANGES.md. The gaps are the missing line numbers, the unread tests, and not checking later commits.

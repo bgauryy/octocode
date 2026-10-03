@@ -1,0 +1,192 @@
+{
+  "qid": "G01",
+  "pairKey": "octocode-npm__rg-gh",
+  "label": "order2",
+  "subjectSha": "0513e592c955b4676b545eff541d12ae7c74f5ce4a503c271da9a2a4a15cf2e1",
+  "model": "claude-opus-5-5",
+  "X": "octocode-npm",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "01963f528c13a6c2fb4ca840d6811088ca3a9fceef6bf562f17e2723973031ff",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 3,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Unsupported exporter/protocol FastAPIError is 'caught and logged as a warning, so startup still succeeds' — actually lifespan sends lifespan.startup.failed and re-raises (_runtime.py wrapped_receive)",
+        "Span names given as endpoint/dependencies/serialization/background_task without the fastapi. prefix"
+      ],
+      "notes": "Broad and mostly accurate coverage, but it reverses an important startup-failure behaviour. No line-level citations."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. It correctly flags that a non-OTLP exporter or gRPC protocol can fail startup. Its line citations in _asgi.py and _runtime.py check out. Fact 5 is only partly covered: span names and operation_spans gating are missing."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode-npm": {
+      "correctness": 3,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Unsupported exporter/protocol FastAPIError is 'caught and logged as a warning, so startup still succeeds' — actually lifespan sends lifespan.startup.failed and re-raises (_runtime.py wrapped_receive)",
+        "Span names given as endpoint/dependencies/serialization/background_task without the fastapi. prefix"
+      ],
+      "notes": "Broad and mostly accurate coverage, but it reverses an important startup-failure behaviour. No line-level citations."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. It correctly flags that a non-OTLP exporter or gRPC protocol can fail startup. Its line citations in _asgi.py and _runtime.py check out. Fact 5 is only partly covered: span names and operation_spans gating are missing."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.16278600000000001,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 14985,
+        "cache_read_input_tokens": 15850,
+        "output_tokens": 1986,
+        "context_tokens": 30839,
+        "total_tokens": 32825,
+        "first_request_context": 13482,
+        "fixed_overhead_tokens": 26964,
+        "research_tokens": 5861,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 14985,
+          "cache_read_input_tokens": 15850,
+          "output_tokens": 15
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1971
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 14985,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 17357
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.16278600000000001,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 14985,
+    "cache_read_input_tokens": 15850,
+    "output_tokens": 1986,
+    "context_tokens": 30839,
+    "total_tokens": 32825,
+    "first_request_context": 13482,
+    "fixed_overhead_tokens": 26964,
+    "research_tokens": 5861,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 14985,
+      "cache_read_input_tokens": 15850,
+      "output_tokens": 15
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1971
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 14985,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 17357
+  },
+  "timedOut": false
+}

@@ -1,0 +1,77 @@
+name: Octocode Native — Test & Lint
+
+on:
+  pull_request:
+    paths:
+      - 'packages/octocode-native/**'
+      - '.github/workflows/rust-tools-core.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/octocode-native/**'
+      - '.github/workflows/rust-tools-core.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# No native build artifacts in CI: platform binaries are built locally
+# (`build:target <platform>`, `build:all`, `dev.mjs build:publish`).
+jobs:
+  # Supply-chain gate: RUSTSEC advisories, license policy, banned/duplicate
+  # crates, and registry allow-list — all driven by deny.toml.
+  deny:
+    name: cargo-deny (advisories, licenses, bans, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: packages/octocode-native/Cargo.toml
+          arguments: --all-features
+
+  test:
+    name: ${{ matrix.os }} — test & clippy
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.0
+          components: clippy, rustfmt
+      # mold links large Rust test binaries much faster than GNU BFD; a no-op on
+      # non-Linux runners.
+      - name: Set up mold linker (Linux)
+        if: runner.os == 'Linux'
+        uses: rui314/setup-mold@v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/octocode-native
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # build-publication.test.cjs resolves @napi-rs/cli through build-native.cjs.
+      - run: corepack enable
+      - run: yarn install --immutable
+      - name: Verify crate boundaries and release scripts
+        working-directory: packages/octocode-native
+        run: node scripts/check-crate-boundaries.cjs && node --test tests/build-publication.test.cjs
+      - name: Format check
+        working-directory: packages/octocode-native
+        run: cargo fmt --all --check
+      - name: Test Rust libraries and host adapters
+        working-directory: packages/octocode-native
+        run: cargo test --locked -p octocode-native -p octocode-github -p octocode-cli --no-default-features && cargo test --locked -p octocode-engine --all-features && cargo test --locked -p octocode-runtime-napi --features napi-test
+        env:
+          RUST_BACKTRACE: 1
+      - name: Clippy workspace crates
+        working-directory: packages/octocode-native
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings

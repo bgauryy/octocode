@@ -1,0 +1,381 @@
+{
+  "qid": "G09",
+  "worker": "octocode-npm",
+  "started": "2026-10-02T15:14:33.027Z",
+  "promptSha256": "837047d4f8bd84e20af19238147dbbf1080cc08d6436be7724ff8517e6d1064a",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 20562,
+  "status": "ok",
+  "answer": "**Root cause.** `ConfigWrapper.core_config()` in `pydantic/_internal/_config.py` wrote derived settings back into `self.config_dict`. That dict is the model's own `model_config`, or the mapping the caller passed to `TypeAdapter`, `validate_call` and similar entry points. This was the code that did it:\n\n```python\nif (populate_by_name := config.get('populate_by_name')) is not None:\n    if config.get('validate_by_name') is None:\n        config['validate_by_alias'] = True\n        config['validate_by_name'] = populate_by_name\n```\n\nA second rule did the same for `validate_by_alias=False`, setting `validate_by_name=True`.\n\n- **Inheritance bug.** A subclass's config is merged over its parent's. The parent's derived `validate_by_name=True` was stored in `model_config`, so it was inherited as if the user had declared it. The `is None` guard then refused to derive again from the child's own `populate_by_name=False`.\n- **Effect in the issue's example.** `Child` ended up with `validate_by_name=True` and accepted `x=1`, bypassing the alias requirement. `Standalone`, with the same declared config, correctly raised a `ValidationError`.\n- **Side effect.** The same write also mutated caller-owned dicts passed to `TypeAdapter(config=...)` and `validate_call(config=...)`.\n\n**Fix.** PR #13825, \"Do not mutate `model_config` attribute\", by Viicos. It was merged on 2026-09-25 and closed the issue. The author's earlier PR #13787 (\"Derive alias config on a copy\") was closed unmerged on 2026-09-17, the same day #13825 was opened. The changes below come from the #13825 diff:\n\n- **Two config views.** `ConfigWrapper` now keeps `config_dict`, the user-declared config. It is exposed as `model_config`, used for merging, and never mutated. A new `effective_config` is built once in `__init__` by a new `_build_effective_config()`. That function derives `validate_by_alias` and `validate_by_name` on a copy (`{**config, ...}`), covering both the `populate_by_name` rule and the `validate_by_alias=False` rule. It also raises the \"At least one of `validate_by_alias` or `validate_by_name`...\" `PydanticUserError`.\n- **Readers use the effective view.** `core_config()` and the wrapper's `__getattr__` now read `effective_config`.\n- **Copy on entry.** `prepare_config()` now calls `config.copy()` so the wrapper owns its dict and cannot mutate the caller's.\n- **Related cleanups.**\n  - The `schema_generator` deprecation warning moved into `check_deprecated`, so it is emitted once per config.\n  - The deprecated `validate_arguments` decorator no longer mutates the passed config when it sets `extra='forbid'`.\n  - The `validate_by_name` argument was dropped from the signature generation in `_signature.py`, `_model_construction.py` and `_dataclasses.py`.\n- **Tests.** `test_derived_alias_config_not_inherited` reproduces the issue. `test_config_not_mutated` covers models, `TypeAdapter`, dataclasses and `validate_call`. `test_dynamic_default` was rewritten to assert the derived default is applied instead of checking `model_config`.\n\n**Behavior change.** `Model.model_config` now returns only what was declared, for example `{'populate_by_name': True}` and not the derived keys. The PR flags this as a theoretical breaking change that needs a blogpost entry.\n\n**Uncertainty.** I read the issue, the PR body and the PR diff. I did not read the merged files at the merge commit, and I did not read the PR's review comments.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 14107,
+    "cache_read_input_tokens": 147891,
+    "output_tokens": 1712,
+    "context_tokens": 162006,
+    "total_tokens": 163718,
+    "first_request_context": 36426,
+    "fixed_overhead_tokens": 145704,
+    "research_tokens": 18014,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 14107,
+      "cache_read_input_tokens": 147891,
+      "output_tokens": 853
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -859
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 14107,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 47728
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2805,
+      "cache_read_input_tokens": 33619,
+      "output_tokens": 36
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1921,
+      "cache_read_input_tokens": 36424,
+      "output_tokens": 40
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1158,
+      "cache_read_input_tokens": 38345,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8223,
+      "cache_read_input_tokens": 39503,
+      "output_tokens": 745
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 14107,
+    "cache_read_input_tokens": 147891,
+    "output_tokens": 1712
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1712,
+      "cacheReadInputTokens": 147891,
+      "cacheCreationInputTokens": 14107,
+      "webSearchRequests": 0,
+      "costUSD": 0.1031422,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.1031422,
+  "costVerified": true,
+  "duration_ms": 19224,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__ghGetHistoryItem": 2,
+    "mcp__octocode__ghSearchHistory": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"pydantic\",\"repo\":\"pydantic\",\"operation\":\"issue\",\"number\":13786,\"content\":{\"body\":true,\"comments\":{\"discussion\":true}}}]}"
+    },
+    {
+      "name": "mcp__octocode__ghSearchHistory",
+      "input": "{\"queries\":[{\"owner\":\"pydantic\",\"repo\":\"pydantic\",\"operation\":\"pullRequests\",\"keywords\":[\"13786\"],\"state\":\"merged\",\"pageSize\":10},{\"owner\":\"pydantic\",\"repo\":\"pydantic\",\"operation\":\"pullRequests\",\"keywords\":[\"populate_by_name\",\"validate_by_name\",\"core_config\"],\"created\":\">2026-09-08\",\"pageSize\":10}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"pydantic\",\"repo\":\"pydantic\",\"operation\":\"pullRequest\",\"number\":13825,\"content\":{\"body\":true,\"changedFiles\":true,\"patches\":{\"mode\":\"all\"}}}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearch",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__localAnalyzeGraph",
+      "mcp__octocode__localGetFileContent",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspGetSemantics",
+      "mcp__octocode__npmSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `ghGetHistoryItem` call on issue #13786 (body and comments) gave the root cause directly, since the reporter had traced it to `core_config()` mutating `config_dict`. The `ghSearchHistory` call with keyword \"13786\" and `state: merged` found PR #13825 in one step. The second query in that batch also surfaced the closed #13787. The final `ghGetHistoryItem` on #13825 with `patches: all` returned the full diff, tests and PR body, so I needed only three calls.\n\n2. **Did not help:** The patch hunks were elided with \"...\", so I had no reliable line numbers and cited none. I never read the merged files at the merge commit, the PR comments or the reviews. I said #13787 was \"closed unmerged\" because it appeared only in the unfiltered search as `closed`, not in the merged-only one. I never read its closing comment, so the reason is unverified. That the PR closed the issue is inferred from matching timestamps.\n\n3. **Next time:** I would read `pydantic/_internal/_config.py` at the merge SHA to get exact lines, and read #13787's discussion for why it was closed.\n\n4. **Confidence:** High on root cause and fix mechanism, because the issue text and diff agree and the PR body says \"Fixes #13786\". Medium on the #13787 detail and on the exact merged state of the code.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 16001,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 849,
+      "context_tokens": 16003,
+      "total_tokens": 16852,
+      "first_request_context": 16003,
+      "fixed_overhead_tokens": 16003,
+      "research_tokens": 849,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 16001,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -846
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 16001,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": null,
+      "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+      "max_request_context": 16003
+    },
+    "cost_usd": 0.07249800000000002,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 16001,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 849,
+        "context_tokens": 16003,
+        "total_tokens": 16852,
+        "first_request_context": 16003,
+        "fixed_overhead_tokens": 16003,
+        "research_tokens": 849,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 16001,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -846
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 16001,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 16003
+      },
+      "cost_usd": 0.07249800000000002,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 16001,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 849,
+          "costUSD": 0.07249800000000002
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 1712,
+            "cacheReadInputTokens": 147891,
+            "cacheCreationInputTokens": 14107,
+            "webSearchRequests": 0,
+            "costUSD": 0.1031422,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1031422
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 2561,
+            "thinkingTokens": 395,
+            "cacheReadInputTokens": 147891,
+            "cacheCreationInputTokens": 30108,
+            "webSearchRequests": 0,
+            "costUSD": 0.17564020000000002,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.17564020000000002
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 16001,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 849
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 16001,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "ghGetHistoryItem",
+      "startedAt": "2026-10-02T15:14:36.103Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:14:37.020Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghSearchHistory",
+      "startedAt": "2026-10-02T15:14:38.623Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:14:42.052Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "ghGetHistoryItem",
+      "startedAt": "2026-10-02T15:14:43.707Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:14:44.636Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

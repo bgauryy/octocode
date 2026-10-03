@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Perf fixture</title></head>
+<body style="margin:0;font:16px sans-serif">
+<div id="slot"></div>
+<p>Intro text that will be pushed down by a late banner.</p>
+<div style="height:420px;background:#eef">Main content block that the banner pushes down.</div>
+<script>
+  setTimeout(() => {
+    const b = document.createElement('div');
+    b.style.cssText = 'height:220px;background:#fc8';
+    b.textContent = 'Late banner';
+    document.getElementById('slot').appendChild(b);
+  }, 600);
+  setTimeout(() => {
+    const h = document.createElement('h1');
+    h.style.cssText = 'font-size:96px;margin:0';
+    h.textContent = 'Late hero headline that is very large';
+    document.body.appendChild(h);
+  }, 2600);
+</script>
+</body></html>

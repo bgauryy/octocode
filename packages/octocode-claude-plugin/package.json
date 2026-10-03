@@ -1,0 +1,42 @@
+{
+  "name": "@octocodeai/claude-plugin",
+  "version": "0.1.0",
+  "description": "Octocode code research tools and public skills for Claude Code",
+  "type": "module",
+  "license": "MIT",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-claude-plugin"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    ".claude-plugin/plugin.json",
+    ".mcp.json",
+    "skills/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "build:dev": "node scripts/build.ts",
+    "lint": "node ../../node_modules/prettier/bin/prettier.cjs --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test tests/package.test.ts",
+    "test:smoke": "node scripts/smoke.ts",
+    "verify": "yarn build && yarn lint && yarn typecheck && yarn test",
+    "prepack": "yarn build && yarn typecheck && yarn test",
+    "prepublishOnly": "yarn verify && yarn validate && node scripts/release-check.ts",
+    "validate": "claude plugin validate . --strict && claude plugin validate ../../.claude-plugin/marketplace.json --strict"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@types/node": "^24.13.4",
+    "typescript": "^6.0.3"
+  }
+}

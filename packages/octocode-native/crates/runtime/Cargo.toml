@@ -1,0 +1,76 @@
+[package]
+name = "octocode-native"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+autobins = false
+autoexamples = false
+license.workspace = true
+repository.workspace = true
+description = "Native Octocode tool execution library"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { version = "0.9", features = ["preserve_order"] }
+serde_yaml_ng = { workspace = true }
+regex = { workspace = true }
+# Generated contract types use ECMAScript pattern validation.
+regress = "0.12"
+url = { workspace = true }
+base64 = "0.23"
+sha2 = { workspace = true }
+moka = { workspace = true }
+hmac = "0.13"
+getrandom = "0.3"
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+# http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
+# and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
+# serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
+bytes = "1"
+futures-util = "0.3"
+secrecy = "0.10"
+keyring-core = "1"
+hex = { workspace = true }
+# `.gitignore` matching for graph ingest scans (already in the tree via the engine).
+ignore = "0.4"
+# PR changed-file `fileFilter.paths` globs (already in the tree via `ignore`).
+globset = "0.4"
+# artifactSearch `version` ranges (already in the lockfile via the toolchain crates).
+semver = "1"
+octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
+octocode-github = { path = "../github" }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
+tokio-util = { version = "0.7", default-features = false }
+
+[build-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["rt-tokio-crypto-rust"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+windows-native-keyring-store = "1"
+
+# Inherits the shared floor from [workspace.lints] (root Cargo.toml). The runtime
+# keeps the existing shared policy; the engine library owns its stricter
+# stdout/stderr lint policy.
+[lints]
+workspace = true

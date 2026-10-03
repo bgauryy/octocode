@@ -14,9 +14,9 @@
  *
  * This guard does NOT enforce version alignment between packages — each package
  * is versioned independently. If you want to sync every package version to the
- * monorepo root, run `node ./scripts/prepublish.mjs --fix` explicitly.
+ * monorepo root, run `node ./skills-dev/octocode-dev/scripts/prepublish.mjs --fix` explicitly.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, globSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,9 +26,8 @@ const repoRoot = resolve(join(packageRoot, '..', '..'));
 
 const PUBLISHED_PACKAGE_DIRS = [
   'packages/octocode-config',
-  'packages/octocode-tools-core',
   'packages/octocode-mcp',
-  'packages/octocode-engine',
+  'packages/octocode-native',
   'packages/octocode',
 ];
 
@@ -44,8 +43,7 @@ const PUBLISHED_DEP_FIELDS = [
 /** Local dependency protocols that must never ship to npm. */
 const LOCAL_PROTOCOLS = ['workspace:', 'file:', 'link:', 'portal:'];
 
-const ENGINE_NPM_DIR = join(repoRoot, 'packages/octocode-engine/npm');
-const EXTENSION_RUST_NPM_DIR = join(repoRoot, 'packages/octocode-extension-rust/npm');
+const NATIVE_NPM_DIR = join(repoRoot, 'packages/octocode-native/npm');
 const offenders = [];
 const checkedPackages = [];
 
@@ -91,7 +89,7 @@ function checkPackage(packagePath) {
   checkPublishedDeps(packagePath, pkg);
 }
 
-/** Collect every workspace-member package name (packages/* and engine npm platform dirs). */
+/** Collect every workspace-member package name, including native platform dirs. */
 function collectWorkspaceMemberNames() {
   const names = new Set();
   // Root workspace package (e.g. octocode-monorepo) resolves via workspace:. legitimately.
@@ -100,12 +98,11 @@ function collectWorkspaceMemberNames() {
     const rootName = readJson(rootPkgPath).name;
     if (typeof rootName === 'string') names.add(rootName);
   }
-  const roots = [join(repoRoot, 'packages'), ENGINE_NPM_DIR, EXTENSION_RUST_NPM_DIR];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const pkgPath = join(root, entry.name, 'package.json');
+  const rootPkg = existsSync(rootPkgPath) ? readJson(rootPkgPath) : {};
+  const patterns = Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : rootPkg.workspaces?.packages ?? [];
+  for (const pattern of patterns) {
+    for (const directory of globSync(pattern, { cwd: repoRoot })) {
+      const pkgPath = join(repoRoot, directory, 'package.json');
       if (!existsSync(pkgPath)) continue;
       const name = readJson(pkgPath).name;
       if (typeof name === 'string') names.add(name);
@@ -144,19 +141,11 @@ for (const packageDir of PUBLISHED_PACKAGE_DIRS) {
   checkPackage(join(repoRoot, packageDir, 'package.json'));
 }
 
-// Engine optional platform packages (packages/octocode-engine/npm/*).
-if (existsSync(ENGINE_NPM_DIR)) {
-  for (const entry of readdirSync(ENGINE_NPM_DIR, { withFileTypes: true })) {
+// Consolidated native optional platform packages.
+if (existsSync(NATIVE_NPM_DIR)) {
+  for (const entry of readdirSync(NATIVE_NPM_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    checkPackage(join(ENGINE_NPM_DIR, entry.name, 'package.json'));
-  }
-}
-
-// Extension-rust optional platform packages (packages/octocode-extension-rust/npm/*).
-if (existsSync(EXTENSION_RUST_NPM_DIR)) {
-  for (const entry of readdirSync(EXTENSION_RUST_NPM_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    checkPackage(join(EXTENSION_RUST_NPM_DIR, entry.name, 'package.json'));
+    checkPackage(join(NATIVE_NPM_DIR, entry.name, 'package.json'));
   }
 }
 

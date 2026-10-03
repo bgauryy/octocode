@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` (regex alternation over `fn complete|try_read_output|store_output|set_stage`) mapped the whole flow across harness.rs, core.rs and raw.rs in one call. The batched `localGetFileContent` (harness.rs 150-420, core.rs 380-440, join.rs `matchString: "fn poll"`) gave exact source for completion, `take_output` and `JoinHandle::poll`. The final read of harness.rs 421-569 supplied `can_read_output` and `poll_future`.
+
+2. **Did not help:** The second `localSearch` with `contextLines: 12` returned truncated snippets, and its reported line numbers (e.g. 408 for `drop_future_or_output`, 422 for `get_new_task`) did not match the direct reads. I should have ignored them. I did not read state.rs, the vtable construction in raw.rs, or the `Trailer` struct, so I left approximate line numbers in my answer.
+
+3. **Next time:** I'd read `raw.rs:~360` and `core.rs:~590` with one more `localGetFileContent` call instead of writing "~". I'd also read `state.rs` `transition_to_complete` so the answer's bit-transition claims rest on code I'd seen.
+
+4. **Confidence:** High on the overall flow and the cited harness.rs/core.rs lines, which I read directly. Medium on the three approximate citations (`raw.rs:~360`, `core.rs:~590`, `join.rs:~324-352`), which I flagged as approximate in the answer.

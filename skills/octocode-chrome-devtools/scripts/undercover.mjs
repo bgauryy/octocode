@@ -85,13 +85,13 @@ export async function applyStealthPatches(cdp, opts = {}) {
     if (!window.chrome.csi) window.chrome.csi = () => {};
     if (!window.chrome.loadTimes) window.chrome.loadTimes = () => ({});
 
-    def(navigator, 'plugins', () => Object.assign(
+    if (navigator.plugins.length === 0) def(navigator, 'plugins', () => Object.assign(
       [{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
        { name: 'Native Client',     filename: 'internal-nacl-plugin',  description: '', length: 2 }],
       { namedItem: () => null, refresh: () => {}, item: () => null }
     ));
-    def(navigator, 'mimeTypes', () => Object.assign(
+    if (navigator.mimeTypes.length === 0) def(navigator, 'mimeTypes', () => Object.assign(
       [{ type: 'application/pdf', suffixes: 'pdf', description: '', enabledPlugin: null }],
       { namedItem: () => null, item: () => null }
     ));

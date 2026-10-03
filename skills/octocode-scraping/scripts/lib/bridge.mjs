@@ -152,8 +152,14 @@ export async function ensureDir(path) {
 export function thinPageHint(sourceRow) {
   const bytes = Number(sourceRow?.cleanTextBytes ?? sourceRow?.textBytes ?? 0);
   const status = Number(sourceRow?.status ?? 0);
-  if (status >= 200 && status < 300 && bytes > 0 && bytes < 8000) {
-    return `thin-200: cleanTextBytes=${bytes} — prefer CDP/HAR for APIs before trusting page text`;
+  if (sourceRow?.browserRecommended) {
+    return sourceRow.browserReason || `browser recommended for ${sourceRow.pageId || sourceRow.url}`;
+  }
+  // Compatibility for corpora written before browserRecommended existed. A
+  // few kilobytes is normal for a focused docs page; only near-empty 2xx text
+  // is a useful legacy signal by itself.
+  if (status >= 200 && status < 300 && bytes >= 0 && bytes < 300) {
+    return `thin-200: cleanTextBytes=${bytes} — inspect the retained HTML before using Chrome`;
   }
   return null;
 }
@@ -236,7 +242,7 @@ export async function concatCleanParts(sessionDir, pageId, { writeFull = false }
 
 export async function discoverCdpArtifacts(cdpDir) {
   const dir = resolve(cdpDir);
-  if (!existsSync(dir)) return { har: null, bodies: null, files: [] };
+  if (!existsSync(dir)) return { har: null, bodies: null, captures: [], files: [] };
   const files = await listFilesRecursive(dir, { include: defaultCdpArtifactInclude });
   const har = files.find((f) => /\.har$/i.test(f.rel))?.abs
     || files.find((f) => /network.*\.har$/i.test(basename(f.rel)))?.abs
@@ -244,7 +250,8 @@ export async function discoverCdpArtifacts(cdpDir) {
   const bodies = files.find((f) => /network-bodies\.json$/i.test(basename(f.rel)))?.abs
     || files.find((f) => /bodies\.json$/i.test(basename(f.rel)))?.abs
     || null;
-  return { har, bodies, files };
+  const captures = files.filter((f) => /^(?:page-snapshot|dom-check)\.json$/i.test(basename(f.rel))).map((f) => f.abs);
+  return { har, bodies, captures, files };
 }
 
 export async function fileBytes(path) {

@@ -1,0 +1,734 @@
+{
+ "mcp_ls_page1": {
+  "isError": false,
+  "bytes": 2589,
+  "text": "base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many\nstats:\n  totalOccurrences: 25\n  filesMatched: 25\nfiles:\n- path: f01.txt\n  matches:\n  - line: 1\n    value: needle in file 1\n- path: f02.txt\n  matches:\n  - line: 1\n    value: needle in file 2\n- path: f03.txt\n  matches:\n  - line: 1\n    value: needle in file 3\n- path: f04.txt\n  matches:\n  - line: 1\n    value: needle in file 4\n- path: f05.txt\n  matches:\n  - line: 1\n    value: needle in file 5\n- path: f06.txt\n  matches:\n  - line: 1\n    value: needle in file 6\n- path: f07.txt\n  matches:\n  - line: 1\n    value: needle in file 7\n- path: f08.txt\n  matches:\n  - line: 1\n    value: needle in file 8\n- path: f09.txt\n  matches:\n  - line: 1\n    value: needle in file 9\n- path: f10.txt\n  matches:\n  - line: 1\n    value: needle in file 10\npagination:\n  currentPage: 1\n  totalPages: 3\n  filesPerPage: 10\n  totalFiles: 25\n  totalMatches: 25\n  hasMore: true\n  nextPage: 2\n  snapshot: lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168\nnext:\n  nextPage:\n    tool: localSearch\n    confidence: exact\n    query:\n      searchText: needle\n      path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many\n      contextLines: 0\n      matchContentLength: 200\n      page: 2\n      snapshot: lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168\n      pageSize: 10\n      followUp: true\n  clasify:\n    tool: clasify\n    confidence: medium\n    query:\n      goal: octocode-local-testing regression check\n      reasoning: 10 files matched; locate before reading.\n      resources:\n      - id: f0\n        context:\n          tool: localFetch\n          query:\n            path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many/f01.txt\n            fullContent: true\n        prefilter:\n        - needle\n      - id: f1\n        context:\n          tool: localFetch\n          query:\n            path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many/f02.txt\n            fullContent: true\n        prefilter:\n        - needle\n      - id: f2\n        context:\n          tool: localFetch\n          query:\n            path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many/f03.txt\n            fullContent: true\n        prefilter:\n        - needle\n      questions:\n      - id: answer\n        questionType: locate\n        target: 'The lines that answer: octocode-local-testing regression check'\n",
+  "sc": {
+   "results": [
+    {
+     "index": 0,
+     "data": {
+      "stats": {
+       "totalOccurrences": 25,
+       "filesMatched": 25
+      },
+      "files": [
+       {
+        "path": "f01.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 1"
+         }
+        ]
+       },
+       {
+        "path": "f02.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 2"
+         }
+        ]
+       },
+       {
+        "path": "f03.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 3"
+         }
+        ]
+       },
+       {
+        "path": "f04.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 4"
+         }
+        ]
+       },
+       {
+        "path": "f05.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 5"
+         }
+        ]
+       },
+       {
+        "path": "f06.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 6"
+         }
+        ]
+       },
+       {
+        "path": "f07.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 7"
+         }
+        ]
+       },
+       {
+        "path": "f08.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 8"
+         }
+        ]
+       },
+       {
+        "path": "f09.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 9"
+         }
+        ]
+       },
+       {
+        "path": "f10.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 10"
+         }
+        ]
+       }
+      ],
+      "pagination": {
+       "snapshot": "lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168",
+       "currentPage": 1,
+       "totalPages": 3,
+       "filesPerPage": 10,
+       "totalFiles": 25,
+       "totalMatches": 25,
+       "hasMore": true,
+       "nextPage": 2
+      },
+      "next": {
+       "nextPage": {
+        "tool": "localSearch",
+        "confidence": "exact",
+        "query": {
+         "snapshot": "lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168",
+         "page": 2,
+         "pageSize": 10,
+         "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many",
+         "matchContentLength": 200,
+         "searchText": "needle",
+         "contextLines": 0,
+         "followUp": true
+        }
+       },
+       "clasify": {
+        "tool": "clasify",
+        "confidence": "medium",
+        "query": {
+         "goal": "octocode-local-testing regression check",
+         "reasoning": "10 files matched; locate before reading.",
+         "resources": [
+          {
+           "id": "f0",
+           "context": {
+            "tool": "localFetch",
+            "query": {
+             "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many/f01.txt",
+             "fullContent": true
+            }
+           },
+           "prefilter": [
+            "needle"
+           ]
+          },
+          {
+           "id": "f1",
+           "context": {
+            "tool": "localFetch",
+            "query": {
+             "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many/f02.txt",
+             "fullContent": true
+            }
+           },
+           "prefilter": [
+            "needle"
+           ]
+          },
+          {
+           "id": "f2",
+           "context": {
+            "tool": "localFetch",
+            "query": {
+             "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many/f03.txt",
+             "fullContent": true
+            }
+           },
+           "prefilter": [
+            "needle"
+           ]
+          }
+         ],
+         "questions": [
+          {
+           "id": "answer",
+           "questionType": "locate",
+           "target": "The lines that answer: octocode-local-testing regression check"
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   ],
+   "base": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many"
+  }
+ },
+ "mcp_ls_page2_follow": {
+  "isError": false,
+  "bytes": 1470,
+  "text": "base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many\nstats:\n  totalOccurrences: 25\n  filesMatched: 25\nfiles:\n- path: f11.txt\n  matches:\n  - line: 1\n    value: needle in file 11\n- path: f12.txt\n  matches:\n  - line: 1\n    value: needle in file 12\n- path: f13.txt\n  matches:\n  - line: 1\n    value: needle in file 13\n- path: f14.txt\n  matches:\n  - line: 1\n    value: needle in file 14\n- path: f15.txt\n  matches:\n  - line: 1\n    value: needle in file 15\n- path: f16.txt\n  matches:\n  - line: 1\n    value: needle in file 16\n- path: f17.txt\n  matches:\n  - line: 1\n    value: needle in file 17\n- path: f18.txt\n  matches:\n  - line: 1\n    value: needle in file 18\n- path: f19.txt\n  matches:\n  - line: 1\n    value: needle in file 19\n- path: f20.txt\n  matches:\n  - line: 1\n    value: needle in file 20\npagination:\n  snapshot: lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168\n  currentPage: 2\n  totalPages: 3\n  filesPerPage: 10\n  totalFiles: 25\n  totalMatches: 25\n  hasMore: true\n  nextPage: 3\nnext:\n  nextPage:\n    tool: localSearch\n    confidence: exact\n    query:\n      searchText: needle\n      path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many\n      contextLines: 0\n      matchContentLength: 200\n      page: 3\n      snapshot: lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168\n      pageSize: 10\n      followUp: true\n",
+  "sc": {
+   "results": [
+    {
+     "index": 0,
+     "data": {
+      "stats": {
+       "totalOccurrences": 25,
+       "filesMatched": 25
+      },
+      "files": [
+       {
+        "path": "f11.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 11"
+         }
+        ]
+       },
+       {
+        "path": "f12.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 12"
+         }
+        ]
+       },
+       {
+        "path": "f13.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 13"
+         }
+        ]
+       },
+       {
+        "path": "f14.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 14"
+         }
+        ]
+       },
+       {
+        "path": "f15.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 15"
+         }
+        ]
+       },
+       {
+        "path": "f16.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 16"
+         }
+        ]
+       },
+       {
+        "path": "f17.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 17"
+         }
+        ]
+       },
+       {
+        "path": "f18.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 18"
+         }
+        ]
+       },
+       {
+        "path": "f19.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 19"
+         }
+        ]
+       },
+       {
+        "path": "f20.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "needle in file 20"
+         }
+        ]
+       }
+      ],
+      "pagination": {
+       "snapshot": "lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168",
+       "currentPage": 2,
+       "totalPages": 3,
+       "filesPerPage": 10,
+       "totalFiles": 25,
+       "totalMatches": 25,
+       "hasMore": true,
+       "nextPage": 3
+      },
+      "next": {
+       "nextPage": {
+        "tool": "localSearch",
+        "confidence": "exact",
+        "query": {
+         "contextLines": 0,
+         "followUp": true,
+         "matchContentLength": 200,
+         "page": 3,
+         "pageSize": 10,
+         "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many",
+         "searchText": "needle",
+         "snapshot": "lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "base": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many"
+  }
+ },
+ "mcp_ls_min": {
+  "isError": false,
+  "bytes": 1490,
+  "text": "base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src\nnext:\n  nextMatchPage:\n    tool: localSearch\n    confidence: exact\n    query:\n      searchText: needle\n      path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src\n      contextLines: 0\n      matchContentLength: 200\n      matchPage: 2\n      snapshot: lexical-live-v1:517ed7588cc3de3763ac62f859be288f00082201ba04c439d8fc5f4458663183\n      pageSize: 20\n      followUp: true\nfiles:\n- path: a.ts\n  matches:\n  - line: 3\n    value: 'export function alphaNeedle(x: number): number {'\n  - line: 11\n    value: '    alphaNeedle(2);'\n- path: manyhits.txt\n  matches:\n  - line: 1\n    value: line 1 needle value_1\n  - line: 2\n    value: line 2 needle value_2\n  - line: 3\n    value: line 3 needle value_3\n  - line: 4\n    value: line 4 needle value_4\n  - line: 5\n    value: line 5 needle value_5\n  - line: 6\n    value: line 6 needle value_6\n  - line: 7\n    value: line 7 needle value_7\n  - line: 8\n    value: line 8 needle value_8\n  - line: 9\n    value: line 9 needle value_9\n  - line: 10\n    value: line 10 needle value_10\n  pagination:\n    currentPage: 1\n    totalPages: 3\n    totalMatches: 30\n    hasMore: true\n    nextMatchPage: 2\n    moreLines: 11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30\n- path: index.ts\n  matches:\n  - line: 1\n    value: import { alphaNeedle, Widget } from './a';\n  - line: 2\n    value: export { alphaNeedle, Widget };\n",
+  "sc": {
+   "results": [
+    {
+     "index": 0,
+     "data": {
+      "next": {
+       "nextMatchPage": {
+        "tool": "localSearch",
+        "confidence": "exact",
+        "query": {
+         "snapshot": "lexical-live-v1:517ed7588cc3de3763ac62f859be288f00082201ba04c439d8fc5f4458663183",
+         "matchPage": 2,
+         "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src",
+         "pageSize": 20,
+         "searchText": "needle",
+         "contextLines": 0,
+         "matchContentLength": 200,
+         "followUp": true
+        }
+       }
+      },
+      "files": [
+       {
+        "path": "a.ts",
+        "matches": [
+         {
+          "line": 3,
+          "value": "export function alphaNeedle(x: number): number {"
+         },
+         {
+          "line": 11,
+          "value": "    alphaNeedle(2);"
+         }
+        ]
+       },
+       {
+        "path": "manyhits.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "line 1 needle value_1"
+         },
+         {
+          "line": 2,
+          "value": "line 2 needle value_2"
+         },
+         {
+          "line": 3,
+          "value": "line 3 needle value_3"
+         },
+         {
+          "line": 4,
+          "value": "line 4 needle value_4"
+         },
+         {
+          "line": 5,
+          "value": "line 5 needle value_5"
+         },
+         {
+          "line": 6,
+          "value": "line 6 needle value_6"
+         },
+         {
+          "line": 7,
+          "value": "line 7 needle value_7"
+         },
+         {
+          "line": 8,
+          "value": "line 8 needle value_8"
+         },
+         {
+          "line": 9,
+          "value": "line 9 needle value_9"
+         },
+         {
+          "line": 10,
+          "value": "line 10 needle value_10"
+         }
+        ],
+        "pagination": {
+         "currentPage": 1,
+         "totalPages": 3,
+         "totalMatches": 30,
+         "hasMore": true,
+         "nextMatchPage": 2,
+         "moreLines": "11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30"
+        }
+       },
+       {
+        "path": "index.ts",
+        "matches": [
+         {
+          "line": 1,
+          "value": "import { alphaNeedle, Widget } from './a';"
+         },
+         {
+          "line": 2,
+          "value": "export { alphaNeedle, Widget };"
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "base": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"
+  }
+ },
+ "mcp_ls_debug": {
+  "isError": false,
+  "bytes": 1725,
+  "text": "base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src\nmeta:\n  evidence:\n    kind: lexical\n    confidence: medium\n  diagnostics:\n    partial: true\nstats:\n  totalOccurrences: 34\n  matchedLines: 34\n  filesMatched: 3\n  filesSearched: 5\n  bytesSearched: 22104\n  capped: false\nfiles:\n- path: a.ts\n  matches:\n  - line: 3\n    value: 'export function alphaNeedle(x: number): number {'\n  - line: 11\n    value: '    alphaNeedle(2);'\n- path: manyhits.txt\n  matches:\n  - line: 1\n    value: line 1 needle value_1\n  - line: 2\n    value: line 2 needle value_2\n  - line: 3\n    value: line 3 needle value_3\n  - line: 4\n    value: line 4 needle value_4\n  - line: 5\n    value: line 5 needle value_5\n  - line: 6\n    value: line 6 needle value_6\n  - line: 7\n    value: line 7 needle value_7\n  - line: 8\n    value: line 8 needle value_8\n  - line: 9\n    value: line 9 needle value_9\n  - line: 10\n    value: line 10 needle value_10\n  pagination:\n    currentPage: 1\n    totalPages: 3\n    totalMatches: 30\n    hasMore: true\n    nextMatchPage: 2\n    moreLines: 11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30\n- path: index.ts\n  matches:\n  - line: 1\n    value: import { alphaNeedle, Widget } from './a';\n  - line: 2\n    value: export { alphaNeedle, Widget };\nnext:\n  nextMatchPage:\n    tool: localSearch\n    confidence: exact\n    query:\n      searchText: needle\n      path: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src\n      contextLines: 0\n      matchContentLength: 200\n      matchPage: 2\n      snapshot: lexical-live-v1:517ed7588cc3de3763ac62f859be288f00082201ba04c439d8fc5f4458663183\n      pageSize: 20\n      debug: true\n      followUp: true\n",
+  "sc": {
+   "results": [
+    {
+     "index": 0,
+     "data": {
+      "stats": {
+       "totalOccurrences": 34,
+       "matchedLines": 34,
+       "filesMatched": 3,
+       "filesSearched": 5,
+       "bytesSearched": 22104,
+       "capped": false
+      },
+      "files": [
+       {
+        "path": "a.ts",
+        "matches": [
+         {
+          "line": 3,
+          "value": "export function alphaNeedle(x: number): number {"
+         },
+         {
+          "line": 11,
+          "value": "    alphaNeedle(2);"
+         }
+        ]
+       },
+       {
+        "path": "manyhits.txt",
+        "matches": [
+         {
+          "line": 1,
+          "value": "line 1 needle value_1"
+         },
+         {
+          "line": 2,
+          "value": "line 2 needle value_2"
+         },
+         {
+          "line": 3,
+          "value": "line 3 needle value_3"
+         },
+         {
+          "line": 4,
+          "value": "line 4 needle value_4"
+         },
+         {
+          "line": 5,
+          "value": "line 5 needle value_5"
+         },
+         {
+          "line": 6,
+          "value": "line 6 needle value_6"
+         },
+         {
+          "line": 7,
+          "value": "line 7 needle value_7"
+         },
+         {
+          "line": 8,
+          "value": "line 8 needle value_8"
+         },
+         {
+          "line": 9,
+          "value": "line 9 needle value_9"
+         },
+         {
+          "line": 10,
+          "value": "line 10 needle value_10"
+         }
+        ],
+        "pagination": {
+         "currentPage": 1,
+         "totalPages": 3,
+         "totalMatches": 30,
+         "hasMore": true,
+         "nextMatchPage": 2,
+         "moreLines": "11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30"
+        }
+       },
+       {
+        "path": "index.ts",
+        "matches": [
+         {
+          "line": 1,
+          "value": "import { alphaNeedle, Widget } from './a';"
+         },
+         {
+          "line": 2,
+          "value": "export { alphaNeedle, Widget };"
+         }
+        ]
+       }
+      ],
+      "next": {
+       "nextMatchPage": {
+        "tool": "localSearch",
+        "confidence": "exact",
+        "query": {
+         "debug": true,
+         "snapshot": "lexical-live-v1:517ed7588cc3de3763ac62f859be288f00082201ba04c439d8fc5f4458663183",
+         "matchPage": 2,
+         "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src",
+         "pageSize": 20,
+         "searchText": "needle",
+         "contextLines": 0,
+         "matchContentLength": 200,
+         "followUp": true
+        }
+       }
+      }
+     },
+     "meta": {
+      "evidence": {
+       "kind": "lexical",
+       "confidence": "medium"
+      },
+      "diagnostics": {
+       "partial": true
+      }
+     }
+    }
+   ],
+   "base": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"
+  }
+ },
+ "mcp_ls_6q": {
+  "isError": true,
+  "bytes": 114,
+  "text": "Input validation error: Invalid arguments for tool localSearch: queries: Too big: expected array to have <=5 items"
+ },
+ "mcp_ls_nogoal": {
+  "isError": true,
+  "bytes": 215,
+  "text": "Input validation error: Invalid arguments for tool localSearch: queries.0: goal: Invalid input: expected nonoptional, received undefined, queries.0: reasoning: Invalid input: expected nonoptional, received undefined"
+ },
+ "mcp_ss_raw": {
+  "content": [
+   {
+    "type": "text",
+    "text": "base: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx\nshared:\n  lineCount: 1\npath: many\nfiles:\n- path: many/f22.txt\n  size: 18\n  modifiedMs: 1790717412050\n- path: many/f23.txt\n  size: 18\n  modifiedMs: 1790717412050\n- path: many/f24.txt\n  size: 18\n  modifiedMs: 1790717412050\n- path: many/f25.txt\n  size: 18\n  modifiedMs: 1790717412050\n- path: many/f09.txt\n  size: 17\n  modifiedMs: 1790717412049\n- path: many/f10.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f11.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f12.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f13.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f14.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f15.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f16.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f17.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f18.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f19.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f20.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f21.txt\n  size: 18\n  modifiedMs: 1790717412049\n- path: many/f01.txt\n  size: 17\n  modifiedMs: 1790717412048\n- path: many/f02.txt\n  size: 17\n  modifiedMs: 1790717412048\n- path: many/f03.txt\n  size: 17\n  modifiedMs: 1790717412048\n- path: many/f04.txt\n  size: 17\n  modifiedMs: 1790717412048\n- path: many/f05.txt\n  size: 17\n  modifiedMs: 1790717412048\n- path: many/f06.txt\n  size: 17\n  modifiedMs: 1790717412048\n- path: many/f07.txt\n  size: 17\n  modifiedMs: 1790717412048\n- path: many/f08.txt\n  size: 17\n  modifiedMs: 1790717412048\n"
+   }
+  ],
+  "structuredContent": {
+   "results": [
+    {
+     "index": 0,
+     "data": {
+      "path": "many",
+      "files": [
+       {
+        "path": "many/f22.txt",
+        "size": 18,
+        "modifiedMs": 1790717412050
+       },
+       {
+        "path": "many/f23.txt",
+        "size": 18,
+        "modifiedMs": 1790717412050
+       },
+       {
+        "path": "many/f24.txt",
+        "size": 18,
+        "modifiedMs": 1790717412050
+       },
+       {
+        "path": "many/f25.txt",
+        "size": 18,
+        "modifiedMs": 1790717412050
+       },
+       {
+        "path": "many/f09.txt",
+        "size": 17,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f10.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f11.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f12.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f13.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f14.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f15.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f16.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f17.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f18.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f19.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f20.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f21.txt",
+        "size": 18,
+        "modifiedMs": 1790717412049
+       },
+       {
+        "path": "many/f01.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       },
+       {
+        "path": "many/f02.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       },
+       {
+        "path": "many/f03.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       },
+       {
+        "path": "many/f04.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       },
+       {
+        "path": "many/f05.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       },
+       {
+        "path": "many/f06.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       },
+       {
+        "path": "many/f07.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       },
+       {
+        "path": "many/f08.txt",
+        "size": 17,
+        "modifiedMs": 1790717412048
+       }
+      ]
+     }
+    }
+   ],
+   "shared": {
+    "lineCount": 1
+   },
+   "base": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"
+  },
+  "isError": false
+ }
+}

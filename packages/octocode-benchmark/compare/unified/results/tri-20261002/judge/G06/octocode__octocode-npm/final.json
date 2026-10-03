@@ -1,0 +1,166 @@
+{
+  "qid": "G06",
+  "pairKey": "octocode__octocode-npm",
+  "workers": [
+    "octocode",
+    "octocode-npm"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "octocode-npm": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8,
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "perJudgment": [
+        8,
+        8
+      ],
+      "wrongClaims": [
+        "Minor: says `send` calls _transport_for_url at 1005; it is _send_single_request"
+      ]
+    },
+    "octocode-npm": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "octocode-npm",
+    "octocode-npm"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2195316,
+  "judgeTokens": 65097,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 9148,
+        "cache_read_input_tokens": 32557,
+        "output_tokens": 2081,
+        "context_tokens": 41713,
+        "total_tokens": 43794,
+        "first_request_context": 9350,
+        "fixed_overhead_tokens": 37400,
+        "research_tokens": 6394,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 9148,
+          "cache_read_input_tokens": 32557,
+          "output_tokens": 77
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2004
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9148,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 11520
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 2,
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1213474,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 7978,
+        "cache_read_input_tokens": 11721,
+        "output_tokens": 1600,
+        "context_tokens": 19703,
+        "total_tokens": 21303,
+        "first_request_context": 9353,
+        "fixed_overhead_tokens": 18706,
+        "research_tokens": 2597,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 7978,
+          "cache_read_input_tokens": 11721,
+          "output_tokens": 11
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1589
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7978,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 10350
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0981842,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

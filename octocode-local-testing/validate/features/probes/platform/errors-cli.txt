@@ -1,0 +1,74 @@
+== invalid JSON :: octocode octocode localSearch {not json
+exit=2
+stdout: 
+stderr: Invalid JSON query: key must be a string at line 1 column 2
+== invalid JSON --json-errors :: octocode octocode localSearch {not json --json-errors
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"error":"Invalid JSON query: key must be a string at line 1 column 2","tool":"localSearch"}
+stderr: 
+== unknown tool :: octocode octocode fooTool {}
+exit=2
+stdout: 
+stderr: error: unrecognized subcommand 'fooTool'
+
+Usage: octocode [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+== unknown tool --json-errors :: octocode octocode fooTool {} --json-errors
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"error":"unrecognized subcommand 'fooTool'"}
+stderr: 
+== missing goal/reasoning :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"clasify"}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Check the query fields.","details":["queries.0.goal: Missing required field: goal (a new query states it; only a next.* continuation with followUp: true inherits it)","queries.0.reasoning: Missing required field: reasoning (a new query states it; only a next.* continuation with followUp: true inherits it)"]}
+stderr: 
+== missing goal only :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"clasify","reasoning":"r"}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Check the query fields.","details":["queries.0.goal: Missing required field: goal (a new query states it; only a next.* continuation with followUp: true inherits it)"]}
+stderr: 
+== 6 queries :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"x1","goal":"g","reasoning":"r"},{"path":"/Users/bgaryy/code/octocode/docs","searchText":"x2","goal":"g","reasoning":"r"},{"path":"/Users/bgaryy/code/octocode/docs","searchText":"x3","goal":"g","reasoning":"r"},{"path":"/Users/bgaryy/code/octocode/docs","searchText":"x4","goal":"g","reasoning":"r"},{"path":"/Users/bgaryy/code/octocode/docs","searchText":"x5","goal":"g","reasoning":"r"},{"path":"/Users/bgaryy/code/octocode/docs","searchText":"x6","goal":"g","reasoning":"r"}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Check the query fields.","details":["queries: Value length 6 exceeds the maximum of 5"]}
+stderr: 
+== unknown field :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"clasify","bogusField":1,"goal":"g","reasoning":"r"}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Unknown field(s): bogusField","details":["Remove unknown field(s) from query 1: bogusField","Run scheme localSearch --view query --compact to see valid fields."]}
+stderr: 
+== out-of-range contextLines 9999 :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"clasify","contextLines":9999,"goal":"g","reasoning":"r"}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Check the query fields.","details":["queries.0.contextLines: Number is outside the allowed range (0-100)"]}
+stderr: 
+== out-of-range negative :: octocode octocode localFetch {"queries":[{"path":"/Users/bgaryy/code/octocode/README.md","startLine":-5,"endLine":3,"goal":"g","reasoning":"r"}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Check the query fields.","details":["queries.0.startLine: Number is outside the allowed range (1-1000000000)"]}
+stderr: 
+== not-found file :: octocode octocode localFetch {"queries":[{"path":"/Users/bgaryy/code/octocode/nope-does-not-exist.md","goal":"g","reasoning":"r"}]}
+exit=3
+stdout: {"results":[{"index":0,"data":{"errorCode":"fileAccessFailed","error":"File not found: nope-does-not-exist.md. Verify the path with structureSearch operation:\"files\".","resolvedPath":"/Users/bgaryy/code/octocode/nope-does-not-exist.md","hints":["Verify the path with structureSearch operation:\"files\", then retry the exact path."]},"status":"error"}]}
+stderr: 
+== not-found file --json-errors :: octocode octocode localFetch {"queries":[{"path":"/Users/bgaryy/code/octocode/nope-does-not-exist.md","goal":"g","reasoning":"r"}]} --json-errors
+exit=3
+stdout: {"results":[{"index":0,"data":{"errorCode":"fileAccessFailed","error":"File not found: nope-does-not-exist.md. Verify the path with structureSearch operation:\"files\".","resolvedPath":"/Users/bgaryy/code/octocode/nope-does-not-exist.md","hints":["Verify the path with structureSearch operation:\"files\", then retry the exact path."]},"status":"error"}]}
+stderr: 
+== empty result :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"zzqqxx_never_present_42","goal":"g","reasoning":"r"}]}
+exit=1
+stdout: {"results":[{"index":0,"data":{"stats":{"totalOccurrences":0,"filesSearched":15},"hints":["No matches. Try caseMode:\"insensitive\", a shorter term, regex:\"literal\" if searchText has metacharacters."]},"status":"empty"}]}
+stderr: 
+== partial (small page) :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"the","maxFiles":1,"goal":"g","reasoning":"r"}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Unknown field(s): maxFiles","details":["Remove unknown field(s) from query 1: maxFiles","Run scheme localSearch --view query --compact to see valid fields."]}
+stderr: 
+== mixed rows ok+notfound :: octocode octocode localFetch {"queries":[{"path":"/Users/bgaryy/code/octocode/README.md","startLine":1,"endLine":2,"goal":"g","reasoning":"r"},{"path":"/Users/bgaryy/code/octocode/nope.md","goal":"g","reasoning":"r"}]}
+exit=0
+stdout: {"results":[{"index":0,"data":{"path":"README.md","content":"# Octocode: an agentic toolkit for software engineering
+
+","totalLines":624,"sourceLineRanges":[{"start":1,"end":2}],"sourceChars":43180}},{"index":1,"data":{"errorCode":"fileAccessFailed","error":"File not found: nope.md. Verify the path with structureSearch operation:\"files\".","resolvedPath":"/Users/bgaryy/code/octocode/nope.md","hints":["Verify the path with structureSearch opera
+stderr: 
+== followUp:true hand-written :: octocode octocode localSearch {"queries":[{"path":"/Users/bgaryy/code/octocode/docs","searchText":"clasify","followUp":true,"maxFiles":1}]}
+exit=2
+stdout: {"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Unknown field(s): maxFiles","details":["Remove unknown field(s) from query 1: maxFiles","Run scheme localSearch --view query --compact to see valid fields."]}
+stderr: 
+== bare object (no queries wrapper) :: octocode octocode localSearch {"path":"/Users/bgaryy/code/octocode/docs","searchText":"OCTOCODE_BETA","goal":"g","reasoning":"r"}
+exit=0
+stdout: {"results":[{"index":0,"data":{"warnings":["Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source."],"files":[{"path":"OCTOCODE_TOOLS.md","matches":[{"line":114,"value":"| `astRewrite` | CLI only | Opt-in beta feature (`OCTOCODE_BETA=true`); never exposed through MCP. Previews s
+stderr: 

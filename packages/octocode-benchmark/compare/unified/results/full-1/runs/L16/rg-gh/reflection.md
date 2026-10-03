@@ -1,0 +1,7 @@
+1. **Helped:** My first Bash call did most of the work. It combined `git log -1`, a `find` for `LocalCache.java`, and two `rg` searches on the segment and concurrency terms. That one call gave me the pinned SHA, the file path, and the line numbers for the constructor logic and the `CacheBuilder` getters. The second call was `sed -n 245,325p`, which showed the segment-count loop and the per-segment weight split in full. The same call printed `segmentFor` and `evictEntries`, so I could cite them.
+
+2. **Did not help:** The first `rg` on `CacheBuilder.java` returned a lot of Javadoc lines, but that was minor. I did not check where `getMaximumWeight` is used at line 607, or the `Segment` constructor at line 2000. Because of that I said in the answer that I hadn't traced the table sizing there. I also never ran `git status` to confirm the checkout was clean, so the line numbers rest on the HEAD SHA matching. The `find` might have missed an android variant, but I excluded it on purpose.
+
+3. **Next time:** I would read the `Segment` constructor and the `getMaximumWeight` region in the same `sed` call as the others, so the answer needs no "not traced" caveat.
+
+4. **Confidence:** High. Every claim comes from code I read at the pinned SHA, and it matches the in-source comments. The 4-segment example comes from my own arithmetic, not from running code.

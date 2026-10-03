@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs, runbooks, or stale technical docs."
+description: "Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs, runbooks, or stale technical docs, or when explaining a system to an agent or a human in ASD-STE100-style text with flow diagrams."
 ---
 
 # Octocode Documentation
@@ -8,52 +8,73 @@ description: "Use when creating, repairing, or reviewing READMEs, API docs, guid
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Write evidence-backed documentation for humans and agents. Classify the deliverable, verify repository facts, and prefer durable links over copied implementation detail.
+```mermaid
+flowchart LR
+  U[UNDERSTAND] --> R[RESEARCH] --> C[CLASSIFY] --> G{OUTLINE GATE}
+  G --> W[WRITE] --> S[STYLE] --> V[VERIFY]
+  S -->|fact change| R
+  V -->|gap| R
+  R -. "before WRITE, for repo facts" .-> E["references/evidence-research.md"]
+  C -. "when mode or page type unclear; ADR; AGENTS.md" .-> M["references/modes.md"]
+  G -. "for outline gate, write pass, checks" .-> WV["references/write-verify.md"]
+  W -. "for explanation, runbook, procedure, handoff" .-> STE["references/style-ste80.md"]
+  S -. "for any style pass, review report, disputed rule" .-> SP["references/style-pass.md"]
+  S -. "for word, abbreviation, inclusive term" .-> SW["references/style-words.md"]
+  S -. "for tone, voice, tense, grammar, global readers" .-> SR["references/style-prose.md"]
+  S -. "for headings, lists, steps, notices, tables" .-> SS["references/style-structure.md"]
+  S -. "for punctuation, numbers, dates, units" .-> SU["references/style-punctuation.md"]
+  S -. "for code font, samples, commands, API reference" .-> SC["references/style-code.md"]
+  S -. "for emphasis, capitalization, markup, UI, images" .-> SF["references/style-format.md"]
+  S -. "for time words, claims, names, example values, links" .-> SL["references/style-claims.md"]
+```
+Skill map: solid edges are phases, dotted edges load a reference (style owners: only the topic's page); a single-file copyedit starts at STYLE.
 
-## Flow
+| Mode | Route order |
+|---|---|
+| agent-docs | evidence-research → modes § Agent instruction files → write-verify |
+| human-docs | evidence-research → modes (type) → write-verify |
+| adr | evidence-research → modes § ADR → write-verify |
+| codebase-pack | plan and gate the set once, then per file modes → write-verify |
+| style-pass | style-pass → one owner → `style-lint.mjs` (+ style-pass § Review order for a report) |
 
-Flow: `UNDERSTAND → RESEARCH → CLASSIFY → OUTLINE GATE → WRITE → STYLE → VERIFY`
+A single-word question: quote its row of `assets/google-word-list.tsv` and stop.
 
-Drafts: `<output>/octocode-documentation/`; scratch: `<output>/tmp/octocode-documentation/`. Chat-only reviews stay in chat; named or approved edits keep their requested paths.
+## UNDERSTAND and RESEARCH
+- Name the deliverable, audience, approved paths, and facts that still need evidence.
+- Verify commands, paths, APIs, env vars, and behavior claims in the repo. Take commands only from manifests, Makefiles, or CI; never invent scripts.
+- After about three targeted searches without a hit, mark the fact unresolved and continue. Omit it or label it "Not verified in repo".
+- If code and a doc disagree, trust the code; fix or flag the doc.
+- Cite module paths and doc links, not `file:line`. Describe behavior; do not paste implementations.
 
-UNDERSTAND identifies the deliverable, audience, approved paths, and facts that still need evidence.
+## CLASSIFY
+- Mode, one per target: agent-docs (`AGENTS.md`, `CLAUDE.md`, agent rules) · human-docs (README, tutorial, how-to, API docs, runbook) · adr (decision, trade-off) · codebase-pack (one page per package) · style-pass (wording only).
+- A wording-only request on a named file is style-pass. A page that needs an unverified fact is not style-pass: research first.
+- Signals tie after one read: ask once with the likely modes, and do not write meanwhile.
+- Human page: one Diátaxis type (tutorial, how-to, reference, explanation) per page; link sibling types.
+- Audience: an agent reader gets flows as Mermaid or an arrow chain, no HTML or images. A human reader gets the diagram first, then the steps. HTML only on request. Reader unclear: write for the agent.
+- ADR only for an expensive-to-reverse choice. Match the existing ADR convention; else `<workspace>/docs/decisions/ADR-NNN-short-title.md`. Supersede old ADRs; never delete them.
+- `AGENTS.md` is an index of links and non-obvious rules, about 60 lines.
 
-## Rules
+## OUTLINE GATE and WRITE
+- Edit only within the approved scope. Approval lasts for the session.
+- Targets not yet authorized: present mode, type, targets, outline, evidence, and risks; write after approval.
+- An existing target that is not yet authorized: ask Overwrite, Diff first, Rename, Skip, or Cancel.
+- Explanations, runbooks, procedures, troubleshooting, and handoffs use STE-80: one instruction per sentence, 20 words or fewer, active voice, condition first.
+- A stated flow, branch, loop, or state is a Mermaid diagram (12 nodes or fewer), not a dense paragraph.
+- Lead with the fact; link related pages with repo-relative paths; no code dumps. Put deep facts in the owning page.
 
-- Verify commands, paths, APIs, environment variables, and behavioral claims in the repository. Omit unsupported claims or label them "Not verified in repository".
-- Choose one mode and load only its route. A named-file copyedit starts at STYLE.
-- Apply edits within the approved scope. Authorization persists across the current session; ask only when a target or action needs authority that has not been granted.
-- Apply `references/style-index.md`; when changing another writer's wording, identify the rule.
-- For disputed, missing, legal, trademark, product, security, or public-API guidance, check the linked live Google page. The live guide wins; note when verification is unavailable.
-- A style pass changes wording, not claims; a fact change goes back to RESEARCH.
-- `AGENTS.md` is an index of links and non-obvious rules, not a content dump.
-- Prefer durable pointers (module path, contract name, doc link) over line numbers and pasted code.
-- One Diátaxis type per page; link siblings instead of mixing.
-- Follow an established project style over this pack and report meaningful conflicts.
+## STYLE
+- A style pass changes wording, not claims. Name the rule when you change another writer's wording.
+- Precedence: the project's documented style → a convention the repo applies consistently → this pack. Report meaningful conflicts.
+- Defaults: sentence-case headings, second person, active voice, present tense, serial comma, descriptive link text, alt text on every image.
+- Review for someone else: lint first, then structure, prose, and formatting. Report a repeated rule once as systemic. Never call unread sections clean.
 
-## Modes and routes
+## Output and Verify
+- Drafts: `<output>/octocode-documentation/`; scratch: `<output>/tmp/octocode-documentation/`. Chat-only reviews stay in chat; approved edits keep their requested paths.
+- Run `node scripts/style-lint.mjs <changed paths>`, then hand-check non-Markdown text. ERROR blocks completion; WARN needs a fix or explanation; INFO needs judgment.
+- Run `node scripts/style-lint.mjs --self-test` after a lint-rule change; `node scripts/refresh-word-list.mjs --dry-run` checks word-list drift without writing.
+- Check that named commands and linked paths exist and that no secrets or private URLs entered the doc.
+- Finish when the approved docs pass fact, link, safety, structure, and style checks; name unverified claims or residual findings.
 
-| Mode | Deliverable | Route order |
-|---|---|---|
-| agent-docs | `AGENTS.md`, nested instructions, `CLAUDE.md` entrypoint | `references/modes.md` → `references/evidence-research.md` → `references/agents-md.md` → `references/agent-readable.md` → `references/write-verify.md` |
-| human-docs | README, tutorial, how-to, reference, explanation, runbook | `references/modes.md` → `references/evidence-research.md` → `references/diataxis.md` → `references/agent-readable.md` → `references/write-verify.md` |
-| adr | Architecture decision record | `references/modes.md` → `references/evidence-research.md` → `references/adr.md` → `references/write-verify.md` |
-| codebase-pack | Multi-file documentation set | `references/modes.md` → plan and gate the set once → per file: `references/diataxis.md` → `references/write-verify.md` |
-| style-pass | Copyedit or style-review report | `references/style-index.md` → owning style reference → `style-lint.mjs`; add `references/style-review.md` for a report |
-
-For style work, start at `references/style-index.md`, then load only the matching group:
-
-- When editing prose or terms: `references/style-voice.md`, `references/style-grammar.md`, `references/style-words.md`, `references/style-abbreviations.md`, `references/style-global.md`, `references/style-inclusive.md`.
-- When shaping structure or media: `references/style-structure.md`, `references/style-procedures.md`, `references/style-blocks.md`, `references/style-images.md`.
-- When checking formatting: `references/style-format.md`, `references/style-punctuation.md`, `references/style-numbers.md`.
-- When documenting technical text: `references/style-code.md`, `references/style-cli.md`, `references/style-examples.md`, `references/style-ui.md`, `references/style-links.md`.
-- When reviewing claims or APIs: `references/style-claims.md`, `references/style-api.md`.
-- Live-guide provenance: `references/style-sources.md`. For a single-word question, quote the matching guidance from `assets/google-word-list.tsv` and stop.
-
-## Verify
-
-Run `node scripts/style-lint.mjs <changed paths>`, then hand-check non-Markdown text. ERROR findings block completion; WARN findings need correction or explanation; INFO findings need judgment. Run `--self-test` after changing a lint rule. Use `scripts/refresh-word-list.mjs --dry-run` only to check word-list drift; it fetches the live guide without writing.
-
-Finish when the approved docs pass fact, link, safety, structure, and style checks. Name unverified claims or residual findings. For repository facts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery; route skill folders to `octocode-skills`.
+Deep repo research → `octocode-research`; architecture decisions → `octocode-research`, then `octocode-rfc-generator`; skill folders → `octocode-skills`; ideation → `octocode-brainstorming`.

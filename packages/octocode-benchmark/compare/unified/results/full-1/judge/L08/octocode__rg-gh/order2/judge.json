@@ -1,0 +1,88 @@
+{
+  "qid": "L08",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "21a71ad177d3fc472a3ded51db46ff7de1ebfd2d4c0ccc3cf4044af0b0535f96",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on the wrapper, the counting rule and checkAddError handling. Explicitly skips the config-to-sampleLimit link, global inheritance and the rollback/stale-marker step. Citations are accurate."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Adds the config copy at scrape.go:1349/962, the V2 limitAppenderV2 and the seriesAdded detail at :1988 (verified correct). Mentions config.SampleLimit but not global inheritance (fact 1 only partial). Does not cover the rollback (fact 6) and says so openly."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on the wrapper, the counting rule and checkAddError handling. Explicitly skips the config-to-sampleLimit link, global inheritance and the rollback/stale-marker step. Citations are accurate."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Adds the config copy at scrape.go:1349/962, the V2 limitAppenderV2 and the seriesAdded detail at :1988 (verified correct). Mentions config.SampleLimit but not global inheritance (fact 1 only partial). Does not cover the rollback (fact 6) and says so openly."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.0961032,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8333,
+    "cache_read_input_tokens": 12416,
+    "output_tokens": 15,
+    "context_tokens": 20753,
+    "total_tokens": 20768,
+    "first_request_context": 9791,
+    "fixed_overhead_tokens": 19582,
+    "research_tokens": 1186,
+    "max_request_context": 10962
+  },
+  "timedOut": false
+}

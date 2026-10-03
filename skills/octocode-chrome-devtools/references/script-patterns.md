@@ -1,20 +1,27 @@
-# Script pattern router
+# Custom script patterns
 
-Load when a CDP script needs reusable helper shape. Why: choose a focused pattern instead of copying a giant script.
+Load when no ready check fits and you write `run(cdp)`. The template exports `async function run(cdp)`. The runner provides `cdp.send(method, params, sessionId?)`, `cdp.on(event, fn)`, `cdp.targetInfo`, and `cdp.outputDir`. Write files only under `cdp.outputDir` and print paths with `[ARTIFACT]`/`[SCREENSHOT]`; other prefixes: `[FINDING]` `[ACTION]` `[CODE]` `[METRIC]` `[REASON]` `[EXCEPTION]` `[CONSOLE:TYPE]` `[NETWORK_FAILED]` `[SOURCEMAP]`. The sandbox blocks `child_process`, workers, and non-CDP network. Import staged helpers by cwd path: `await import(pathToFileURL(resolve(process.cwd(), '.octocode', 'human-input.mjs')).href)`.
 
-## Load a route
-Start from the intent detail file, then load at most one pattern detail file.
+## Timing
 
-## Pattern Routes
-| Need | Detail |
-|---|---|
-| network idle, selector actionability, service workers, worker websockets | `references/script-patterns-async.md` |
-| websockets, resource search, file upload, screenshots/PDFs, shadow DOM, source maps | `references/script-patterns-browser.md` |
-| network/console observation, performance, web vitals, DOM/a11y, heap, security | `references/script-patterns-observe.md` |
-| storage, consent, full-audit composition | `references/script-patterns-special.md` |
-| HAR export, API/curl replay, token budgets | `references/har-capture.md` |
+- Attach listeners before acting. `--new-tab <url>` loads before `run` starts, so for load evidence `Page.navigate` (or `Page.reload`, as the template does) after attaching listeners.
+- **Network idle**: track in-flight requests, resolve after a quiet window, skip websockets and long polling, always time out.
+- **Wait for element**: poll `Runtime.evaluate` for existence, non-zero size, `el.matches(':disabled')` (covers disabled `<fieldset>`), and a stable box.
+- **Input**: in custom scripts use `human-input.mjs`: `runEventSequence(cdp, buildElementClickSequence(x, y, rect, true))`, `buildTypingEvents(text)` (real keydown/keyup), `buildKeyPressEvents('Control+a')`. Synthetic fallback: the prototype's native `value` setter plus `input`/`change`.
 
-## Output Rule
-Write files only under `cdp.outputDir`; emit paths with a prefix such as `[SCREENSHOT]`, `[SOURCEMAP]`, or `[ARTIFACT]`.
+## Browser surfaces
 
-Next: load exactly one matching detail file, then write `.octocode/tmp/cdp-<task>.mjs`.
+- **Shadow DOM**: `DOM.querySelector` doesn't pierce; walk shadow roots in `Runtime.evaluate` and return paths, not DOM dumps.
+- **Upload**: `DOM.setFileInputFiles` with absolute paths, then `change`.
+- **Workers / service workers**: Target auto-attach; keep `{targetId, sessionId, url, role}` per target.
+- **WebSocket**: Network events `webSocketCreated`/`FrameSent`/`FrameReceived`/`Closed`.
+- **Source maps**: `createSourceMapResolver(cdp)` before navigation, `await settle()`, then `resolve(scriptId, line, col)`; `printSummary()` emits `[SOURCEMAP]`. It is the one helper allowed real outbound HTTP(S).
+- **Event listeners**: `DOMDebugger.getEventListeners({objectId})` maps handlers on vanilla sites; frameworks show one delegated root listener.
+
+## Observation
+
+- **Web vitals**: inject PerformanceObserver before navigation; report missing support as uncertainty.
+- **Heap**: `HeapProfiler.takeHeapSnapshot` with `addHeapSnapshotChunk`.
+- **Security**: `Security`/`Audits` listeners before navigation.
+
+Next: domain order and methods → `cdp-protocol.md`; failures → `recovery.md`.

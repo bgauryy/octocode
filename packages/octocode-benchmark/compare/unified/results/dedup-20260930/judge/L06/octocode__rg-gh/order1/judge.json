@@ -1,0 +1,96 @@
+{
+  "qid": "L06",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "2e42ef797a63744832e47a52177bdfda866751cab701e8a32393fd7417495795",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate end-to-end: config default/schema, base-server plumbing, next-server forwarding, app-page-runtime and pages-handler direct calls, isDynamic guard, sendEtagResponse 304 behavior, static serveStatic etag. Missing the generateETag hash format (fact 5). Citations check out."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "config-shared.ts:2614 described as copying into render options; it is a serialized config object, not renderOpts (minor)"
+      ],
+      "notes": "Correct core flow and static-file path. Did not read sendEtagResponse/generateETag, so 304 behavior is only inferred (hedged) and the hash format is missing. Omits the app-page-runtime path. Citations mostly accurate."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate end-to-end: config default/schema, base-server plumbing, next-server forwarding, app-page-runtime and pages-handler direct calls, isDynamic guard, sendEtagResponse 304 behavior, static serveStatic etag. Missing the generateETag hash format (fact 5). Citations check out."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "config-shared.ts:2614 described as copying into render options; it is a serialized config object, not renderOpts (minor)"
+      ],
+      "notes": "Correct core flow and static-file path. Did not read sendEtagResponse/generateETag, so 304 behavior is only inferred (hedged) and the hash format is missing. Omits the app-page-runtime path. Citations mostly accurate."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1043806,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8925,
+    "cache_read_input_tokens": 22783,
+    "output_tokens": 13,
+    "context_tokens": 31714,
+    "total_tokens": 31727,
+    "first_request_context": 9268,
+    "fixed_overhead_tokens": 27804,
+    "research_tokens": 3923,
+    "max_request_context": 11554
+  },
+  "timedOut": false
+}

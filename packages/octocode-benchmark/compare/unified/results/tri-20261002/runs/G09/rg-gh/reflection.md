@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call (`gh api issues/13786` plus the `/timeline` filter on cross-referenced events) was the fastest step. It returned the full issue body with the root-cause analysis and listed the three candidate PRs (#13787, #13794, #13825) in one go. The second call (`pulls/$n` for each PR, with `merged`/`merged_at`) showed that only #13825 was merged. Its `pulls/13825/files` output gave the actual diff.
+
+2. **Did not help:** Every call printed `/dev/null: Operation not permitted`, which was noise but harmless. My `sed -n '/core_config/,$p'` and `2>/dev/null` attempt returned nothing, so I wasted one call, and the diff output was truncated at 1800 characters. I never saw the `tests/test_config.py` diff for `test_dynamic_default`, and I didn't read the source at the pinned commit. The `merged_at` field I printed was labelled `by` in my jq, which was a sloppy name.
+
+3. **Next time:** I would print full patches for the key files in one call, avoid redirecting to `/dev/null`, and fetch `_config.py` at the merge commit to cite line numbers. I would also check the test patch for `test_dynamic_default` directly.
+
+4. **Confidence:** High on root cause and the fix, since both come straight from the issue text and the merged PR diff. Medium on completeness, because the test change is unverified and I gave no `path:line` citations.

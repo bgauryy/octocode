@@ -8,7 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const skill = readFileSync(join(root, 'SKILL.md'), 'utf8');
 const name = (skill.match(/^name:\s*(\S+)\s*$/m) || [])[1] || '';
 const d = (skill.match(/^description:\s*"(.*)"\s*$/m) || [])[1] || '';
-const triggers = JSON.parse(readFileSync(join(root, 'evals/trigger-cases.json'), 'utf8'));
+const triggers = JSON.parse(readFileSync(join(root, 'benchmarks/skill-smoke/trigger-cases.json'), 'utf8'));
 const checks = [
   { name: 'Use when', pass: /^Use when\b/.test(d) },
   { name: 'eval-benchmark identity', pass: name === 'octocode-eval-benchmark' },

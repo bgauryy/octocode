@@ -1,0 +1,53 @@
+{
+  "qid": "L04",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 1,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 6.5,
+      "correctness": 3.5,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        6,
+        7
+      ],
+      "wrongClaims": [
+        "Lists self/cls stripping as applying on this path",
+        "Says the invalid-docstring error needs both no Args: block AND too few blocks; the code uses OR",
+        "Cites base.py:~355-361 for the _create_subset_model return; it is actually at 362-368",
+        "Claims self/cls filtering applies in create_schema_from_function on this path; it doesn't because from_function always passes non-empty filter_args"
+      ]
+    },
+    "rg-gh": {
+      "quality": 9,
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": [
+        "Lists self/cls stripping for methods among the drops, but on the from_function path filter_args is always non-empty, so that step doesn't run",
+        "Claims self/cls are dropped for methods on this path; it doesn't happen because filter_args is always non-empty from from_function"
+      ]
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2243928
+}

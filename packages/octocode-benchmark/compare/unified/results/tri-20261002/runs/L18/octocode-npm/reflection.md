@@ -1,0 +1,7 @@
+**1. Helped:** The first `localSearch` on `json_sax.hpp` for the stack names located `json_sax_dom_callback_parser` right away. The `localGetFileContent` reads of lines 430-760, 761-1040 and 1040-1100 were the core evidence, since the callback logic, `handle_value` and `remove_discarded_value` are all there. The `localSearch` on `parser.hpp` for `callback|is_discarded`, plus the paired read of `parser.hpp:96-140`, gave the entry point and the final null/discarded handling.
+
+**2. Did not help:** The first search returned only 10 of 120 matches, mostly from the plain DOM parser, so it was noisy. I guessed the 430 start line and landed mid-way through another class, which cost an extra read. I never read `sax_parse_internal` or lines 1101-1211. The tools gave no call-hierarchy view, so I could not confirm the call flow, only the handler bodies.
+
+**3. Next time:** I would search for `json_sax_dom_callback_parser` as a class name to get exact line ranges. I would also read `sax_parse_internal` so the event sequence is verified rather than inferred, and trace a nested rejected array case.
+
+**4. Confidence:** Medium-high. Every cited line came from the pinned files I read. The answer is weaker on edge cases in `end_array` and on how events are driven, both of which I flagged as unverified.

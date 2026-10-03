@@ -1,0 +1,60 @@
+# Development build acceleration for octocode-native.
+#
+# Everything here is OPT-IN and left commented on purpose: a committed, enabled
+# linker path (or rustc-wrapper) breaks any machine that lacks the exact tool at
+# the exact path — Linux devs, Intel Macs, and CI. CI wires its own acceleration
+# in .github/workflows/rust-tools-core.yml (sccache + mold). Enable the blocks
+# below locally after installing the tool.
+#
+# Install:
+#   sccache : brew install sccache            (cross-branch compile cache)
+#   lld     : brew install lld                (fast linker on macOS)
+#   mold    : apt install mold                (fast linker on Linux)
+#
+# ── Disk hygiene (target/ grows unbounded) ────────────────────────────────────
+# `target/debug/incremental` alone reached 78 GB here (163 GB across all
+# incremental dirs). Incremental caches are regenerable scratch — safe to delete;
+# `deps/` (the compiled dependency crates) stays, so builds stay warm.
+# `split-debuginfo = "unpacked"` also leaves per-CGU `deps/*.o` that cargo never
+# prunes: 1.39M files / 96 GB here, making every rustc/linker directory scan slow
+# (`ls target/debug/deps` alone took 95s). clean:cache deletes them too; debug
+# backtraces lose file:line only until the next rebuild.
+#   yarn clean:cache          # rm target/**/incremental + stale deps/*.o, print size
+#   yarn clean:cache:sweep    # + `cargo sweep --maxsize 30` (needs cargo-sweep)
+# Make it periodic without a daemon, e.g. weekly cron:
+#   0 9 * * 1  cd <repo>/packages/octocode-native && yarn clean:cache
+
+# ── sccache: cache rustc invocations across branches / clean builds ───────────
+# 60–80% faster on a warm cache. Tradeoff: sccache disables incremental
+# compilation, so it HELPS clean builds and branch switches but can HURT a tight
+# single-file edit loop. Prefer enabling it per-shell via env rather than here:
+#   export RUSTC_WRAPPER=sccache
+#   cargo build            # then: sccache --show-stats
+#
+# [build]
+# rustc-wrapper = "sccache"
+
+# ── macOS (Apple Silicon): lld from `brew install lld` ────────────────────────
+# lld links large Rust binaries faster than Apple ld; pure win (no incremental
+# tradeoff). Path is the standalone `lld` formula's ld64.lld. Adjust for Intel
+# (/usr/local) or a MacPorts/nonstandard install.
+#
+# [target.aarch64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld"]
+#
+# [target.x86_64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/opt/lld/bin/ld64.lld"]
+
+# ── Linux: mold (apt install mold) ────────────────────────────────────────────
+# mold is 5–10× faster than GNU BFD at linking large Rust binaries. CI already
+# uses mold via `rui314/setup-mold` in the workflow.
+#
+# [target.x86_64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+#
+# [target.aarch64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]

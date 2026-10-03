@@ -1,0 +1,33 @@
+[package]
+name = "octocode-github"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GitHub protocol and bounded provider operations for Octocode"
+
+[dependencies]
+base64 = "0.23"
+bytes = "1"
+futures-util = "0.3"
+getrandom = "0.3"
+hex = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
+secrecy = "0.10"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+moka = { workspace = true }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+tokio-util = { version = "0.7", default-features = false }
+url = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "io-util"] }
+wiremock = "0.6"
+
+[lints]
+workspace = true

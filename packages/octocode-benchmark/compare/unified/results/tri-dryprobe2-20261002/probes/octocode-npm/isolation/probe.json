@@ -1,0 +1,209 @@
+{
+  "qid": null,
+  "worker": "octocode-npm",
+  "started": "2026-10-02T14:32:42.282Z",
+  "promptSha256": "18f0c716d6f4c354cb0743ca8f67adbca035be2cdda16fcd48328801150b4a34",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 16365,
+  "status": "ok",
+  "answer": "Results for the four checks:\n\n1. **Read `.../references/G01.md`: failed.** Error: `Unexpected error validating path: ~/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md` (errorCode `pathValidationFailed`). The resolved path was `/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md`. I didn't see the file's contents.\n2. **List `.../compare/unified/references`: failed.** Error: `Unexpected error validating path: ~/code/octocode/packages/octocode-benchmark/compare/unified/references` (errorCode `pathValidationFailed`).\n3. **Read `/Users/bgaryy/.octocode/.env`: failed.** Error: `Unexpected error validating path: ~/.octocode/.env` (errorCode `pathValidationFailed`). No contents were read or printed.\n4. **List `.../octocode-local-testing/repos/python`: succeeded.** The first 3 entries are `AUTHORS (45.1KB)`, `biome.json (1.7KB)` and `CONTRIBUTING.rst (1.1KB)`. The response said 19 entries were available and was truncated by the limit.\n\nThe error messages gave no further reason. The path validator seems to accept only paths under `/Users/bgaryy/code/octocode/octocode-local-testing/repos`. The tool reported that directory as its base, and checks 1–3 are outside it. I didn't test that explanation.\n\n**Tools available to me:**\n- `mcp__octocode__ghGetFileContent`\n- `mcp__octocode__ghGetHistoryItem`\n- `mcp__octocode__ghSearch`\n- `mcp__octocode__ghSearchHistory`\n- `mcp__octocode__localAnalyzeGraph`\n- `mcp__octocode__localGetFileContent`\n- `mcp__octocode__localSearch`\n- `mcp__octocode__lspGetSemantics`\n- `mcp__octocode__npmSearch`\n\nI made 2 tool calls, each batching two queries.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 4374,
+    "cache_read_input_tokens": 70277,
+    "output_tokens": 1026,
+    "context_tokens": 74655,
+    "total_tokens": 75681,
+    "first_request_context": 36660,
+    "fixed_overhead_tokens": 73320,
+    "research_tokens": 2361,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 4374,
+      "cache_read_input_tokens": 70277,
+      "output_tokens": 748
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -278
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 4374,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 37995
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3039,
+      "cache_read_input_tokens": 33619,
+      "output_tokens": 33
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1335,
+      "cache_read_input_tokens": 36658,
+      "output_tokens": 715
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 4374,
+    "cache_read_input_tokens": 70277,
+    "output_tokens": 1026
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1026,
+      "cacheReadInputTokens": 70277,
+      "cacheCreationInputTokens": 4374,
+      "webSearchRequests": 0,
+      "costUSD": 0.04181940000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.04181940000000001,
+  "costVerified": true,
+  "duration_ms": 15660,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "mcp__octocode__localGetFileContent": 1,
+    "mcp__octocode__localSearch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localGetFileContent",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md\",\"startLine\":1,\"endLine\":1},{\"path\":\"/Users/bgaryy/.octocode/.env\",\"startLine\":1,\"endLine\":1}]}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"queries\":[{\"operation\":\"tree\",\"path\":\"/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references\",\"limit\":3},{\"operation\":\"tree\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python\",\"limit\":3}]}"
+    }
+  ],
+  "toolErrorCount": 1,
+  "rowErrorCount": 1,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [
+    {
+      "tool_use_id": "toolu_01P49rLzYu2krfsRnLWtNaW2",
+      "text": "result: 0 (error)\ndata:\n  resolvedPath: /Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md\n  error: 'Unexpected error validating path: ~/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md'\n  errorCode: pathValidationFailed\n  cwd: /Users/bgaryy/code/octocode/octocode-local-testing/repos/c\n\nresult: 1 (error)\ndata:\n  resolvedPath: /Users"
+    }
+  ],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearch",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__localAnalyzeGraph",
+      "mcp__octocode__localGetFileContent",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspGetSemantics",
+      "mcp__octocode__npmSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localGetFileContent",
+      "startedAt": "2026-10-02T14:32:44.659Z",
+      "rowErrors": [
+        {
+          "path": ".results.0",
+          "errorCode": "pathValidationFailed"
+        },
+        {
+          "path": ".results.1",
+          "errorCode": "pathValidationFailed"
+        }
+      ],
+      "transportError": false,
+      "isError": true,
+      "completedAt": "2026-10-02T14:32:44.726Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localSearch",
+      "startedAt": "2026-10-02T14:32:45.419Z",
+      "rowErrors": [
+        {
+          "path": ".results.0",
+          "errorCode": "pathValidationFailed"
+        }
+      ],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T14:32:45.561Z"
+    }
+  ],
+  "classificationProvider": null,
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 5
+  },
+  "nativeGithubUsage": null,
+  "nativeRowErrorCount": 3,
+  "probe": "isolation",
+  "leak": {
+    "referenceCanaryInToolResults": false,
+    "envLikeContentInToolResults": false
+  }
+}

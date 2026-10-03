@@ -1,0 +1,7 @@
+1. **Helped:** Two `ghGetHistoryItem` calls did all the work. The first was a PR summary with `body` and `changedFiles`. It gave the title, the intent (identifier, keyword and lower-case checks) and the file inventory. The second asked for selected patches of `src/click/core.py` and `CHANGES.md` with `minify:"none"`. It returned the exact warning conditions, messages and call sites, so no source reads were needed.
+
+2. **Did not help:** Nothing errored and no calls were wasted. The patch view has no source line numbers, only hunk headers. I couldn't give `path:line` citations. I also didn't read the merged file with `ghGetFileContent` at `mergeCommitSha`. I skipped the test and docs patches, so my description of them rests on the changed-file counts. I also didn't check `Parameter` subclass behaviour.
+
+3. **Next time:** After the patch, I'd run `ghGetFileContent` on `core.py` at `06b2a678741131fd577ce170e23e5ca0aeba0309` with `matchString` `_check_name_is_usable`. That would give real line numbers and let me confirm the merged code matches the PR head diff. I'd also patch-read `test_deprecations.py` to check the exact parameter declarations that warn.
+
+4. **Confidence:** Medium-high. The PR body, the changelog and the diff agree on the behaviour. The gaps are the missing line citations and the untested subclass case.

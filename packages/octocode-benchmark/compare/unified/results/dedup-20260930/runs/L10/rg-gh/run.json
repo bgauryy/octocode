@@ -1,0 +1,118 @@
+{
+  "qid": "L10",
+  "worker": "rg-gh",
+  "started": "2026-09-30T19:58:49.870Z",
+  "promptSha256": "bae053cbd28a5c7d818445b6cf4350186075c7e6fb66e9c2f037bdba2efa66d4",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 13539,
+  "status": "ok",
+  "answer": "**Answer:** `rate()` and `increase()` share one implementation, `extrapolatedRate` in `promql/functions.go:452`. The only difference is a flag: `rate` calls it with `isCounter=true, isRate=true` (`funcRate`, `promql/functions.go:811-813`). `increase` calls it with `isCounter=true, isRate=false` (`funcIncrease`, `promql/functions.go:816-818`).\n\n**Algorithm for float counters**\n\n1. **Raw delta.** The result starts as last sample minus first sample in the window (`promql/functions.go:510`).\n2. **Counter resets.** For each consecutive pair of samples, if the current value is lower than the previous one, the previous value is added to the result (`:523-528`). The same reset rule applies when a start-timestamp (ST) reset is detected. Histograms take the equivalent path through `histogramRate` (`:640`), which I did not read.\n3. **Boundary distances.** The code computes `durationToStart` and `durationToEnd`, the gaps between the first/last sample and the window edges. The window is `[enh.Ts - Range - Offset, enh.Ts - Offset]` (`:469-470`, `:535-536`).\n4. **Extrapolation threshold.** The threshold is 1.1 × the average gap between samples (`:543`).\n   - A boundary gap at or above the threshold is replaced by half the average gap (`:581-583` for the start, `:602-604` for the end).\n   - A smaller gap is extrapolated all the way to the edge.\n5. **Zero clamp (counters only).** If the result is positive and the first sample is ≥ 0, the code estimates when the counter would have been zero: `sampledInterval * first/result`. If that is shorter than `durationToStart`, it becomes the start distance, so the extrapolation never goes below zero (`:585-601`).\n6. **Scaling factor.** `factor = (sampledInterval + durationToStart + durationToEnd) / sampledInterval`, or 1 if `sampledInterval` is 0 (`:606-609`).\n   - For `rate`, `factor` is also divided by the range in seconds (`:610-612`).\n   - The result is `resultFloat *= factor` (`:614-616`).\n\nFor `increase`, the output is the extrapolated total over the window. For `rate`, it is that total divided by the range duration. It is not divided by the sampled interval.\n\n**Edge cases**\n- **Too few samples.** With fewer than two samples, nothing is returned, unless the ST shortcut below applies (`:546-562`, `:577-579`).\n- **Start-timestamp shortcut.** If the first sample's ST lies inside the window, the code treats the counter as starting at zero at that ST. It sets `durationToStart=0`, uses `lastT - ST` as the interval, and adds the first sample's value to the result (`:546-566`). A single sample works in this case.\n- **Mixed samples.** A window with both float and histogram samples yields a warning and no result (`:487-489`).\n- **Smoothed and anchored selectors.** These skip this path and use `extendedRate` or `extendedHistogramRate` (`:453-469`). I did not read those functions.\n\n**Uncertainty:** The line numbers above are approximate. I read the file in one pass and did not number the lines. The function start lines (`:452`, `:640`, `:811`, `:816`) come from an `rg` search and are exact.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8086,
+    "cache_read_input_tokens": 12720,
+    "output_tokens": 801,
+    "context_tokens": 20812,
+    "total_tokens": 21613,
+    "first_request_context": 5125,
+    "fixed_overhead_tokens": 15375,
+    "research_tokens": 6238,
+    "max_request_context": 10023
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3188,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 20
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 539,
+      "cache_read_input_tokens": 5123,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4359,
+      "cache_read_input_tokens": 5662,
+      "output_tokens": 765
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8086,
+    "cache_read_input_tokens": 12720,
+    "output_tokens": 1394
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1394,
+      "cacheReadInputTokens": 12720,
+      "cacheCreationInputTokens": 8086,
+      "webSearchRequests": 0,
+      "costUSD": 0.04884,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.04884,
+  "duration_ms": 12219,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "Bash:cd": 1,
+    "Bash:sed": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/go && git rev-parse HEAD; rg -n \\\"func extrapolatedRate|func funcRate|func funcIncrease|func calcTrendValue|func histogramRate\\\" promql/functions.go\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"sed -n 425,640p promql/functions.go; sed -n 805,822p promql/functions.go\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first call combined `git rev-parse HEAD` with an `rg -n \"func extrapolatedRate|...\"` search. It confirmed the pinned commit and gave exact function line numbers in one step. The second call, `sed -n 425,640p`, read the whole function, and the `funcRate`/`funcIncrease` wrappers came from a second `sed` range in the same call. Two calls were enough.\n\n2. **Did not help:** I used `sed` without line numbers (`rg -n` or `cat -n` would have shown them), so the per-step line citations in my answer were estimated from the start line and offsets, not read. I said so at the end, but I should have fixed it instead of hedging. Some of those citations may be off by several lines. I also did not read `extendedRate`, `extendedHistogramRate`, `histogramRate`, `correctForCounterResetsHistogram`, or the docs, so the answer says nothing about those paths.\n\n3. **Next time:** I would print the range with `cat -n` or `rg -n ''` so every cited line is verified. I would also open `histogramRate` and `extendedRate`, since the question did not limit itself to float counters.\n\n4. **Confidence:** Medium-high on the algorithm, because I read the code directly. The exact function start lines are reliable. The per-step line citations are medium confidence.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1456,
+      "cache_read_input_tokens": 10021,
+      "output_tokens": 1,
+      "context_tokens": 11479,
+      "total_tokens": 11480,
+      "first_request_context": 11479,
+      "fixed_overhead_tokens": 11479,
+      "research_tokens": 1,
+      "max_request_context": 11479
+    },
+    "cost_usd": 0.0610822,
+    "toolCallsAttempted": 0
+  }
+}

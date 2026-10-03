@@ -1,0 +1,178 @@
+{
+  "qid": "L05",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "34cf34f8ac0a86beefa25c649c80f44ddf4896d05aac32904b7d04ce123952e3",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "2e98eedfccbdfc96c4ca6128c5215738ea3427f10bdca3fd9ad80d2087bb6672",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; key fact 4 (reachability) covered only partly, via the base.py list branch for chunk + [..]. Honestly flags the out-of-core files as unopened; the openai match is just a comment."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with citations that check out. Notes that AIMessageChunk.__add__ uses add_ai_message_chunks for multi-chunk merges, which partly covers key fact 4. Scoped to libs/core with an explicit caveat."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; key fact 4 (reachability) covered only partly, via the base.py list branch for chunk + [..]. Honestly flags the out-of-core files as unopened; the openai match is just a comment."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with citations that check out. Notes that AIMessageChunk.__add__ uses add_ai_message_chunks for multi-chunk merges, which partly covers key fact 4. Scoped to libs/core with an explicit caveat."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.08304900000000001,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 7016,
+        "cache_read_input_tokens": 11125,
+        "output_tokens": 1234,
+        "context_tokens": 18145,
+        "total_tokens": 19379,
+        "first_request_context": 8757,
+        "fixed_overhead_tokens": 17514,
+        "research_tokens": 1865,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 7016,
+          "cache_read_input_tokens": 11125,
+          "output_tokens": 9
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1225
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7016,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 9388
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.08304900000000001,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7016,
+    "cache_read_input_tokens": 11125,
+    "output_tokens": 1234,
+    "context_tokens": 18145,
+    "total_tokens": 19379,
+    "first_request_context": 8757,
+    "fixed_overhead_tokens": 17514,
+    "research_tokens": 1865,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 7016,
+      "cache_read_input_tokens": 11125,
+      "output_tokens": 9
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1225
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7016,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 9388
+  },
+  "timedOut": false
+}

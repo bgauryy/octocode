@@ -10,10 +10,33 @@ const argv = process.argv.slice(2);
 const getArg  = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
 const hasFlag = (flag) => argv.includes(flag);
 
+if (hasFlag('--help') || hasFlag('-h')) {
+  console.log(`Usage: open-browser.mjs [options]
+
+Launch or reuse a Chrome DevTools Protocol session.
+
+Options:
+  --port <n>              CDP port (default: 9222)
+  --url <url>             Initial URL
+  --headless              Use an isolated headless profile
+  --profile <name>        Use the real Chrome profile (needs approval; Chrome must be quit)
+  --chromePath <path>     Explicit Chrome executable
+  --windowSize <WxH>      Browser window size
+  --enableFeatures <csv>  Chrome feature flags
+  --userAgent <ua>        User-Agent override
+  --proxyServer <url>     Proxy (also --proxyBypassList, --proxyPacUrl)
+  --config <path>         Proxy configuration file
+  --cleanup               Stop the tracked isolated session
+  --dry-run               Preview cleanup without stopping Chrome
+  -h, --help              Show this help and exit`);
+  process.exit(0);
+}
+
 const PORT        = getArg('--port', '9222');
 const PROFILE     = getArg('--profile', 'Default');
 const URL_ARG     = getArg('--url', '');
 const HEADLESS    = hasFlag('--headless');
+const REAL_PROFILE = hasFlag('--profile');
 const CLEANUP     = hasFlag('--cleanup');
 const DRY_RUN     = hasFlag('--dry-run');
 const CHROME_PATH  = getArg('--chromePath', '');
@@ -305,11 +328,13 @@ let usingIsolatedProfile = false;
 if (HEADLESS) {
   mkdirSync(HEADLESS_PROFILE_DIR, { recursive: true });
   userDataDir = HEADLESS_PROFILE_DIR;
-} else if (isChromeRunning()) {
+} else if (!REAL_PROFILE || isChromeRunning()) {
   usingIsolatedProfile = true;
   mkdirSync(HEADLESS_PROFILE_DIR, { recursive: true });
   userDataDir = HEADLESS_PROFILE_DIR;
-  console.error('[BROWSER] Chrome already running without CDP - launching isolated CDP session');
+  console.error(REAL_PROFILE
+    ? '[BROWSER] Chrome already running (profile locked) - launching isolated CDP session'
+    : '[BROWSER] Visible isolated profile (pass --profile <name> for the real profile, after approval)');
 } else {
   userDataDir = platform() === 'darwin'
     ? `${HOME}/Library/Application Support/Google/Chrome`
@@ -330,7 +355,8 @@ const chromeArgs = [
 ];
 
 if (!HEADLESS && !usingIsolatedProfile) chromeArgs.push(`--profile-directory=${PROFILE}`, '--restore-last-session');
-if (HEADLESS)  chromeArgs.push('--headless=new', '--disable-gpu', '--disable-dev-shm-usage');
+if (HEADLESS)  chromeArgs.push('--headless=new', '--disable-dev-shm-usage');
+if (HEADLESS && platform() === 'linux') chromeArgs.push('--disable-gpu');
 if (HEADLESS && platform() === 'linux') chromeArgs.push('--no-sandbox', '--disable-setuid-sandbox');
 if (USER_AGENT) chromeArgs.push(`--user-agent=${USER_AGENT}`);
 if (WINDOW_SIZE) {

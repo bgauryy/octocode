@@ -1,6 +1,6 @@
 # Contract and Data-Flow Checks
 
-Load when a contract or external/internal data path crosses a trust, process, package, persistence, or ownership boundary. Why: matching types or a single happy-path test does not prove compatible semantics or safe data movement.
+Load when a contract or external/internal data path crosses a trust, process, package, persistence, or ownership boundary. Matching types or a single happy-path test does not prove compatible semantics or safe data movement.
 
 ## Contract-level checks
 
@@ -25,4 +25,4 @@ For each representative scenario, trace `origin → ingress → validation/authe
 
 Exercise normal, invalid, denied, partial-failure, retry/replay, timeout/cancellation, and stale-version paths when material. Reconcile the external trace with internal ownership: every validation, persistence, disclosure, and deletion decision needs one accountable boundary.
 
-Return to `architecture-lenses.md` to compose this lane with static, control, ownership, and runtime views; use `output-contracts.md` when the result needs an auditable record.
+Return to `references/architecture-lenses.md` to compose this lane with static, control, ownership, and runtime views; use `references/output-contracts.md` when the result needs an auditable record.

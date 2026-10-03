@@ -1,41 +1,57 @@
-# Skill Review
+# Skill review
 
-Load when reviewing, updating, or creating a skill. Why: check structure, routing, prose, and portability before claiming done.
-
-Review combines mechanical findings with judgment about density, ownership, navigation, portability, and working scripts.
-
-## What review covers
-
-1. **Best practices** — lobby owns workflows; progressive disclosure; one owner per concept; scripts over mechanical prose (`references/skill-improve.md`, `references/skill-anatomy.md`).
-2. **Quality rubric** — trigger, workflow, gates, evidence, UX, risk (`references/quality-rubric.md`).
-3. **Mechanical rules** — frontmatter, missing refs/scripts/schemes, JSON contract shape, length, routing, hooks, prose, and description trigger quality (`description-concise` / `description-rigid` / `description-redundant`) (`references/skill-review-rules.md`).
-4. **Navigation** — agents can reach the relevant references, scripts, and schemes, understand when to use them, and continue dependent procedures (`references/skill-anatomy.md`). Do not duplicate an index merely to satisfy a lobby-listing warning.
-5. **Standalone** — static path checks (`link-outside-skill`) find literal references; constructed paths and optional integrations need isolated runtime checks.
-6. **Cleanup** — every shipped reference, doc, script, and scheme is reachable, coherent, effective, and worth its context/execution cost; no routing wrappers, fallback stubs, duplicates, development-only metadata, probes, or scratch artifacts (`unused-file`, `references/skill-cleanup.md`).
-
-## Run
+Load when you review, create, or update a skill, or fix findings. Why: map each code to the exact gap before you claim done.
 
 ```bash
-node scripts/skill-review.mjs                       # every skill under nearest skills/ root
-node scripts/skill-review.mjs ../skills             # every immediate child skill in a collection
-node scripts/skill-review.mjs ../some-skill         # one or more folders
-node scripts/skill-review.mjs ../some-skill --json  # machine-readable
-node scripts/skill-review.mjs --self-test            # collection/error/frontmatter regressions
+node scripts/skill-review.mjs [<skill-dir | collection-dir>...] [--json]  # no args: nearest skills/ root
+node scripts/skill-review.mjs --self-test                                # regression
 ```
 
-Exit `1` on any ERROR; WARN is advisory. Always run before reporting create/edit done; surface findings.
-`scripts/skill-lint.mjs` is a compatibility alias for the same command.
+- Exit `1` on any ERROR; WARN is advisory. A no-arg scan is relative to this copy (`.agents/skills/octocode-skills` scans `.agents/skills`).
+- The script checks frontmatter, routes, schemes, length, hooks, prose, paths, and reachability; you make the judgment checks.
+- `hooks-*` codes cover Claude-style `hooks:` frontmatter only; review Cursor and Codex native configs directly.
 
-No-arg scan is relative to this skill copy: `.agents/skills/octocode-skills` scans `.agents/skills`; packaged `skills/octocode-skills` scans `skills`.
+## ERROR (exit 1)
 
-For an authorized runtime review, copy the shipped skill alone into a temporary directory, use a separate working directory, and run its documented help and finite fixture checks. Keep sibling skills and developer-only files absent. Test optional integrations both without their dependency (clear setup guidance) and with the documented dependency supplied. Static review does not execute untrusted scripts or prove portability.
+| Code | Requirement |
+|---|---|
+| `frontmatter-missing` | `SKILL.md` starts with YAML frontmatter |
+| `name-mismatch` | `name` equals the folder name |
+| `name-format` | `name` is 1–64 chars of `a-z0-9` with single inner hyphens |
+| `compatibility-length` | `compatibility`, when present, is 1–500 chars |
+| `description-missing` / `description-too-long` | non-empty `description`, ≤1024 chars |
+| `missing-route` | every routed file or directory path exists |
+| `link-outside-skill` | no `../dir/file`, `~/`, `file://`, or absolute path; a bare `../dir` argument or `<placeholder>` path is fine |
+| `octocode-contract-stale` | current Octocode tool names and `octocode skill install/list/info` forms |
+| `lobby-*-convention` | the lobby header convention holds |
+| `scheme-contract` | each scheme entry is a flat `.json` file, one top-level object |
+| `unused-file` | every shipped file is reachable from `SKILL.md`, `README.md`, or a used file; drop dev metadata and probes |
 
-## Fix loop
+## WARN (assess)
 
-Fix ERRORs first, then assess WARNs with `references/skill-review-rules.md`. Re-run until ERRORs clear; explain any intentional residual WARN.
+| Code | Fix |
+|---|---|
+| `description-trigger` | lead with `Use when <trigger>` |
+| `name-reserved` / `frontmatter-xml` | drop `anthropic` or `claude` from `name` and XML tags from `name` or `description`; Anthropic uploads reject them |
+| `lobby-long` | over 220 lines: move detail, not core logic, into references |
+| `readme-missing` | add `README.md`: overview, capabilities, how it works, install |
+| `reference-h1` | one short H1 per reference |
+| `reference-long` | over 100 lines: cut duplication; split only a page with two decisions |
+| `references-many` | over 12 pages: merge pages |
+| `orphan-reference` | route it from `SKILL.md` (one level deep), or delete it |
+| `lobby-reference-unlisted` / `lobby-script-unlisted` | add one lobby route, no second catalog; helpers may sit behind a routed command |
+| `lobby-workflow-missing` | a `Flow:` line or `## Workflow` heading on its own line |
+| `lobby-map-missing` / `lobby-map-incomplete` | draw the skill map; it covers every page in the references, docs, and scripts/docs folders |
+| `script-unreferenced` | import it, name it, or drop it |
+| `route-condition` | state when or why on the same line as the route |
+| `reference-entry-cue` | add the entry cue |
+| `reference-dead-end` | add the next hop, or say the step ends here |
+| `flow-phase-unrouted` | name each flow phase in a route or gate, or drop it |
 
-## Hooks note
+Navigation WARNs are candidates, not mandatory format; audit trails, templates, and fixtures skip entry and exit cues. A routed directory (including `scripts/`) covers its files, but a literal missing file in it still fails. Write example paths with a placeholder (`scripts/<hook-directory>/`).
 
-Review `hooks-*` covers Claude-style `hooks:` frontmatter. Cursor/Codex native configs must be reviewed directly — outside `SKILL.md`. <!-- style-lint: ignore-line passive-voice -->
+## Judgment checks the script cannot make
 
-Next: when interpreting findings load `references/skill-review-rules.md`; when rating/refactor load `references/self-improvement.md`.
+Check that every lobby ACT rule holds and that the prose has no filler and no lost data. Also check that each routed file owns a job that changes the next action, and that a declared host scheme is exposed. Reachability does not prove a routed adapter is useful; verify runtime selection separately.
+
+Next: to fix findings load `references/skill-improve.md`; for design guidance load `references/skill-anatomy.md`.

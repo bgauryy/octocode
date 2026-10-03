@@ -1,86 +1,49 @@
-# Octocode CLI Architecture
+# Octocode CLI architecture
 
-`octocode` is the public **CLI and installer** package. It is a thin
-presentation layer: it parses input, routes to a handler, and renders output.
-Tool execution, pagination, and security come from
-`@octocodeai/octocode-tools-core`, which calls the native engine. Public schemas,
-descriptions, shared instructions, and reusable output types come from
-`@octocodeai/octocode-core`. Nothing in this package shapes tool data; it only
-formats it for a terminal.
+`octocode` is the public Node launcher, installer, and interactive management package. All public tool execution is owned by the Rust runtime in [`../octocode-native`](../octocode-native).
 
-## Boundary
+## Runtime boundary
 
-- `src/index.ts` is the binary entry (`bin: out/octocode.js`). It calls
-  `runCLI()`, falls back to top-level help, and delegates signal termination to
-  `src/cli/process-lifecycle.ts` so structured stdout stays clean.
-- `src/cli/index.ts` (`runCLI`) is the dispatcher: parse args → handle global
-  flags (`--help`, `--version`, `--no-color`) → route to a command,
-  the `tools`/`context` surface, or interactive install. It also invokes
-  `stale-build.ts`, which compares the running bundle with every TypeScript
-  input under `src/` when dogfooding `out/`.
-- Keep dispatch thin. New behavior belongs in a command or feature module, not
-  in `runCLI`.
+`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `scheme` compose core presentation with native availability. Root `--help`, `-h`, and `help` append canonical agent instructions after native help. Every other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
 
-## Layers
+```text
+npx octocode → Node launcher → native CLI → Rust ToolRuntime
+```
 
-- `src/cli/` — argument parsing (`parser.ts`), routing (`routing.ts`, the
-  local-vs-GitHub ref resolver), validation, help rendering, and exit codes
-  (`exit-codes.ts`).
-- `src/cli/commands/` — one file per command. Two groups:
-  - **Quick commands** (`cache`) — a thin shortcut that resolves a target ref
-    and materializes it locally.
-    Legacy research shortcuts (`cat`, `ls`, `find`, `grep`, `history`, `repo`,
-    `pkg`, `lsp`, `binary`, `unzip`, `diff`, `pr`) and the unified `search`
-    command are intentionally removed; use `tools <name>` for research.
-  - **Management commands** (`install`, `auth`/`login`/`logout`, `status`) —
-    lazy-loaded from the command registry; manage setup, credentials, and
-    environment state. `skill` and `lsp-server` own their respective local
-    management flows.
-- `src/cli/tool-command/` — the raw `tools <name>` / `context` surface. Bridges
-  to `octocode-tools-core/direct` for execution and `octocode-core/schema` for
-  schemas, display fields, examples, and input preparation. `octocode-core/mcp`
-  owns CLI context and shared MCP guidance; the CLI supplies runtime availability.
-- `src/ui/` — interactive TUI: the menu loop (`menu/main-menu.ts`), install flow
-  (`install/`), and MCP configuration editor (`config/`). Reached via
-  `octocode install` → `runInteractiveMode`.
-- `src/features/` — stateful operations behind commands/UI: MCP `install`,
-  GitHub `github-oauth` / `gh-auth`, registry `sync`, and `node-check`.
-- `src/cli/commands/skills/` — bundled-skill registry, checks, removal,
-  environment readiness, and CLI rendering. Cross-platform destination mapping,
-  durable canonical materialization, conflict handling, and linking come from
-  `@octocodeai/octocode-skill-installer`.
-- `src/utils/` — terminal primitives (colors, spinner, prompts), MCP config I/O,
-  token storage, platform/shell/fs helpers, and frontmatter parsing.
-  MCP client discovery and paths come from `mcp-paths.ts`; config reads and
-  writes come from `mcp-io.ts`. `mcp-config.ts` owns configuration composition
-  and installation status, using the shared client inventory.
+The native path is mandatory for public tools. If its platform package cannot be resolved, the launcher fails closed. Rust owns contract validation, availability, security, GitHub and artifact providers, local/AST/LSP behavior, bulk orchestration, pagination, response shaping, cancellation, and exit classification. `@octocodeai/octocode-core` authors public schemas and instructions; the CLI reads them through `@octocodeai/config` (`./schema`, `./mcp`), never from core directly.
 
-## Build
+## TypeScript management surface
 
-- `build.mjs` bundles `src/index.ts` with esbuild → `out/octocode.js`
-  (ESM, minified, code-split, with a `#!/usr/bin/env node` shebang).
-- Published runtime dependencies, including
-  `@octocodeai/octocode-tools-core` and `@octocodeai/octocode-engine`, stay
-  external so each package owns and resolves its own dependency graph. The private
-  `@octocodeai/octocode-skill-installer` workspace is a dev dependency bundled
-  into the CLI output. The native `.node` binary comes from the engine package's
-  platform `optionalDependencies`.
-- The build inspects esbuild's metafile and fails if output contains a bare
-  external import that the CLI does not declare as a runtime dependency.
-- `__APP_VERSION__` is injected at build time from `package.json`.
+TypeScript remains only for:
 
-## Publish Boundary
+- `scheme`, which joins the core public catalog with native availability after
+  a fail-closed contract-fingerprint check; it presents contracts but does not
+  validate or execute tool requests;
+- bare output and root help, which expose the same core-owned agent instructions
+  once per output, scoped to CLI availability (including CLI-only `ghCloneRepo`);
+- `skill`, backed by the shared skill installer;
+- the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Publish runtime prerequisites before the CLI: engine platform packages, the
-engine root, config/core/tools-core, the skill installer, and then `octocode`.
-The CLI declares only the packages it imports directly, including core contracts
-and tools-core execution.
+Everything else—`showConfig`, `config`, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
+
+## Build and packaging
+
+- `build.mjs` bundles `src/index.ts` to `out/octocode.js` as an ESM launcher.
+- `@octocodeai/octocode-native` is a runtime dependency; its optional platform packages supply the native binary and N-API addon.
+- `@octocodeai/config` (bundled into the tarball via `bundledDependencies`) supplies public contracts and instructions; the skill installer is inlined at build time.
+- The build fails when a bare external import is not declared.
+- `__APP_VERSION__` is injected from `package.json`.
+
+Publish native platform packages, the native root, contract/config prerequisites, and then this launcher. Exercise the built Node launcher against the packaged native binary before publishing.
 
 ## Rules
 
-- The CLI renders; it does not compute. Push any data-shaping into
-  `octocode-tools-core`.
-- Lazy-load command and tool modules (dynamic `import`) to keep startup fast and
-  tolerate a missing tool runtime gracefully.
-- Run `yarn verify` (lint + typecheck + test + package validations) before
-  publishing, then exercise the built `out/octocode.js` path.
+- Public tool behavior belongs in Rust.
+- Public contract content belongs in core (delivered via config); `scheme` only reconciles it
+  with native availability and the enforcement fingerprint.
+- The Node launcher delegates or fails closed; it has no TypeScript tool fallback.
+- Keep management-only TypeScript paths explicit and small.
+- Do not add Node-side query batching, provider behavior, security policy, response shaping, or tool-specific error recovery.
+- Validate both the direct native CLI and the built Node launcher, including CLI/MCP structured-result parity.
+
+Global `.env` mutation uses the native config module’s shared parser and protection policy. The CLI accepts key/value arguments or a value on stdin, prints only mutation metadata, and delegates locked atomic file replacement to config.

@@ -1,0 +1,47 @@
+{
+  "qid": "G01",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 1
+  },
+  "scores": {
+    "octocode": {
+      "quality": 7,
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        7,
+        7
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 8.5,
+      "correctness": 4.5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        9
+      ],
+      "wrongClaims": [
+        "Implies every app pays full per-request wrapping even without SDK; NativeTelemetry is bypassed when enabled() is false (hedged)"
+      ]
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.42526819999999993
+}

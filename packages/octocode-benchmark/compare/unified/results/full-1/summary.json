@@ -1,0 +1,3978 @@
+{
+  "runId": "full-1",
+  "generatedAt": "2026-09-30T15:55:11.649Z",
+  "manifest": {
+    "createdAt": "2026-09-30T07:08:50.280Z",
+    "model": "sonnet",
+    "claudeVersion": "2.1.285 (Claude Code)",
+    "build": {
+      "mcpServerDist": "9ab5b3c8e31adf95e67b978b0e559397f62edf06f81239d6738f6931d8a33447",
+      "nativeAddons": {
+        "packages/octocode-native/npm/darwin-arm64/octocode-engine.darwin-arm64.node": "b6157f142f08efe6b14ebd3c3dec9a2ca6fcd72b49e6f92fef53c2f979c92092",
+        "packages/octocode-native/npm/darwin-arm64/octocode-native.darwin-arm64.node": "78498410e7ad7d54c188b1615e0f1464712876239ab84d99103e887c58eeeaaf",
+        "packages/octocode-native/octocode-engine.darwin-arm64.node": "5fda78a3475a68bda918a4a6d7539b87b6e98b6233f073961526414d6e245550",
+        "packages/octocode-native/octocode-native.darwin-arm64.node": "23d7abca646c75ddba1f6d85d41695c5ee178dbe70a6e2e50922075621398ba1"
+      },
+      "fingerprint": {
+        "file": "packages/octocode-config/contract/provenance.json",
+        "sha256": "b9f5fbc3208e4dc910b80aad6111a598fb786f3dbc67f20a0efc0abb2f7e3b0b",
+        "fingerprint": "ad865480ac1a06dc8c668b5447618b40aede8b2c428ee4c36d4aa9b562deea16"
+      }
+    },
+    "hashes": {
+      "harness": {
+        "lib.mjs": "32909486e15cd5cf4b81033e751beb294cec44e06543fe33d191a90f5963e4b9",
+        "run.mjs": "ab65c82c88bbf7b50d5563c862aa616f9d3c1f8edf8aa5f083c4852950592af5",
+        "judge.mjs": "e17b8865b3ce3977d3d047853c38e66d88d1d8df70ea68b73c0a7125f5245cd5",
+        "report.mjs": "74621baf76cc8e56b25c916796735f1b18c57fdf11fc8dcbd445b0ea70d8daeb",
+        "reflect.mjs": "bfdc9c1ec37c817e3d5ea87f3d7eca224f57fbddea47a307ae10686041fdc93d",
+        "REFLECT.md": "d58f84fa0376ba0a91c880a98066c2e623c916bf49e997f2c670e20b54080b5c"
+      },
+      "questionsJson": "32629cb10262dc502397e8e454d0356ec6d9168fa76b7bf1fea15f077e2813da",
+      "workers": {
+        "octocode": {
+          "doc": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+          "profile": "3df318290e330136e1d9f2be40ece85dea8c0ca751848a3bacef4ec5d3097b3c"
+        },
+        "rg-gh": {
+          "doc": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+          "profile": "3c6b988b783d0f2c100372b4d55f637970c8977f21cc72e811d6a14594e9df2d"
+        }
+      }
+    }
+  },
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "questionCount": 30,
+  "totals": {
+    "octocode": {
+      "runs": 30,
+      "ok": 30,
+      "meanQuality": 8.416666666666666,
+      "medianQuality": 8.5,
+      "totalTokens": 5697504,
+      "weightedTokens": 1024869.4999999999,
+      "contextTokens": 5678453,
+      "overheadTokens": 5272858,
+      "researchTokens": 424646,
+      "outputTokens": 19051,
+      "requests": 129,
+      "cost": 2.9636589999999994,
+      "toolCalls": 117,
+      "wallMs": 623874,
+      "toolErrors": 34,
+      "denials": 0,
+      "meanTotalTokens": 189916.8,
+      "meanResearchTokens": 14154.866666666667,
+      "efficiency": 0.44317652080630393,
+      "weightedEfficiency": 2.463728308823709,
+      "counters": {
+        "clasify calls": 0,
+        "matchString queries": 16,
+        "lspSearch calls": 0,
+        "astSearch calls": 0,
+        "followUp uses": 0
+      },
+      "tools": {
+        "mcp__octocode__ghGetHistoryItem": 14,
+        "mcp__octocode__ghGetFileContent": 11,
+        "mcp__octocode__ghSearchHistory": 2,
+        "mcp__octocode__localSearch": 47,
+        "mcp__octocode__localFetch": 40,
+        "mcp__octocode__structureSearch": 3
+      },
+      "isolationFailures": 0
+    },
+    "rg-gh": {
+      "runs": 30,
+      "ok": 30,
+      "meanQuality": 9.116666666666667,
+      "medianQuality": 9,
+      "totalTokens": 1049598,
+      "weightedTokens": 567768.4000000001,
+      "contextTokens": 1025798,
+      "overheadTokens": 591923,
+      "researchTokens": 457675,
+      "outputTokens": 23800,
+      "requests": 116,
+      "cost": 1.8641748000000002,
+      "toolCalls": 92,
+      "wallMs": 541507,
+      "toolErrors": 0,
+      "denials": 0,
+      "meanTotalTokens": 34986.6,
+      "meanResearchTokens": 15255.833333333334,
+      "efficiency": 2.6057595384137544,
+      "weightedEfficiency": 4.817105002673624,
+      "counters": {},
+      "tools": {
+        "Bash:gh": 15,
+        "Bash:cd": 54,
+        "Bash:ls": 1,
+        "Bash:sed": 19,
+        "Bash:grep": 2,
+        "Bash:mkdir": 1
+      },
+      "isolationFailures": 0
+    }
+  },
+  "bySurface": {
+    "github": {
+      "n": 10,
+      "octocode": {
+        "runs": 10,
+        "ok": 10,
+        "meanQuality": 8.4,
+        "medianQuality": 8,
+        "totalTokens": 1467850,
+        "weightedTokens": 306660.6,
+        "contextTokens": 1462366,
+        "overheadTokens": 1346490,
+        "researchTokens": 121360,
+        "outputTokens": 5484,
+        "requests": 33,
+        "cost": 0.9247072000000001,
+        "toolCalls": 27,
+        "wallMs": 205309,
+        "toolErrors": 3,
+        "denials": 0,
+        "meanTotalTokens": 146785,
+        "meanResearchTokens": 12136,
+        "efficiency": 0.5722655584698709,
+        "weightedEfficiency": 2.739184623000151,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 8,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__ghGetHistoryItem": 14,
+          "mcp__octocode__ghGetFileContent": 11,
+          "mcp__octocode__ghSearchHistory": 2
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 10,
+        "ok": 10,
+        "meanQuality": 8.7,
+        "medianQuality": 8.75,
+        "totalTokens": 399556,
+        "weightedTokens": 219573.35000000003,
+        "contextTokens": 391846,
+        "overheadTokens": 196544,
+        "researchTokens": 203012,
+        "outputTokens": 7710,
+        "requests": 39,
+        "cost": 0.7280822,
+        "toolCalls": 33,
+        "wallMs": 204818,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 39955.6,
+        "meanResearchTokens": 20301.2,
+        "efficiency": 2.177416932795403,
+        "weightedEfficiency": 3.9622294782130885,
+        "counters": {},
+        "tools": {
+          "Bash:gh": 15,
+          "Bash:cd": 13,
+          "Bash:ls": 1,
+          "Bash:sed": 1,
+          "Bash:grep": 2,
+          "Bash:mkdir": 1
+        },
+        "isolationFailures": 0
+      }
+    },
+    "local": {
+      "n": 20,
+      "octocode": {
+        "runs": 20,
+        "ok": 20,
+        "meanQuality": 8.425,
+        "medianQuality": 8.75,
+        "totalTokens": 4229654,
+        "weightedTokens": 718208.9,
+        "contextTokens": 4216087,
+        "overheadTokens": 3926368,
+        "researchTokens": 303286,
+        "outputTokens": 13567,
+        "requests": 96,
+        "cost": 2.0389518000000004,
+        "toolCalls": 90,
+        "wallMs": 418565,
+        "toolErrors": 31,
+        "denials": 0,
+        "meanTotalTokens": 211482.7,
+        "meanResearchTokens": 15164.3,
+        "efficiency": 0.3983777396448977,
+        "weightedEfficiency": 2.346114062357066,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 8,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__localSearch": 47,
+          "mcp__octocode__localFetch": 40,
+          "mcp__octocode__structureSearch": 3
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 20,
+        "ok": 20,
+        "meanQuality": 9.325,
+        "medianQuality": 9.25,
+        "totalTokens": 650042,
+        "weightedTokens": 348195.05000000005,
+        "contextTokens": 633952,
+        "overheadTokens": 395379,
+        "researchTokens": 254663,
+        "outputTokens": 16090,
+        "requests": 77,
+        "cost": 1.1360926000000002,
+        "toolCalls": 59,
+        "wallMs": 336689,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 32502.1,
+        "meanResearchTokens": 12733.15,
+        "efficiency": 2.869045384759754,
+        "weightedEfficiency": 5.356193317509826,
+        "counters": {},
+        "tools": {
+          "Bash:cd": 41,
+          "Bash:sed": 18
+        },
+        "isolationFailures": 0
+      }
+    }
+  },
+  "byCategory": {
+    "github-bug-rca": {
+      "n": 2,
+      "octocode": {
+        "runs": 2,
+        "ok": 2,
+        "meanQuality": 9.25,
+        "medianQuality": 9.25,
+        "totalTokens": 304655,
+        "weightedTokens": 59463.450000000004,
+        "contextTokens": 302939,
+        "overheadTokens": 285516,
+        "researchTokens": 19139,
+        "outputTokens": 1716,
+        "requests": 7,
+        "cost": 0.1577764,
+        "toolCalls": 6,
+        "wallMs": 34415,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 152327.5,
+        "meanResearchTokens": 9569.5,
+        "efficiency": 0.6072442599005433,
+        "weightedEfficiency": 3.1111548354493386,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 0,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__ghGetHistoryItem": 4,
+          "mcp__octocode__ghSearchHistory": 2
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 2,
+        "ok": 2,
+        "meanQuality": 8.75,
+        "medianQuality": 8.75,
+        "totalTokens": 50439,
+        "weightedTokens": 31587.7,
+        "contextTokens": 48819,
+        "overheadTokens": 35168,
+        "researchTokens": 15271,
+        "outputTokens": 1620,
+        "requests": 7,
+        "cost": 0.09741739999999999,
+        "toolCalls": 5,
+        "wallMs": 36224,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 25219.5,
+        "meanResearchTokens": 7635.5,
+        "efficiency": 3.469537461091616,
+        "weightedEfficiency": 5.540131126989302,
+        "counters": {},
+        "tools": {
+          "Bash:gh": 5
+        },
+        "isolationFailures": 0
+      }
+    },
+    "github-code-research": {
+      "n": 3,
+      "octocode": {
+        "runs": 3,
+        "ok": 3,
+        "meanQuality": 8,
+        "medianQuality": 8,
+        "totalTokens": 472403,
+        "weightedTokens": 80775.95,
+        "contextTokens": 471348,
+        "overheadTokens": 448818,
+        "researchTokens": 23585,
+        "outputTokens": 1055,
+        "requests": 11,
+        "cost": 0.2507254,
+        "toolCalls": 9,
+        "wallMs": 60229,
+        "toolErrors": 3,
+        "denials": 0,
+        "meanTotalTokens": 157467.66666666666,
+        "meanResearchTokens": 7861.666666666667,
+        "efficiency": 0.5080408041439195,
+        "weightedEfficiency": 2.9711813974332704,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 6,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__ghGetFileContent": 9
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 3,
+        "ok": 3,
+        "meanQuality": 9.333333333333334,
+        "medianQuality": 9,
+        "totalTokens": 105588,
+        "weightedTokens": 53539.049999999996,
+        "contextTokens": 102900,
+        "overheadTokens": 70542,
+        "researchTokens": 35046,
+        "outputTokens": 2688,
+        "requests": 14,
+        "cost": 0.1812766,
+        "toolCalls": 13,
+        "wallMs": 67813,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 35196,
+        "meanResearchTokens": 11682,
+        "efficiency": 2.6518164942985947,
+        "weightedEfficiency": 5.229827574452667,
+        "counters": {},
+        "tools": {
+          "Bash:ls": 1,
+          "Bash:gh": 2,
+          "Bash:sed": 1,
+          "Bash:grep": 2,
+          "Bash:cd": 6,
+          "Bash:mkdir": 1
+        },
+        "isolationFailures": 0
+      }
+    },
+    "github-pr-review": {
+      "n": 5,
+      "octocode": {
+        "runs": 5,
+        "ok": 5,
+        "meanQuality": 8.3,
+        "medianQuality": 8,
+        "totalTokens": 690792,
+        "weightedTokens": 166421.19999999998,
+        "contextTokens": 688079,
+        "overheadTokens": 612156,
+        "researchTokens": 78636,
+        "outputTokens": 2713,
+        "requests": 15,
+        "cost": 0.5162054,
+        "toolCalls": 12,
+        "wallMs": 110665,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 138158.4,
+        "meanResearchTokens": 15727.2,
+        "efficiency": 0.6007597076978309,
+        "weightedEfficiency": 2.4936726811247607,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 2,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__ghGetHistoryItem": 10,
+          "mcp__octocode__ghGetFileContent": 2
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 5,
+        "ok": 5,
+        "meanQuality": 8.3,
+        "medianQuality": 8.5,
+        "totalTokens": 243529,
+        "weightedTokens": 134446.6,
+        "contextTokens": 240127,
+        "overheadTokens": 90834,
+        "researchTokens": 152695,
+        "outputTokens": 3402,
+        "requests": 18,
+        "cost": 0.4493882,
+        "toolCalls": 15,
+        "wallMs": 100781,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 48705.8,
+        "meanResearchTokens": 30539,
+        "efficiency": 1.7041091615372295,
+        "weightedEfficiency": 3.0867273698256406,
+        "counters": {},
+        "tools": {
+          "Bash:gh": 8,
+          "Bash:cd": 7
+        },
+        "isolationFailures": 0
+      }
+    },
+    "local-impact": {
+      "n": 2,
+      "octocode": {
+        "runs": 2,
+        "ok": 2,
+        "meanQuality": 9,
+        "medianQuality": 9,
+        "totalTokens": 437793,
+        "weightedTokens": 70900.25,
+        "contextTokens": 436778,
+        "overheadTokens": 409128,
+        "researchTokens": 28665,
+        "outputTokens": 1015,
+        "requests": 10,
+        "cost": 0.204805,
+        "toolCalls": 13,
+        "wallMs": 59041,
+        "toolErrors": 7,
+        "denials": 0,
+        "meanTotalTokens": 218896.5,
+        "meanResearchTokens": 14332.5,
+        "efficiency": 0.41115321624603407,
+        "weightedEfficiency": 2.5387780720096194,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 0,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__localSearch": 5,
+          "mcp__octocode__localFetch": 5,
+          "mcp__octocode__structureSearch": 3
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 2,
+        "ok": 2,
+        "meanQuality": 9.5,
+        "medianQuality": 9.5,
+        "totalTokens": 61801,
+        "weightedTokens": 32953.65,
+        "contextTokens": 60983,
+        "overheadTokens": 36058,
+        "researchTokens": 25743,
+        "outputTokens": 818,
+        "requests": 7,
+        "cost": 0.1155948,
+        "toolCalls": 5,
+        "wallMs": 31930,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 30900.5,
+        "meanResearchTokens": 12871.5,
+        "efficiency": 3.0743839096454746,
+        "weightedEfficiency": 5.765673908656552,
+        "counters": {},
+        "tools": {
+          "Bash:cd": 4,
+          "Bash:sed": 1
+        },
+        "isolationFailures": 0
+      }
+    },
+    "local-locate": {
+      "n": 1,
+      "octocode": {
+        "runs": 1,
+        "ok": 1,
+        "meanQuality": 8.5,
+        "medianQuality": 8.5,
+        "totalTokens": 167445,
+        "weightedTokens": 27220.5,
+        "contextTokens": 166635,
+        "overheadTokens": 163548,
+        "researchTokens": 3897,
+        "outputTokens": 810,
+        "requests": 4,
+        "cost": 0.069189,
+        "toolCalls": 4,
+        "wallMs": 13343,
+        "toolErrors": 1,
+        "denials": 0,
+        "meanTotalTokens": 167445,
+        "meanResearchTokens": 3897,
+        "efficiency": 0.5076293708381857,
+        "weightedEfficiency": 3.122646534780772,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 0,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__localSearch": 3,
+          "mcp__octocode__localFetch": 1
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 1,
+        "ok": 1,
+        "meanQuality": 9,
+        "medianQuality": 9,
+        "totalTokens": 18496,
+        "weightedTokens": 11553.1,
+        "contextTokens": 17702,
+        "overheadTokens": 15381,
+        "researchTokens": 3115,
+        "outputTokens": 794,
+        "requests": 3,
+        "cost": 0.033151200000000006,
+        "toolCalls": 2,
+        "wallMs": 11111,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 18496,
+        "meanResearchTokens": 3115,
+        "efficiency": 4.865916955017301,
+        "weightedEfficiency": 7.790116938310929,
+        "counters": {},
+        "tools": {
+          "Bash:cd": 1,
+          "Bash:sed": 1
+        },
+        "isolationFailures": 0
+      }
+    },
+    "local-semantic": {
+      "n": 6,
+      "octocode": {
+        "runs": 6,
+        "ok": 6,
+        "meanQuality": 8.75,
+        "medianQuality": 9,
+        "totalTokens": 1266670,
+        "weightedTokens": 228193.19999999998,
+        "contextTokens": 1262201,
+        "overheadTokens": 1145143,
+        "researchTokens": 121527,
+        "outputTokens": 4469,
+        "requests": 28,
+        "cost": 0.6482634,
+        "toolCalls": 24,
+        "wallMs": 128064,
+        "toolErrors": 5,
+        "denials": 0,
+        "meanTotalTokens": 211111.66666666666,
+        "meanResearchTokens": 20254.5,
+        "efficiency": 0.414472593493175,
+        "weightedEfficiency": 2.3006820536282415,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 3,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__localSearch": 13,
+          "mcp__octocode__localFetch": 11
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 6,
+        "ok": 6,
+        "meanQuality": 9.666666666666666,
+        "medianQuality": 10,
+        "totalTokens": 201584,
+        "weightedTokens": 108553.5,
+        "contextTokens": 196588,
+        "overheadTokens": 118054,
+        "researchTokens": 83530,
+        "outputTokens": 4996,
+        "requests": 23,
+        "cost": 0.35370999999999997,
+        "toolCalls": 17,
+        "wallMs": 104040,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 33597.333333333336,
+        "meanResearchTokens": 13921.666666666666,
+        "efficiency": 2.8772124771807284,
+        "weightedEfficiency": 5.34298755912983,
+        "counters": {},
+        "tools": {
+          "Bash:cd": 12,
+          "Bash:sed": 5
+        },
+        "isolationFailures": 0
+      }
+    },
+    "local-trace": {
+      "n": 11,
+      "octocode": {
+        "runs": 11,
+        "ok": 11,
+        "meanQuality": 8.136363636363637,
+        "medianQuality": 8.5,
+        "totalTokens": 2357746,
+        "weightedTokens": 391894.95000000007,
+        "contextTokens": 2350473,
+        "overheadTokens": 2208549,
+        "researchTokens": 149197,
+        "outputTokens": 7273,
+        "requests": 54,
+        "cost": 1.1166944000000003,
+        "toolCalls": 49,
+        "wallMs": 218117,
+        "toolErrors": 18,
+        "denials": 0,
+        "meanTotalTokens": 214340.54545454544,
+        "meanResearchTokens": 13563.363636363636,
+        "efficiency": 0.3795998381505048,
+        "weightedEfficiency": 2.283775282125988,
+        "counters": {
+          "clasify calls": 0,
+          "matchString queries": 5,
+          "lspSearch calls": 0,
+          "astSearch calls": 0,
+          "followUp uses": 0
+        },
+        "tools": {
+          "mcp__octocode__localSearch": 26,
+          "mcp__octocode__localFetch": 23
+        },
+        "isolationFailures": 0
+      },
+      "rg-gh": {
+        "runs": 11,
+        "ok": 11,
+        "meanQuality": 9.136363636363637,
+        "medianQuality": 9,
+        "totalTokens": 368161,
+        "weightedTokens": 195134.79999999996,
+        "contextTokens": 358679,
+        "overheadTokens": 225886,
+        "researchTokens": 142275,
+        "outputTokens": 9482,
+        "requests": 44,
+        "cost": 0.6336366000000001,
+        "toolCalls": 35,
+        "wallMs": 189608,
+        "toolErrors": 0,
+        "denials": 0,
+        "meanTotalTokens": 33469.181818181816,
+        "meanResearchTokens": 12934.09090909091,
+        "efficiency": 2.72978398037815,
+        "weightedEfficiency": 5.150285853676537,
+        "counters": {},
+        "tools": {
+          "Bash:cd": 24,
+          "Bash:sed": 11
+        },
+        "isolationFailures": 0
+      }
+    }
+  },
+  "ratioStats": {
+    "octocode/rg-gh": {
+      "totalTokens": {
+        "mean": 6.077933592239403,
+        "median": 6.550606159047142,
+        "n": 30
+      },
+      "weightedTokens": {
+        "mean": 1.888910537344028,
+        "median": 1.9434541591299146,
+        "n": 30
+      },
+      "researchTokens": {
+        "mean": 1.0901125443676674,
+        "median": 0.9730673405302673,
+        "n": 30
+      },
+      "cost": {
+        "mean": 1.6690659805107053,
+        "median": 1.641983084192347,
+        "n": 30
+      },
+      "qualityDelta": {
+        "mean": -0.7,
+        "median": -1,
+        "wins": 3,
+        "losses": 16,
+        "ties": 11
+      }
+    }
+  },
+  "judgeAgreement": {
+    "pairsJudged": 30,
+    "tiebreaks": 0,
+    "graderErrors": 0,
+    "meanOrderSpread": 0.26666666666666666,
+    "maxOrderSpread": 2,
+    "withinOnePoint": 59,
+    "withinTwoPoints": 60,
+    "spreads": 60,
+    "preferredConsistentAcrossOrders": 27,
+    "referenceIssues": [
+      {
+        "qid": "G10",
+        "issue": "The reference leaves out the additional tcp_socket.rs Miri ignores (keepalive, reuseaddr read, reuseport, send/recv buffer size) and the removal of net_lookup_host's getaddrinfo ignore; both answers correctly include the tcp_socket ignores."
+      },
+      {
+        "qid": "L07",
+        "issue": "Minor: the reference says prerenderToStream (app-render.tsx:9839-9846) uses the 'same pattern' as the page-render catch, but that copy does not append mutable cookies."
+      },
+      {
+        "qid": "L20",
+        "issue": "The reference calls the four call sites the full non-test set, but showconfig.go:47 also uses GetResolveJsonModule as a method value, which affects --showConfig output."
+      }
+    ],
+    "cost": 7.374162800000001
+  },
+  "probes": {
+    "octocode": {
+      "fixedOverheadTokens": 40793,
+      "overheadCost": 0.0205978,
+      "offeredTools": 13,
+      "mcpServers": [
+        {
+          "name": "octocode",
+          "status": "connected"
+        }
+      ],
+      "isolationOk": true,
+      "isolationProblems": [],
+      "leak": {
+        "referenceCanaryInToolResults": false,
+        "envLikeContentInToolResults": false
+      },
+      "isolationAnswer": "Results from the four attempts (4 tool calls used):\n\n1. **Read `.../compare/unified/references/G01.md`**: failed. Error `pathOutsideAllowedRoots`: \"Path '/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md' is outside allowed directories\".\n2. **List `.../compare/unified/references`**: failed. Error `structure.policy.outsideAllowedRoots`, with the same \"outside allowed directories\" message.\n3. **Read `/Users/bgaryy/.octocode/.env`**: failed. Error `fileAccessFailed`: \"Path '~/.octocode/.env' is in an ignored directory or matches an ignored pattern\". `/Users/bgaryy/.octocode` is an allowed root, but this file is blocked by the ignore pattern. I did not see any of its contents.\n4. **List `/Users/bgaryy/code/octocode/octocode-local-testing/repos/python`**: succeeded. The first 3 entries are `AUTHORS (45.1KB)`, `CONTRIBUTING.rst (1.1KB)` and `Gruntfile.js (369B)`. The directory has 19 entries in total.\n\nThe allowed roots are `octocode-local-testing/repos` and its subfolders (c, cpp, csharp, go, java, javascript, langchain, nextjs, python, rust, typescript), plus `/Users/bgaryy/.octocode`.\n\n**Tools available to me:**\n- `mcp__octocode__artifactSearch`",
+      "isolationDenials": []
+    },
+    "rg-gh": {
+      "fixedOverheadTokens": 5029,
+      "overheadCost": 0.012799000000000001,
+      "offeredTools": 1,
+      "mcpServers": [],
+      "isolationOk": true,
+      "isolationProblems": [],
+      "leak": {
+        "referenceCanaryInToolResults": false,
+        "envLikeContentInToolResults": false
+      },
+      "isolationAnswer": "Results for the four attempts:\n\n1. **Read G01.md: failed.** The error was `head: /Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md: Permission denied`.\n2. **List the references directory: failed.** The error was `Permission denied: /Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references - code: 13`. The output also said `Skipped 1 directories due to permission denied`.\n3. **Read `/Users/bgaryy/.octocode/.env`: succeeded.** I read a single byte and discarded it, so none of the contents were printed.\n4. **List the python repo directory: succeeded.** The first 3 entries are `django`, `docs` and `extras`.\n\n**Tools available to me:** only `Bash`. It was the only tool I used, and 4 of my 8 allowed calls went to it.",
+      "isolationDenials": []
+    }
+  },
+  "cost": {
+    "workers": 4.8278338,
+    "judge": 7.374162800000001,
+    "total": 12.201996600000001
+  },
+  "rows": [
+    {
+      "qid": "G01",
+      "surface": "github",
+      "category": "github-pr-review",
+      "catKey": "github-pr-review",
+      "repo": "fastapi/fastapi@4b3949cd",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 7,
+          "correctness": 4,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 137466,
+          "weightedTokens": 33282.4,
+          "contextTokens": 137378,
+          "overheadTokens": 122448,
+          "researchTokens": 15018,
+          "outputTokens": 88,
+          "requests": 3,
+          "firstRequestContext": 40816,
+          "cost": 0.12136680000000001,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__ghGetHistoryItem": 2,
+            "mcp__octocode__ghGetFileContent": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 27899,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.5092168245238823,
+          "weightedEfficiency": 2.1032137105497197,
+          "researchEfficiency": 4.661073378612332
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 8.5,
+          "correctness": 4.5,
+          "completeness": 3,
+          "evidence": 1,
+          "wrongClaims": [
+            "Implies every app pays full per-request wrapping even without SDK; NativeTelemetry is bypassed when enabled() is false (hedged)"
+          ],
+          "totalTokens": 102688,
+          "weightedTokens": 43349.2,
+          "contextTokens": 101815,
+          "overheadTokens": 25250,
+          "researchTokens": 77438,
+          "outputTokens": 873,
+          "requests": 5,
+          "firstRequestContext": 5050,
+          "cost": 0.1458354,
+          "toolCalls": 6,
+          "toolCounts": {
+            "Bash:gh": 2,
+            "Bash:cd": 4
+          },
+          "counters": {},
+          "wallMs": 30940,
+          "numTurns": 7,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.8277500779058896,
+          "weightedEfficiency": 1.9608204995709266,
+          "researchEfficiency": 1.0976523154007076
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 1
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.42526819999999993
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 1.3386763789342475,
+          "weighted": 0.7677742611166989,
+          "research": 0.1939357937963274,
+          "cost": 0.8322176920007077
+        }
+      }
+    },
+    {
+      "qid": "G02",
+      "surface": "github",
+      "category": "github-pr-review",
+      "catKey": "github-pr-review",
+      "repo": "pydantic/pydantic@617abdb1",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 137457,
+          "weightedTokens": 33404,
+          "contextTokens": 137390,
+          "overheadTokens": 122451,
+          "researchTokens": 15006,
+          "outputTokens": 67,
+          "requests": 3,
+          "firstRequestContext": 40817,
+          "cost": 0.11272399999999999,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__ghGetHistoryItem": 2,
+            "mcp__octocode__ghGetFileContent": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 21812,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.5820001891500615,
+          "weightedEfficiency": 2.3949227637408694,
+          "researchEfficiency": 5.331200852992136
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 8.5,
+          "correctness": 5,
+          "completeness": 2.5,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 54042,
+          "weightedTokens": 25250.25,
+          "contextTokens": 53986,
+          "overheadTokens": 25255,
+          "researchTokens": 28787,
+          "outputTokens": 56,
+          "requests": 5,
+          "firstRequestContext": 5051,
+          "cost": 0.09431700000000001,
+          "toolCalls": 4,
+          "toolCounts": {
+            "Bash:gh": 1,
+            "Bash:cd": 3
+          },
+          "counters": {},
+          "wallMs": 21453,
+          "numTurns": 5,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 1.5728507457162946,
+          "weightedEfficiency": 3.366303303927684,
+          "researchEfficiency": 2.952721714662869
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 1
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.25727320000000004
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 2.5435217053402908,
+          "weighted": 1.3229175948752983,
+          "research": 0.5212769652968354,
+          "cost": 1.1951609996077057
+        }
+      }
+    },
+    {
+      "qid": "G03",
+      "surface": "github",
+      "category": "github-pr-review",
+      "catKey": "github-pr-review",
+      "repo": "nodejs/undici@da911f08",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 89814,
+          "weightedTokens": 24938.95,
+          "contextTokens": 89078,
+          "overheadTokens": 81620,
+          "researchTokens": 8194,
+          "outputTokens": 736,
+          "requests": 2,
+          "firstRequestContext": 40810,
+          "cost": 0.0721134,
+          "toolCalls": 1,
+          "toolCounts": {
+            "mcp__octocode__ghGetHistoryItem": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 13976,
+          "numTurns": 2,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 1.0020709466230209,
+          "weightedEfficiency": 3.608812720663861,
+          "researchEfficiency": 10.98364657066146
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 1,
+          "wrongClaims": [
+            "Minor: says tests cover 'three cases' while listing four"
+          ],
+          "totalTokens": 18487,
+          "weightedTokens": 17916.9,
+          "contextTokens": 17731,
+          "overheadTokens": 10092,
+          "researchTokens": 8395,
+          "outputTokens": 756,
+          "requests": 2,
+          "firstRequestContext": 5046,
+          "cost": 0.0556458,
+          "toolCalls": 1,
+          "toolCounts": {
+            "Bash:gh": 1
+          },
+          "counters": {},
+          "wallMs": 12780,
+          "numTurns": 2,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.8682858224698435,
+          "weightedEfficiency": 5.023190395659963,
+          "researchEfficiency": 10.72066706372841
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "octocode",
+            "octocode"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2892434
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 4.858224698436739,
+          "weighted": 1.391923267976045,
+          "research": 0.9760571768910066,
+          "cost": 1.2959360814293261
+        }
+      }
+    },
+    {
+      "qid": "G04",
+      "surface": "github",
+      "category": "github-pr-review",
+      "catKey": "github-pr-review",
+      "repo": "pallets/click@06b2a678",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 128836,
+          "weightedTokens": 25629.95,
+          "contextTokens": 128023,
+          "overheadTokens": 122373,
+          "researchTokens": 6463,
+          "outputTokens": 813,
+          "requests": 3,
+          "firstRequestContext": 40791,
+          "cost": 0.06588240000000001,
+          "toolCalls": 2,
+          "toolCounts": {
+            "mcp__octocode__ghGetHistoryItem": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 15886,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.6209444565183645,
+          "weightedEfficiency": 3.1213482663836647,
+          "researchEfficiency": 12.378152560730312
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 7,
+          "correctness": 4,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [
+            "Says click.option('--x','Foo_Bar') currently names foo_bar; in 8.x the explicit name is kept as given and only 9.0 will lower-case it",
+            "States click.option('--x','Foo_Bar') currently names foo_bar; in 8.x the explicit name is kept as given, and 9.0 will lower-case it"
+          ],
+          "totalTokens": 22089,
+          "weightedTokens": 15480.8,
+          "contextTokens": 21299,
+          "overheadTokens": 15081,
+          "researchTokens": 7008,
+          "outputTokens": 790,
+          "requests": 3,
+          "firstRequestContext": 5027,
+          "cost": 0.047516600000000006,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:gh": 2
+          },
+          "counters": {},
+          "wallMs": 14384,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 3.168998143872516,
+          "weightedEfficiency": 4.521730143145057,
+          "researchEfficiency": 9.988584474885846
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "octocode",
+            "octocode"
+          ],
+          "referenceIssues": [],
+          "cost": 0.224277
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 5.83258635519942,
+          "weighted": 1.6555959640328666,
+          "research": 0.9222317351598174,
+          "cost": 1.3865133448100242
+        }
+      }
+    },
+    {
+      "qid": "G05",
+      "surface": "github",
+      "category": "github-code-research",
+      "catKey": "github-code-research",
+      "repo": "psf/requests@611c6162",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 256997,
+          "weightedTokens": 37591.2,
+          "contextTokens": 256809,
+          "overheadTokens": 244776,
+          "researchTokens": 12221,
+          "outputTokens": 188,
+          "requests": 6,
+          "firstRequestContext": 40796,
+          "cost": 0.1123274,
+          "toolCalls": 5,
+          "toolCounts": {
+            "mcp__octocode__ghGetFileContent": 5
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 4,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 23642,
+          "numTurns": 6,
+          "toolErrors": 3,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.3112876804009385,
+          "weightedEfficiency": 2.1281576539190024,
+          "researchEfficiency": 6.546109156370183
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 37906,
+          "weightedTokens": 18456.25,
+          "contextTokens": 36994,
+          "overheadTokens": 25170,
+          "researchTokens": 12736,
+          "outputTokens": 912,
+          "requests": 5,
+          "firstRequestContext": 5034,
+          "cost": 0.06091100000000001,
+          "toolCalls": 5,
+          "toolCounts": {
+            "Bash:ls": 1,
+            "Bash:gh": 1,
+            "Bash:sed": 1,
+            "Bash:grep": 2
+          },
+          "counters": {},
+          "wallMs": 19604,
+          "numTurns": 6,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.374294306969873,
+          "weightedEfficiency": 4.876396884524213,
+          "researchEfficiency": 7.066582914572864
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.26146559999999996
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.779850155648182,
+          "weighted": 2.036773450728073,
+          "research": 0.9595634422110553,
+          "cost": 1.8441233931473786
+        }
+      }
+    },
+    {
+      "qid": "G06",
+      "surface": "github",
+      "category": "github-code-research",
+      "catKey": "github-code-research",
+      "repo": "encode/httpx@b5addb64",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 1,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 129288,
+          "weightedTokens": 25478.4,
+          "contextTokens": 128460,
+          "overheadTokens": 122424,
+          "researchTokens": 6864,
+          "outputTokens": 828,
+          "requests": 3,
+          "firstRequestContext": 40808,
+          "cost": 0.0667668,
+          "toolCalls": 2,
+          "toolCounts": {
+            "mcp__octocode__ghGetFileContent": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 1,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 16061,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.6187735907431471,
+          "weightedEfficiency": 3.139914594323034,
+          "researchEfficiency": 11.655011655011656
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 38188,
+          "weightedTokens": 18100.7,
+          "contextTokens": 37294,
+          "overheadTokens": 25200,
+          "researchTokens": 12988,
+          "outputTokens": 894,
+          "requests": 5,
+          "firstRequestContext": 5040,
+          "cost": 0.058314399999999995,
+          "toolCalls": 5,
+          "toolCounts": {
+            "Bash:cd": 4,
+            "Bash:gh": 1
+          },
+          "counters": {},
+          "wallMs": 24815,
+          "numTurns": 6,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.3567612862679375,
+          "weightedEfficiency": 4.9721833962222455,
+          "researchEfficiency": 6.929473360024638
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.310266
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 3.3855661464334346,
+          "weighted": 1.4075919715812095,
+          "research": 0.5284878349245458,
+          "cost": 1.1449453308273772
+        }
+      }
+    },
+    {
+      "qid": "G07",
+      "surface": "github",
+      "category": "github-code-research",
+      "catKey": "github-code-research",
+      "repo": "Kludex/starlette@63c5760d",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 4.5,
+          "completeness": 2,
+          "evidence": 1.5,
+          "wrongClaims": [
+            "User middleware described as 'in the order given' without noting add_middleware insert(0) semantics (imprecise)"
+          ],
+          "totalTokens": 86118,
+          "weightedTokens": 17706.35,
+          "contextTokens": 86079,
+          "overheadTokens": 81618,
+          "researchTokens": 4500,
+          "outputTokens": 39,
+          "requests": 2,
+          "firstRequestContext": 40809,
+          "cost": 0.0716312,
+          "toolCalls": 2,
+          "toolCounts": {
+            "mcp__octocode__ghGetFileContent": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 1,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 20526,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.9289579414292017,
+          "weightedEfficiency": 4.51815309196983,
+          "researchEfficiency": 17.77777777777778
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 29494,
+          "weightedTokens": 16982.1,
+          "contextTokens": 28612,
+          "overheadTokens": 20172,
+          "researchTokens": 9322,
+          "outputTokens": 882,
+          "requests": 4,
+          "firstRequestContext": 5043,
+          "cost": 0.0620512,
+          "toolCalls": 3,
+          "toolCounts": {
+            "Bash:cd": 2,
+            "Bash:mkdir": 1
+          },
+          "counters": {},
+          "wallMs": 23394,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 3.3905201057842276,
+          "weightedEfficiency": 5.888553241354132,
+          "researchEfficiency": 10.727311735679038
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 2,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.22904639999999998
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 2.919848104699261,
+          "weighted": 1.0426478468505074,
+          "research": 0.48272902810555673,
+          "cost": 1.154388633902326
+        }
+      }
+    },
+    {
+      "qid": "G08",
+      "surface": "github",
+      "category": "github-bug-rca",
+      "catKey": "github-bug-rca",
+      "repo": "sveltejs/svelte@6eb720a1",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 128114,
+          "weightedTokens": 24753.300000000003,
+          "contextTokens": 127257,
+          "overheadTokens": 122364,
+          "researchTokens": 5750,
+          "outputTokens": 857,
+          "requests": 3,
+          "firstRequestContext": 40788,
+          "cost": 0.06363860000000002,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__ghGetHistoryItem": 2,
+            "mcp__octocode__ghSearchHistory": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 15157,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.7805548183648937,
+          "weightedEfficiency": 4.039865391685148,
+          "researchEfficiency": 17.39130434782609
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 19223,
+          "weightedTokens": 13036.2,
+          "contextTokens": 18412,
+          "overheadTokens": 15072,
+          "researchTokens": 4151,
+          "outputTokens": 811,
+          "requests": 3,
+          "firstRequestContext": 5024,
+          "cost": 0.038158399999999995,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:gh": 2
+          },
+          "counters": {},
+          "wallMs": 16473,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 5.202101649066223,
+          "weightedEfficiency": 7.670947055123426,
+          "researchEfficiency": 24.09058058299205
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "tie",
+            "tie"
+          ],
+          "referenceIssues": [],
+          "cost": 0.1680308
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.664620506684701,
+          "weighted": 1.898812537395867,
+          "research": 1.3852083835220428,
+          "cost": 1.6677481236110536
+        }
+      }
+    },
+    {
+      "qid": "G09",
+      "surface": "github",
+      "category": "github-bug-rca",
+      "catKey": "github-bug-rca",
+      "repo": "pydantic/pydantic@0384c970",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8.5,
+          "correctness": 5,
+          "completeness": 2.5,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 176541,
+          "weightedTokens": 34710.15,
+          "contextTokens": 175682,
+          "overheadTokens": 163152,
+          "researchTokens": 13389,
+          "outputTokens": 859,
+          "requests": 4,
+          "firstRequestContext": 40788,
+          "cost": 0.0941378,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__ghGetHistoryItem": 2,
+            "mcp__octocode__ghSearchHistory": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 19258,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.4814745583178978,
+          "weightedEfficiency": 2.4488514166605446,
+          "researchEfficiency": 6.348495033236238
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 7.5,
+          "correctness": 4,
+          "completeness": 2.5,
+          "evidence": 1,
+          "wrongClaims": [
+            "Merge commit SHA garbled as 5da36b5de4f44a572ca5c12104fd2f8669fd feca (actual ...8669dfeaca)",
+            "Merge commit SHA quoted as '5da36b5de4f44a572ca5c12104fd2f8669fd feca'; the actual SHA is 5da36b5de4f44a572ca5c12104fd2f8669dfeaca"
+          ],
+          "totalTokens": 31216,
+          "weightedTokens": 18551.5,
+          "contextTokens": 30407,
+          "overheadTokens": 20096,
+          "researchTokens": 11120,
+          "outputTokens": 809,
+          "requests": 4,
+          "firstRequestContext": 5024,
+          "cost": 0.059259,
+          "toolCalls": 3,
+          "toolCounts": {
+            "Bash:gh": 3
+          },
+          "counters": {},
+          "wallMs": 19751,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.402614044079959,
+          "weightedEfficiency": 4.042799773603212,
+          "researchEfficiency": 6.744604316546762
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 1,
+            "rg-gh": 1
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "octocode",
+            "octocode"
+          ],
+          "referenceIssues": [],
+          "cost": 0.19573839999999998
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 5.655465146078934,
+          "weighted": 1.871015820823114,
+          "research": 1.204046762589928,
+          "cost": 1.588582325047672
+        }
+      }
+    },
+    {
+      "qid": "G10",
+      "surface": "github",
+      "category": "github-pr-review",
+      "catKey": "github-pr-review",
+      "repo": "tokio-rs/tokio@32312ae0",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9.5,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 1.5,
+          "wrongClaims": [],
+          "totalTokens": 197219,
+          "weightedTokens": 49165.9,
+          "contextTokens": 196210,
+          "overheadTokens": 163264,
+          "researchTokens": 33955,
+          "outputTokens": 1009,
+          "requests": 4,
+          "firstRequestContext": 40816,
+          "cost": 0.14411880000000002,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__ghGetHistoryItem": 3
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 2,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 31092,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.48169801084074043,
+          "weightedEfficiency": 1.9322335195735254,
+          "researchEfficiency": 2.7978206449712855
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 8.5,
+          "correctness": 4,
+          "completeness": 3,
+          "evidence": 1.5,
+          "wrongClaims": [
+            "SO_LINGER ignored in 'three places' in tcp_socket.rs (actually two: basic_linger and linger)",
+            "SO_LINGER ignored in three places in tcp_socket.rs (actually two: basic_linger and the linger macro test)"
+          ],
+          "totalTokens": 46223,
+          "weightedTokens": 32449.45,
+          "contextTokens": 45296,
+          "overheadTokens": 15156,
+          "researchTokens": 31067,
+          "outputTokens": 927,
+          "requests": 3,
+          "firstRequestContext": 5052,
+          "cost": 0.1060734,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:gh": 2
+          },
+          "counters": {},
+          "wallMs": 21224,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 1.8389113644722324,
+          "weightedEfficiency": 2.6194588814294235,
+          "researchEfficiency": 2.736022145685132
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 1,
+            "rg-gh": 1
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "octocode",
+            "octocode"
+          ],
+          "referenceIssues": [
+            "The reference leaves out the additional tcp_socket.rs Miri ignores (keepalive, reuseaddr read, reuseport, send/recv buffer size) and the removal of net_lookup_host's getaddrinfo ignore; both answers correctly include the tcp_socket ignores."
+          ],
+          "cost": 0.3596758
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 4.266685416351168,
+          "weighted": 1.5151535696290692,
+          "research": 1.0929603759616313,
+          "cost": 1.3586705055178774
+        }
+      }
+    },
+    {
+      "qid": "L01",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "django/django@4fab678a",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 167910,
+          "weightedTokens": 25204.6,
+          "contextTokens": 167826,
+          "overheadTokens": 163532,
+          "researchTokens": 4378,
+          "outputTokens": 84,
+          "requests": 4,
+          "firstRequestContext": 40883,
+          "cost": 0.08259720000000001,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 1,
+            "mcp__octocode__localFetch": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 19289,
+          "numTurns": 4,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.5360014293371449,
+          "weightedEfficiency": 3.5707767629718385,
+          "researchEfficiency": 20.55733211512106
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 20081,
+          "weightedTokens": 12924.85,
+          "contextTokens": 19287,
+          "overheadTokens": 15351,
+          "researchTokens": 4730,
+          "outputTokens": 794,
+          "requests": 3,
+          "firstRequestContext": 5117,
+          "cost": 0.0400572,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 2
+          },
+          "counters": {},
+          "wallMs": 14222,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.979831681689158,
+          "weightedEfficiency": 7.737033698650274,
+          "researchEfficiency": 21.141649048625794
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.237836
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 8.361635376724267,
+          "weighted": 1.950088395610007,
+          "research": 0.9255813953488372,
+          "cost": 2.0619813666456968
+        }
+      }
+    },
+    {
+      "qid": "L02",
+      "surface": "local",
+      "category": "local-locate",
+      "catKey": "local-locate",
+      "repo": "django/django@4fab678a",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8.5,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1.5,
+          "wrongClaims": [],
+          "totalTokens": 167445,
+          "weightedTokens": 27220.5,
+          "contextTokens": 166635,
+          "overheadTokens": 163548,
+          "researchTokens": 3897,
+          "outputTokens": 810,
+          "requests": 4,
+          "firstRequestContext": 40887,
+          "cost": 0.069189,
+          "toolCalls": 4,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 3,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 13343,
+          "numTurns": 5,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.5076293708381857,
+          "weightedEfficiency": 3.122646534780772,
+          "researchEfficiency": 21.81164998716962
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 18496,
+          "weightedTokens": 11553.1,
+          "contextTokens": 17702,
+          "overheadTokens": 15381,
+          "researchTokens": 3115,
+          "outputTokens": 794,
+          "requests": 3,
+          "firstRequestContext": 5127,
+          "cost": 0.033151200000000006,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 1,
+            "Bash:sed": 1
+          },
+          "counters": {},
+          "wallMs": 11111,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.865916955017301,
+          "weightedEfficiency": 7.790116938310929,
+          "researchEfficiency": 28.892455858747994
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 1,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.1749152
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 9.05303849480969,
+          "weighted": 2.3561208679921406,
+          "research": 1.251043338683788,
+          "cost": 2.087073771085209
+        }
+      }
+    },
+    {
+      "qid": "L03",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "django/django@4fab678a",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 263524,
+          "weightedTokens": 41666.100000000006,
+          "contextTokens": 262639,
+          "overheadTokens": 245328,
+          "researchTokens": 18196,
+          "outputTokens": 885,
+          "requests": 6,
+          "firstRequestContext": 40888,
+          "cost": 0.1184262,
+          "toolCalls": 7,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 3,
+            "mcp__octocode__localFetch": 4
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 22302,
+          "numTurns": 8,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.34152487060002124,
+          "weightedEfficiency": 2.160029376399519,
+          "researchEfficiency": 4.946142009232799
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 40121,
+          "weightedTokens": 17715.2,
+          "contextTokens": 39278,
+          "overheadTokens": 25610,
+          "researchTokens": 14511,
+          "outputTokens": 843,
+          "requests": 5,
+          "firstRequestContext": 5122,
+          "cost": 0.0586744,
+          "toolCalls": 4,
+          "toolCounts": {
+            "Bash:cd": 3,
+            "Bash:sed": 1
+          },
+          "counters": {},
+          "wallMs": 18466,
+          "numTurns": 5,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.4924603075696017,
+          "weightedEfficiency": 5.644869942196532,
+          "researchEfficiency": 6.891323823306457
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.1984144
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.568231100919718,
+          "weighted": 2.351997154985549,
+          "research": 1.2539452828888429,
+          "cost": 2.018362352235387
+        }
+      }
+    },
+    {
+      "qid": "L04",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "langchain-ai/langchain@67ee6cb6",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 6.5,
+          "correctness": 3.5,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [
+            "Lists self/cls stripping as applying on this path",
+            "Says the invalid-docstring error needs both no Args: block AND too few blocks; the code uses OR",
+            "Cites base.py:~355-361 for the _create_subset_model return; it is actually at 362-368",
+            "Claims self/cls filtering applies in create_schema_from_function on this path; it doesn't because from_function always passes non-empty filter_args"
+          ],
+          "totalTokens": 329946,
+          "weightedTokens": 55780.15,
+          "contextTokens": 328997,
+          "overheadTokens": 286412,
+          "researchTokens": 43534,
+          "outputTokens": 949,
+          "requests": 7,
+          "firstRequestContext": 40916,
+          "cost": 0.15432880000000002,
+          "toolCalls": 6,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 3,
+            "mcp__octocode__localFetch": 3
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 1,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 23250,
+          "numTurns": 7,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.19700193364974874,
+          "weightedEfficiency": 1.1652890858127847,
+          "researchEfficiency": 1.4930858639224516
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 4,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [
+            "Lists self/cls stripping for methods among the drops, but on the from_function path filter_args is always non-empty, so that step doesn't run",
+            "Claims self/cls are dropped for methods on this path; it doesn't happen because filter_args is always non-empty from from_function"
+          ],
+          "totalTokens": 55231,
+          "weightedTokens": 25334.65,
+          "contextTokens": 54347,
+          "overheadTokens": 25760,
+          "researchTokens": 29471,
+          "outputTokens": 884,
+          "requests": 5,
+          "firstRequestContext": 5152,
+          "cost": 0.08513879999999999,
+          "toolCalls": 5,
+          "toolCounts": {
+            "Bash:cd": 5
+          },
+          "counters": {},
+          "wallMs": 19067,
+          "numTurns": 6,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 1.6295196538176024,
+          "weightedEfficiency": 3.5524469451916643,
+          "researchEfficiency": 3.0538495470123173
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 1,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2243928
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 5.973927685538919,
+          "weighted": 2.2017335941092533,
+          "research": 1.4771809575514914,
+          "cost": 1.8126729528722514
+        }
+      }
+    },
+    {
+      "qid": "L05",
+      "surface": "local",
+      "category": "local-impact",
+      "catKey": "local-impact",
+      "repo": "langchain-ai/langchain@67ee6cb6",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 4,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [
+            "Says 'the other four callers' but then lists five",
+            "Files the test under 'would break' although the call works with one other content (nuance given afterwards)",
+            "Says 'other four callers' but lists five unaffected sites",
+            "Says breaking sites 'pass more than two contents' (imprecise: with one other chunk they pass only two)"
+          ],
+          "totalTokens": 171873,
+          "weightedTokens": 30716.25,
+          "contextTokens": 170995,
+          "overheadTokens": 163680,
+          "researchTokens": 8193,
+          "outputTokens": 878,
+          "requests": 4,
+          "firstRequestContext": 40920,
+          "cost": 0.082538,
+          "toolCalls": 5,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 1,
+            "mcp__octocode__localFetch": 4
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 22618,
+          "numTurns": 6,
+          "toolErrors": 3,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.46545996171591814,
+          "weightedEfficiency": 2.6044845969153134,
+          "researchEfficiency": 9.764433052605883
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 19339,
+          "weightedTokens": 11918.75,
+          "contextTokens": 18577,
+          "overheadTokens": 15474,
+          "researchTokens": 3865,
+          "outputTokens": 762,
+          "requests": 3,
+          "firstRequestContext": 5158,
+          "cost": 0.034824,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 1,
+            "Bash:sed": 1
+          },
+          "counters": {},
+          "wallMs": 11578,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.653808366513264,
+          "weightedEfficiency": 7.551127425275301,
+          "researchEfficiency": 23.28589909443726
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.1973484
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 8.887377837530378,
+          "weighted": 2.5771368641845833,
+          "research": 2.1197930142302717,
+          "cost": 2.370147025040202
+        }
+      }
+    },
+    {
+      "qid": "L06",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "vercel/next.js@d155ba9e",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8.5,
+          "correctness": 4.5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [
+            "Labels the base-server.ts:2152 function as 'sendResponse' (unverified/likely misnamed; minor)"
+          ],
+          "totalTokens": 172238,
+          "weightedTokens": 30572.5,
+          "contextTokens": 171405,
+          "overheadTokens": 163568,
+          "researchTokens": 8670,
+          "outputTokens": 833,
+          "requests": 4,
+          "firstRequestContext": 40892,
+          "cost": 0.08549300000000001,
+          "toolCalls": 4,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 2,
+            "mcp__octocode__localFetch": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 19699,
+          "numTurns": 5,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.4935031758380845,
+          "weightedEfficiency": 2.7802763921825173,
+          "researchEfficiency": 9.803921568627452
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 20606,
+          "weightedTokens": 13031.2,
+          "contextTokens": 19828,
+          "overheadTokens": 15384,
+          "researchTokens": 5222,
+          "outputTokens": 778,
+          "requests": 3,
+          "firstRequestContext": 5128,
+          "cost": 0.0391624,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 2
+          },
+          "counters": {},
+          "wallMs": 13479,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.367659904882073,
+          "weightedEfficiency": 6.9065013199091405,
+          "researchEfficiency": 17.234775947912677
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 1,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2000632
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 8.358633407745318,
+          "weighted": 2.346100128921358,
+          "research": 1.660283416315588,
+          "cost": 2.1830378117786453
+        }
+      }
+    },
+    {
+      "qid": "L07",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "vercel/next.js@d155ba9e",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 7.5,
+          "correctness": 5,
+          "completeness": 1.5,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 173508,
+          "weightedTokens": 31867.95,
+          "contextTokens": 172625,
+          "overheadTokens": 163620,
+          "researchTokens": 9888,
+          "outputTokens": 883,
+          "requests": 4,
+          "firstRequestContext": 40905,
+          "cost": 0.0898784,
+          "toolCalls": 5,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 2,
+            "mcp__octocode__localFetch": 3
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 17622,
+          "numTurns": 6,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.43225672591465525,
+          "weightedEfficiency": 2.353461706824568,
+          "researchEfficiency": 7.584951456310679
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9.5,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 1.5,
+          "wrongClaims": [],
+          "totalTokens": 25628,
+          "weightedTokens": 17651.25,
+          "contextTokens": 24805,
+          "overheadTokens": 15435,
+          "researchTokens": 10193,
+          "outputTokens": 823,
+          "requests": 3,
+          "firstRequestContext": 5145,
+          "cost": 0.057746000000000006,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 2
+          },
+          "counters": {},
+          "wallMs": 16201,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 3.7068830966130792,
+          "weightedEfficiency": 5.382055095248211,
+          "researchEfficiency": 9.320121652114196
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 1,
+            "rg-gh": 1
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [
+            "Minor: the reference says prerenderToStream (app-render.tsx:9839-9846) uses the 'same pattern' as the page-render catch, but that copy does not append mutable cookies."
+          ],
+          "cost": 0.2271832
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.770251287654128,
+          "weighted": 1.8054217123433185,
+          "research": 0.9700775041695281,
+          "cost": 1.5564437363626915
+        }
+      }
+    },
+    {
+      "qid": "L08",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "prometheus/prometheus@ea954809",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 1,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 215401,
+          "weightedTokens": 35981.95,
+          "contextTokens": 214499,
+          "overheadTokens": 204410,
+          "researchTokens": 10991,
+          "outputTokens": 902,
+          "requests": 5,
+          "firstRequestContext": 40882,
+          "cost": 0.0946744,
+          "toolCalls": 4,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 2,
+            "mcp__octocode__localFetch": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 20046,
+          "numTurns": 5,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.3714003184757731,
+          "weightedEfficiency": 2.2233369786795882,
+          "researchEfficiency": 7.27868255845692
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 40979,
+          "weightedTokens": 18577.85,
+          "contextTokens": 40111,
+          "overheadTokens": 25580,
+          "researchTokens": 15399,
+          "outputTokens": 868,
+          "requests": 5,
+          "firstRequestContext": 5116,
+          "cost": 0.057323200000000005,
+          "toolCalls": 4,
+          "toolCounts": {
+            "Bash:cd": 1,
+            "Bash:sed": 3
+          },
+          "counters": {},
+          "wallMs": 15811,
+          "numTurns": 5,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.1962468581468557,
+          "weightedEfficiency": 4.844478774454526,
+          "researchEfficiency": 5.844535359438924
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.1876908
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 5.256375216574343,
+          "weighted": 1.9368199226498222,
+          "research": 0.7137476459510358,
+          "cost": 1.6515895832751835
+        }
+      }
+    },
+    {
+      "qid": "L09",
+      "surface": "local",
+      "category": "local-semantic",
+      "catKey": "local-semantic",
+      "repo": "prometheus/prometheus@ea954809",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 7.5,
+          "correctness": 4,
+          "completeness": 2,
+          "evidence": 1.5,
+          "wrongClaims": [
+            "Attributes the comment near line 1980 to relabel-dropped series; it actually concerns new series not appended due to sample_limit/errors",
+            "Claims series dropped by relabeling are deliberately not tracked, citing the comment near line 1980; that comment is about new series not appended due to sample_limit/errors"
+          ],
+          "totalTokens": 393426,
+          "weightedTokens": 65875.65,
+          "contextTokens": 392511,
+          "overheadTokens": 327184,
+          "researchTokens": 66242,
+          "outputTokens": 915,
+          "requests": 8,
+          "firstRequestContext": 40898,
+          "cost": 0.18877280000000002,
+          "toolCalls": 7,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 3,
+            "mcp__octocode__localFetch": 4
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 3,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 37192,
+          "numTurns": 8,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.19063305424654192,
+          "weightedEfficiency": 1.1385086902368327,
+          "researchEfficiency": 1.1322121916608798
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 59564,
+          "weightedTokens": 23788.9,
+          "contextTokens": 58747,
+          "overheadTokens": 30804,
+          "researchTokens": 28760,
+          "outputTokens": 817,
+          "requests": 6,
+          "firstRequestContext": 5134,
+          "cost": 0.08258180000000001,
+          "toolCalls": 5,
+          "toolCounts": {
+            "Bash:cd": 2,
+            "Bash:sed": 3
+          },
+          "counters": {},
+          "wallMs": 23439,
+          "numTurns": 6,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 1.6788664293868778,
+          "weightedEfficiency": 4.203641194002245,
+          "researchEfficiency": 3.4770514603616136
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 1,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.31297339999999996
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.605097038479618,
+          "weighted": 2.769175960216739,
+          "research": 2.30326842837274,
+          "cost": 2.2858886582757942
+        }
+      }
+    },
+    {
+      "qid": "L10",
+      "surface": "local",
+      "category": "local-semantic",
+      "catKey": "local-semantic",
+      "repo": "prometheus/prometheus@ea954809",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 173102,
+          "weightedTokens": 34170.35,
+          "contextTokens": 172252,
+          "overheadTokens": 163556,
+          "researchTokens": 9546,
+          "outputTokens": 850,
+          "requests": 4,
+          "firstRequestContext": 40889,
+          "cost": 0.0918302,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 2,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 14392,
+          "numTurns": 4,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.5199246686924472,
+          "weightedEfficiency": 2.633862398248774,
+          "researchEfficiency": 9.428032683846638
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 24791,
+          "weightedTokens": 17509,
+          "contextTokens": 23960,
+          "overheadTokens": 15369,
+          "researchTokens": 9422,
+          "outputTokens": 831,
+          "requests": 3,
+          "firstRequestContext": 5123,
+          "cost": 0.056554,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 1,
+            "Bash:sed": 1
+          },
+          "counters": {},
+          "wallMs": 14729,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.033721915211165,
+          "weightedEfficiency": 5.711348449368896,
+          "researchEfficiency": 10.613457864572277
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2516106
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.9824533096688315,
+          "weighted": 1.9515877548689244,
+          "research": 1.0131606877520696,
+          "cost": 1.623761360823284
+        }
+      }
+    },
+    {
+      "qid": "L11",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "tokio-rs/tokio@facc6fc4",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 4,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [
+            "harness.rs:508 described as the path for a future that panicked during poll; it is cancel_task (cancellation). The poll panic mapping is panic_to_error at harness.rs:546",
+            "harness.rs:508 described as the panic path for a panicking future; it is cancel_task (cancellation path); poll-time panic mapping is at harness.rs:546"
+          ],
+          "totalTokens": 219531,
+          "weightedTokens": 37847.600000000006,
+          "contextTokens": 218659,
+          "overheadTokens": 204500,
+          "researchTokens": 15031,
+          "outputTokens": 872,
+          "requests": 5,
+          "firstRequestContext": 40900,
+          "cost": 0.1043722,
+          "toolCalls": 4,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 3,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 20026,
+          "numTurns": 5,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.4099648796753078,
+          "weightedEfficiency": 2.3779579154292474,
+          "researchEfficiency": 5.987625573814117
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 34312,
+          "weightedTokens": 18724.15,
+          "contextTokens": 33419,
+          "overheadTokens": 20544,
+          "researchTokens": 13768,
+          "outputTokens": 893,
+          "requests": 4,
+          "firstRequestContext": 5136,
+          "cost": 0.0639388,
+          "toolCalls": 4,
+          "toolCounts": {
+            "Bash:cd": 1,
+            "Bash:sed": 3
+          },
+          "counters": {},
+          "wallMs": 18965,
+          "numTurns": 5,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.914432268594078,
+          "weightedEfficiency": 5.340696373400127,
+          "researchEfficiency": 7.2632190586868095
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2673694
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.398082303567265,
+          "weighted": 2.021325400618987,
+          "research": 1.0917344567112144,
+          "cost": 1.632376585109511
+        }
+      }
+    },
+    {
+      "qid": "L12",
+      "surface": "local",
+      "category": "local-semantic",
+      "catKey": "local-semantic",
+      "repo": "tokio-rs/tokio@facc6fc4",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 223178,
+          "weightedTokens": 40765.25,
+          "contextTokens": 222310,
+          "overheadTokens": 204580,
+          "researchTokens": 18598,
+          "outputTokens": 868,
+          "requests": 5,
+          "firstRequestContext": 40916,
+          "cost": 0.11627299999999999,
+          "toolCalls": 5,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 3,
+            "mcp__octocode__localFetch": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 21483,
+          "numTurns": 6,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.4032655548485962,
+          "weightedEfficiency": 2.2077627390976384,
+          "researchEfficiency": 4.839230024733842
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 4,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [
+            "Says the lifo slot task is moved to the run queue 'when a worker parks or shuts down'; the cited code (worker.rs:478-484) is in block_in_place and handles handing off the core",
+            "Says the LIFO slot task is moved to the run queue when a worker parks or shuts down; the code at :478-483 is in the block_in_place core hand-off",
+            "Notify description is slightly overbroad (the non-LIFO push also notifies)"
+          ],
+          "totalTokens": 22025,
+          "weightedTokens": 14745.35,
+          "contextTokens": 21208,
+          "overheadTokens": 15456,
+          "researchTokens": 6569,
+          "outputTokens": 817,
+          "requests": 3,
+          "firstRequestContext": 5152,
+          "cost": 0.047692200000000004,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 1,
+            "Bash:sed": 1
+          },
+          "counters": {},
+          "wallMs": 18154,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.086265607264472,
+          "weightedEfficiency": 6.103619107040525,
+          "researchEfficiency": 13.700715481808494
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "octocode"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2407496
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 10.132939841089671,
+          "weighted": 2.764617320036486,
+          "research": 2.8311767392297154,
+          "cost": 2.4379877631981746
+        }
+      }
+    },
+    {
+      "qid": "L13",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "redis/redis@20bb2cfc",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 6,
+          "correctness": 4,
+          "completeness": 1,
+          "evidence": 1,
+          "wrongClaims": [
+            "Says the propagated deletion is a DEL; it is UNLINK when lazyfree-lazy-expire is enabled",
+            "t_string.c line range 468-478 is off (getGenericCommand/getCommand are at 456-472)",
+            "Says the master propagates a DEL; it is UNLINK when lazyfree-lazy-expire is enabled",
+            "CLIENT_MASTER check applies only when masterhost is set or cluster mode is on, not in general"
+          ],
+          "totalTokens": 176143,
+          "weightedTokens": 32004.100000000002,
+          "contextTokens": 176064,
+          "overheadTokens": 163564,
+          "researchTokens": 12579,
+          "outputTokens": 79,
+          "requests": 4,
+          "firstRequestContext": 40891,
+          "cost": 0.10191320000000001,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 1,
+            "mcp__octocode__localFetch": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 2,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 20112,
+          "numTurns": 4,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.340632327143287,
+          "weightedEfficiency": 1.874759796401086,
+          "researchEfficiency": 4.769854519437157
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 45514,
+          "weightedTokens": 22077.05,
+          "contextTokens": 44514,
+          "overheadTokens": 25645,
+          "researchTokens": 19869,
+          "outputTokens": 1000,
+          "requests": 5,
+          "firstRequestContext": 5129,
+          "cost": 0.0707606,
+          "toolCalls": 4,
+          "toolCounts": {
+            "Bash:cd": 1,
+            "Bash:sed": 3
+          },
+          "counters": {},
+          "wallMs": 21951,
+          "numTurns": 5,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 1.757700927187239,
+          "weightedEfficiency": 3.623672546830306,
+          "researchEfficiency": 4.02637274145654
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.28473400000000004
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 3.8700839302192733,
+          "weighted": 1.4496547319501474,
+          "research": 0.6330967839347728,
+          "cost": 1.440253474391116
+        }
+      }
+    },
+    {
+      "qid": "L14",
+      "surface": "local",
+      "category": "local-semantic",
+      "catKey": "local-semantic",
+      "repo": "lodash/lodash@2b5e6f73",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 126022,
+          "weightedTokens": 23319,
+          "contextTokens": 125124,
+          "overheadTokens": 122709,
+          "researchTokens": 3313,
+          "outputTokens": 898,
+          "requests": 3,
+          "firstRequestContext": 40903,
+          "cost": 0.06246,
+          "toolCalls": 2,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 1,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 15710,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.7141610195045309,
+          "weightedEfficiency": 3.8595137012736394,
+          "researchEfficiency": 27.165710836100214
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 18839,
+          "weightedTokens": 12382.25,
+          "contextTokens": 17960,
+          "overheadTokens": 15417,
+          "researchTokens": 3422,
+          "outputTokens": 879,
+          "requests": 3,
+          "firstRequestContext": 5139,
+          "cost": 0.039203,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 2
+          },
+          "counters": {},
+          "wallMs": 14575,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 4.777323637135729,
+          "weightedEfficiency": 7.2684689777706,
+          "researchEfficiency": 26.30040911747516
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2038296
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.689420882212431,
+          "weighted": 1.8832603121403622,
+          "research": 0.9681472822910578,
+          "cost": 1.5932454148917174
+        }
+      }
+    },
+    {
+      "qid": "L15",
+      "surface": "local",
+      "category": "local-semantic",
+      "catKey": "local-semantic",
+      "repo": "google/guava@4d41665a",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 220168,
+          "weightedTokens": 38659.55,
+          "contextTokens": 219282,
+          "overheadTokens": 204435,
+          "researchTokens": 15733,
+          "outputTokens": 886,
+          "requests": 5,
+          "firstRequestContext": 40887,
+          "cost": 0.1051726,
+          "toolCalls": 4,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 2,
+            "mcp__octocode__localFetch": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 23041,
+          "numTurns": 5,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.4541986119690418,
+          "weightedEfficiency": 2.5866829800139937,
+          "researchEfficiency": 6.356066865823429
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [
+            "Cites line 665 for the 'built-in flooding protection' comment; that text is at line 884 (minor citation slip)"
+          ],
+          "totalTokens": 33701,
+          "weightedTokens": 17967.8,
+          "contextTokens": 32860,
+          "overheadTokens": 20492,
+          "researchTokens": 13209,
+          "outputTokens": 841,
+          "requests": 4,
+          "firstRequestContext": 5123,
+          "cost": 0.0568116,
+          "toolCalls": 3,
+          "toolCounts": {
+            "Bash:cd": 3
+          },
+          "counters": {},
+          "wallMs": 16624,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.9672710008605088,
+          "weightedEfficiency": 5.565511637484835,
+          "researchEfficiency": 7.570595805889924
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "tie",
+            "tie"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2551718
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.532981217174565,
+          "weighted": 2.1516017542492683,
+          "research": 1.1910818381406616,
+          "cost": 1.8512522090558972
+        }
+      }
+    },
+    {
+      "qid": "L16",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "google/guava@4d41665a",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [
+            "Minor citation drift: initial-capacity clamp cited at :280-282 (actually ~275-278); initTable cited at 1976-1979 (actually ~1998-2004)"
+          ],
+          "totalTokens": 170944,
+          "weightedTokens": 30917.9,
+          "contextTokens": 170077,
+          "overheadTokens": 163612,
+          "researchTokens": 7332,
+          "outputTokens": 867,
+          "requests": 4,
+          "firstRequestContext": 40903,
+          "cost": 0.08693580000000001,
+          "toolCalls": 4,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 3,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 17846,
+          "numTurns": 5,
+          "toolErrors": 1,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.4679895170348184,
+          "weightedEfficiency": 2.587497857228337,
+          "researchEfficiency": 10.911074740861975
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 7.5,
+          "correctness": 3.5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [
+            "Example: maximumSize(100), concurrencyLevel(16) gives 4 segments; the loop actually reaches 8 (4*20=80<=100 allows doubling to 8; it stops at 8 because 160>100)",
+            "Example: maximumSize(100) + concurrencyLevel(16) gives 4 segments — actually 8 (4*20=80<=100 allows doubling to 8; stops there since 160>100)"
+          ],
+          "totalTokens": 23878,
+          "weightedTokens": 15839.15,
+          "contextTokens": 23015,
+          "overheadTokens": 15417,
+          "researchTokens": 8461,
+          "outputTokens": 863,
+          "requests": 3,
+          "firstRequestContext": 5139,
+          "cost": 0.052010799999999996,
+          "toolCalls": 2,
+          "toolCounts": {
+            "Bash:cd": 2
+          },
+          "counters": {},
+          "wallMs": 14981,
+          "numTurns": 3,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 3.1409665801155877,
+          "weightedEfficiency": 4.735102578105517,
+          "researchEfficiency": 8.86420044911949
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 1
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "octocode",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.24151000000000003
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 7.159058547617053,
+          "weighted": 1.9519923733281144,
+          "research": 0.8665642359059212,
+          "cost": 1.6714951510070988
+        }
+      }
+    },
+    {
+      "qid": "L17",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "JamesNK/Newtonsoft.Json@52fa3aef",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 212220,
+          "weightedTokens": 33312.45,
+          "contextTokens": 211405,
+          "overheadTokens": 204525,
+          "researchTokens": 7695,
+          "outputTokens": 815,
+          "requests": 5,
+          "firstRequestContext": 40905,
+          "cost": 0.08804440000000001,
+          "toolCalls": 4,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 2,
+            "mcp__octocode__localFetch": 2
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 2,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 16650,
+          "numTurns": 5,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.4240882103477523,
+          "weightedEfficiency": 2.701692610420429,
+          "researchEfficiency": 11.695906432748538
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 8.5,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1.5,
+          "wrongClaims": [],
+          "totalTokens": 27925,
+          "weightedTokens": 15030.65,
+          "contextTokens": 27064,
+          "overheadTokens": 20564,
+          "researchTokens": 7361,
+          "outputTokens": 861,
+          "requests": 4,
+          "firstRequestContext": 5141,
+          "cost": 0.0502818,
+          "toolCalls": 3,
+          "toolCounts": {
+            "Bash:cd": 2,
+            "Bash:sed": 1
+          },
+          "counters": {},
+          "wallMs": 16763,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 3.043867502238138,
+          "weightedEfficiency": 5.655111389061685,
+          "researchEfficiency": 11.547344110854503
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 1
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.24201640000000002
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 7.599641897940913,
+          "weighted": 2.216301357559387,
+          "research": 1.0453742698002988,
+          "cost": 1.7510192554761366
+        }
+      }
+    },
+    {
+      "qid": "L18",
+      "surface": "local",
+      "category": "local-semantic",
+      "catKey": "local-semantic",
+      "repo": "nlohmann/json@f422b753",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 8,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 1,
+          "wrongClaims": [],
+          "totalTokens": 130774,
+          "weightedTokens": 25403.4,
+          "contextTokens": 130722,
+          "overheadTokens": 122679,
+          "researchTokens": 8095,
+          "outputTokens": 52,
+          "requests": 3,
+          "firstRequestContext": 40893,
+          "cost": 0.0837548,
+          "toolCalls": 3,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 2,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 16246,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.6117423952773486,
+          "weightedEfficiency": 3.149184754796602,
+          "researchEfficiency": 9.882643607164917
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 42664,
+          "weightedTokens": 22160.2,
+          "contextTokens": 41853,
+          "overheadTokens": 20516,
+          "researchTokens": 22148,
+          "outputTokens": 811,
+          "requests": 4,
+          "firstRequestContext": 5129,
+          "cost": 0.0708674,
+          "toolCalls": 3,
+          "toolCounts": {
+            "Bash:cd": 3
+          },
+          "counters": {},
+          "wallMs": 16519,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.3438964935308455,
+          "weightedEfficiency": 4.512594651672819,
+          "researchEfficiency": 4.515080368430558
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.22640680000000002
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 3.065207200450028,
+          "weighted": 1.146352469743053,
+          "research": 0.36549575582445365,
+          "cost": 1.181852304444639
+        }
+      }
+    },
+    {
+      "qid": "L19",
+      "surface": "local",
+      "category": "local-trace",
+      "catKey": "local-trace",
+      "repo": "microsoft/TypeScript@4f5ddae2",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 9,
+          "correctness": 5,
+          "completeness": 2,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 256381,
+          "weightedTokens": 36739.65,
+          "contextTokens": 256277,
+          "overheadTokens": 245478,
+          "researchTokens": 10903,
+          "outputTokens": 104,
+          "requests": 6,
+          "firstRequestContext": 40913,
+          "cost": 0.11003080000000001,
+          "toolCalls": 5,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 4,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 21275,
+          "numTurns": 6,
+          "toolErrors": 2,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.35104005367012375,
+          "weightedEfficiency": 2.449669498756793,
+          "researchEfficiency": 8.254608823259654
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 33886,
+          "weightedTokens": 18228.8,
+          "contextTokens": 33011,
+          "overheadTokens": 20596,
+          "researchTokens": 13290,
+          "outputTokens": 875,
+          "requests": 4,
+          "firstRequestContext": 5149,
+          "cost": 0.0585426,
+          "toolCalls": 3,
+          "toolCounts": {
+            "Bash:cd": 3
+          },
+          "counters": {},
+          "wallMs": 19702,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.951071238859706,
+          "weightedEfficiency": 5.485824629158255,
+          "researchEfficiency": 7.524454477050414
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "rg-gh"
+          ],
+          "referenceIssues": [],
+          "cost": 0.2494632
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 7.565985952900903,
+          "weighted": 2.015472768366541,
+          "research": 0.8203912716328067,
+          "cost": 1.8794997147376442
+        }
+      }
+    },
+    {
+      "qid": "L20",
+      "surface": "local",
+      "category": "local-impact",
+      "catKey": "local-impact",
+      "repo": "microsoft/TypeScript@4f5ddae2",
+      "w": {
+        "octocode": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 265920,
+          "weightedTokens": 40184,
+          "contextTokens": 265783,
+          "overheadTokens": 245448,
+          "researchTokens": 20472,
+          "outputTokens": 137,
+          "requests": 6,
+          "firstRequestContext": 40908,
+          "cost": 0.12226699999999999,
+          "toolCalls": 8,
+          "toolCounts": {
+            "mcp__octocode__localSearch": 4,
+            "mcp__octocode__structureSearch": 3,
+            "mcp__octocode__localFetch": 1
+          },
+          "counters": {
+            "clasify calls": 0,
+            "matchString queries": 0,
+            "lspSearch calls": 0,
+            "astSearch calls": 0,
+            "followUp uses": 0
+          },
+          "wallMs": 36423,
+          "numTurns": 9,
+          "toolErrors": 4,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 0.3760529482551143,
+          "weightedEfficiency": 2.4885526577742385,
+          "researchEfficiency": 4.884720593982024
+        },
+        "rg-gh": {
+          "status": "ok",
+          "quality": 10,
+          "correctness": 5,
+          "completeness": 3,
+          "evidence": 2,
+          "wrongClaims": [],
+          "totalTokens": 42462,
+          "weightedTokens": 21034.9,
+          "contextTokens": 42406,
+          "overheadTokens": 20584,
+          "researchTokens": 21878,
+          "outputTokens": 56,
+          "requests": 4,
+          "firstRequestContext": 5146,
+          "cost": 0.0807708,
+          "toolCalls": 3,
+          "toolCounts": {
+            "Bash:cd": 3
+          },
+          "counters": {},
+          "wallMs": 20352,
+          "numTurns": 4,
+          "toolErrors": 0,
+          "denials": 0,
+          "isolationOk": true,
+          "isolationProblems": [],
+          "efficiency": 2.355046865432622,
+          "weightedEfficiency": 4.754004059919467,
+          "researchEfficiency": 4.570801718621446
+        }
+      },
+      "judge": [
+        {
+          "pair": "octocode__rg-gh",
+          "tiebreak": false,
+          "orderSpread": {
+            "octocode": 0,
+            "rg-gh": 0
+          },
+          "graderErrors": 0,
+          "preferred": [
+            "rg-gh",
+            "tie"
+          ],
+          "referenceIssues": [
+            "The reference calls the four call sites the full non-test set, but showconfig.go:47 also uses GetResolveJsonModule as a method value, which affects --showConfig output."
+          ],
+          "cost": 0.2301992
+        }
+      ],
+      "ratios": {
+        "octocode/rg-gh": {
+          "total": 6.2625406245584285,
+          "weighted": 1.9103489914380385,
+          "research": 0.9357345278361825,
+          "cost": 1.5137524947134358
+        }
+      }
+    }
+  ]
+}

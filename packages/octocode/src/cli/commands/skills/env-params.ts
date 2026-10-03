@@ -11,6 +11,13 @@
  * overall `required` level.
  */
 
+import {
+  configFieldEnvNames,
+  ENV_TOKEN_VARS,
+  getOctocodeHome,
+  loadOctocodeEnv,
+} from '@octocodeai/config';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type EnvRequirement = 'required' | 'recommended' | 'optional';
@@ -77,23 +84,30 @@ const WEB_SEARCH_PARAMS: EnvParam[] = [
   },
 ];
 
-const GITHUB_TOKEN_PARAMS: EnvParam[] = [
-  {
-    key: 'GH_TOKEN',
-    description: 'GitHub token — code search, file reads, repo/PR discovery',
-    required: 'recommended',
-    group: 'github-token',
-    link: 'https://github.com/settings/tokens',
-  },
-  {
-    key: 'GITHUB_TOKEN',
-    description:
-      'GitHub token (alternate name — either GH_TOKEN or GITHUB_TOKEN)',
-    required: 'recommended',
-    group: 'github-token',
-    link: 'https://github.com/settings/tokens',
-  },
-];
+// Token and credential names come from the config contract, in precedence order.
+const GITHUB_TOKEN_PARAMS: EnvParam[] = ENV_TOKEN_VARS.map((key, index) => ({
+  key,
+  description:
+    index === 0
+      ? 'GitHub token — code search, file reads, repo/PR discovery'
+      : 'GitHub token (alternate name)',
+  required: 'recommended',
+  group: 'github-token',
+  link: 'https://github.com/settings/tokens',
+}));
+
+const CLASSIFICATION_KEY_PARAMS: EnvParam[] = configFieldEnvNames(
+  'classification.api'
+).map((key, index) => ({
+  key,
+  description:
+    index === 0
+      ? 'Semantic assessment — optional two-agent RFC review'
+      : 'Semantic assessment key (alternate name)',
+  required: 'optional',
+  group: 'classification-key',
+  link: 'https://console.typesafe.ai/keys',
+}));
 
 /**
  * Canonical env param requirements per skill.
@@ -102,16 +116,25 @@ const GITHUB_TOKEN_PARAMS: EnvParam[] = [
 export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
   'octocode-brainstorming': WEB_SEARCH_PARAMS,
   'octocode-research': GITHUB_TOKEN_PARAMS,
-  'octocode-rfc-generator': GITHUB_TOKEN_PARAMS,
+  'octocode-rfc-generator': [
+    ...GITHUB_TOKEN_PARAMS,
+    ...CLASSIFICATION_KEY_PARAMS,
+  ],
   'octocode-roast': GITHUB_TOKEN_PARAMS,
-  // awareness, eval, prompt-optimizer, skills, subagent: no special env params
+  // eval, agentic-prompts, skills, subagent: no special env params
 };
 
 // ─── Runtime status check ─────────────────────────────────────────────────────
 
-/** Check whether a single env var is set in the current process env. */
+/**
+ * Check whether a single env var is set in the process env or in the home
+ * `.env` layer that Octocode itself loads.
+ */
 export function isEnvSet(key: string): boolean {
-  const val = process.env[key];
+  const own = process.env[key];
+  const val = own?.trim()
+    ? own
+    : loadOctocodeEnv({ home: getOctocodeHome() }).map[key];
   return typeof val === 'string' && val.trim().length > 0;
 }
 
@@ -187,7 +210,8 @@ export function getSkillsEnvStatus(skillNames: string[]): SkillEnvStatus[] {
 export function groupLabel(group: string): string {
   const labels: Record<string, string> = {
     'web-search': 'web search (at least one of three)',
-    'github-token': 'GitHub token (GH_TOKEN or GITHUB_TOKEN)',
+    'github-token': `GitHub token (one of ${ENV_TOKEN_VARS.join(', ')})`,
+    'classification-key': `classification key (one of ${configFieldEnvNames('classification.api').join(', ')})`,
   };
   return labels[group] ?? group;
 }
@@ -213,7 +237,7 @@ export function missingHint(envStatus: SkillEnvStatus): string {
   const standaloneKeys: string[] = [];
 
   for (const ps of envStatus.params) {
-    if (ps.status === 'set') continue;
+    if (ps.status === 'set' || ps.param.required === 'optional') continue;
     if (ps.param.group) {
       const groupSatisfied = isGroupSatisfied(ps, envStatus.params);
       if (!groupSatisfied) unsatisfiedGroups.add(ps.param.group);

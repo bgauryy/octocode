@@ -1,27 +1,12 @@
-/**
- * `octocode skill check [<name>...]`
- *
- * Verify skill installations AND env param readiness.
- *
- * Checks:
- *   - Canonical home: ~/.octocode/skills/<name>/
- *   - Platform symlinks, workspace symlink
- *   - Broken symlinks
- *   - Required / recommended env vars
- *
- * Flags:
- *   --platform   Only check specific platforms
- *   --workspace  Also check <cwd>/.agents/skills
- *   --fix        Re-install missing/broken locations
- *   --no-env     Skip env param checks
- *   --json       Machine-readable output
- */
-
-import { listSkills, getSkill } from '../registry.js';
 import {
+  listSkills,
+  getSkill,
+  retiredHint,
+  RETIRED_SKILLS,
+} from '../registry.js';
+import {
+  checkSkill,
   checkSkills,
-  isInstalledAtHome,
-  linkedPlatforms,
   overallStatus,
   SCAN_PLATFORMS,
   type CheckedLocation,
@@ -31,140 +16,72 @@ import {
   getSkillEnvStatus,
   getSkillsEnvStatus,
   missingHint,
-  groupLabel,
   isGroupSatisfied,
-  type SkillEnvStatus,
 } from '../env-params.js';
 import { parsePlatforms, type Platform } from '../platforms.js';
-import { installSkill } from '../installer.js';
 import { getSkillsHome } from '../home.js';
-import { bold, dim, c } from '../../../../utils/colors.js';
-import { Spinner } from '../utils/spinner.js';
-import { shortPath as short } from '../utils/paths.js';
-
-// ─── Options ──────────────────────────────────────────────────────────────────
+import { installSkill } from '../installer.js';
+import { runRemove } from './remove.js';
+import { bold, c, dim } from '../../../../utils/colors.js';
 
 export interface CheckOptions {
   names: string[];
   platform: string | null;
   workspace: boolean;
   fix: boolean;
+  dryRun: boolean;
   noEnv: boolean;
   json: boolean;
+  jsonErrors?: boolean;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function locationIcon(status: CheckedLocation['status']): string {
-  switch (status) {
-    case 'installed':
-      return c('green', '✓');
-    case 'linked':
-      return c('green', '→');
-    case 'broken':
-      return c('red', '✗');
-    case 'missing':
-      return dim('·');
-  }
-}
-
-function locationLabel(loc: CheckedLocation): string {
-  const icon = locationIcon(loc.status);
-  const p = dim(short(loc.path));
-
-  switch (loc.status) {
-    case 'installed':
-      return `${icon}  ${loc.label.padEnd(14)} ${p}  ${dim('(real copy)')}`;
-    case 'linked':
-      return `${icon}  ${loc.label.padEnd(14)} ${p}  ${dim('→')} ${dim(short(loc.linkTarget ?? ''))}`;
-    case 'broken':
-      return `${icon}  ${loc.label.padEnd(14)} ${p}  ${c('red', 'broken symlink')} → ${dim(short(loc.linkTarget ?? ''))}`;
-    case 'missing':
-      return `${icon}  ${loc.label.padEnd(14)} ${dim('not installed')}`;
-  }
-}
-
-function envIcon(readiness: SkillEnvStatus['readiness']): string {
-  switch (readiness) {
-    case 'ok':
-    case 'ready':
-      return c('green', '✓');
-    case 'partial':
-      return c('yellow', '⚠');
-    case 'needs-config':
-      return c('red', '✗');
-  }
-}
-
-// ─── JSON shape ───────────────────────────────────────────────────────────────
-
-interface JsonCheckResult {
-  success: boolean;
-  skills: Array<{
-    name: string;
-    installStatus: 'ok' | 'broken' | 'not-installed';
-    home: { path: string; status: string; linkTarget?: string };
-    platforms: Array<{
-      label: string;
-      path: string;
-      status: string;
-      linkTarget?: string;
-    }>;
-    workspace: { path: string; status: string; linkTarget?: string };
-    env: {
-      readiness: string;
-      params: Array<{
-        key: string;
-        status: string;
-        required: string;
-        group?: string;
-        description: string;
-        link?: string;
-        groupSatisfied?: boolean;
-      }>;
-      hint: string;
-    };
-  }>;
-  summary: {
-    install: {
-      ok: number;
-      broken: number;
-      notInstalled: number;
-      total: number;
-    };
-    env: {
-      ready: number;
-      partial: number;
-      needsConfig: number;
-      noParamsNeeded: number;
-    };
-  };
-}
-
-// ─── Fix ─────────────────────────────────────────────────────────────────────
-
-function fixSkill(result: SkillCheckResult, platforms: Platform[]): void {
-  const skill = getSkill(result.skillName);
-  if (!skill) {
+function fail(message: string, json: boolean, jsonErrors = false): void {
+  if (jsonErrors)
     console.log(
-      `  ${c('red', '✗')}  Cannot fix ${result.skillName}: not found in bundled skills`
+      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
+    );
+  else if (json)
+    console.log(JSON.stringify({ success: false, error: message }));
+  else console.error(`  ${c('red', '✗')} ${message}`);
+  process.exitCode = 1;
+}
+
+const needsRepair = (location: CheckedLocation): boolean =>
+  location.status === 'broken' || location.content === 'stale';
+
+/**
+ * Repair only what is already there: refresh the canonical copy and relink
+ * broken or stale locations. Never add platforms or a workspace the user did
+ * not install into, and never replace a fresh link (e.g. a dev symlink).
+ */
+function fixSkill(
+  result: SkillCheckResult,
+  workspace: boolean,
+  dryRun: boolean
+): void {
+  const skill = getSkill(result.skillName);
+  if (!skill) return;
+  const platforms = result.platforms
+    .filter(needsRepair)
+    .map(location => location.label as Platform);
+  const repairWorkspace = workspace && needsRepair(result.workspace);
+  if (dryRun) {
+    const where = [
+      'home',
+      ...platforms,
+      ...(repairWorkspace ? ['workspace'] : []),
+    ].join(', ');
+    console.log(
+      `  ${dim('dry-run:')} would re-install ${result.skillName} (${overallStatus(result)}) → ${where}`
     );
     return;
   }
-
   installSkill({
     sourcePath: skill.dir,
     skillName: skill.folder,
-    platforms:
-      result.home.status === 'missing' || result.home.status === 'broken'
-        ? platforms
-        : platforms.filter(p => {
-            const loc = result.platforms.find(pl => pl.label === p);
-            return !loc || loc.status === 'missing' || loc.status === 'broken';
-          }),
-    workspace:
-      result.workspace.status === 'missing' ||
-      result.workspace.status === 'broken',
+    platforms,
+    workspace: repairWorkspace,
+    canonicalSkillsDir: getSkillsHome(),
     customPath: null,
     mode: 'symlink',
     force: true,
@@ -172,359 +89,167 @@ function fixSkill(result: SkillCheckResult, platforms: Platform[]): void {
   });
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
 export function runCheck(opts: CheckOptions): void {
-  // Resolve skill list
-  let skillNames: string[];
+  const skillNames =
+    opts.names.length > 0
+      ? opts.names
+      : listSkills().map(skill => skill.folder);
+  const missing = skillNames.find(name => !getSkill(name));
+  if (missing)
+    return fail(
+      `Skill not found: "${missing}".${retiredHint(missing)}`,
+      opts.json,
+      opts.jsonErrors
+    );
 
-  if (opts.names.length > 0) {
-    skillNames = opts.names;
-    for (const n of skillNames) {
-      if (!getSkill(n)) {
-        const msg = `Skill not found: "${n}"`;
-        if (opts.json) {
-          console.log(JSON.stringify({ success: false, error: msg }));
-        } else {
-          console.error(`  ${c('red', '✗')} ${msg}`);
-          console.error(
-            `  Run ${c('cyan', 'octocode skill list')} to see available skills.`
-          );
-        }
-        process.exitCode = 1;
-        return;
-      }
-    }
-  } else {
-    skillNames = listSkills().map(s => s.folder);
-  }
-
-  // Resolve platforms
   let platforms: Platform[] = SCAN_PLATFORMS;
   if (opts.platform) {
     const parsed = parsePlatforms(opts.platform);
-    if (parsed.error) {
-      if (opts.json) {
-        console.log(JSON.stringify({ success: false, error: parsed.error }));
-      } else {
-        console.error(`  ${c('red', '✗')} ${parsed.error}`);
-      }
-      process.exitCode = 1;
-      return;
-    }
+    if (parsed.error) return fail(parsed.error, opts.json, opts.jsonErrors);
     platforms = parsed.platforms;
   }
 
-  // Check installations
-  const spinner = opts.json
-    ? null
-    : new Spinner(`Checking ${skillNames.length} skill(s)…`).start();
   let results = checkSkills(skillNames, platforms);
-  const envStatuses = opts.noEnv ? [] : getSkillsEnvStatus(skillNames);
-  spinner?.stop();
-
-  // Fix
   if (opts.fix && !opts.json) {
-    for (const r of results) {
-      if (overallStatus(r) !== 'ok') {
-        console.log(`  ${c('cyan', '→')} Fixing ${bold(r.skillName)}…`);
-        fixSkill(r, platforms);
+    for (const result of results) {
+      if (overallStatus(result) !== 'ok') {
+        fixSkill(result, opts.workspace, opts.dryRun);
       }
     }
-    results = checkSkills(skillNames, platforms);
+    if (!opts.dryRun) results = checkSkills(skillNames, platforms);
   }
 
-  // Summaries
-  let okCount = 0,
-    brokenCount = 0,
-    notInstalledCount = 0;
-  for (const r of results) {
-    const s = overallStatus(r);
-    if (s === 'ok') okCount++;
-    else if (s === 'broken') brokenCount++;
-    else notInstalledCount++;
+  // A full check also finds installs of retired skills (real copies or links,
+  // including links left dangling by the removal) and removes them on --fix.
+  const findRetired = () =>
+    opts.names.length > 0
+      ? []
+      : Object.entries(RETIRED_SKILLS)
+          .map(([name, replacement]) => {
+            const result = checkSkill(name, platforms);
+            const paths = [result.home, ...result.platforms, result.workspace]
+              .filter(location => location.status !== 'missing')
+              .map(location => location.path);
+            return { name, replacement, paths };
+          })
+          .filter(entry => entry.paths.length > 0);
+  let retired = findRetired();
+  if (opts.fix && !opts.json && retired.length > 0) {
+    runRemove(
+      retired.map(entry => entry.name),
+      { all: false, platform: null, dryRun: opts.dryRun, json: false }
+    );
+    if (!opts.dryRun) retired = findRetired();
   }
 
-  let envReadyCount = 0,
-    envPartialCount = 0,
-    envNeedsConfigCount = 0,
-    envNoParamsCount = 0;
-  if (!opts.noEnv) {
-    for (const e of envStatuses) {
-      if (e.readiness === 'ok') envNoParamsCount++;
-      else if (e.readiness === 'ready') envReadyCount++;
-      else if (e.readiness === 'partial') envPartialCount++;
-      else envNeedsConfigCount++;
-    }
-  }
+  const envStatuses = opts.noEnv ? [] : getSkillsEnvStatus(skillNames);
+  const statuses = results.map(overallStatus);
+  const count = (status: string) =>
+    statuses.filter(value => value === status).length;
+  const envCount = (readiness: string) =>
+    envStatuses.filter(value => value.readiness === readiness).length;
+  const installOk =
+    count('broken') === 0 && count('stale') === 0 && retired.length === 0;
+  const envOk = opts.noEnv || envCount('needs-config') === 0;
+  const success = installOk && envOk;
 
-  const installOk = brokenCount === 0;
-  const envOk = opts.noEnv || envNeedsConfigCount === 0;
-  const allOk = installOk && envOk;
-
-  // ── JSON ─────────────────────────────────────────────────────────────────
-
-  if (opts.json) {
-    const out: JsonCheckResult = {
-      success: allOk,
-      skills: results.map((r, i) => {
-        const env = envStatuses[i] ?? getSkillEnvStatus(r.skillName);
-        return {
-          name: r.skillName,
-          installStatus: overallStatus(r),
-          home: {
-            path: r.home.path,
-            status: r.home.status,
-            ...(r.home.linkTarget ? { linkTarget: r.home.linkTarget } : {}),
-          },
-          platforms: r.platforms.map(p => ({
-            label: p.label,
-            path: p.path,
-            status: p.status,
-            ...(p.linkTarget ? { linkTarget: p.linkTarget } : {}),
-          })),
-          workspace: {
-            path: r.workspace.path,
-            status: r.workspace.status,
-            ...(r.workspace.linkTarget
-              ? { linkTarget: r.workspace.linkTarget }
-              : {}),
-          },
-          env: {
-            readiness: env.readiness,
-            params: env.params.map(ps => ({
-              key: ps.param.key,
-              status: ps.status,
-              required: ps.param.required,
-              description: ps.param.description,
-              ...(ps.param.group
-                ? {
-                    group: ps.param.group,
-                    groupSatisfied: isGroupSatisfied(ps, env.params),
-                  }
-                : {}),
-              ...(ps.param.link ? { link: ps.param.link } : {}),
-            })),
-            hint: missingHint(env),
-          },
-        };
-      }),
-      summary: {
-        install: {
-          ok: okCount,
-          broken: brokenCount,
-          notInstalled: notInstalledCount,
-          total: results.length,
-        },
-        env: opts.noEnv
-          ? {
-              ready: 0,
-              partial: 0,
-              needsConfig: 0,
-              noParamsNeeded: skillNames.length,
-            }
-          : {
-              ready: envReadyCount,
-              partial: envPartialCount,
-              needsConfig: envNeedsConfigCount,
-              noParamsNeeded: envNoParamsCount,
-            },
+  const skills = results.map((result, index) => {
+    const env = envStatuses[index] ?? getSkillEnvStatus(result.skillName);
+    return {
+      name: result.skillName,
+      installStatus: overallStatus(result),
+      home: {
+        path: result.home.path,
+        status: result.home.status,
+        ...(result.home.linkTarget
+          ? { linkTarget: result.home.linkTarget }
+          : {}),
+        ...(result.home.content ? { content: result.home.content } : {}),
+      },
+      platforms: result.platforms.map(location => ({
+        label: location.label,
+        path: location.path,
+        status: location.status,
+        ...(location.linkTarget ? { linkTarget: location.linkTarget } : {}),
+        ...(location.content ? { content: location.content } : {}),
+      })),
+      workspace: {
+        path: result.workspace.path,
+        status: result.workspace.status,
+        ...(result.workspace.linkTarget
+          ? { linkTarget: result.workspace.linkTarget }
+          : {}),
+        ...(result.workspace.content
+          ? { content: result.workspace.content }
+          : {}),
+      },
+      env: {
+        readiness: env.readiness,
+        params: env.params.map(param => ({
+          key: param.param.key,
+          status: param.status,
+          required: param.param.required,
+          description: param.param.description,
+          ...(param.param.group
+            ? {
+                group: param.param.group,
+                groupSatisfied: isGroupSatisfied(param, env.params),
+              }
+            : {}),
+          ...(param.param.link ? { link: param.param.link } : {}),
+        })),
+        hint: missingHint(env),
       },
     };
-    console.log(JSON.stringify(out, null, 2));
-    if (!allOk) process.exitCode = 1;
-    return;
-  }
-
-  // ── Human ────────────────────────────────────────────────────────────────
-
-  const skillsHome = short(getSkillsHome());
-  console.log();
-  console.log(`  ${bold('Skill check')}  ${dim(`· home: ${skillsHome}`)}`);
-  console.log();
-
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i]!;
-    const env = envStatuses[i] ?? getSkillEnvStatus(r.skillName);
-    const st = overallStatus(r);
-
-    const installBadge =
-      st === 'ok'
-        ? c('green', '✓')
-        : st === 'broken'
-          ? c('red', '✗')
-          : c('yellow', '–');
-
-    const links = linkedPlatforms(r);
-    const hasHome = isInstalledAtHome(r);
-    const installSummary = hasHome
-      ? dim(`installed${links.length ? ` · linked: ${links.join(', ')}` : ''}`)
-      : st === 'broken'
-        ? c('red', 'broken symlink(s)')
-        : dim('not installed');
-
-    const envSummary = opts.noEnv
-      ? ''
-      : `  ${envIcon(env.readiness)} env: ${
-          env.readiness === 'ok' || env.readiness === 'ready'
-            ? dim(env.readiness === 'ok' ? 'none needed' : 'ready')
-            : c('yellow', missingHint(env) || env.readiness)
-        }`;
-
-    console.log(
-      `  ${installBadge}  ${bold(r.skillName)}  ${installSummary}${envSummary}`
-    );
-
-    // Install locations
-    console.log(`       ${locationLabel(r.home)}`);
-
-    const platformsToShow = opts.platform
-      ? r.platforms
-      : r.platforms.filter(p => p.status !== 'missing');
-
-    for (const p of platformsToShow) {
-      console.log(`       ${locationLabel(p)}`);
-    }
-
-    if (opts.workspace || r.workspace.status !== 'missing') {
-      console.log(`       ${locationLabel(r.workspace)}`);
-    }
-
-    // Env params section (skip if none needed)
-    if (!opts.noEnv && env.readiness !== 'ok') {
-      const shownGroups = new Set<string>();
-      for (const ps of env.params) {
-        const { group } = ps.param;
-        if (group) {
-          if (shownGroups.has(group)) continue;
-          shownGroups.add(group);
-          // Show group as a single row
-          const anySet = env.params.some(
-            p => p.param.group === group && p.status === 'set'
-          );
-          const icon = anySet
-            ? c('green', '✓')
-            : ps.param.required === 'required'
-              ? c('red', '✗')
-              : c('yellow', '⚠');
-          const keys = env.params
-            .filter(p => p.param.group === group)
-            .map(p =>
-              p.status === 'set' ? c('green', p.param.key) : dim(p.param.key)
-            )
-            .join(dim(' | '));
-          const label = anySet
-            ? dim(groupLabel(group))
-            : c('yellow', groupLabel(group));
-          console.log(
-            `       ${icon}  ${'env'.padEnd(14)} ${label}  ${dim('→')}  ${keys}`
-          );
-        } else {
-          const icon =
-            ps.status === 'set'
-              ? c('green', '✓')
-              : ps.param.required === 'required'
-                ? c('red', '✗')
-                : c('yellow', '⚠');
-          const keyStr =
-            ps.status === 'set'
-              ? c('green', ps.param.key)
-              : c('yellow', ps.param.key);
-          const statusStr =
-            ps.status === 'set'
-              ? dim('set')
-              : dim(`${ps.param.required} — not set`);
-          console.log(
-            `       ${icon}  ${'env'.padEnd(14)} ${keyStr}  ${statusStr}`
-          );
+  });
+  const summary = {
+    install: {
+      ok: count('ok'),
+      broken: count('broken'),
+      stale: count('stale'),
+      notInstalled: count('not-installed'),
+      retired: retired.length,
+      total: results.length,
+    },
+    env: opts.noEnv
+      ? {
+          ready: 0,
+          partial: 0,
+          needsConfig: 0,
+          noParamsNeeded: skillNames.length,
         }
-      }
-    }
+      : {
+          ready: envCount('ready'),
+          partial: envCount('partial'),
+          needsConfig: envCount('needs-config'),
+          noParamsNeeded: envCount('ok'),
+        },
+  };
 
+  if (opts.json) {
+    console.log(JSON.stringify({ success, skills, retired, summary }, null, 2));
+  } else {
+    console.log(`\n  ${bold('Skill check')}`);
+    for (const skill of skills) {
+      const icon =
+        skill.installStatus === 'ok' ? c('green', '✓') : c('red', '✗');
+      const env = opts.noEnv ? '' : ` · env ${skill.env.readiness}`;
+      console.log(`  ${icon} ${skill.name}: ${skill.installStatus}${dim(env)}`);
+    }
+    for (const entry of retired) {
+      console.log(
+        `  ${c('red', '✗')} ${entry.name}: retired → merged into ${entry.replacement} ${dim(entry.paths.join(', '))}`
+      );
+    }
+    console.log(
+      `  ${summary.install.ok}/${summary.install.total} ok; ${summary.install.stale} stale; ${summary.install.broken} broken; ${summary.install.notInstalled} not installed; ${summary.install.retired} retired; env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
+    );
+    if (!installOk && !opts.fix) {
+      console.log(
+        `  ${dim('Repair with')} ${c('cyan', 'octocode skill check --fix')}`
+      );
+    }
     console.log();
   }
-
-  // Summary bar
-  console.log(`  ${dim('─'.repeat(60))}`);
-
-  const installParts = [
-    `${c('green', String(okCount))} ok`,
-    ...(notInstalledCount
-      ? [`${c('yellow', String(notInstalledCount))} not installed`]
-      : []),
-    ...(brokenCount ? [`${c('red', String(brokenCount))} broken`] : []),
-  ];
-  console.log(`  ${dim('Install:')} ${installParts.join('  ·  ')}`);
-
-  if (!opts.noEnv) {
-    const envParts = [
-      ...(envNoParamsCount + envReadyCount > 0
-        ? [`${c('green', String(envNoParamsCount + envReadyCount))} ready`]
-        : []),
-      ...(envPartialCount
-        ? [`${c('yellow', String(envPartialCount))} partial`]
-        : []),
-      ...(envNeedsConfigCount
-        ? [`${c('red', String(envNeedsConfigCount))} needs config`]
-        : []),
-    ];
-    if (envParts.length > 0) {
-      console.log(`  ${dim('Env:')}     ${envParts.join('  ·  ')}`);
-    }
-  }
-
-  console.log();
-
-  // Actionable hints
-  if (notInstalledCount > 0) {
-    console.log(
-      `  ${dim('Install missing:')}   ${c('cyan', 'octocode skill install --all')}`
-    );
-  }
-  if (brokenCount > 0) {
-    console.log(
-      `  ${dim('Fix broken links:')}  ${c('cyan', 'octocode skill check --fix')}`
-    );
-  }
-
-  if (!opts.noEnv && (envNeedsConfigCount > 0 || envPartialCount > 0)) {
-    console.log(
-      `  ${dim('Env params missing — add to')} ${dim('~/.octocode/.env')}${dim(':')}`
-    );
-    console.log();
-
-    // Collect all unsatisfied params (deduplicate groups)
-    const shownGroups = new Set<string>();
-    const shownKeys = new Set<string>();
-
-    for (const env of envStatuses) {
-      if (env.readiness === 'ok' || env.readiness === 'ready') continue;
-
-      for (const ps of env.params) {
-        if (ps.status === 'set') continue;
-        if (isGroupSatisfied(ps, env.params)) continue;
-
-        const { group, key, required, link } = ps.param;
-
-        if (group) {
-          if (shownGroups.has(group)) continue;
-          shownGroups.add(group);
-          const groupKeys = env.params.filter(p => p.param.group === group);
-          console.log(`  ${dim(groupLabel(group))}  ${dim(`[${required}]`)}`);
-          for (const gp of groupKeys) {
-            const linkStr = gp.param.link ? `  ${dim(gp.param.link)}` : '';
-            console.log(`    ${gp.param.key}=...${linkStr}`);
-          }
-          console.log();
-        } else {
-          if (shownKeys.has(key)) continue;
-          shownKeys.add(key);
-          const linkStr = link ? `  ${dim(link)}` : '';
-          console.log(`  ${key}=...  ${dim(`[${required}]`)}${linkStr}`);
-        }
-      }
-    }
-  }
-
-  if (!allOk) process.exitCode = 1;
+  if (!success) process.exitCode = 1;
 }

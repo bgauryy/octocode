@@ -1,0 +1,117 @@
+{
+  "qid": "L16",
+  "worker": "rg-gh",
+  "started": "2026-09-30T20:00:30.599Z",
+  "promptSha256": "a40f8935e01224ede96e8c3e596483a428b32e84873ffff83c6fc7b891ddfe80",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 15853,
+  "status": "ok",
+  "answer": "**Short answer:** `concurrencyLevel` sets how many `Segment`s the cache has. `maximumSize` is split across those segments as a per-segment weight limit. `maximumSize` can also reduce the segment count. All of this happens in the `LocalCache` constructor, in `guava/src/com/google/common/cache/LocalCache.java`.\n\n**concurrencyLevel → number of segments**\n- `CacheBuilder.getConcurrencyLevel()` returns 4 if you didn't set it (`CacheBuilder.java:199`, `:473-474`).\n- `LocalCache` caps it at `MAX_SEGMENTS` (`:250`).\n- The segment count is the smallest power of two that is at least `concurrencyLevel` (`:285-290`). The loop is `while (segmentCount < concurrencyLevel && (!evictsBySize() || segmentCount * 20L <= maxWeight))`.\n- Two fields route keys to segments: `segmentShift = 32 - log2(count)` and `segmentMask = count - 1` (`:292-293`).\n- `segmentFor(hash)` picks the segment with `segments[(hash >>> segmentShift) & segmentMask]` (`:1768`).\n- The `segments` array is allocated at that size (`:295`).\n\n**maximumSize → per-segment limits**\n- `maximumSize` becomes `maxWeight`. Without a custom weigher each entry has weight 1, so it is an entry count.\n- **Fewer segments for small caches.** When the cache evicts by size, the loop only adds segments while `segmentCount * 20 <= maxWeight` (`:288`). Each segment therefore gets at least about 20 entries of capacity. A small `maximumSize` can produce fewer segments than `concurrencyLevel` asked for.\n- **Split across segments.** `maxSegmentWeight = maxWeight / segmentCount + 1`, and it drops by 1 once the segment index reaches `maxWeight % segmentCount` (`:309-314`). The per-segment maxima add up to exactly `maxWeight`.\n- **Enforced per segment.** Each segment gets its own `maxSegmentWeight` (`:316`, field at `:1929`). Eviction runs inside a segment when its `totalWeight` exceeds that limit (`:2672`). The limit is therefore not global, and LRU order is tracked per segment.\n- **Initial capacity.** Without a custom weigher, `initialCapacity` is also capped at `maxWeight` (`:276-277`).\n- **Table sizing.** Each segment's initial table size is `initialCapacity / segmentCount`, rounded up, then rounded up to a power of two (`:297-305`). `initTable` sets the resize threshold to 3/4 of the table length (`:1996`). If that threshold equals `maxSegmentWeight` and there is no custom weigher, it is bumped by 1 to avoid resizing just before eviction would start (`:2000-2001`).\n- **No size limit.** Every segment gets `UNSET_INT` as its max weight (`:319-321`).\n\n**Uncertainty:** I did not read `MAX_SEGMENTS`'s value or the `CacheBuilder.maximumSize` and `concurrencyLevel` setter validation. I also did not check how `maxWeight` is computed from `maximumSize` beyond the constructor's use of it.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 5962,
+    "cache_read_input_tokens": 13639,
+    "output_tokens": 860,
+    "context_tokens": 19607,
+    "total_tokens": 20467,
+    "first_request_context": 5137,
+    "fixed_overhead_tokens": 15411,
+    "research_tokens": 5056,
+    "max_request_context": 7899
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3200,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1434,
+      "cache_read_input_tokens": 5135,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1328,
+      "cache_read_input_tokens": 6569,
+      "output_tokens": 828
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 5962,
+    "cache_read_input_tokens": 13639,
+    "output_tokens": 1550
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1550,
+      "cacheReadInputTokens": 13639,
+      "cacheCreationInputTokens": 5962,
+      "webSearchRequests": 0,
+      "costUSD": 0.0420878,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0420878,
+  "duration_ms": 14580,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "Bash:cd": 2
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/java; git rev-parse HEAD; f=$(find . -path '*common/cache/LocalCache.java' | head -1); echo $f; rg -n \\\"segmentShift|segmentMask|concurrencyLevel|segmentCount|maxSegmentWeight|evictsBySize\\\\(\\\\)|initialCapacity|Segment<K, V>\\\\[\\\\] newSegmentArray|this.segments =\\\" $f | head -80\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache; sed -n 245,256p LocalCache.java; sed -n 296,322p LocalCache.java; sed -n 1990,2004p LocalCache.java; rg -n \\\"DEFAULT_CONCURRENCY_LEVEL|int getConcurrencyLevel\\\" -A3 CacheBuilder.java | head -20\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** My first Bash call did most of the work. It ran `git rev-parse HEAD`, found `LocalCache.java`, and ran one `rg` for `segmentShift|segmentMask|concurrencyLevel|maxSegmentWeight|evictsBySize` and related terms. That located the constructor logic at lines 250–320 and confirmed the pinned commit in one step. The second call used `sed` on the constructor and `initTable`, and `rg` on `DEFAULT_CONCURRENCY_LEVEL`. It gave the exact lines I cited.\n\n2. **Did not help:** Nothing errored. I never read `MAX_SEGMENTS`'s value, the `CacheBuilder.maximumSize` and `concurrencyLevel` setters, or how `maxWeight` is derived from `maximumSize`. My final answer says so. I also used `sed` for reading lines, though a dedicated file-read tool would have been cleaner.\n\n3. **Next time:** I would add `MAX_SEGMENTS` and `maximumSize(` to the first `rg` pattern. That would close the gaps I had to flag, at no extra cost in calls.\n\n4. **Confidence:** High for the mechanism. I saw the segment-count loop, the per-segment weight split and the table sizing directly in the source at the pinned commit. Medium-high for the exact line numbers, since I took them from `rg` and `sed` output and did not re-check them afterwards.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1462,
+      "cache_read_input_tokens": 7897,
+      "output_tokens": 1,
+      "context_tokens": 9361,
+      "total_tokens": 9362,
+      "first_request_context": 9361,
+      "fixed_overhead_tokens": 9361,
+      "research_tokens": 1,
+      "max_request_context": 9361
+    },
+    "cost_usd": 0.0543892,
+    "toolCallsAttempted": 0
+  }
+}

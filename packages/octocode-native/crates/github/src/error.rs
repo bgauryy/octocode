@@ -1,0 +1,102 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderErrorKind {
+    Authentication,
+    Permission,
+    NotFound,
+    Validation,
+    RateLimited,
+    Transport,
+    Timeout,
+    Cancelled,
+    ResponseTooLarge,
+    RedirectDenied,
+    Decode,
+    Configuration,
+    CredentialStoreUnavailable,
+    Server,
+    /// HTTP 451: the resource is blocked for legal reasons; retrying cannot help.
+    Unavailable,
+    /// Any other unmapped non-2xx status; the status code is in the message.
+    HttpStatus,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RateLimit {
+    pub remaining: Option<u64>,
+    pub reset_epoch_seconds: Option<u64>,
+    pub retry_after_seconds: Option<u64>,
+    /// GitHub `x-ratelimit-resource` (core, search, code_search, graphql).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<Box<str>>,
+}
+
+/// Typed discriminator for provider failures whose recovery differs; the
+/// runtime keys its hints and continuations on this, never on message text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderErrorReason {
+    /// An issue number resolved to a pull request.
+    IssueIsPullRequest,
+    /// A file read named a directory.
+    PathIsDirectory,
+    /// The requested search page is past GitHub's 1,000-result window.
+    SearchWindowExceeded,
+    /// The repository itself did not resolve (missing, private, or not
+    /// visible to the token), as opposed to a path or ref inside it.
+    RepositoryNotFound,
+    /// An explicit branch, tag, or SHA does not exist in the repository.
+    RefNotFound,
+    /// A pull-request number names an issue.
+    PullRequestIsIssue,
+    /// A file read named binary content, which is never returned as text.
+    BinaryFile,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProviderError {
+    pub kind: ProviderErrorKind,
+    pub message: Box<str>,
+    pub status: Option<u16>,
+    pub request_id: Option<Box<str>>,
+    pub documentation_url: Option<Box<str>>,
+    pub rate_limit: Option<RateLimit>,
+    pub retryable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ProviderErrorReason>,
+}
+
+impl ProviderError {
+    pub fn new(kind: ProviderErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into().into_boxed_str(),
+            status: None,
+            request_id: None,
+            documentation_url: None,
+            rate_limit: None,
+            // Timeouts, dropped connections, and 5xx are transient by nature;
+            // an identical retry of a 60 s timeout succeeded in 2 s in evals.
+            retryable: matches!(
+                kind,
+                ProviderErrorKind::Timeout
+                    | ProviderErrorKind::Transport
+                    | ProviderErrorKind::Server
+            ),
+            reason: None,
+        }
+    }
+
+    pub fn with_reason(mut self, reason: ProviderErrorReason) -> Self {
+        self.reason = Some(reason);
+        self
+    }
+}
+impl std::fmt::Display for ProviderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+impl std::error::Error for ProviderError {}

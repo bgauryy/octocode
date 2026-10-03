@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/manyhits.txt", "searchText": "value_\\d", "resultView": "matchOnly", "unique": "count"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"files":[{"path":"manyhits.txt","matches":[{"line":1,"column":14,"value":"value_1","count":11},{"line":2,"column":14,"value":"value_2","count":11},{"line":3,"column":14,"value":"value_3","count":2},{"line":4,"column":14,"value":"value_4","count":1},{"line":5,"column":14,"value":"value_5","count":1},{"line":6,"column":14,"value":"value_6","count":1},{"line":7,"column":14,"value":"value_7","count":1},{"line":8,"column":14,"value":"value_8","count":1},{"line":9,"column":14,"value":"value_9","count":1}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

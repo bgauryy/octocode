@@ -1,0 +1,94 @@
+{
+  "qid": "G08",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "552d4bc6f541a99f16f36a397985acab19667e788fe16e51b103921e333625f4",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause (getOwnPropertyDescriptor trap, untracked source?.v) and fix. Cites PR and hunk line ~204; lacks merge SHA."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Equally accurate; cites PR #18838 and merge SHA a72dc8e (verified). No line numbers."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause (getOwnPropertyDescriptor trap, untracked source?.v) and fix. Cites PR and hunk line ~204; lacks merge SHA."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Equally accurate; cites PR #18838 and merge SHA a72dc8e (verified). No line numbers."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.0825276,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7120,
+    "cache_read_input_tokens": 11958,
+    "output_tokens": 12,
+    "context_tokens": 19082,
+    "total_tokens": 19094,
+    "first_request_context": 9333,
+    "fixed_overhead_tokens": 18666,
+    "research_tokens": 428,
+    "max_request_context": 9749
+  },
+  "timedOut": false
+}

@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call did most of the work. I ran `git rev-parse HEAD` together with `rg -n "ModuleDetection" --glob '*.go'`, excluding tests. That confirmed the pinned commit and showed the three key files in one pass: `compileroptions.go`, `parseoptions.go` and `enummaps.go`. The second call printed `GetEmitModuleDetectionKind` and `parseoptions.go` with line numbers, and also grepped for `SetExternalModuleIndicator`. That gave the complete decision logic and the parser call site. The third call covered the remainder of `parseoptions.go` and the lines around `parser.go:486` and `utilities.go:1687`.
+
+2. **Did not help:** Nothing failed. The `cd` in the second call changed the working directory, which the environment update then reported, so that was noise. I never opened `GetImpliedNodeFormatForEmitWorker`, so the ESNext branch in `auto` mode is only what the code comment says.
+
+3. **Next time:** I would grep for `GetImpliedNodeFormatForEmitWorker` and read it in the same call as the rest. I would also use absolute paths instead of `cd`.
+
+4. **Confidence:** High for the main flow, because I read every cited line directly at the pinned commit. Medium for the `type: module` handling, since I didn't read that function. I also didn't run anything, so the behavior comes from reading the code only.

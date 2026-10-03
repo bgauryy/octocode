@@ -1,37 +1,33 @@
 # Packets
 
-Load when writing worker briefs or parsing returns. Check the host's context inheritance and provide what the worker lacks.
+Load when you write worker briefs or parse returns.
 
-## Request (required)
-- `goal` — one bounded objective
-- `context` — decisive facts + exact anchors only
-- `scope` — include / exclude / tools / stop
-- `authority` — allowed effects, approval gates, and explicit prohibitions; workers cannot widen parent authority
-- `budget` — worker and graph time/token/tool-call cap plus replan threshold
-- `ownership` — **manager-as-tool** (parent keeps user) vs **handoff** (specialist owns next turns + return/terminal rule). Writes need disjoint paths + verify cmd
-- `acceptance` — observable done criteria
-- `return` — required shape (structured prefixes or schema OK)
+| Request field (required) | Content |
+|---|---|
+| `goal` | one bounded objective |
+| `context` | decisive facts and exact anchors only |
+| `scope` | include, exclude, tools, stop rule |
+| `authority` | allowed effects, approval gates, prohibitions |
+| `budget` | worker and graph time, token, tool-call cap; replan threshold |
+| `ownership` | **manager-as-tool** (parent keeps the requester) or **handoff** (specialist owns next turns, with a return or terminal rule); writes need disjoint paths and a verify command |
+| `acceptance` | observable done criteria |
+| `return` | required shape (structured prefixes or a schema) |
 
-## Result (required)
-- `status` — `complete` | `partial` | `blocked`
-- `result` — conclusion; no transcript
-- `evidence` — ≤8 decisive anchors (`path:line`, URL, cmd, artifact)
-- `verification` — check + outcome, or why not
-- `confidence` — confirmed | likely | uncertain + gaps
-- `next` — next action or `none`
+Optional technique fields: `playbook`, `playbook_owner`, `mimic`, `claim_table`, `questions` (`references/challenge.md`).
 
-Re-ask only when a missing return field prevents verification or the next action. Accept an equivalent clear result; do not repeat work solely to enforce a prose template.
+| Result field (required) | Content |
+|---|---|
+| `status` | `complete` \| `partial` \| `blocked` |
+| `result` | the conclusion, no transcript |
+| `evidence` | ≤8 decisive anchors (`path:line`, URL, command, artifact) |
+| `verification` | check and outcome, or why not |
+| `confidence` | confirmed \| likely \| uncertain, plus gaps |
+| `next` | next action or `none` |
 
-## Message kinds
-`request` · `question` · `status` · `result` · `blocker` · `approval-needed` · `cancel`
+Re-ask only when a missing field blocks verification or the next action; accept an equivalent clear result.
 
-Map remote A2A `input-required` / `auth-required` to parent/user gates — do not auto-continue.
+- Message kinds: `request` · `question` · `status` · `result` · `blocker` · `approval-needed` · `cancel`.
+- Strip transcripts, tool chatter, and unpaired tool history.
+- Handoff: pass a short summary, not full worker history.
 
-## Token / handoff filter
-Pass goal, anchors, scope, acceptance, return shape. Strip transcripts, tool chatter, and unpaired tool history. Prefer a short summary over full worker history on handoff.
-Give verifier workers the artifact, anchors, and acceptance contract—not the executor's reasoning transcript.
-
-## Optional technique fields
-- Rubber duck / interview / mimic → see `references/techniques.md` (`playbook`, `mimic`, interviewer `claim_table`, duck `questions`).
-
-Next: `references/coordinate.md` · `references/synthesize.md` · `references/a2a.md` · `references/mimic-flow.md`.
+Next: run workers with `references/coordinate.md`; merge with `references/completion.md`.

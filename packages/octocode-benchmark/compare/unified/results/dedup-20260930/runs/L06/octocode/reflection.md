@@ -1,0 +1,7 @@
+**Helped:** The first `localSearch` for `generateEtags` over `packages/next/src` was the fastest step. One call listed every usage: config-shared, schema, base-server, send-payload, router-server and pages-handler. The three parallel `localFetch` line-range reads then covered `send-payload.ts`, the `router-server.ts` static-file branch and the `base-server.ts` call site. Together they gave the full flow with exact lines.
+
+**Did not help:** The search returned `isPartial: true` and `terminalLimit: true`. So the file list may be incomplete, and I never re-ran it with a narrower scope or `resultView: files`. I read `send-payload.ts` from line 30, which cut off the imports and the `generateETag`/`sendEtagResponse` definitions. I never followed them, even though they were the most direct evidence for the ETag and 304 behavior. I also skipped `pages-handler.ts:739`, `next-server.ts` and the `config-shared.ts:2614` render-options mapping. I described all of them from grep lines alone.
+
+**Next time:** Start the `send-payload.ts` read at line 1, or use `lspSearch` definition on `sendEtagResponse`. Re-run the search with `resultView: files` to check that the hit list is complete. Read the `pages-handler` call site.
+
+**Confidence:** Medium-high. The core flow is verified from source. The 304 and header details and the pages-handler path are inferred, and I said so in the answer.

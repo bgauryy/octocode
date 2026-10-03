@@ -1,0 +1,190 @@
+{
+  "qid": "L03",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "ec52239575921a9517ec378ffa5e1dd4fb96db9f38f2c4431147d2e6277ce3ef",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "79ac7c84e135bb206d6ebe76bc6175ded2dd6ef88333b503420a5e7ac72ea0f5",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All claims correct, including the subtle one that callbacks registered during hook execution run immediately (autocommit is set at base.py:488 before hooks run). The transaction.py line numbers are approximate and labelled as such; the commit estimate (~299-303 vs actual 276) is clearly off."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Callbacks registered by a running callback are queued for the next round rather than run (they actually run immediately because autocommit is already True and in_atomic_block is False)"
+      ],
+      "notes": "Accurate citations throughout. Does not trace the Atomic.__exit__ -> savepoint_rollback link (transaction.py:296) and hedges about it, so fact 3 is only partly covered. One wrong peripheral claim about re-entrant registration."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All claims correct, including the subtle one that callbacks registered during hook execution run immediately (autocommit is set at base.py:488 before hooks run). The transaction.py line numbers are approximate and labelled as such; the commit estimate (~299-303 vs actual 276) is clearly off."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Callbacks registered by a running callback are queued for the next round rather than run (they actually run immediately because autocommit is already True and in_atomic_block is False)"
+      ],
+      "notes": "Accurate citations throughout. Does not trace the Atomic.__exit__ -> savepoint_rollback link (transaction.py:296) and hedges about it, so fact 3 is only partly covered. One wrong peripheral claim about re-entrant registration."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.11951540000000001,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 9942,
+        "cache_read_input_tokens": 23277,
+        "output_tokens": 1765,
+        "context_tokens": 33225,
+        "total_tokens": 34990,
+        "first_request_context": 9556,
+        "fixed_overhead_tokens": 28668,
+        "research_tokens": 6322,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 9942,
+          "cache_read_input_tokens": 23277,
+          "output_tokens": 16
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1749
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9942,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 12314
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Read": 3
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.11951540000000001,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9942,
+    "cache_read_input_tokens": 23277,
+    "output_tokens": 1765,
+    "context_tokens": 33225,
+    "total_tokens": 34990,
+    "first_request_context": 9556,
+    "fixed_overhead_tokens": 28668,
+    "research_tokens": 6322,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 9942,
+      "cache_read_input_tokens": 23277,
+      "output_tokens": 16
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1749
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9942,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 12314
+  },
+  "timedOut": false
+}

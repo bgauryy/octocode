@@ -1,0 +1,504 @@
+[
+ {
+  "call": "walk1",
+  "ms": 950,
+  "isError": false,
+  "textLen": 2024,
+  "sc": {
+   "queries": [
+    {
+     "queryId": "walk-1",
+     "resources": [
+      {
+       "resourceId": "tools",
+       "coverage": "partial",
+       "pages": [
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 1,
+          "endLine": 217,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.04,
+           "matches": [
+            {
+             "startLine": 107,
+             "endLine": 114,
+             "probability": 0.46
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 218,
+          "endLine": 466,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.05,
+           "matches": [
+            {
+             "startLine": 444,
+             "endLine": 451,
+             "probability": 0.59
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 467,
+          "endLine": 727,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.05,
+           "matches": [
+            {
+             "startLine": 725,
+             "endLine": 727,
+             "probability": 0.16
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 728,
+          "endLine": 943,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.04,
+           "matches": [
+            {
+             "startLine": 728,
+             "endLine": 733,
+             "probability": 0.35
+            }
+           ]
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "next": {
+      "clasify": {
+       "id": "walk-1",
+       "reasoning": "Locate the deciding row before reading.",
+       "resources": [
+        {
+         "id": "tools",
+         "context": {
+          "tool": "localFetch",
+          "query": {
+           "chunkSize": 2000,
+           "chunkType": "lines",
+           "followUp": true,
+           "offset": 943,
+           "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md",
+           "snapshot": "ea942c78bd09d834d0a233fa969f482aee36111a05ddcad4131d8da381a1b07e"
+          }
+         },
+         "maxChars": 80000
+        }
+       ],
+       "questions": [
+        {
+         "target": "The default time-to-live of clone cache entries.",
+         "questionType": "locate",
+         "id": "ttl"
+        }
+       ],
+       "carry": {
+        "ttl": [
+         {
+          "resourceId": "tools",
+          "exists": 0.05,
+          "startLine": 444,
+          "endLine": 451,
+          "probability": 0.59,
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         {
+          "resourceId": "tools",
+          "exists": 0.05,
+          "startLine": 725,
+          "endLine": 727,
+          "probability": 0.16,
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         {
+          "resourceId": "tools",
+          "exists": 0.04,
+          "startLine": 107,
+          "endLine": 114,
+          "probability": 0.46,
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         }
+        ]
+       },
+       "goal": "Find the default time-to-live for clone cache entries."
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "call": "walk2",
+  "ms": 443,
+  "isError": false,
+  "textLen": 1252,
+  "sc": {
+   "queries": [
+    {
+     "queryId": "walk-1",
+     "best": {
+      "ttl": [
+       {
+        "resourceId": "tools",
+        "exists": 0.98,
+        "startLine": 1532,
+        "endLine": 1539,
+        "probability": 0.9,
+        "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+       },
+       {
+        "resourceId": "tools",
+        "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md",
+        "exists": 0.05,
+        "startLine": 444,
+        "endLine": 451,
+        "probability": 0.59
+       },
+       {
+        "resourceId": "tools",
+        "exists": 0.05,
+        "startLine": 1162,
+        "endLine": 1167,
+        "probability": 0.31,
+        "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+       }
+      ]
+     },
+     "resources": [
+      {
+       "resourceId": "tools",
+       "coverage": "complete",
+       "pages": [
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 944,
+          "endLine": 1161,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.04,
+           "matches": [
+            {
+             "startLine": 944,
+             "endLine": 949,
+             "probability": 0.3
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 1162,
+          "endLine": 1417,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.05,
+           "matches": [
+            {
+             "startLine": 1162,
+             "endLine": 1167,
+             "probability": 0.31
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 1418,
+          "endLine": 1566,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.98,
+           "matches": [
+            {
+             "startLine": 1532,
+             "endLine": 1539,
+             "probability": 0.9
+            }
+           ]
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "call": "repeat",
+  "ms": 171,
+  "sc": {
+   "queries": [
+    {
+     "queryId": "walk-1",
+     "resources": [
+      {
+       "resourceId": "tools",
+       "coverage": "partial",
+       "pages": [
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 1,
+          "endLine": 217,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.04,
+           "matches": [
+            {
+             "startLine": 107,
+             "endLine": 114,
+             "probability": 0.46
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 218,
+          "endLine": 466,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.05,
+           "matches": [
+            {
+             "startLine": 444,
+             "endLine": 451,
+             "probability": 0.59
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 467,
+          "endLine": 727,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.05,
+           "matches": [
+            {
+             "startLine": 725,
+             "endLine": 727,
+             "probability": 0.16
+            }
+           ]
+          }
+         }
+        },
+        {
+         "source": {
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         "scope": {
+          "startLine": 728,
+          "endLine": 943,
+          "totalLines": 1566
+         },
+         "answers": {
+          "ttl": {
+           "exists": 0.04,
+           "matches": [
+            {
+             "startLine": 728,
+             "endLine": 733,
+             "probability": 0.35
+            }
+           ]
+          }
+         }
+        }
+       ]
+      }
+     ],
+     "next": {
+      "clasify": {
+       "id": "walk-1",
+       "reasoning": "Locate the deciding row before reading.",
+       "resources": [
+        {
+         "id": "tools",
+         "context": {
+          "tool": "localFetch",
+          "query": {
+           "chunkSize": 2000,
+           "chunkType": "lines",
+           "followUp": true,
+           "offset": 943,
+           "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md",
+           "snapshot": "ea942c78bd09d834d0a233fa969f482aee36111a05ddcad4131d8da381a1b07e"
+          }
+         },
+         "maxChars": 80000
+        }
+       ],
+       "questions": [
+        {
+         "target": "The default time-to-live of clone cache entries.",
+         "questionType": "locate",
+         "id": "ttl"
+        }
+       ],
+       "carry": {
+        "ttl": [
+         {
+          "resourceId": "tools",
+          "exists": 0.05,
+          "startLine": 444,
+          "endLine": 451,
+          "probability": 0.59,
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         {
+          "resourceId": "tools",
+          "exists": 0.05,
+          "startLine": 725,
+          "endLine": 727,
+          "probability": 0.16,
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         },
+         {
+          "resourceId": "tools",
+          "exists": 0.04,
+          "startLine": 107,
+          "endLine": 114,
+          "probability": 0.46,
+          "path": "/Users/bgaryy/code/octocode/docs/OCTOCODE_TOOLS.md"
+         }
+        ]
+       },
+       "goal": "Find the default time-to-live for clone cache entries."
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "call": "multi",
+  "ms": 332,
+  "isError": false,
+  "text": "{\"queries\":[{\"queryId\":\"mA\",\"resources\":[{\"resourceId\":\"held1\",\"coverage\":\"complete\",\"pages\":[{\"answers\":{\"isStartupBlock\":{\"noul\":0.89}}}]}]},{\"queryId\":\"matrix-2\",\"resources\":[{\"resourceId\":\"resource-1\",\"coverage\":\"complete\",\"pages\":[{\"answers\":{\"question-1\":{\"score\":1.99,\"confidence\":0.99,\"probabilities\":{\"0\":0,\"1\":0,\"2\":1,\"3\":0}}}}]}]}]}",
+  "sc": {
+   "queries": [
+    {
+     "queryId": "mA",
+     "resources": [
+      {
+       "resourceId": "held1",
+       "coverage": "complete",
+       "pages": [
+        {
+         "answers": {
+          "isStartupBlock": {
+           "noul": 0.89
+          }
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "queryId": "matrix-2",
+     "resources": [
+      {
+       "resourceId": "resource-1",
+       "coverage": "complete",
+       "pages": [
+        {
+         "answers": {
+          "question-1": {
+           "score": 1.99,
+           "confidence": 0.99,
+           "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 1,
+            "3": 0
+           }
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+]

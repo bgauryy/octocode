@@ -1,0 +1,182 @@
+{
+  "qid": "L14",
+  "pairKey": "octocode__octocode-npm",
+  "label": "order1",
+  "subjectSha": "52522251db5228818c8b13c060a827babb277a94ff7ee8a276e59790d05173d2",
+  "model": "claude-opus-5-5",
+  "X": "octocode-npm",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "0bbbf10092c28ecc00a5c12ff82c13c87f51559b97a6b9fe376ddfb068c5f42a",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. Line numbers are approximate (~) and a few lines early, but close enough to count. Covers cancel and flush but omits the throttle relationship."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with exact line citations. Correctly notes that shouldInvoke runs before lastCallTime is recorded. Covers cancel and flush but omits the throttle relationship."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode-npm": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. Line numbers are approximate (~) and a few lines early, but close enough to count. Covers cancel and flush but omits the throttle relationship."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, with exact line citations. Correctly notes that shouldInvoke runs before lastCallTime is recorded. Covers cancel and flush but omits the throttle relationship."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.09522060000000002,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8574,
+        "cache_read_input_tokens": 11363,
+        "output_tokens": 1217,
+        "context_tokens": 19941,
+        "total_tokens": 21158,
+        "first_request_context": 8995,
+        "fixed_overhead_tokens": 17990,
+        "research_tokens": 3168,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8574,
+          "cache_read_input_tokens": 11363,
+          "output_tokens": 21
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1196
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8574,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 10946
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.09522060000000002,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8574,
+    "cache_read_input_tokens": 11363,
+    "output_tokens": 1217,
+    "context_tokens": 19941,
+    "total_tokens": 21158,
+    "first_request_context": 8995,
+    "fixed_overhead_tokens": 17990,
+    "research_tokens": 3168,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 8574,
+      "cache_read_input_tokens": 11363,
+      "output_tokens": 21
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1196
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8574,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 10946
+  },
+  "timedOut": false
+}

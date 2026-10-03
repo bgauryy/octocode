@@ -95,11 +95,52 @@ export function buildClickEvents(x, y, opts = {}) {
   ];
 }
 
-const KEY_MAP = {
-  ' ': { code: 'Space', key: ' ', keyCode: 32 },
-  '\n': { code: 'Enter', key: 'Enter', keyCode: 13 },
-  '\t': { code: 'Tab', key: 'Tab', keyCode: 9 },
+const NAMED_KEYS = {
+  Enter: [13, 'Enter', '\r'], Tab: [9, 'Tab'], Escape: [27, 'Escape'], Backspace: [8, 'Backspace'],
+  Delete: [46, 'Delete'], Space: [32, 'Space', ' '], ArrowUp: [38, 'ArrowUp'], ArrowDown: [40, 'ArrowDown'],
+  ArrowLeft: [37, 'ArrowLeft'], ArrowRight: [39, 'ArrowRight'], Home: [36, 'Home'], End: [35, 'End'],
+  PageUp: [33, 'PageUp'], PageDown: [34, 'PageDown'],
 };
+const MODIFIERS = { Alt: [1, 18, 'AltLeft'], Control: [2, 17, 'ControlLeft'], Meta: [4, 91, 'MetaLeft'], Shift: [8, 16, 'ShiftLeft'] };
+
+/** CDP key fields for a named key (Enter, ArrowDown…) or one character. */
+export function keyDefinition(key) {
+  const named = NAMED_KEYS[key === ' ' ? 'Space' : key === '\n' ? 'Enter' : key === '\t' ? 'Tab' : key];
+  if (named) return { key: named[1] === 'Space' ? ' ' : named[1], code: named[1], windowsVirtualKeyCode: named[0], text: named[2] };
+  if ([...key].length !== 1) throw new Error(`Unknown key ${JSON.stringify(key)}; use a character or one of ${Object.keys(NAMED_KEYS).join(', ')}`);
+  const up = key.toUpperCase();
+  const code = /[A-Z]/.test(up) && up.length === 1 ? `Key${up}` : /\d/.test(key) ? `Digit${key}` : '';
+  const vk = /[A-Z0-9]/.test(up) && up.length === 1 ? up.charCodeAt(0) : 0;
+  return { key, code, windowsVirtualKeyCode: vk, text: key };
+}
+
+/** Press a key or combo ("Enter", "Control+A", "Shift+Tab"): array of {method, params, delayMs}. */
+export function buildKeyPressEvents(combo) {
+  const parts = String(combo).split('+').filter(Boolean);
+  const main = parts.pop() ?? '';
+  const mods = parts.map((m) => { const d = MODIFIERS[m === 'Ctrl' ? 'Control' : m === 'Cmd' ? 'Meta' : m]; if (!d) throw new Error(`Unknown modifier ${m}`); return [m, d]; });
+  const modifiers = mods.reduce((s, [, d]) => s | d[0], 0);
+  const def = keyDefinition(main);
+  const printable = def.text && !(modifiers & (1 | 2 | 4));
+  const ev = (type, p, delayMs = 15) => ({ method: 'Input.dispatchKeyEvent', params: { type, modifiers, ...p }, delayMs });
+  return [
+    ...mods.map(([m, d]) => ev('rawKeyDown', { key: m, code: d[2], windowsVirtualKeyCode: d[1] })),
+    ev(printable ? 'keyDown' : 'rawKeyDown', { key: def.key, code: def.code, windowsVirtualKeyCode: def.windowsVirtualKeyCode, ...(printable ? { text: def.text, unmodifiedText: def.text } : {}) }, 40),
+    ev('keyUp', { key: def.key, code: def.code, windowsVirtualKeyCode: def.windowsVirtualKeyCode }),
+    ...mods.reverse().map(([m, d]) => ev('keyUp', { key: m, code: d[2], windowsVirtualKeyCode: d[1] })),
+  ];
+}
+
+function charKeyEvents(ch, delayMs) {
+  let def;
+  try { def = keyDefinition(ch); } catch { def = null; }
+  // Characters with no key mapping (emoji, combining marks) still need text input.
+  if (!def) return [{ method: 'Input.insertText', params: { text: ch }, delayMs }];
+  return [
+    { method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: def.key, code: def.code, windowsVirtualKeyCode: def.windowsVirtualKeyCode, text: def.text, unmodifiedText: def.text }, delayMs: 10 },
+    { method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', key: def.key, code: def.code, windowsVirtualKeyCode: def.windowsVirtualKeyCode }, delayMs },
+  ];
+}
 
 /** WPM-paced typing with occasional typo+backspace correction: array of {method, params, delayMs}. */
 export function buildTypingEvents(text, opts = {}) {
@@ -114,22 +155,13 @@ export function buildTypingEvents(text, opts = {}) {
   let burst = 0;
   const burstMax = randInt(burstSize[0], burstSize[1]);
 
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const special = KEY_MAP[ch];
-
-    if (special) {
-      events.push({ method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', code: special.code, key: special.key, windowsVirtualKeyCode: special.keyCode }, delayMs: msPerChar() });
-      events.push({ method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', code: special.code, key: special.key, windowsVirtualKeyCode: special.keyCode }, delayMs: 20 });
-    } else {
-      if (Math.random() < mistakeChance) {
-        const wrongChar = String.fromCharCode(ch.charCodeAt(0) + (Math.random() < 0.5 ? 1 : -1));
-        events.push({ method: 'Input.insertText', params: { text: wrongChar }, delayMs: msPerChar() });
-        events.push({ method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', code: 'Backspace', key: 'Backspace', windowsVirtualKeyCode: 8 }, delayMs: rand(200, 600) });
-        events.push({ method: 'Input.dispatchKeyEvent', params: { type: 'keyUp', code: 'Backspace', key: 'Backspace', windowsVirtualKeyCode: 8 }, delayMs: 30 });
-      }
-      events.push({ method: 'Input.insertText', params: { text: ch }, delayMs: msPerChar() });
+  for (const ch of text) {
+    if (/[a-z]/i.test(ch) && Math.random() < mistakeChance) {
+      const wrongChar = String.fromCharCode(ch.charCodeAt(0) + (ch.toLowerCase() === 'a' ? 1 : -1));
+      events.push(...charKeyEvents(wrongChar, msPerChar()));
+      events.push(...buildKeyPressEvents('Backspace').map((e) => ({ ...e, delayMs: rand(120, 300) })));
     }
+    events.push(...charKeyEvents(ch, msPerChar()));
 
     burst++;
     if (burst >= burstMax) {

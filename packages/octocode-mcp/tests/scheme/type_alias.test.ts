@@ -1,10 +1,18 @@
 import { describe, it, expect } from 'vitest';
 
-import { LocalSearchQuerySchema } from '@octocodeai/octocode-core/schema';
-import { AstSearchQuerySchema } from '@octocodeai/octocode-core/schema';
+import { LocalSearchQuerySchema } from '@octocodeai/config/schema';
+import {
+  AstSearchQuerySchema,
+  StructureSearchQuerySchema,
+} from '@octocodeai/config/schema';
 
 describe('canonical localSearch lexical contract', () => {
-  const base = { searchText: 'foo', path: 'src' };
+  const base = {
+    mainGoal: 'test goal',
+    reasoning: 'exercise lexical contract',
+    searchText: 'foo',
+    path: 'src',
+  };
 
   it('accepts the explicit regex modes', () => {
     for (const regex of ['literal', 'rust', 'pcre2']) {
@@ -33,10 +41,12 @@ describe('canonical localSearch lexical contract', () => {
   });
 });
 
-describe('canonical astSearch filesystem contract', () => {
-  it('accepts file discovery and filesystem tree operations', () => {
+describe('structureSearch owns filesystem layout', () => {
+  it('accepts file discovery and directory trees', () => {
     expect(
-      AstSearchQuerySchema.safeParse({
+      StructureSearchQuerySchema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise filesystem contract',
         operation: 'files',
         path: 'src',
         names: ['*.ts'],
@@ -45,30 +55,60 @@ describe('canonical astSearch filesystem contract', () => {
       }).success
     ).toBe(true);
     expect(
-      AstSearchQuerySchema.safeParse({
+      StructureSearchQuerySchema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise filesystem contract',
         operation: 'tree',
-        treeKind: 'filesystem',
         path: 'src',
-        sort: 'time',
+        maxDepth: 2,
       }).success
     ).toBe(true);
   });
 
   it('keeps unsupported aliases rejected', () => {
     expect(
-      AstSearchQuerySchema.safeParse({
+      StructureSearchQuerySchema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise aliases',
         operation: 'files',
         path: 'src',
         entryType: 'file',
       }).success
     ).toBe(false);
     expect(
-      AstSearchQuerySchema.safeParse({
+      StructureSearchQuerySchema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise aliases',
         operation: 'tree',
-        treeKind: 'filesystem',
         path: 'src',
         sort: 'modified',
       }).success
     ).toBe(false);
+  });
+});
+
+describe('astSearch carries no filesystem operations', () => {
+  it('accepts syntaxTree and rejects retired files/tree shapes', () => {
+    expect(
+      AstSearchQuerySchema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise syntax contract',
+        operation: 'syntaxTree',
+        path: 'src/index.ts',
+      }).success
+    ).toBe(true);
+    for (const retired of [
+      { operation: 'files', path: 'src', names: ['*.ts'] },
+      { operation: 'tree', treeKind: 'syntax', path: 'src/index.ts' },
+      { operation: 'tree', path: 'src' },
+    ]) {
+      expect(
+        AstSearchQuerySchema.safeParse({
+          mainGoal: 'test goal',
+          reasoning: 'exercise retired shapes',
+          ...retired,
+        }).success
+      ).toBe(false);
+    }
   });
 });

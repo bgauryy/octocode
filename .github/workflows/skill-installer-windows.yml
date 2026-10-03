@@ -7,14 +7,15 @@ on:
       - 'packages/octocode-skill-installer/**'
       - 'packages/octocode/src/cli/commands/skill.ts'
       - 'packages/octocode/src/cli/commands/skills/**'
-      - 'packages/octocode-awareness/src/skill-*-command.ts'
+      - 'packages/octocode-native/crates/cli/src/cli/skill.rs'
   push:
+    branches: [main]
     paths:
       - '.github/workflows/skill-installer-windows.yml'
       - 'packages/octocode-skill-installer/**'
       - 'packages/octocode/src/cli/commands/skill.ts'
       - 'packages/octocode/src/cli/commands/skills/**'
-      - 'packages/octocode-awareness/src/skill-*-command.ts'
+      - 'packages/octocode-native/crates/cli/src/cli/skill.rs'
 
 permissions:
   contents: read
@@ -35,13 +36,13 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          cache: 'yarn'
+          package-manager-cache: false
 
       - name: Enable Corepack
         run: corepack enable
 
       - name: Remove local development resolutions
-        run: node scripts/prepublish.mjs --fix
+        run: node skills-dev/octocode-dev/scripts/prepublish.mjs --fix
 
       - name: Install dependencies
         run: yarn install --no-immutable

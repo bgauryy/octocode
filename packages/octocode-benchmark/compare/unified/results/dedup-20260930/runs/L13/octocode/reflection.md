@@ -1,0 +1,7 @@
+**1. Helped:** The first successful `localSearch` for `expireIfNeeded`, restricted to db.c and t_string.c, gave me the call sites and the definition line in one call. The batched `localFetch` of db.c 295-360 and 2960-3110 then returned `lookupKey` and `expireIfNeeded` with their comments, which covered nearly the whole answer. The last `localSearch` for `int getGenericCommand` with contextLines confirmed that GET uses `lookupKeyReadOrReply` with the null reply.
+
+**2. Did not help:** My first `localSearch` failed with a validation error because I passed `include` as a bare JSON string instead of an array. It cost one round trip. The `localSearch` for `getGenericCommand` also returned oddly large snippets, pulling in neighbouring code. I never read `lookupKeyReadOrReply`, `deleteExpiredKeyAndPropagate` or `keyIsExpired`. I also didn't check which lookup flags GET passes.
+
+**3. Next time:** I'd pass the queries array correctly the first time. I'd batch the `getGenericCommand` search into the same call as the `expireIfNeeded` search. I'd also fetch `lookupKeyReadOrReply` and `deleteExpiredKeyAndPropagate` in the second batch, so the unverified parts are covered.
+
+**4. Confidence:** High for the core behavior: a master deletes the expired key, propagates the deletion and returns nil. I saw that chain in source at `db.c:319` and `db.c:3004` and in `t_string.c`. Medium for the replica and pause edge cases. I read them in `expireIfNeeded`, but I didn't trace every caller or flag path.

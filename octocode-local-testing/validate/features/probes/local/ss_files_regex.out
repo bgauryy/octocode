@@ -1,0 +1,5 @@
+# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "files", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "pathRegex": "^f0[1-3]\\.txt$"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"fx","files":[{"path":"fx/many/f01.txt"},{"path":"fx/many/f02.txt"},{"path":"fx/many/f03.txt"}]}}],"shared":{"sizeFormatted":"17B"},"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local"}

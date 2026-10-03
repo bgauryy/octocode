@@ -83,17 +83,15 @@ vi.mock('node:child_process', async (importOriginal) => {
     return /(?:^|\/)(?:git|bash|zsh|sh)$/.test(cmd);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const guardedSpawn = (cmd: string, ...rest: any[]): any => {
+  const guardedSpawn = ((cmd: string, ...rest: unknown[]) => {
     if (!isSafe(cmd)) throw new Error(BLOCK_PROCESS);
     return (cp.spawn as (...a: unknown[]) => unknown)(cmd, ...rest);
-  };
+  }) as typeof cp.spawn;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const guardedSpawnSync = (cmd: string, ...rest: any[]): any => {
+  const guardedSpawnSync = ((cmd: string, ...rest: unknown[]) => {
     if (!isSafe(cmd)) throw new Error(BLOCK_PROCESS);
     return (cp.spawnSync as (...a: unknown[]) => unknown)(cmd, ...rest);
-  };
+  }) as typeof cp.spawnSync;
 
   return {
     ...cp,

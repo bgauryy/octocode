@@ -1,50 +1,70 @@
-# Skill Anatomy
+# Skill anatomy
 
-Load when evaluating, improving, or creating a skill's folder shape — before rewriting structure.
+Load when you evaluate, improve, or create a skill's folder shape, or add or review `scripts/`. Why: shape decides what loads and when; code beats agentic prose for mechanical steps.
 
-A skill is a standalone folder with required `SKILL.md` and optional `scripts/`, `references/`, `assets/`, and `scheme/`. Every local file reference resolves inside it, and every shipped file is used. Name optional sibling skills without file paths; vendor required helpers and remove development-only metadata, probes, duplicates, and dead artifacts. <!-- style-lint: ignore-line passive-voice -->
+Name optional sibling skills without file paths.
 
 ```text
 my-skill/
-|-- SKILL.md       # metadata + operating map
-|-- scripts/       # deterministic helpers
-|-- references/    # one-concept depth
-|-- assets/        # templates / resources
-`-- scheme/        # optional JSON contracts; one file per contract
+|-- SKILL.md       # required lobby: frontmatter, flow, gates, routes
+|-- README.md      # human overview (review recommends)
+|-- references/    # one-concept depth, all reachable
+|-- scripts/       # deterministic helpers actually routed
+|-- assets/        # templates/resources actually used
+`-- scheme/        # optional JSON contracts; one top-level object per file
 ```
 
 ## Progressive disclosure
 
-1. Discovery — agent sees only `name` + `description`.
-2. Activation — matching task → full `SKILL.md`.
-3. Execution — load refs/scripts only when the map says so.
+1. Discovery: the agent sees only `name` + `description` (about 100 tokens per skill).
+2. Activation: a matching task loads the full `SKILL.md` (spec: under 5,000 tokens and 500 lines).
+3. Execution: the agent loads references and scripts only when a route says so.
 
-`SKILL.md` is the lobby: entry decisions, shared constraints, and routes live there. References own conditional procedures without redefining shared rules.
+Reference detail means catalogs, examples, long procedures, data, and sources. Move a rule up when it decides the next action. Add a second small diagram only for a loop the map cannot show.
 
-Every lobby declares `tools: npx octocode / octocode-mcp`, one `related-skill: <skill-name>`, and the `output:` decision: workspace root for workspace work, home root only when no workspace applies. These name execution, the closest handoff, and allowed artifact roots; they do not authorize installing a missing skill.
+`SKILL.md` opens with the skill map: one Mermaid diagram that shows the flow phases (solid edges) and every reference page (dotted edges labeled with the trigger), then a one-line caption.
 
-## Reference discipline
+```mermaid
+flowchart LR
+  U[UNDERSTAND] --> W[WRITE] --> V[VERIFY]
+  U -. "mode unclear" .-> M["modes.md"]
+  W -. "procedure or runbook" .-> S["style-ste80.md"]
+  V -. "a check fails" .-> R["review.md"]
+```
 
-- One short H1 and one concept per file. Treat 50 lines as a review cue, not a reason to fragment useful instructions.
-- Routes explain when and why to load detail. Reuse prior reads and batch independent references when useful.
-- Ref→ref OK for depth — end with the next load when needed.
-- Gotchas stay in the lobby only if the agent must know them before the trigger.
-- Tabular content → a real markdown table, never prose describing rows/columns.
-- Every reference/citation states why it matters — no bare links.
-- Every sentence earns its tokens: dense, no filler, no duplicate phrasing, no data loss.
-- References, docs, scripts, and schemes must be efficient, coherent, and effective: each owns a complete conditional job, changes the next action, and costs less context or execution than it saves. Move a short shared rule into the lobby; remove a wrapper that only repeats a tool or related-skill handoff.
+## References
 
-## Map and navigation
+- Merge pages that serve one moment of use too; do not fragment a coherent procedure.
+- Give a next hop only when the procedure depends on another file.
+- Put tabular content in a real markdown table.
+- A reference earns its hop only when it changes the next action and saves context.
 
-- `SKILL.md` routes the main capabilities. An index or used reference can route deeper files and scripts; avoid duplicating the same catalog in both places.
-- Each chunk opens with its own entry condition (`Load when … Why: …`) so a route is verifiable from the file itself.
-- Give a next hop when the procedure depends on another file. A complete reference can end without a ceremonial closing line.
-- Every flow phase in `SKILL.md` appears in a route or gate; a phase named only in the flow line is decoration.
-- Library modules under `scripts/` stay unlisted but imported; each `scheme/<contract-name>.json` is a valid top-level object routed from its consumer.
-- Run `scripts/skill-review.mjs`; fix errors and judge advisory layout findings against actual navigation and task needs.
-## Context cut
+## Navigation
 
-Ask: "Can the agent get this wrong without the skill?" If not, cut.
-Prefer stepwise guidance over exhaustive docs. Keep each skill a coherent unit of work.
+- `SKILL.md` routes every reference directly: one level deep, no chains. A `Next:` hop names only a page the lobby also routes. Do not duplicate one catalog in two places.
+- Write relative paths from the skill root with forward slashes (`references/<page>.md`), never `\`.
+- A loaded file over 100 lines (asset, catalog, API doc) opens with a table of contents, so a partial read still sees its scope.
+- Every flow phase in `SKILL.md` appears in a route or gate.
+- Library modules under `scripts/` stay unlisted but imported. Route each `scheme/<contract-name>.json` from its consumer.
 
-Next: when improving an existing skill load `references/skill-improve.md`; when writing instructions load `references/skill-authoring.md`; before bundling scripts load `references/skill-scripts.md`.
+Cut test: "Can the agent get this wrong without the skill?" If not, cut it.
+
+## Scripts
+
+A script is more reliable, token-cheap, and identical every run. Use one-off shell only when an existing tool already does the job; pin versions when needed.
+
+Agent-facing contract, beyond the lobby rule:
+
+- `--help` is concise and has examples.
+- Errors say what failed, what was expected, what to try. <!-- style-lint: ignore-line passive-voice -->
+- Diagnostics go to stderr.
+- Idempotent or safe to retry; reject ambiguous input; no interactive prompts.
+- The script handles its errors (missing file, bad input) and does not punt them to the agent.
+- Each constant states its reason; no magic numbers.
+- Dependencies are inline (PEP 723, pinned `npx -y pkg@1.2.3`) or listed in `compatibility`; never assume an install.
+- Bounded or paginated output.
+- Reference from `SKILL.md` as `scripts/skill-review.mjs` (or the real script name) with when/why, and say "run" or "read": the agent runs most scripts and reads only a reference-style one.
+
+A long numbered command-like procedure in `SKILL.md` with no helper is a candidate to extract; the review flags `deterministic-prose`.
+
+Next: to write instructions, load `references/skill-authoring.md`; if the script is a hook brain, load `references/hooks.md`; before done, load `references/skill-review.md`.

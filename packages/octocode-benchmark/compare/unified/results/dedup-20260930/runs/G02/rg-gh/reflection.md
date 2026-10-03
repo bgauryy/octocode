@@ -1,0 +1,7 @@
+1. **Helped:** The first parallel pair of calls was the most useful. `gh pr view 13824 --json title,state,body,files,...` gave me the file list and the merge state. `gh pr diff` showed the whole change. Saving the diff to `/tmp/d.txt` and extracting sections with a short Python script let me read `_generate_schema.py`, `_validators.py`, the tests and `validators/counter.rs` without the `head -c` truncation. The removed `-` lines in the `_generate_schema.py` diff showed the "before" behaviour directly.
+
+2. **Did not help:** The first `gh pr diff | head -c 30000` cut off partway through, so I had to fetch the diff again. The second fetch also returned a lot of Rust serializer code that the question didn't need. I never looked at the pre-PR source or ran any tests. That means I can't say what the old code did for strict mode, length constraints or the error type, and my answer says so.
+
+3. **Next time:** I would save the diff to a file on the first call. I would then use `gh api` or `git show <merge-sha>^:path` to read the old `_mapping_schema` path and confirm the before behaviour instead of inferring it. I would also check the issue #13704 text for the "before" symptoms.
+
+4. **Confidence:** Medium-high on the after behaviour, because the diff and tests show it directly. Medium on the before-versus-after comparison, because the "before" side comes from removed lines and the PR description, not from the old code.

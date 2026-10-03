@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "dimensions": [
+    {
+      "id": "outcome",
+      "critical": true,
+      "question": "Does the answer reach the policy-supported outcome or appropriately state the missing fact?",
+      "pass": "Consistent with the supplied task and policy; accepts correct alternatives.",
+      "fail": "Wrong eligibility decision, invented fact, or unjustified certainty.",
+      "unknown": "The grading packet itself is missing or contradictory."
+    },
+    {
+      "id": "grounding",
+      "critical": true,
+      "question": "Does the answer cite a relevant policy section that supports its explanation?",
+      "pass": "A cited policy section supports the material claim; no unsupported exception.",
+      "fail": "Missing, irrelevant or misleading citation, or unsupported policy claim.",
+      "unknown": "The grading packet lacks the source needed to verify support."
+    }
+  ],
+  "aggregation": {
+    "pass": "Every critical dimension passes.",
+    "fail": "Any critical dimension fails.",
+    "unknown": "No critical failure, but one or more critical dimensions is unknown.",
+    "graderError": "Invalid JSON, absent dimension, or missing evidence fields; not a solver failure."
+  },
+  "limitations": "Illustrative rubric; no human calibration has been performed. Do not infer accuracy from these examples."
+}

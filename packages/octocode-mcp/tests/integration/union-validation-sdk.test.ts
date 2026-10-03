@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
 import {
-  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
+  DIRECT_TOOL_DEFINITIONS,
   buildDirectToolCommandPatterns,
   prepareDirectToolInput,
-} from '@octocodeai/octocode-core/schema';
+} from '@octocodeai/config/schema';
 
 describe('canonical union repair through the real MCP SDK', () => {
-  it('returns actionable validation errors before execution for all four opaque unions', async () => {
+  it('rejects invalid opaque unions before execution and preserves available repair detail', async () => {
     const server = new McpServer({ name: 'union-validation', version: '1' });
     let executions = 0;
-    for (const tool of DIRECT_TOOL_DISCOVERY_DEFINITIONS) {
+    for (const tool of DIRECT_TOOL_DEFINITIONS) {
       server.registerTool(
         tool.name,
         { inputSchema: tool.inputSchema },
@@ -32,28 +32,40 @@ describe('canonical union repair through the real MCP SDK', () => {
       client.connect(clientTransport),
     ]);
     try {
+      const reasoning = 'exercise union validation';
       const cases = [
         {
           name: 'artifactSearch',
-          query: { type: 'npm' },
+          query: { reasoning, type: 'npm' },
           expected: /packageName.*keywords/,
         },
         {
           name: 'artifactSearch',
-          query: { type: 'npm', name: 'zod' },
+          query: { reasoning, type: 'npm', name: 'zod' },
           expected: /name/,
         },
         {
           name: 'artifactSearch',
-          query: { type: 'pypi', packageName: 'httpx', keywords: ['http'] },
+          query: {
+            reasoning,
+            type: 'pypi',
+            packageName: 'httpx',
+            keywords: ['http'],
+          },
           expected: /keywords/,
         },
-        { name: 'ghGetFileContent', query: {}, expected: /owner|repo|path/ },
-        { name: 'localFetch', query: {}, expected: /path/ },
+        {
+          name: 'ghGetFileContent',
+          query: { reasoning },
+          expected: /owner|repo|path/,
+        },
+        { name: 'localFetch', query: { reasoning }, expected: /path/ },
         {
           name: 'astSearch',
-          query: { operation: 'tree', treeKind: 'syntax' },
-          expected: /path/,
+          query: { reasoning, operation: 'syntaxTree' },
+          // Core intentionally preserves native single-branch union parity here;
+          // the MCP SDK therefore reports the bounded canonical union error.
+          expected: /Invalid input/,
         },
       ];
       for (const item of cases) {
@@ -77,7 +89,7 @@ describe('canonical union repair through the real MCP SDK', () => {
         expect(text).toContain('queries.0');
       }
       expect(executions).toBe(0);
-      for (const tool of DIRECT_TOOL_DISCOVERY_DEFINITIONS) {
+      for (const tool of DIRECT_TOOL_DEFINITIONS) {
         const example = buildDirectToolCommandPatterns(tool.name)[0]!;
         const result = await client.callTool({
           name: tool.name,
@@ -85,7 +97,7 @@ describe('canonical union repair through the real MCP SDK', () => {
         });
         expect(result.isError).not.toBe(true);
       }
-      expect(executions).toBe(DIRECT_TOOL_DISCOVERY_DEFINITIONS.length);
+      expect(executions).toBe(DIRECT_TOOL_DEFINITIONS.length);
     } finally {
       await client.close();
       await server.close();

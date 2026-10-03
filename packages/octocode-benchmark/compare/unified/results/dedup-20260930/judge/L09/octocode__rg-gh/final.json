@@ -1,0 +1,48 @@
+{
+  "qid": "L09",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 7,
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        7,
+        7
+      ],
+      "wrongClaims": [
+        "forEachStale cited at scrape.go:1188-1196; actual location is 1167-1175",
+        "forEachStale cited at scrape.go:1188-1196 (actually 1167-1175)"
+      ]
+    },
+    "rg-gh": {
+      "quality": 10,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        10
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2145128
+}

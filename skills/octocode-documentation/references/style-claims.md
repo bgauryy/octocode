@@ -1,46 +1,77 @@
-# Timeless docs and claims
+# Claims, names, example values, and links
 
-Load when text talks about time, roadmap, competitors, performance, names, or other people's content.
+Load for time words, roadmap, competitors, performance, names, others' content, example values, or links.
 
 ## Timeless wording
 
 - Cut time anchors: `currently`, `now`, `new`, `soon`, `latest`, `eventually`, `presently`, `existing`, `old`, `older`, `newer`, `does not yet`, `in the future`, `as of this writing`, `at present`.
-- Readers assume the docs describe the product as it is, so `currently supports` means no more than `supports`.
-- IF a change needs a date → THEN name the release: "The January 14, 2021 release adds…".
+- A change that needs a date names the release: "The January 14, 2021 release adds…".
 - Describe what the product does, not how it differs from a previous version.
-- Exceptions: procedural and time-stamped content — press releases, blog posts, release notes. `soon` is also fine in a procedure describing a state change: "The VM goes offline `soon` after you send the shutdown command."
+- Exceptions: press releases, blog posts, release notes; `soon` in a procedure for a state change ("The VM goes offline `soon` after…").
 
-## Future features
+## Future features and excessive claims
 
-- Don't document, promise, or hint at unreleased features, prices, or dates. No `coming soon`, `in a future release`, `we plan to`.
-- Pre-announcing anything requires approval from your legal counsel.
+- Don't document or hint at unreleased features, prices, or dates (`coming soon`, `in a future release`, `we plan to`). Pre-announcement needs legal approval.
+- No superlatives or absolutes (`best`, `fastest`, `simplest`, `never`, `always`). `ensure` and `guarantee` only for a promise the system keeps.
+- Performance, cost, and capacity claims need a citable source, or get cut.
+- Honest security phrasing: "helps prevent account takeover as part of a broader strategy", not "prevents phishing".
+- Don't disparage or benchmark competitors; describe your mechanism and where it helps.
 
-## Excessive claims
+## Product names, trademarks, third-party content
 
-- No superlatives or absolutes: `best`, `fastest`, `simplest`, `never`, `always`. Reserve `ensure` and `guarantee` for a promise the system genuinely keeps.
-- Performance, cost, and capacity claims need a citable source, or they get cut.
-- Security phrasing stays honest: "helps prevent account takeover as part of a broader strategy", not "prevents phishing".
-- Don't disparage or benchmark competitors; describe your own mechanism and the scenario where it helps.
-- Test a claim against what stays true later, not only what is true today.
+- Full official name, owner's case. Don't invent or shorten abbreviations, except to match a UI label when context still names the product. No product or feature name as a verb, plural, or possessive.
+- A project's published case for its concepts wins ("a Job creates one or more Pods" in Kubernetes).
+- Feature names lowercase unless the product capitalizes them. "the" before tool and API names, not before a product name.
+- An official lowercase name stays lowercase at sentence start; better, rewrite.
+- "service" for several products at once; name them if ambiguous.
+- Trademarks: follow the owner's guidelines; use as a modifier ("a Chromebook notebook computer"); never a verb, plural, possessive, or altered.
+- Don't copy third-party docs, blogs, reference works, open source docs, images, logos, code, or speech; attribution isn't permission. Summarize and link.
+- Write the definition yourself, then link the source ("a [recovery point objective (RPO)](…)"). Don't document another company's product; link theirs.
 
-## Product and feature names
+## Example values
 
-- Use the full official name with the owner's capitalization. Don't invent abbreviations and don't shorten an official one — matching a UI label is the only exception, and the text around it must still make clear which product it names. Don't use a product name or feature name as a verb, and don't make one plural or possessive.
-- Follow the capitalization a project publishes for its own concepts — in a Kubernetes context, "a Job creates one or more Pods" — which outranks the general caution about case carrying meaning.
-- Feature names are lowercase unless the product capitalizes them. "the" goes before tool and API names, not before a product name.
-- IF an official name begins lowercase → THEN keep it lowercase even at the start of a sentence, or better, rewrite the sentence.
-- Use "service" when referring to several products at once; IF "services" is ambiguous → THEN name the products.
+No real or personally identifiable data. `Alice` and `Bob` only when documenting a specification that uses them, within its cast; otherwise use this list.
 
-## Trademarks
+| Kind | Use |
+|---|---|
+| Domains | `example.com`, `example.org`, `example.net`; documentation domains `altostrat.com`, `examplepetstore.com`, `example-pet-store.com`, `cymbalgroup.com`, `myownpersonaldomain.com` |
+| Email | example domain plus a first name: `dana@example.com`; generic `support@example.net` is fine |
+| Person names | Alex, Amal, Ariel, Bola, Charlie, Cruz, Dana, Dani, Hao, Ira, Izumi, Jie, Kai, Kalani, Kim, Kiran, Lee, Lucian, Luka, Mahan, Noam, Nur, Quinn, Raha, Rosario, Sasha, Tal, Taylor, Tristan, Yuri; surname as an initial (`Quinn N.`) |
+| Companies | "Example Organization", "Enterprise Example Organization" |
+| Phone | `800-555-0100` through `800-555-0199` (format: `references/style-punctuation.md`) |
+| IPv4 | `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` |
+| IPv6 | `2001:db8::/32` |
+| Street address | `1800 Amphibious Blvd., Mountain View, CA 94045`; `8 Rue du Nom Fictif 341, Paris`; `Avenida da Pastelaria 1903, Lisbon` |
+| Service account ID | `123456789012345678901` |
+| Project names | descriptive, numbered when needed: `staging`, `frontend-development`, `production-1` |
+| Internationalized domains | one of the IDN test TLDs |
 
-- Follow the owner's usage guidelines and use a trademark as a modifier of a noun: "a Chromebook notebook computer", not "a Chromebook". Never as a verb, a plural, or a possessive, and never altered.
+- Singular "they" unless gender is the point. No example that ties a job, skill, or behavior to ethnicity, gender, or age.
+- No person, product, or invented names inside email addresses.
+- Vary names, genders, ages, and locations; avoid US-centric defaults; check that a name's gender connotation fits.
+- Meaningful placeholder names, not `foo`, `bar`, `baz`. <!-- style-lint: ignore-line metasyntactic-name -->
 
-## Third-party content
+## Link text and phrasing
 
-- Don't copy third-party docs, blogs, reference works, or open source documentation — licenses vary and attribution isn't permission. The same goes for images, logos, code, and speech.
-- Write the definition yourself, then link the source: "a [recovery point objective (RPO)](…)".
-- Don't document another company's product; link to their documentation.
+- Link the destination title or a descriptive phrase, never "[click here]", "[this page]", "[read more]", or a bare URL (legal pages are the rare exception).
+- Meaningful words first; short; it must stand alone in a screen reader's link list.
+- Code element descriptor inside the link ("[the `gcloud instances create` command]"). A series factors out the noun ("the `GET`, `HEAD`, and `OPTIONS` methods").
+- Long form and abbreviation both inside the link: "[Google Kubernetes Engine (GKE)]".
+- No quotes around link text; quotes for an unlinked section or short work, italics for an unlinked full-length title. Punctuation outside the link.
+- "For more information, see X."; add the topic when unclear ("For more information about IAM roles, see X."). "see", not "on" or "at"; same pattern across the page.
+- Same-page targets: "see the [Write descriptive link text] section of this document."
+- Target title matches one on your page: add context ("see [Install libraries] in "Building new audiences"").
+- Say why the link is worth following, in the link or around it.
+- Flag surprises: a download (file type), another domain, a new tab ("(opens in a new tab)").
 
-Upstream: [Timeless documentation](https://developers.google.com/style/timeless-documentation) · [Future features](https://developers.google.com/style/future) · [Excessive claims](https://developers.google.com/style/excessive-claims) · [Third-party content](https://developers.google.com/style/other-sources) · [Trademarks](https://developers.google.com/style/trademarks) · [Product names](https://developers.google.com/style/product-names). Verify a disputed or missing rule against the live page → `references/style-sources.md`.
+## Link placement and anchors
 
-Next: word-level swaps for time words → `references/style-words.md`; link patterns → `references/style-links.md`.
+- Answer a short question in place; a link doesn't replace the one needed sentence.
+- No forced `target="_blank"`, no external-link icons; name the domain in text.
+- Avoid duplicate links to one target unless they point to different sections, sit far apart, or serve several entry points. Never one link phrase for two destinations.
+- Internal links use site-root-relative URLs. No links outside the doc set from navigation or a table of contents.
+- Link to a specific heading instead of saying "scroll".
+- Frequently linked headings get an explicit anchor: lowercase, hyphenated, short. HTML: `<section id>` or `<a name>`, `<h2 id>` accepted; Markdown: `{: #anchor-name }`.
+- Rewriting a heading with an automatic anchor: add the old anchor or update every inbound link. Don't change a custom anchor unless it holds a term you're removing.
+
+Source: [Cross-references and linking](https://developers.google.com/style/cross-references).

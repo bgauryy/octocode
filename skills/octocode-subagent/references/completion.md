@@ -1,26 +1,39 @@
 # Completion Gate
 
-Load before SYNTHESIZE, CLEANUP, or REPORT. Why: worker completion and green focused tests do not prove the integrated user goal is done. <!-- style-lint: ignore-line passive-voice -->
+Load before the parent merges worker results, decides the next spawn, or runs SYNTHESIZE, CLEANUP, or REPORT. Green focused tests do not prove the integrated goal.
 
-## Verify and synthesize
+## Barrier
+1. List every live worker and its state (starting, running, idle).
+2. Wait or poll until each needed worker is idle or terminal.
+3. Stop and remove workers you do not continue.
 
-1. Reach the worker barrier; no needed worker remains live.
-2. Resolve conflicts and keep partial or blocked results visible.
-3. Recheck decisive source, test, type, build, security, and runtime anchors in the parent.
-4. Run focused checks first, then proportionate package/root and real CLI or host paths.
-5. Compare with frozen primary, held-out cases, and guardrails when an eval contract exists.
+## Merge
+1. Collect result packets; never average `partial` or `blocked` into `complete`.
+2. Hunt conflicts first: disagreement is a finding.
+3. Compare packet `goal` with returned `result` to catch derailment and withheld information.
+4. Never feed unverified claims into the next spawn as facts (context poisoning).
 
-## Cleanup and documentation
+```text
+Barrier: all needed workers idle/terminal
+Conflicts: <list or none>
+Claims re-checked in parent: <anchors>
+Verdict: answer | replan | interview | duck | stop
+Gaps: <...>
+Next: <one action>
+```
 
-- Remove obsolete implementations, aliases, leftovers, and duplicated policy owners only after proving deadness and confirming deletion is in scope.
+## Verify
+1. Run focused checks, then proportionate package or root checks and real CLI or host paths.
+2. With an eval contract, compare against the frozen primary, held-out cases, and guardrails.
+
+## Cleanup
+- Remove obsolete implementations, aliases, leftovers, and duplicate policy owners only after you prove deadness and confirm deletion is in scope.
 - Preserve user changes and historical evidence; never rewrite snapshots to hide former behavior.
-- Update affected canonical design, command, migration, or runbook docs.
-- Re-run checks after cleanup or documentation edits that can affect packaging or contracts.
+- Update affected canonical design, command, migration, or runbook docs. Re-run checks if cleanup or docs can affect packaging or contracts.
 
 ## Report
-
-Lead with the outcome. Name completed work, exact checks, and counts, remaining gaps, destructive actions, and authority still needed. Say `partial` when a stop gate remains; regression evidence is not production or real-host evidence.
-
-Acceptance requires closed workers/shared work, no authorized proven cleanup left, and an evidence-backed report—or a concrete blocker returned to you.
+- Lead with the outcome: completed work, exact checks and counts, gaps, destructive actions, authority still needed.
+- Say `partial` while a stop gate remains. Regression evidence is not production or real-host evidence.
+- Done means: workers and shared work closed, no authorized proven cleanup left, an evidence-backed report. Otherwise return a concrete blocker.
 
 Next: this step ends here.

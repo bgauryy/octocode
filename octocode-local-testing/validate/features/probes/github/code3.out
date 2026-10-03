@@ -1,0 +1,1 @@
+{"results":[{"index":0,"data":{"error":"owner: \"sindresorhus repo:evil\" is not a GitHub account or organization login; spaces, quotes, colons, and search operators are not allowed","errorCode":"validation","retryable":false,"hints":["Correct the invalid GitHub query fields."]},"status":"error"}]}

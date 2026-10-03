@@ -1,0 +1,4 @@
+26c26
+< Cross-surface: artifactSearch maps dependencies to upstream projects.
+---
+> Cross-surface: ghCloneRepo bridges remote evidence to local tools; artifactSearch maps dependencies to upstream projects.

@@ -1,0 +1,25 @@
+{
+  "name": "@octocodeai/octocode-agents-communication",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agentic CLI for cross-vendor coordination: agent identity, path leases, durable messages, and a companion communication skill.",
+  "type": "module",
+  "bin": "./scripts/agents-communication",
+  "devDependencies": {
+    "@octocodeai/config": "20.1.0"
+  },
+  "scripts": {
+    "build": "node src/build-skill.mjs",
+    "typecheck": "node src/check-syntax.mjs",
+    "lint": "yarn typecheck && yarn lint:links",
+    "lint:links": "node src/check-links.mjs",
+    "test": "yarn build && yarn test:python && node --test --test-concurrency=1 tests/*.test.mjs",
+    "verify": "yarn lint && yarn test && node src/release-smoke.mjs",
+    "pack:skill": "node src/pack-skill.mjs",
+    "test:python": "node src/test-python.mjs"
+  },
+  "files": [
+    "SKILL.md",
+    "scripts"
+  ]
+}

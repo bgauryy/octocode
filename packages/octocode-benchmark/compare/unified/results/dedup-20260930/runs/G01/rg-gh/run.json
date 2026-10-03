@@ -1,0 +1,148 @@
+{
+  "qid": "G01",
+  "worker": "rg-gh",
+  "started": "2026-09-30T19:53:45.041Z",
+  "promptSha256": "26c3af8d4abd78157db4bb2644f84b65dc7945c392c8bef57e9070f42b09c806",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 31497,
+  "status": "ok",
+  "answer": "**Summary:** PR #16403 (merged, head `daba280`) adds built-in OpenTelemetry to FastAPI. It is on by default, and it is active as soon as an OTel provider is configured globally or passed in. It adds server spans, metrics and logs for HTTP and WebSocket requests. It can also register OTLP exporters at lifespan startup, based on environment variables. I read the diff (`gh pr diff`) and did not run the code or the tests. Line numbers below refer to the diff, not to files at a commit.\n\n## Runtime changes\n\n1. **New `FastAPI(telemetry={...})` option** (`fastapi/applications.py`). The keys are `tracer_provider`, `meter_provider`, `logger_provider`, `tracing`, `metrics`, `logs`, `operation_spans`, `auto_configure` and `exclude`. All signals default to on. `fastapi/telemetry/__init__.py` exports `TelemetryConfig`, `TelemetryData` and `get_telemetry_data`.\n\n2. **`FastAPI.__call__` is rewritten** (`applications.py`).\n   - Lifespan scopes go through `telemetry._runtime.lifespan`.\n   - HTTP and WebSocket scopes go through `NativeTelemetry`. This is skipped if a `fastapi.telemetry` key is already in the scope (a mounted app) or if `enabled()` is false.\n   - `enabled()` is false when no signal has either a passed-in provider or a configured global provider (`_asgi.py`, `enabled`).\n\n3. **New middleware in the stack.** `ExceptionTelemetryMiddleware` is inserted right after `ServerErrorMiddleware` in `build_middleware_stack`. It records unhandled exceptions as OTel logs, even when the trace is not sampled, according to the docs.\n\n4. **Spans, metrics and logs.**\n   - **Server span:** named like `GET /items/{id}` or `WS /ws/{room}`. It takes its parent from propagated headers.\n   - **Metrics:** request duration and an active-requests counter. These are HTTP only.\n   - **Validation failures:** logged as warnings with the route and error count, not the input.\n   - **Operation child spans** (`dependencies`, `endpoint`, `serialization`, `background_task`), switchable with `operation_spans`.\n\n5. **Changes to hot paths in `routing.py`:**\n   - `run_endpoint_function` wraps coroutine endpoints in `_operation(...)`.\n   - Sync endpoints now run through `run_in_threadpool(_run_sync_endpoint, function=..., arguments=...)` instead of calling the function directly.\n   - `solve_dependencies` and `serialize_response` are wrapped.\n   - `_route_selected(...)` is called in about six route-matching branches. They are the included-router handler, frontend routes, router `app` full and partial matches, the trailing-slash redirect, and low-priority routes. This sets the route template on the span.\n   - The request handler stores `request`, `body`, `values` and `errors` on the `TelemetryData` object.\n\n6. **`BackgroundTasks.__call__` is overridden** (`background.py`). Each task runs inside a span, and the loop no longer calls Starlette's implementation.\n\n7. **Startup behavior.** When `auto_configure` is true and `OTEL_SDK_DISABLED` is not `true`, `_configure_from_environment` runs on `lifespan.startup` (`_runtime.py`).\n   - It reads `OTEL_EXPORTER_OTLP_*` endpoints and adds OTLP http/protobuf exporters to the providers.\n   - If the global provider is an unconfigured default, it creates and installs an SDK provider with `set_*_provider`.\n   - It flushes owned components on shutdown events and registers an `atexit` shutdown.\n\n8. **Dependencies** (`pyproject.toml`).\n   - `opentelemetry-api>=1.44.0` becomes a hard dependency of the core package.\n   - `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http` are added to the `standard`, `standard-no-fastapi-cloud-cli` and `all` extras, and to a new `opentelemetry` extra.\n\n## What a reviewer should watch\n\n- **Default-on, implicit global side effects.** Setting `OTEL_EXPORTER_OTLP_ENDPOINT` makes FastAPI install global providers. It also adds a second exporter if another library already exports to the same place. The docs only say to \"configure each destination once\" and to use `auto_configure: False`. Check for duplicated telemetry with Logfire, Sentry or contrib.\n\n- **Startup can now fail on configuration.** `_export_endpoint` raises `FastAPIError` for any exporter other than `otlp` or `none`, for any protocol other than `http/protobuf`, and for invalid URLs. `lifespan` turns that into `lifespan.startup.failed`. Apps with gRPC OTLP or other `OTEL_*` settings could break on upgrade.\n\n- **Duplicate instrumentation guard is heuristic.** `_legacy_otel` walks the built middleware stack for contrib's `OpenTelemetryMiddleware`, matching on module and class name, and disables native tracing, metrics and logs if it finds one. Note the comment in the diff: contrib instrumentation added after the stack is built isn't detected. The same `_unconfigured` check matches provider classes by name in `_DEFERRED_PROVIDERS`. `_registration_provider` has a special case for Logfire's `ProxyMeterProvider`. Both can break when those libraries change.\n\n- **Data exposure.**\n  - `url.query` is recorded on spans, with only keys in `_SENSITIVE_QUERY_PARAMETERS` redacted. I didn't see the contents of that set.\n  - Exception logs include the message and stack trace. The docs warn this can be sensitive and point to log processors.\n  - `get_telemetry_data()` exposes `request`, `body`, `values` and `errors` to third parties.\n\n- **Hot-path and semantics changes.**\n  - Sync endpoints now go through a wrapper in the threadpool. Check context propagation and the span parent.\n  - `BackgroundTasks.__call__` no longer delegates to Starlette, so it could diverge from upstream behavior. For example, Starlette's `BackgroundTask` handles sync and async functions itself, and the new loop only awaits `task()`.\n  - The `_route_selected` calls are scattered across the branches listed in item 5. A missed branch means a wrong or missing route name on the span.\n  - CodSpeed reported \"24 untouched benchmarks, no alteration\", but the comparison base was `79d42b2`, not `master` (`c30032a`), because no successful master run was found.\n\n- **Mounted sub-apps and `exclude`.** The docs say independent telemetry configuration for sub-apps \"is not guaranteed\". `exclude` works by setting `scope[\"fastapi.telemetry\"] = None` and popping it afterwards.\n\n- **Process-global state** (`_runtime.py`): a module-level lock, `_owned`, `_configured`, and `atexit`. Check behavior with multiple app instances, reloads and tests. `_flush` runs through `anyio.to_thread.run_sync`, which blocks shutdown events until the flush finishes.\n\n- **Review coverage.** The `reviews` field on the PR was empty. The author's note says it was made with AI assistance and manually reviewed, and that Sentry and Logfire confirmed it doesn't block them (2026-09-29).\n\n## Not verified\nI didn't read the whole of `_api.py`, `_asgi.py` (only the parts quoted above) or the tests. I didn't check the contents of `_SENSITIVE_QUERY_PARAMETERS`, `_DEFERRED_PROVIDERS` or the span-ending and exception-recording code. I didn't run anything.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 28652,
+    "cache_read_input_tokens": 80830,
+    "output_tokens": 847,
+    "context_tokens": 109492,
+    "total_tokens": 110339,
+    "first_request_context": 5050,
+    "fixed_overhead_tokens": 25250,
+    "research_tokens": 85089,
+    "max_request_context": 30589
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3113,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 14932,
+      "cache_read_input_tokens": 5048,
+      "output_tokens": 8
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 6307,
+      "cache_read_input_tokens": 19980,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1293,
+      "cache_read_input_tokens": 26287,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3007,
+      "cache_read_input_tokens": 27580,
+      "output_tokens": 790
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 28652,
+    "cache_read_input_tokens": 80830,
+    "output_tokens": 3402
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 3402,
+      "cacheReadInputTokens": 80830,
+      "cacheCreationInputTokens": 28652,
+      "webSearchRequests": 0,
+      "costUSD": 0.16481400000000002,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 41,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.16481400000000002,
+  "duration_ms": 30404,
+  "num_turns": 7,
+  "toolCallCount": 6,
+  "toolCounts": {
+    "Bash:gh": 2,
+    "Bash:cd": 4
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh pr view 16403 -R fastapi/fastapi --json title,state,author,baseRefName,headRefOid,body,files,additions,deletions,comments,reviews | head -c 12000\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh pr diff 16403 -R fastapi/fastapi | head -c 30000\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; gh pr diff 16403 -R fastapi/fastapi > p.diff; grep -n '^diff --git' p.diff | sed -n '1,20p'; awk '/^diff --git a\\\\/pyproject.toml/,/^diff --git a\\\\/tests/' p.diff | head -60\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; awk '/^diff --git a\\\\/fastapi\\\\/telemetry\\\\/_runtime.py/,/^diff --git a\\\\/pyproject/' p.diff | head -260\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; sed -n 657,1390p p.diff | grep -n -E '^\\\\+(def |async def |class |    def |    async def )|legacy|instrumentation|_unconfigured|sampled|record_exception|traceparent|url\\\\.full|query' | head -90\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; sed -n 657,1390p p.diff | sed -n '275,300p;358,375p;445,486p;505,620p' | cut -c1-170\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `gh pr view 16403 --json ...` call gave the PR's state, head SHA, file list and the author's note. `gh pr diff` saved to `/tmp/p.diff` let me slice sections with `awk` and `sed` without refetching. The `pyproject.toml` and `_runtime.py` slices were the most informative.\n\n2. **Did not help:** The first `gh pr diff | head -c 30000` was cut off in `_api.py`, so the second fetch duplicated it. My `grep -n` over `_api.py` and `_asgi.py` returned only scattered definitions. My `sed` line-range slices of those files were fragile and skipped chunks. I never read the end of `_asgi.py` (span ending, exception recording) or `_SENSITIVE_QUERY_PARAMETERS`. I never opened the tests or the review threads, and the `reviews` field was empty. I used no local checkout, so line numbers are diff-relative, not commit-pinned.\n\n3. **Next time:** Save the diff to a file on the first call. Read `_api.py` and `_asgi.py` in full. Run `gh api` for review comments and `gh pr checks`. Grep the diff for `_SENSITIVE_QUERY_PARAMETERS` and `_DEFERRED_PROVIDERS`. Fetch the merged files at the merge commit for real `path:line` references.\n\n4. **Confidence:** Medium. The runtime-behavior claims come straight from diff text I read. The risk assessments are my own inference, and the files I only partly read could change some of them.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2895,
+      "cache_read_input_tokens": 30587,
+      "output_tokens": 1,
+      "context_tokens": 33484,
+      "total_tokens": 33485,
+      "first_request_context": 33484,
+      "fixed_overhead_tokens": 33484,
+      "research_tokens": 1,
+      "max_request_context": 33484
+    },
+    "cost_usd": 0.18776540000000003,
+    "toolCallsAttempted": 0
+  }
+}

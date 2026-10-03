@@ -1,0 +1,12 @@
+{
+  "name": "octocode",
+  "description": "Octocode code research tools and public skills for Claude Code",
+  "author": {
+    "name": "Guy Bary",
+    "url": "https://octocode.ai"
+  },
+  "homepage": "https://octocode.ai",
+  "repository": "https://github.com/bgauryy/octocode",
+  "license": "MIT",
+  "keywords": ["code-research", "github", "mcp", "skills"]
+}

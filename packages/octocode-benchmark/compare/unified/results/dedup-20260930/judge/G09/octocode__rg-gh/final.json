@@ -1,0 +1,47 @@
+{
+  "qid": "G09",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 1,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8.5,
+      "correctness": 4.5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        9
+      ],
+      "wrongClaims": [
+        "Slightly imprecise: calls the mutated dict 'the user's own config dict' for models; the mutated dict is the class-level model_config (merged namespace dict)"
+      ]
+    },
+    "rg-gh": {
+      "quality": 8,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        8
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "octocode",
+    "octocode"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2668212
+}

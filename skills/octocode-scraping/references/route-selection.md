@@ -1,19 +1,22 @@
-# Route Selection
+# Scope and route selection
 
-Load when choosing how to fetch. Why: cheapest route that can prove the claim.
+Load before a broad crawl, an extract schema, or workflow analysis, or when the fetch route is unclear. Better inputs give smaller corpora; the cheapest route that can prove the claim wins.
 
-## Default
-Omit `--provider` on html → `cdp` (if chrome-devtools present) → `direct`. `SCRAPING_ANT` does not auto-select. Check: `provider-check.mjs`.
+## Ask
+Goal · scope (one URL / list / same-domain max-pages) · output shape · evidence strictness · boundaries (auth, personal data, forms, CAPTCHA, rate limits).
 
-## Tree
-1. Repository/code question → Octocode research, not scrape.
-2. Public static → omit `--provider` or `direct`; prove from corpus.
-3. Thin/JS after direct → `cdp` or chrome-devtools live proof.
-4. Auth / clicks / network / screenshots → chrome-devtools (one port).
-5. Still blocked → stop + evidence; ask before `--provider scrapingant`.
-6. `markdown` / `extended` / `extract` → scrapingant + key; ask if new spend.
-7. CAPTCHA/MFA / private / high-volume → stop and ask.
+Vague request: apply the lobby defaults, no auth, no broad crawl; return the session path and the next search targets.
 
-One URL first. Expand crawl only after `reports/summary.md` is useful. Cite `text/`/`extracts/`/`cdp/` + `sources.jsonl`.
+## Route tree
+Installing chrome-devtools never changes the default, and `SCRAPING_ANT` never auto-selects.
 
-Next: for the vendor registry and contract load `references/providers.md`; for approved hosted calls load `references/scrapingant.md`; when the chosen route fails load `references/failure-recovery.md`.
+```mermaid
+flowchart TD
+    Q{Need?} -- public static page --> D[direct html; prove from corpus]
+    D -- thin or JS shell --> C[one chrome-devtools capture; bridge into same corpus]
+    Q -- auth / clicks / network / screenshots --> C
+    Q -- markdown / extended / extract --> H[scrapingant + key; ask if new spend]
+```
+One route per need. Site or workflow mapping uses a bounded `--crawl --same-domain --max-pages`.
+
+Next: for the vendor registry and hosted mechanics load `references/providers.md`; when boundaries or legality are unclear load `references/scraping-policy.md`; when the route fails load `references/failure-recovery.md`.

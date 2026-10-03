@@ -3,8 +3,14 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@octocodeai/config', () => ({
-  getOctocodeHome: () => '/mock-home/.octocode',
+const isolated = vi.hoisted(() => ({ home: '' }));
+vi.mock('node:os', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:os')>()),
+  homedir: () => isolated.home,
+}));
+vi.mock('@octocodeai/config', async importOriginal => ({
+  ...(await importOriginal<typeof import('@octocodeai/config')>()),
+  getOctocodeHome: () => path.join(isolated.home, '.octocode'),
 }));
 
 vi.mock('../../../src/utils/colors.js', () => ({
@@ -20,7 +26,6 @@ import {
 } from '../../../src/cli/commands/skills/platforms.js';
 import type { ParsedArgs } from '../../../src/cli/types.js';
 import { EXIT } from '../../../src/cli/exit-codes.js';
-import { findCommandSpec } from '../../../src/cli/commands/specs.js';
 
 function run(
   args: string[] = [],
@@ -38,6 +43,8 @@ function loggedJson<T>(): T {
 
 describe('skill command', () => {
   beforeEach(() => {
+    isolated.home = fs.mkdtempSync(path.join(tmpdir(), 'octocode-skill-test-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(isolated.home);
     process.exitCode = undefined;
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -45,7 +52,82 @@ describe('skill command', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    fs.rmSync(isolated.home, { recursive: true, force: true });
     process.exitCode = undefined;
+  });
+
+  it.each<{
+    args: string[];
+    options: Record<string, string | boolean>;
+    message: string;
+  }>([
+    {
+      args: ['list'],
+      options: { bogus: true },
+      message: 'Unknown option: --bogus',
+    },
+    {
+      args: ['list'],
+      options: { all: true },
+      message:
+        'Unknown option for skill list: --all (it applies to skill install, remove)',
+    },
+    {
+      args: ['install'],
+      options: { platfrom: 'claude' },
+      message: 'Unknown option: --platfrom (did you mean --platform?)',
+    },
+    {
+      args: ['check'],
+      options: { dryrun: true },
+      message: 'Unknown option: --dryrun (did you mean --dry-run?)',
+    },
+    {
+      args: ['info'],
+      options: { fix: true },
+      message:
+        'Unknown option for skill info: --fix (it applies to skill check)',
+    },
+    {
+      args: ['install'],
+      options: { mode: 'invalid' },
+      message: '--mode expects copy|symlink|auto.',
+    },
+    {
+      args: ['install'],
+      options: { path: true },
+      message: '--path requires a value.',
+    },
+  ])(
+    'rejects invalid options before executing $args',
+    ({ args, options, message }) => {
+      run(args, { ...options, 'json-errors': true });
+      expect(process.exitCode).toBe(EXIT.USAGE);
+      expect(loggedJson()).toEqual({
+        kind: 'octocode.toolError',
+        version: 1,
+        error: message,
+      });
+      expect(console.error).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    ['nonesuch'],
+    ['info'],
+    ['info', 'missing-skill'],
+    ['install'],
+    ['remove'],
+    ['check', 'missing-skill'],
+  ])('honors --json-errors for %j', (...args) => {
+    run(args, { 'json-errors': true });
+    expect(process.exitCode).toBeGreaterThan(0);
+    expect(loggedJson()).toMatchObject({
+      kind: 'octocode.toolError',
+      version: 1,
+      error: expect.any(String),
+    });
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it('has name "skill"', () => {
@@ -93,7 +175,7 @@ describe('skill command', () => {
   });
 
   it('documents the same install flags in generated command help', () => {
-    const helpOptions = findCommandSpec('skill')?.options ?? [];
+    const helpOptions = skillCommand.options ?? [];
     const names = helpOptions.map(option => option.name);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -107,9 +189,7 @@ describe('skill command', () => {
       ])
     );
     expect(names).not.toContain('keep');
-    expect(
-      helpOptions.find(option => option.name === 'workspace')?.description
-    ).toContain('check only');
+    expect(names).toContain('workspace');
   });
 
   it('prints bundled skill help when no subcommand is provided', () => {
@@ -161,7 +241,7 @@ describe('skill command', () => {
     expect(parsed.dryRun).toBe(true);
     expect(parsed.skills[0]?.name).toBe('octocode-research');
     expect(parsed.skills[0]?.canonical).toBe(
-      '/mock-home/.octocode/skills/octocode-research'
+      path.join(isolated.home, '.octocode', 'skills', 'octocode-research')
     );
     expect(parsed.summary.failed).toBe(0);
   });
@@ -271,7 +351,7 @@ describe('skill command', () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.skills[0]?.name).toBe('fixture-skill');
       expect(parsed.skills[0]?.canonical).toBe(
-        '/mock-home/.octocode/skills/fixture-skill'
+        path.join(isolated.home, '.octocode', 'skills', 'fixture-skill')
       );
       expect(parsed.skills[0]?.destinations).toEqual([
         {
@@ -285,7 +365,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
         {
           platform: 'cursor',
@@ -298,7 +383,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
         {
           platform: 'codex',
@@ -311,7 +401,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
       ]);
 
@@ -345,7 +440,12 @@ describe('skill command', () => {
           ),
           mode: 'symlink',
           status: 'linked',
-          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
+          linkTarget: path.join(
+            isolated.home,
+            '.octocode',
+            'skills',
+            'fixture-skill'
+          ),
         },
       ]);
     } finally {
@@ -405,6 +505,52 @@ describe('skill command', () => {
     expect(parsed.summary.env.needsConfig).toBe(0);
   });
 
+  it('names the replacement when installing a retired skill', () => {
+    run(['install', 'octocode-clasify'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    expect(loggedJson<{ error: string }>().error).toContain(
+      'merged into "octocode-research"'
+    );
+  });
+
+  it('reports retired installs on a full check and removes them with --fix', () => {
+    const home = path.join(
+      isolated.home,
+      '.octocode',
+      'skills',
+      'octocode-clasify'
+    );
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(
+      path.join(home, 'SKILL.md'),
+      '---\nname: octocode-clasify\n---\n'
+    );
+    const link = path.join(getPlatformSkillsDir('claude'), 'octocode-clasify');
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(path.join(isolated.home, 'deleted-source'), link);
+
+    run(['check'], { 'no-env': true, json: true });
+    const parsed = loggedJson<{
+      success: boolean;
+      retired: Array<{ name: string; replacement: string; paths: string[] }>;
+      summary: { install: { retired: number } };
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.summary.install.retired).toBe(1);
+    expect(parsed.retired[0]).toMatchObject({
+      name: 'octocode-clasify',
+      replacement: 'octocode-research',
+    });
+    expect(parsed.retired[0]?.paths).toEqual(
+      expect.arrayContaining([home, link])
+    );
+
+    process.exitCode = undefined;
+    run(['check'], { 'no-env': true, fix: true });
+    expect(fs.existsSync(home)).toBe(false);
+    expect(() => fs.lstatSync(link)).toThrow();
+  });
+
   it('rejects unknown skill names on check', () => {
     run(['check', 'not-a-real-skill'], { json: true });
     expect(process.exitCode).toBe(EXIT.GENERAL);
@@ -430,5 +576,152 @@ describe('skill command', () => {
     expect(parsed.skills[0]?.name).toBe('octocode-research');
     expect(typeof parsed.skills[0]?.nothingFound).toBe('boolean');
     expect(parsed.summary.failed).toBe(0);
+  });
+
+  describe('remove safety for user-owned directories', () => {
+    it('refuses a real user directory at a platform target without --force', () => {
+      const dir = path.join(
+        getPlatformSkillsDir('claude'),
+        'octocode-research'
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'mine.txt'), 'user data');
+      run(['remove', 'octocode-research'], { json: true });
+      expect(process.exitCode).toBe(EXIT.GENERAL);
+      const parsed = loggedJson<{
+        success: boolean;
+        skills: Array<{ targets: Array<{ status: string; error?: string }> }>;
+      }>();
+      expect(parsed.success).toBe(false);
+      expect(
+        parsed.skills[0]?.targets.some(
+          t => t.status === 'failed' && /--force/.test(t.error ?? '')
+        )
+      ).toBe(true);
+      expect(fs.existsSync(path.join(dir, 'mine.txt'))).toBe(true);
+    });
+
+    it('deletes the real directory when --force is passed', () => {
+      const dir = path.join(
+        getPlatformSkillsDir('claude'),
+        'octocode-research'
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'mine.txt'), 'user data');
+      run(['remove', 'octocode-research'], { json: true, force: true });
+      expect(process.exitCode).toBeUndefined();
+      expect(fs.existsSync(dir)).toBe(false);
+    });
+
+    it('removes an Octocode --mode copy install that matches the canonical copy without --force', () => {
+      const store = path.join(
+        isolated.home,
+        '.octocode',
+        'skills',
+        'octocode-research'
+      );
+      fs.mkdirSync(store, { recursive: true });
+      fs.writeFileSync(path.join(store, 'SKILL.md'), 'same bytes');
+      const dir = path.join(
+        getPlatformSkillsDir('claude'),
+        'octocode-research'
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), 'same bytes');
+      run(['remove', 'octocode-research'], { json: true, platform: 'claude' });
+      expect(process.exitCode).toBeUndefined();
+      expect(fs.existsSync(dir)).toBe(false);
+      expect(fs.existsSync(path.join(store, 'SKILL.md'))).toBe(true);
+    });
+
+    it('unlinks a symlink into the canonical store and keeps the store copy', () => {
+      const store = path.join(
+        isolated.home,
+        '.octocode',
+        'skills',
+        'octocode-research'
+      );
+      fs.mkdirSync(store, { recursive: true });
+      fs.writeFileSync(path.join(store, 'SKILL.md'), 'x');
+      const linkDir = getPlatformSkillsDir('claude');
+      fs.mkdirSync(linkDir, { recursive: true });
+      const link = path.join(linkDir, 'octocode-research');
+      fs.symlinkSync(store, link, 'dir');
+      run(['remove', 'octocode-research'], { json: true, platform: 'claude' });
+      expect(process.exitCode).toBeUndefined();
+      expect(fs.existsSync(link)).toBe(false);
+      expect(fs.existsSync(path.join(store, 'SKILL.md'))).toBe(true);
+    });
+  });
+
+  it('rejects path-traversal skill names on remove instead of resolving them', () => {
+    run(['remove', '../../canary'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{
+        name: string;
+        targets: Array<{ path: string; status: string; error?: string }>;
+      }>;
+      summary: { removed: number; failed: number };
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.summary.removed).toBe(0);
+    expect(parsed.summary.failed).toBe(1);
+    const [target] = parsed.skills[0]?.targets ?? [];
+    expect(target?.status).toBe('failed');
+    expect(target?.error).toContain('Invalid skill name');
+    // No traversal-derived filesystem path should ever be constructed for the
+    // rejected name — it must never reach fs.rmSync/unlinkSync.
+    expect(target?.path).toBe('');
+  });
+
+  it('rejects path-traversal skill names on remove even when scoped with --platform', () => {
+    run(['remove', '../../canary'], { platform: 'claude', json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{ targets: Array<{ path: string; status: string }> }>;
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.skills[0]?.targets[0]?.status).toBe('failed');
+    expect(parsed.skills[0]?.targets[0]?.path).toBe('');
+  });
+
+  it('rejects an absolute-path skill name on remove', () => {
+    run(['remove', '/etc/passwd'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{ targets: Array<{ status: string; error?: string }> }>;
+    }>();
+    expect(parsed.success).toBe(false);
+    expect(parsed.skills[0]?.targets[0]?.status).toBe('failed');
+    expect(parsed.skills[0]?.targets[0]?.error).toContain('Invalid skill name');
+  });
+
+  it('renders concise human output for each retained skill operation', () => {
+    run(['list']);
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Octocode skills')
+    );
+
+    vi.mocked(console.log).mockClear();
+    run(['info', 'octocode-research']);
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('octocode-research')
+    );
+
+    vi.mocked(console.log).mockClear();
+    run(['check', 'octocode-research'], { 'no-env': true });
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Skill check')
+    );
+
+    vi.mocked(console.log).mockClear();
+    run(['remove', 'octocode-research'], { 'dry-run': true });
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Remove preview')
+    );
   });
 });

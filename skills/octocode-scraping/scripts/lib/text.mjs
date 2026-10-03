@@ -33,6 +33,23 @@ export function stripTags(html) {
     .trim();
 }
 
+/** HTML → line-structured text: block tags become line breaks, headings become `#` lines. */
+export function htmlToText(html) {
+  const text = (html || '')
+    .replace(/<(script|style|noscript|svg|template)\b[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<h([1-6])\b[^>]*>/gi, (_, n) => `\n\n${'#'.repeat(Number(n))} `)
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(p|div|section|article|main|header|footer|nav|aside|pre|blockquote|table|thead|tbody|tr|ul|ol|dl|dt|dd|h[1-6]|figure|figcaption|details|summary)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+  return decodeEntities(text)
+    .split('\n')
+    .map((line) => line.replace(/[ \t\f\v\u00a0]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export function titleFromHtml(text) {
   const m = (text || '').match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   return m ? stripTags(m[1]).trim().slice(0, 300) : '';
@@ -62,12 +79,22 @@ export function detectTargetError({ status, providerStatus, text, json }) {
   return null;
 }
 
+export function detectBrowserNeed({ status, contentType, body, cleanText, targetLikelyError }) {
+  if (status === 403 || status === 423) return `direct HTTP returned ${status}; one live-browser diagnostic may distinguish rendering from a bot wall`;
+  if (targetLikelyError || status < 200 || status >= 300 || !/html/i.test(contentType || '')) return null;
+  const visible = String(cleanText || '').replace(/\s+/g, ' ').trim();
+  const html = String(body || '');
+  const appShell = /<script\b[^>]*(?:src=|type=["']module)|\b(?:__NEXT_DATA__|__NUXT__|data-reactroot|id=["'](?:root|app)["'])/i.test(html);
+  if (visible.length < 300 && appShell) return `direct HTML contains only ${visible.length} visible characters plus an application shell; render once in Chrome`;
+  return null;
+}
+
 export function parsePayload(mode, contentType, body) {
   let json = null;
   try { json = JSON.parse(body || ''); } catch {}
   if (mode === 'markdown') return { json, text: json?.markdown ?? json?.text ?? (json ? JSON.stringify(json, null, 2) : body) };
-  if (mode === 'extended' && json) return { json, text: (json.text ?? stripTags(json.html ?? json.content ?? '')) || JSON.stringify(json, null, 2) };
+  if (mode === 'extended' && json) return { json, text: (json.text ?? htmlToText(json.html ?? json.content ?? '')) || JSON.stringify(json, null, 2) };
   if (mode === 'extract' && json) return { json, text: JSON.stringify(json, null, 2) };
-  if (/html/i.test(contentType)) return { json, text: stripTags(body) };
+  if (/html/i.test(contentType)) return { json, text: /<[a-z!]/i.test(body || '') ? htmlToText(body) : (body || '') };
   return { json, text: json ? JSON.stringify(json, null, 2) : body };
 }

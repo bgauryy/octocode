@@ -1,0 +1,5 @@
+# cmd: octocode astTopology {"goal": "g", "reasoning": "r", "analysis": "dependencies", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "file": "src/index.ts", "depth": 2}
+# env: {'OCTOCODE_BETA': ''}
+# exit: 5
+# stderr: 
+{"error":"astTopology is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying.","errorCode":"missingConfiguration"}

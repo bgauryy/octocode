@@ -378,8 +378,8 @@ Pick the cheapest surface that answers the next question. Start with tree/discov
 **1. Find → read → prove (the workhorse)**
 
 ```
-astSearch (operation:"tree" to orient)
-  → astSearch (operation:"files" for paths)
+structureSearch (operation:"tree" to orient)
+  → structureSearch (operation:"files" for paths)
   → localSearch (searchText for snippets)
   → localFetch (matchString → returns matchRanges line anchors)
   → lspSearch (operation:"references"/"callers", lineHint from matchRanges)
@@ -404,21 +404,22 @@ Use lexical `localSearch` when definition-vs-caller order matters; `astSearch`
 ```
 astSearch (operation:"match", pattern or YAML rule)
   → matches carry per-capture metavarRanges → feed straight into lspSearch
+    (capture text+line or symbols name+line = lspSearch symbolName+lineHint)
 ```
 
 - Patterns match **complete nodes**: a function needs `{ $$$BODY }`; modifiers count (`function $F` misses `async function`). Statement patterns self-heal a missing `;`.
 - Zero matches return an engine explanation (query kind, literal anchor, pre-filter) — read it before rewriting blind.
 
-**4. Metadata sweep** — `astSearch` with `operation:"files"` (names/time/size, e.g. `time.modifiedWithin:"1d"`) → read/search the returned paths. Nothing is excluded by default; pass `excludeDir`.
+**4. Metadata sweep** — `structureSearch` with `operation:"files"` (names/time/size, e.g. `time.modifiedWithin:"1d"`) → read/search the returned paths. Nothing is excluded by default; pass `excludeDir`.
 
 ### External workflows
 
 **5. Discover → orient → read**
 
 ```
-ghSearch (operation:"repositories", concise:true) or artifactSearch (package → source repo)
-  → ghSearch (operation:"tree"; resolvedBranch confirms the ref)
-  → ghSearch (operation:"code", match:"path" first; match:"file" for snippets)
+ghSearchRepo (concise:true) or artifactSearch (package → source repo)
+  → ghStructure (resolvedBranch confirms the ref)
+  → ghSearchCode (match:"path" first; match:"file" for snippets)
   → ghGetFileContent (matchString → matchRanges, same anchor contract as local)
 ```
 
@@ -427,7 +428,7 @@ GitHub search is default-branch and index-limited: **empty is not absence**; ver
 **6. History archaeology**
 
 ```
-ghSearchHistory (operation:"commits", path-scoped)       ← who touched this and when
+ghSearchHistory (operation:"commit", path-scoped)       ← who touched this and when
   → next.prDetail (PR number parsed from the commit)
   → ghGetHistoryItem (operation:"pullRequest", number + content selectors)  ← select ONLY what you need
   → patches mode:"selected" + files/ranges               ← cheapest diff read
@@ -447,7 +448,7 @@ ghSearchHistory (operation:"commits", path-scoped)       ← who touched this an
 ### When results are empty or wrong
 
 - `status:"empty"` + warnings say what to change — the response self-corrects before you retry.
-- Errors carry the repair path (404s name branch-vs-path; missing files point to `astSearch.operation:"files"`).
+- Errors carry the repair path (404s name branch-vs-path; missing files point to `structureSearch.operation:"files"`).
 - LSP `serverUnavailable` means capability absence, not "no usages" — fall back to search.
 
 ### Research patterns — field-tested

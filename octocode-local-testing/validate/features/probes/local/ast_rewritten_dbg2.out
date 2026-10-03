@@ -1,0 +1,5 @@
+# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "match", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "pattern": "helper(x);", "debug": true}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"searchEngine":"structural","snapshot":"f8ec5d06732b310abfc69a1c99663e78f4f67b515b4fd410c3a0feb434d5f05d","stats":{"totalStructuralMatches":1},"files":[{"path":"a.ts","totalMatchRows":1,"returnedMatchRows":1,"matches":[{"line":4,"value":"helper(x)","column":12,"endColumn":21}]}],"pagination":{"currentPage":1,"totalPages":1,"filesPerPage":20,"totalFiles":1,"totalMatches":1,"hasMore":false},"truncated":false,"complete":true},"meta":{"evidence":{"kind":"structural","confidence":"high"}}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

@@ -1,0 +1,118 @@
+{
+  "qid": "G09",
+  "worker": "rg-gh",
+  "started": "2026-09-30T19:56:09.880Z",
+  "promptSha256": "837047d4f8bd84e20af19238147dbbf1080cc08d6436be7724ff8517e6d1064a",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 15749,
+  "status": "ok",
+  "answer": "**Root cause:** `ConfigWrapper.core_config()` in `pydantic/_internal/_config.py` turned the deprecated `populate_by_name` into `validate_by_alias` and `validate_by_name` by writing into `self.config_dict`. That dict is the model's own `model_config` (issue #13786 quotes the code).\n\n- **Inheritance bug:** The derived `validate_by_name=True` was stored next to the keys the user declared. A subclass's config is merged over the parent's, so the subclass inherited the derived value. The `if config.get('validate_by_name') is None` guard then refused to derive again from the subclass's own `populate_by_name=False`.\n- **Example from the issue:** `Parent` sets `populate_by_name=True`. `Child(Parent)` sets `populate_by_name=False` and declares `x: int = Field(alias='X')`. `Child(x=1)` wrongly succeeds, while an otherwise identical standalone model raises a missing-field error.\n- **Caller mutation:** With `TypeAdapter(config=...)` and `validate_call(config=...)`, the same write modified the caller's own `ConfigDict`.\n\n**Fix:** PR #13825, \"Do not mutate `model_config` attribute\", merged 2026-09-25 as commit `5da36b5de4f44a572ca5c12104fd2f8669dfeaca`. It says \"Fixes #13786\".\n\n- It touches `_config.py`, `_dataclasses.py`, `_model_construction.py`, `_signature.py`, `config.py`, `deprecated/decorator.py` and related tests.\n- After the change, `Model.model_config` for `{'populate_by_name': True}` stays exactly that. Before, it also held `validate_by_alias` and `validate_by_name`.\n- The PR notes this as a theoretical breaking change that needs a blog post entry.\n\nTwo earlier PRs proposed a narrower fix: #13787 and #13794 (from a different contributor). Both were closed without merging. They copied the config inside `core_config()` (`config = self.config_dict.copy()`) so the original dict stayed clean. #13787 also rewrote `tests/test_config.py::test_dynamic_default`, which had asserted that the derived values appear on `model_config`.\n\n**Uncertainty:** I read the PR metadata and descriptions, not the #13825 diff. I don't know exactly how it stops the mutation across its nine files. It may not match the copy-based approach in #13787 and #13794. I also didn't check the changes to the tests.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7991,
+    "cache_read_input_tokens": 12228,
+    "output_tokens": 837,
+    "context_tokens": 20225,
+    "total_tokens": 21062,
+    "first_request_context": 5026,
+    "fixed_overhead_tokens": 15078,
+    "research_tokens": 5984,
+    "max_request_context": 9928
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3089,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 245,
+      "cache_read_input_tokens": 5024,
+      "output_tokens": 41
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4657,
+      "cache_read_input_tokens": 5269,
+      "output_tokens": 780
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7991,
+    "cache_read_input_tokens": 12228,
+    "output_tokens": 1222
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1222,
+      "cacheReadInputTokens": 12228,
+      "cacheCreationInputTokens": 7991,
+      "webSearchRequests": 0,
+      "costUSD": 0.0466416,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0466416,
+  "duration_ms": 14493,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "Bash:gh": 1,
+    "Bash:cd": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh issue view 13786 -R pydantic/pydantic --comments | head -100; gh api \\\"search/issues?q=repo:pydantic/pydantic+13786+in:body,title+type:pr\\\" --jq '.items[]|[.number,.title,.state]|@tsv'\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; gh api repos/pydantic/pydantic/issues/13786 --jq '[.title,.state,.pull_request.url,.body]|@tsv'; for n in 13787 13794 13825; do echo \\\"== $n\\\"; gh pr view $n -R pydantic/pydantic --json title,state,mergedAt,mergeCommit,body,files --jq '[.title,.state,.mergedAt,.mergeCommit.oid,.body,([.files[].path]|join(\\\",\\\"))]|@tsv'; done\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "**1. Helped:**\n- The second Bash call, `gh api repos/pydantic/pydantic/issues/13786`, returned the full issue body. It held the root cause, the code snippet and the repro, so it carried most of the answer.\n- The search-issues call (`gh api \"search/issues?q=repo:pydantic/pydantic+13786...\"`) found the three linked PRs: #13787, #13794 and #13825.\n- The per-PR `gh pr view --json` loop gave the merge state, merge commit SHA and changed files in one call.\n\n**2. Did not help:**\n- The first call, `gh issue view 13786 --comments | head -100`, printed nothing. I never found out why. It may have been a `gh` error or a pipe problem.\n- I never read the #13825 diff or the issue comments. I also didn't check which PR the maintainers actually chose, beyond the merged state. So I can't say how #13825 stops the mutation. I said so in the answer.\n- The `--jq` tsv output came out as long single lines, which made it noisy to read.\n\n**3. Next time:**\n- Run `gh pr diff 13825 -R pydantic/pydantic` on `_config.py` and `_model_construction.py`. That would confirm the actual mechanism.\n- Fetch the issue comments through `gh api .../issues/13786/comments`.\n- Get the diff line numbers at the merge commit.\n\n**4. Confidence:** Medium-high. The root cause comes straight from the issue text and the merged PR's own description, and the merge is confirmed. The details of how the fix works are unverified.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1053,
+      "cache_read_input_tokens": 9926,
+      "output_tokens": 7,
+      "context_tokens": 10981,
+      "total_tokens": 10988,
+      "first_request_context": 10981,
+      "fixed_overhead_tokens": 10981,
+      "research_tokens": 7,
+      "max_request_context": 10981
+    },
+    "cost_usd": 0.0580428,
+    "toolCallsAttempted": 0
+  }
+}

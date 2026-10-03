@@ -11,7 +11,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SKILL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const CASES_PATH = resolve(SKILL_DIR, 'evals', 'cases.json');
+const CASES_PATH = resolve(SKILL_DIR, 'benchmarks', 'skill-smoke', 'cases.json');
 
 function parseArgs(argv) {
   const opts = { caseId: '', input: '', batch: '', json: false, list: false, selfTest: false, help: false };
@@ -31,7 +31,7 @@ function parseArgs(argv) {
 
 function loadCases() {
   const raw = JSON.parse(readFileSync(CASES_PATH, 'utf8'));
-  if (!Array.isArray(raw.cases)) throw new Error('evals/cases.json must contain a cases array');
+  if (!Array.isArray(raw.cases)) throw new Error('benchmarks/skill-smoke/cases.json must contain a cases array');
   return raw;
 }
 
@@ -75,6 +75,20 @@ function readAnswer(input) {
   return readFileSync(0, 'utf8');
 }
 
+function summarizeBatch(results, missing) {
+  const expected = results.length + missing.length;
+  const passedCount = results.filter((r) => r.passed).length;
+  return {
+    expected,
+    answered: results.length,
+    passedCount,
+    coverage: expected ? results.length / expected : 0,
+    passRate: expected ? passedCount / expected : 0,
+    passed: expected > 0 && missing.length === 0 && passedCount === expected,
+  };
+}
+
+// Public canned grader fixtures, not scored worker outputs or sealed-test evidence.
 function strongSample(caseId) {
   const samples = {
     'define-kpi': `Mode: Define
@@ -101,30 +115,30 @@ Fix: strengthen the weak node's verifier/sensor first — do not add a node; the
 Verdict: KEEP if end-to-end recovers and guardrails hold, else DISCARD.`,
     'run-keep-discard': `Mode: Run
 ## Goal
-Improve loop-report completeness.
+Improve benchmark answer coverage.
 
 ## KPI
-- primary: loop-report pass rate (higher-better) baseline=0.50 result=1.00 target=1.00
+- primary: complete-batch pass rate (higher-better) baseline=0.50 result=1.00 target=1.00
 - guardrails: eval-eval --self-test green
 
 ## Loop level
 experiment
 
 ## Budget / trials
-fixed: node scripts/loop-report.mjs --self-test
+fixed: node scripts/eval-skill.mjs --self-test
 
 ## Subject changed
-references/output.md required sections list
+benchmark result collection
 
 ## Harness unchanged? (yes/no)
 yes
 
 ## Checks run
-- node scripts/loop-report.mjs --self-test exit 0
-- held-out: define-kpi case still passes
+- node scripts/eval-skill.mjs --self-test exit 0
+- held-out: not measured; define-kpi is a public development smoke case
 
 ## Transcript note
-Fair fail earlier: missing Verdict section.
+Earlier failure: a batch omitted an expected answer.
 
 ## Verdict
 ACCEPT
@@ -236,8 +250,17 @@ function main() {
   }
   if (opts.selfTest) {
     const results = data.cases.map((c) => evaluateCase(c, strongSample(c.id)));
-    const passed = results.every((r) => r.passed);
-    const out = { selfTest: passed, results };
+    const rejectedEmpty = data.cases.every((c) => !evaluateCase(c, '').passed);
+    const partial = summarizeBatch([{ passed: true }], ['missing']);
+    const batchChecks = [
+      summarizeBatch(results, []).passed,
+      !partial.passed && partial.passRate === 0.5 && partial.coverage === 0.5,
+      !summarizeBatch([{ passed: false }], []).passed,
+      !summarizeBatch([], []).passed,
+      !summarizeBatch([], ['missing']).passed,
+    ];
+    const passed = results.every((r) => r.passed) && rejectedEmpty && batchChecks.every(Boolean);
+    const out = { selfTest: passed, results, rejectedEmpty, batchChecks };
     console.log(opts.json ? JSON.stringify(out, null, 2) : `self-test: ${passed ? 'pass' : 'fail'} (${results.filter((r) => r.passed).length}/${results.length})`);
     process.exitCode = passed ? 0 : 1;
     return;
@@ -251,14 +274,13 @@ function main() {
       if (!existsSync(file)) { missing.push(c.id); continue; }
       results.push(evaluateCase(c, readFileSync(file, 'utf8')));
     }
-    if (!results.length) throw new Error(`No <case-id>.md answer files found in ${dir}`);
-    const passed = results.filter((r) => r.passed);
-    if (opts.json) console.log(JSON.stringify({ dir, passRate: passed.length / results.length, results, missing }, null, 2));
+    const summary = summarizeBatch(results, missing);
+    if (opts.json) console.log(JSON.stringify({ dir, ...summary, results, missing }, null, 2));
     else {
       for (const r of results) console.log(`${r.id}: ${r.passed ? 'pass' : 'fail'} score=${r.score}${r.failedChecks.length ? ` failed: ${r.failedChecks.join(', ')}` : ''}`);
-      console.log(`batch: ${passed.length}/${results.length} pass${missing.length ? ` (no answer file: ${missing.join(', ')})` : ''}`);
+      console.log(`batch: ${summary.passedCount}/${summary.expected} pass; ${summary.answered}/${summary.expected} answered${missing.length ? ` (no answer file: ${missing.join(', ')})` : ''}`);
     }
-    process.exitCode = passed.length === results.length ? 0 : 1;
+    process.exitCode = summary.passed ? 0 : 1;
     return;
   }
   if (!opts.caseId) throw new Error('Provide --case <id>, --batch <dir>, or --self-test');

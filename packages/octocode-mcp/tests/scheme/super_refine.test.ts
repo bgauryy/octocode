@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest';
 
-import { LocalFetchContentQuerySchema } from '@octocodeai/octocode-core/schema';
-import { LocalRipgrepQuerySchema } from '@octocodeai/octocode-core/schema';
-import { FileContentQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/octocode-core/schema';
+import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
+import { LocalSearchQuerySchema } from '@octocodeai/config/schema';
+import { FileContentQueryLocalSchema } from '@octocodeai/config/schema';
+import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
 describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
-  const baseQuery = { path: 'src/foo.ts' };
+  const baseQuery = {
+    mainGoal: 'test goal',
+    reasoning: 'exercise mutex validation',
+    path: 'src/foo.ts',
+  };
 
   it('rejects fullContent=true together with matchString', () => {
     const result = LocalFetchContentQuerySchema.safeParse({
@@ -85,7 +89,13 @@ describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
 });
 
 describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () => {
-  const baseQuery = { owner: 'o', repo: 'r', path: 'src/foo.ts' };
+  const baseQuery = {
+    mainGoal: 'test goal',
+    reasoning: 'exercise mutex validation',
+    owner: 'o',
+    repo: 'r',
+    path: 'src/foo.ts',
+  };
 
   it('rejects fullContent=true together with matchString', () => {
     const result = FileContentQueryLocalSchema.safeParse({
@@ -172,15 +182,16 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
   });
 });
 
-describe('LocalRipgrepQuerySchema enum contract', () => {
-  // The old mutually-exclusive booleans (fixedString/perlRegex, filesOnly/
-  // filesWithoutMatch, countLinesPerFile/countMatchesPerFile) were collapsed to
-  // single enums (regex/output/unique), so those pairings are now impossible by
-  // construction. These check the surviving cross-field gates instead.
-  const baseQuery = { searchText: 'foo', path: '/repo' };
+describe('LocalSearchQuerySchema enum contract', () => {
+  const baseQuery = {
+    mainGoal: 'test goal',
+    reasoning: 'exercise enum contract',
+    searchText: 'foo',
+    path: '/repo',
+  };
 
-  it('accepts the output enum values (files / filesWithout / count*)', () => {
-    for (const output of [
+  it('accepts the resultView enum values (files / filesWithout / count*)', () => {
+    for (const resultView of [
       'content',
       'files',
       'filesWithout',
@@ -188,35 +199,35 @@ describe('LocalRipgrepQuerySchema enum contract', () => {
       'countMatches',
     ] as const) {
       expect(
-        LocalRipgrepQuerySchema.safeParse({ ...baseQuery, output }).success
+        LocalSearchQuerySchema.safeParse({ ...baseQuery, resultView }).success
       ).toBe(true);
     }
   });
 
-  it('accepts the regex enum values (smart / fixed / perl)', () => {
-    for (const regex of ['smart', 'fixed', 'perl'] as const) {
+  it('accepts the regex enum values (rust / literal / pcre2)', () => {
+    for (const regex of ['rust', 'literal', 'pcre2'] as const) {
       expect(
-        LocalRipgrepQuerySchema.safeParse({ ...baseQuery, regex }).success
+        LocalSearchQuerySchema.safeParse({ ...baseQuery, regex }).success
       ).toBe(true);
     }
   });
 
-  it('rejects unique without output:"matchOnly"', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
+  it('rejects unique without resultView:"matchOnly"', () => {
+    const result = LocalSearchQuerySchema.safeParse({
       ...baseQuery,
       unique: 'list',
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages).toMatch(/unique requires output:"matchOnly"/);
+      expect(messages).toMatch(/require resultView:"matchOnly"/);
     }
   });
 
-  it('accepts unique:"count" with output:"matchOnly"', () => {
-    const result = LocalRipgrepQuerySchema.safeParse({
+  it('accepts unique:"count" with resultView:"matchOnly"', () => {
+    const result = LocalSearchQuerySchema.safeParse({
       ...baseQuery,
-      output: 'matchOnly',
+      resultView: 'matchOnly',
       unique: 'count',
     });
     expect(result.success).toBe(true);
@@ -226,14 +237,23 @@ describe('LocalRipgrepQuerySchema enum contract', () => {
 describe('ArtifactSearch schema', () => {
   it('accepts an exact packageName with ecosystem type', () => {
     const result = ArtifactSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ type: 'npm', packageName: 'react' }],
+      queries: [
+        {
+          mainGoal: 'test goal',
+          reasoning: 'exercise artifact lookup',
+          type: 'npm',
+          packageName: 'react',
+        },
+      ],
     });
     expect(result.success).toBe(true);
   });
 
   it('rejects when packageName is missing', () => {
     const result = ArtifactSearchBulkQueryLocalSchema.safeParse({
-      queries: [{}],
+      queries: [
+        { mainGoal: 'test goal', reasoning: 'exercise missing packageName' },
+      ],
     });
     expect(result.success).toBe(false);
   });

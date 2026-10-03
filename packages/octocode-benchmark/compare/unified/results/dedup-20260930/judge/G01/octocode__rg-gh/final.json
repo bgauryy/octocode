@@ -1,0 +1,50 @@
+{
+  "qid": "G01",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 7,
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "perJudgment": [
+        7,
+        7
+      ],
+      "wrongClaims": [
+        "'Only way to opt out is per app' slightly overstated (OTEL_SDK_DISABLED env also disables auto-configure)",
+        "Merge date stated as 2026-09-26; actual mergedAt is 2026-09-29"
+      ]
+    },
+    "rg-gh": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": [
+        "Minor: suggests new BackgroundTasks loop only awaiting task() may mishandle sync funcs; Starlette's BackgroundTask handles that"
+      ]
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.3276006
+}

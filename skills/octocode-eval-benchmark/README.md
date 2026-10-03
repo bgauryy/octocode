@@ -1,42 +1,17 @@
-# Octocode eval benchmark
+# Octocode Eval Benchmark
 
-Design trustworthy evaluations and benchmarks that decide whether a code, prompt, skill, agent, or multi-agent workflow improved.
+Design evals, calibrate judges, and compare agent or workflow changes without mistaking leakage or noise for improvement. Use ordinary tests directly when they already prove the outcome.
 
-## Use when
+`SKILL.md` holds the flow and rules.
 
-- A change needs a measurable keep-or-revert decision.
-- You need goals, KPIs, baselines, guardrails, graders, or held-out cases.
-- Tests pass but do not establish the behavior or quality outcome.
-
-## Capabilities
-
-- Turns error analysis into failure taxonomies and evaluation cases.
-- Cascades goals into primary metrics, leading indicators, guardrails, and decision rules.
-- Combines deterministic checks, binary questions, model judges, and human review.
-- Separates training, regression, and held-out evidence.
-- Measures multi-agent boundaries, per-node sensors, verifier independence, cost, and collisions.
-- Uses failing-case-first loops and rejects changes that do not improve the frozen sensor.
-
-## Workflow
-
-```text
-ERROR-ANALYZE → FRAME → BASELINE → LOOP → JUDGE → CAPTURE → VERIFY → SUITE-EVOLVE
-```
-
-Do not edit a grader or case merely to make a candidate pass.
-
-## Install
+- [benchmarks/README.md](benchmarks/README.md): shared layout and run lifecycle.
+- [document-answering](benchmarks/document-answering/README.md): public development starter (questions, fixtures, worker/judge/optimizer instructions). Development data, not a private benchmark or runner.
+- [skill-smoke](benchmarks/skill-smoke/README.md): maintenance fixtures and commands.
 
 ```bash
 npx -y octocode skill install octocode-eval-benchmark
-```
-
-## Maintainer verification
-
-```bash
-node scripts/loop-report.mjs --self-test
-node scripts/eval-skill.mjs --self-test
 node scripts/check-description.mjs
+node scripts/eval-skill.mjs --self-test
 ```
 
-Then run the `octocode-skills` review against this folder.
+Run the checks from the skill root; use `octocode-skills` to review folder structure.

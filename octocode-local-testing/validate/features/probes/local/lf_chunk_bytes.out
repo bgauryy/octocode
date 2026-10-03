@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/big.txt", "chunkType": "bytes", "chunkSize": 200, "offset": 0}
+# env: None
+# exit: 6
+# stderr: 
+{"results":[{"index":0,"data":{"path":"big.txt","content":"row 0001 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nrow 0002 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\nrow 0003 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","totalLines":300,"sourceLineRanges":[{"start":1,"end":3}],"next":{"continue":{"tool":"localFetch","confidence":"exact","query":{"chunkSize":200,"chunkType":"bytes","snapshot":"884fbadbd77e9410d046ea76c904e9680005f4e8bd5100233f81ebd5ce906c04","offset":200,"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/big.txt","followUp":true}}},"isPartial":true,"pagination":{"chunkType":"bytes","offset":0,"chunkSize":200,"hasMore":true,"nextOffset":200}}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

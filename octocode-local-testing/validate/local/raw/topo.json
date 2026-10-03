@@ -1,0 +1,580 @@
+[
+  {
+    "id": "topo-ts",
+    "lang": "ts",
+    "task": "Direct dependents of mutateElement.ts (root tsx/packages/element/src)",
+    "shell": {
+      "cmd": "rg -l -t ts \"(from|import)\\s*\\(?\\s*['\\\"](\\./|\\.\\./)+mutateElement['\\\"]\" tsx/packages/element/src",
+      "calls": 1,
+      "chars": 605,
+      "ms": 13,
+      "correct": {
+        "found": 15,
+        "truth": 15,
+        "tp": 15,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      }
+    },
+    "octocode": {
+      "query": {
+        "analysis": "dependents",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src",
+        "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src/mutateElement.ts",
+        "pageSize": 100
+      },
+      "calls": 1,
+      "chars": 2810,
+      "ms": 335,
+      "correct": {
+        "found": 15,
+        "truth": 15,
+        "tp": 15,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      },
+      "completeness": {
+        "results": "complete",
+        "graph": "coverage-incomplete",
+        "diagnostics": "complete",
+        "coverageGapReasons": [
+          "unresolvedImports"
+        ]
+      },
+      "imports": {
+        "resolved": 953,
+        "external": 624,
+        "unresolvedInternal": 1,
+        "unsupported": 0
+      },
+      "confidence": "low",
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "analysis": "dependents",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src",
+                "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src/mutateElement.ts",
+                "pageSize": 100
+              }
+            ]
+          },
+          "chars": 2810,
+          "ms": 335,
+          "code": 0,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"operation\":\"topology\",\"path\":\".\",\"coverage\":{\"basis\":\"syntactic\",\"referenceBasis\":\"lexical-occurrence\",\"languages\":[{\"language\":\"ts\",\"files\":56,\"linking\":\"javascript-relative\"}],\"imports\":{\"resolved\":953,\"external\":624,\"unresolvedInternal\":1,\"unsupported\":0},\"diagnosticCounts\":{\"unresolved-internal\":1},\"diagnostics\":[{\"file\":\"Scene.ts\",\"line\":43,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"../../excalidraw/types\\\" (unresolvedInternal).\"}]},\"completeness\":{\"results\":\"complete\",\"graph\":\"coverage-incomplete\",\"diagnostics\":\"complete\",\"coverageGapReasons\":[\"unresolvedImports\"]},\"results\":[{\"file\":\"__tests__/stickyNote.test.ts\",\"importLine\":27,\"topologicalLayer\":4,\"edgeKinds\":[\"static-import\"],\"inboundCount\":0},{\"file\":\"binding.ts\",\"importLine\":48,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\",\"type-import\"],\"inboundCount\":16},{\"file\":\"delta.ts\",\"importLine\":46,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\",\"type-import\"],\"inboundCount\":2},{\"file\":\"duplicate.ts\",\"importLine\":29,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\",\"type-import\"],\"inboundCount\":2},{\"file\":\"elbowArrow.ts\",\"importLine\":49,\"topologicalLayer\":3,\"edgeKinds\":[\"type-import\"],\"inboundCount\":4},{\"file\":\"flowchart.ts\",\"importLine\":27,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\"],\"inboundCount\":2},{\"file\":\"fractionalIndex.ts\",\"importLine\":8,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\"],\"inboundCount\":5},{\"file\":\"frame.ts\",\"importLine\":27,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\"],\"inboundCount\":7},{\"file\":\"index.ts\",\"inboundCount\":12,\"topologicalLayer\":3,\"edgeKinds\":[\"star-reexport\"]},{\"file\":\"linearElementEditor.ts\",\"importLine\":70,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\"],\"inboundCount\":15},{\"file\":\"newElement.ts\",\"importLine\":26,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\"],\"inboundCount\":9},{\"file\":\"positionElementsOnGrid.ts\",\"importLine\":2,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\",\"type-import\"],\"inboundCount\":1},{\"file\":\"resizeElements.ts\",\"importLine\":91,\"topologicalLayer\":3,\"edgeKinds\":[\"type-import\"],\"inboundCount\":2},{\"file\":\"stickyNote.ts\",\"importLine\":24,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\"],\"inboundCount\":8},{\"file\":\"store.ts\",\"importLine\":18,\"topologicalLayer\":3,\"edgeKinds\":[\"static-import\"],\"inboundCount\":2}],\"summary\":{\"source\":\"mutateElement.ts\",\"depth\":1,\"condensationComponentCount\":14,\"topologicalLayerCount\":5,\"transitiveEdgeCount\":10,\"importResolution\":{\"status\":\"partial\",\"resolved\":953,\"unresolvedInternal\":1,\"unsupported\":0}},\"confidence\":\"low\"}}],\"shared\":{\"distance\":1,\"via\":\"mutateElement.ts\",\"confidence\":\"syntactic\",\"immediateDominator\":\"mutateElement.ts\",\"transitiveEdge\":false},\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/tsx/packages/element/src\"}\n",
+          "stderr": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "topo-python",
+    "lang": "python",
+    "task": "Direct dependents of text.py (root python)",
+    "shell": {
+      "cmd": "rg -l -t py -e 'from django\\.utils\\.text import' -e 'import django\\.utils\\.text' -e 'from django\\.utils import .*\\btext\\b' -e 'from \\.text import' python",
+      "calls": 1,
+      "chars": 966,
+      "ms": 98,
+      "correct": {
+        "found": 24,
+        "truth": 23,
+        "tp": 23,
+        "precision": 0.958,
+        "recall": 1,
+        "missing": [],
+        "extra": [
+          "python/django/db/models/functions/__init__.py"
+        ]
+      }
+    },
+    "octocode": {
+      "query": {
+        "analysis": "dependents",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python",
+        "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/utils/text.py",
+        "pageSize": 100
+      },
+      "calls": 1,
+      "chars": 5737,
+      "ms": 3509,
+      "correct": {
+        "found": 23,
+        "truth": 23,
+        "tp": 23,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      },
+      "completeness": {
+        "results": "complete",
+        "graph": "coverage-incomplete",
+        "diagnostics": "complete",
+        "coverageGapReasons": [
+          "parseRecovery",
+          "unresolvedImports"
+        ]
+      },
+      "imports": {
+        "resolved": 16006,
+        "external": 3341,
+        "unresolvedInternal": 3,
+        "unsupported": 0
+      },
+      "confidence": "low",
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "analysis": "dependents",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python",
+                "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/utils/text.py",
+                "pageSize": 100
+              }
+            ]
+          },
+          "chars": 5737,
+          "ms": 3509,
+          "code": 0,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"operation\":\"topology\",\"path\":\".\",\"coverage\":{\"basis\":\"syntactic\",\"referenceBasis\":\"lexical-occurrence\",\"languages\":[{\"language\":\"js\",\"files\":109,\"linking\":\"javascript-relative\"},{\"language\":\"python\",\"files\":2930,\"linking\":\"python-modules\"},{\"language\":\"javascript\",\"files\":2,\"linking\":\"javascript-relative\"}],\"imports\":{\"resolved\":16006,\"external\":3341,\"unresolvedInternal\":3,\"unsupported\":0},\"diagnosticCounts\":{\"parse-recovery\":4,\"unresolved-internal\":3},\"diagnostics\":[{\"file\":\"django/views/templates/i18n_catalog.js\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"tests/i18n/commands/javascript.js\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"tests/sphinx_tests/testdata/package/import_error.py\",\"line\":1,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\".....test\\\" (unresolvedInternal).\"},{\"file\":\"tests/staticfiles_tests/project/documents/cached/module.js\",\"code\":\"parse-recovery\",\"message\":\"Duplicated export 'testConst'\"},{\"file\":\"tests/staticfiles_tests/project/documents/cached/module.js\",\"line\":2,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"/static/absolute_root.js\\\" (unresolvedInternal).\"},{\"file\":\"tests/staticfiles_tests/project/documents/cached/module.js\",\"line\":66,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"#utils\\\" (unresolvedInternal).\"},{\"file\":\"tests/test_runner_apps/tagged/tests_syntax_error.py\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"}]},\"completeness\":{\"results\":\"complete\",\"graph\":\"coverage-incomplete\",\"diagnostics\":\"complete\",\"coverageGapReasons\":[\"parseRecovery\",\"unresolvedImports\"]},\"results\":[{\"file\":\"django/contrib/admin/models.py\",\"transitiveEdge\":true,\"topologicalLayer\":12,\"edgeKinds\":[\"python-import\"],\"inboundCount\":10,\"importLine\":9},{\"file\":\"django/contrib/admin/options.py\",\"transitiveEdge\":true,\"topologicalLayer\":12,\"edgeKinds\":[\"python-import\"],\"inboundCount\":19,\"importLine\":74},{\"file\":\"django/contrib/admin/sites.py\",\"transitiveEdge\":true,\"topologicalLayer\":12,\"edgeKinds\":[\"python-import\"],\"inboundCount\":8,\"importLine\":20},{\"file\":\"django/contrib/admin/templatetags/admin_list.py\",\"transitiveEdge\":true,\"topologicalLayer\":12,\"edgeKinds\":[\"python-import\"],\"inboundCount\":4,\"importLine\":29},{\"file\":\"django/contrib/admin/utils.py\",\"transitiveEdge\":true,\"topologicalLayer\":12,\"edgeKinds\":[\"python-import\"],\"inboundCount\":16,\"importLine\":22},{\"file\":\"django/contrib/admin/widgets.py\",\"transitiveEdge\":true,\"topologicalLayer\":12,\"edgeKinds\":[\"python-import\"],\"inboundCount\":4,\"importLine\":18},{\"file\":\"django/contrib/auth/forms.py\",\"transitiveEdge\":true,\"topologicalLayer\":10,\"edgeKinds\":[\"python-import\"],\"inboundCount\":10,\"importLine\":15},{\"file\":\"django/contrib/auth/management/commands/createsuperuser.py\",\"transitiveEdge\":true,\"topologicalLayer\":11,\"edgeKinds\":[\"python-import\"],\"inboundCount\":1,\"importLine\":16},{\"file\":\"django/contrib/postgres/utils.py\",\"transitiveEdge\":false,\"topologicalLayer\":7,\"edgeKinds\":[\"python-import\"],\"inboundCount\":7,\"importLine\":5},{\"file\":\"django/core/files/storage/base.py\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"python-import\"],\"inboundCount\":3,\"importLine\":8},{\"file\":\"django/core/management/commands/makemessages.py\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"python-import\"],\"inboundCount\":2,\"importLine\":23},{\"file\":\"django/core/management/commands/migrate.py\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"python-import\"],\"inboundCount\":1,\"importLine\":15},{\"file\":\"django/db/models/base.py\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"python-import\"],\"inboundCount\":5,\"importLine\":64},{\"file\":\"django/db/models/fields/__init__.py\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"python-import\"],\"inboundCount\":22,\"importLine\":39},{\"file\":\"django/db/models/options.py\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"python-import\"],\"inboundCount\":6,\"importLine\":22},{\"file\":\"django/forms/models.py\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"python-import\"],\"inboundCount\":17,\"importLine\":28},{\"file\":\"django/middleware/gzip.py\",\"transitiveEdge\":false,\"topologicalLayer\":7,\"edgeKinds\":[\"python-import\"],\"inboundCount\":3,\"importLine\":4},{\"file\":\"django/template/base.py\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"python-import\"],\"inboundCount\":23,\"importLine\":66},{\"file\":\"django/template/defaultfilters.py\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"python-import\"],\"inboundCount\":58,\"importLine\":21},{\"file\":\"django/utils/html.py\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"python-import\"],\"inboundCount\":36,\"importLine\":21},{\"file\":\"tests/auth_tests/test_forms.py\",\"transitiveEdge\":true,\"topologicalLayer\":16,\"edgeKinds\":[\"python-import\"],\"inboundCount\":0,\"importLine\":36},{\"file\":\"tests/playwright_tests/base.py\",\"transitiveEdge\":true,\"topologicalLayer\":16,\"edgeKinds\":[\"python-import\"],\"inboundCount\":2,\"importLine\":10},{\"file\":\"tests/utils_tests/test_text.py\",\"transitiveEdge\":true,\"topologicalLayer\":16,\"edgeKinds\":[\"python-import\"],\"inboundCount\":0,\"importLine\":7}],\"summary\":{\"source\":\"django/utils/text.py\",\"depth\":1,\"condensationComponentCount\":2817,\"topologicalLayerCount\":26,\"transitiveEdgeCount\":2631,\"importResolution\":{\"status\":\"partial\",\"resolved\":16006,\"unresolvedInternal\":3,\"unsupported\":0}},\"confidence\":\"low\"}}],\"shared\":{\"distance\":1,\"via\":\"django/utils/text.py\",\"confidence\":\"syntactic\",\"immediateDominator\":\"django/utils/text.py\"},\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python\"}\n",
+          "stderr": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "topo-python-subroot",
+    "lang": "python",
+    "task": "Direct dependents of text.py (root python/django)",
+    "shell": {
+      "cmd": "rg -l -t py -e 'from django\\.utils\\.text import' -e 'import django\\.utils\\.text' -e 'from django\\.utils import .*\\btext\\b' -e 'from \\.text import' python/django",
+      "calls": 1,
+      "chars": 852,
+      "ms": 58,
+      "correct": {
+        "found": 21,
+        "truth": 20,
+        "tp": 20,
+        "precision": 0.952,
+        "recall": 1,
+        "missing": [],
+        "extra": [
+          "python/django/db/models/functions/__init__.py"
+        ]
+      }
+    },
+    "octocode": {
+      "query": {
+        "analysis": "dependents",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django",
+        "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/utils/text.py",
+        "pageSize": 100
+      },
+      "calls": 1,
+      "chars": 985,
+      "ms": 1388,
+      "correct": {
+        "found": 0,
+        "truth": 20,
+        "tp": 0,
+        "precision": 0,
+        "recall": 0,
+        "missing": [
+          "python/django/contrib/admin/models.py",
+          "python/django/contrib/admin/options.py",
+          "python/django/contrib/admin/sites.py",
+          "python/django/contrib/admin/templatetags/admin_list.py",
+          "python/django/contrib/admin/utils.py",
+          "python/django/contrib/admin/widgets.py",
+          "python/django/contrib/auth/forms.py",
+          "python/django/contrib/auth/management/commands/createsuperuser.py",
+          "python/django/contrib/postgres/utils.py",
+          "python/django/core/files/storage/base.py",
+          "python/django/core/management/commands/makemessages.py",
+          "python/django/core/management/commands/migrate.py",
+          "python/django/db/models/base.py",
+          "python/django/db/models/fields/__init__.py",
+          "python/django/db/models/options.py",
+          "python/django/forms/models.py",
+          "python/django/middleware/gzip.py",
+          "python/django/template/base.py",
+          "python/django/template/defaultfilters.py",
+          "python/django/utils/html.py"
+        ],
+        "extra": []
+      },
+      "completeness": {
+        "results": "complete",
+        "graph": "coverage-incomplete",
+        "diagnostics": "complete",
+        "coverageGapReasons": [
+          "parseRecovery"
+        ]
+      },
+      "imports": {
+        "resolved": 550,
+        "external": 5971,
+        "unresolvedInternal": 0,
+        "unsupported": 0
+      },
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "analysis": "dependents",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django",
+                "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/utils/text.py",
+                "pageSize": 100
+              }
+            ]
+          },
+          "chars": 985,
+          "ms": 1388,
+          "code": 0,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"operation\":\"topology\",\"path\":\".\",\"coverage\":{\"basis\":\"syntactic\",\"referenceBasis\":\"lexical-occurrence\",\"languages\":[{\"language\":\"python\",\"files\":907,\"linking\":\"python-modules\"},{\"language\":\"js\",\"files\":85,\"linking\":\"javascript-relative\"},{\"language\":\"javascript\",\"files\":1,\"linking\":\"javascript-relative\"}],\"imports\":{\"resolved\":550,\"external\":5971,\"unresolvedInternal\":0,\"unsupported\":0},\"diagnosticCounts\":{\"parse-recovery\":1},\"diagnostics\":[{\"file\":\"views/templates/i18n_catalog.js\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"}]},\"completeness\":{\"results\":\"complete\",\"graph\":\"coverage-incomplete\",\"diagnostics\":\"complete\",\"coverageGapReasons\":[\"parseRecovery\"]},\"results\":[],\"summary\":{\"source\":\"utils/text.py\",\"depth\":1,\"condensationComponentCount\":982,\"topologicalLayerCount\":5,\"transitiveEdgeCount\":26}}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django\"}\n",
+          "stderr": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "topo-go",
+    "lang": "go",
+    "task": "Direct dependents of chunk.go (root go)",
+    "shell": {
+      "cmd": "rg -l -F '\"github.com/prometheus/prometheus/tsdb/chunkenc\"' -t go go",
+      "calls": 1,
+      "chars": 1766,
+      "ms": 25,
+      "correct": {
+        "found": 67,
+        "truth": 67,
+        "tp": 67,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      }
+    },
+    "octocode": {
+      "query": {
+        "analysis": "dependents",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go",
+        "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/chunkenc/chunk.go",
+        "pageSize": 100
+      },
+      "calls": 1,
+      "chars": 13482,
+      "ms": 1983,
+      "correct": {
+        "found": 67,
+        "truth": 67,
+        "tp": 67,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      },
+      "completeness": {
+        "results": "complete",
+        "graph": "coverage-incomplete",
+        "diagnostics": "complete",
+        "coverageGapReasons": [
+          "unresolvedImports",
+          "unsupportedLinking"
+        ]
+      },
+      "imports": {
+        "resolved": 2730,
+        "external": 6280,
+        "unresolvedInternal": 286,
+        "unsupported": 1,
+        "nonCode": 38
+      },
+      "confidence": "low",
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "analysis": "dependents",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go",
+                "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/chunkenc/chunk.go",
+                "pageSize": 100
+              }
+            ]
+          },
+          "chars": 13482,
+          "ms": 1983,
+          "code": 0,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"operation\":\"topology\",\"path\":\".\",\"coverage\":{\"basis\":\"syntactic\",\"referenceBasis\":\"lexical-occurrence\",\"languages\":[{\"language\":\"go\",\"files\":736,\"linking\":\"go-packages\"},{\"language\":\"mjs\",\"files\":3,\"linking\":\"javascript-relative\"},{\"language\":\"cjs\",\"files\":5,\"linking\":\"javascript-relative\"},{\"language\":\"tsx\",\"files\":148,\"linking\":\"javascript-relative\"},{\"language\":\"ts\",\"files\":100,\"linking\":\"javascript-relative\"},{\"language\":\"js\",\"files\":12,\"linking\":\"javascript-relative\"}],\"imports\":{\"resolved\":2730,\"external\":6280,\"unresolvedInternal\":286,\"unsupported\":1,\"nonCode\":38},\"diagnosticCounts\":{\"unresolved-internal\":15,\"unsupported-linking\":1},\"diagnostics\":[{\"file\":\"web/ui/module/codemirror-promql/src/complete/hybrid.test.ts\",\"line\":31,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/complete/hybrid.ts\",\"line\":17,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/parser/matcher.test.ts\",\"line\":14,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/parser/matcher.ts\",\"line\":15,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/parser/parser.ts\",\"line\":16,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/parser/path-finder.test.ts\",\"line\":14,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/parser/type.ts\",\"line\":15,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/parser/vector.test.ts\",\"line\":16,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/parser/vector.ts\",\"line\":16,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/promql.ts\",\"line\":14,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/test/utils-test.ts\",\"line\":14,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/types/function.ts\",\"line\":14,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/codemirror-promql/src/types/matcher.ts\",\"line\":14,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"@prometheus-io/lezer-promql\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/lezer-promql/src/tokens.js\",\"line\":14,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"./parser.terms.js\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/module/lezer-promql/test/promql.test.js\",\"line\":1,\"code\":\"unresolved-internal\",\"message\":\"Cannot link import \\\"../dist/index.es.js\\\" (unresolvedInternal).\"},{\"file\":\"web/ui/react-app/config-overrides.js\",\"line\":19,\"code\":\"unsupported-linking\",\"message\":\"CommonJS require cannot be linked (non-literal-specifier).\"}]},\"completeness\":{\"results\":\"complete\",\"graph\":\"coverage-incomplete\",\"diagnostics\":\"complete\",\"coverageGapReasons\":[\"unresolvedImports\",\"unsupportedLinking\"]},\"results\":[{\"file\":\"cmd/prometheus/main.go\",\"transitiveEdge\":true,\"topologicalLayer\":12,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":81},{\"file\":\"cmd/promtool/backfill_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":28},{\"file\":\"cmd/promtool/rules_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":31},{\"file\":\"cmd/promtool/tsdb.go\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":44},{\"file\":\"cmd/promtool/tsdb_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":11,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":36},{\"file\":\"promql/engine.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":36,\"importLine\":51},{\"file\":\"promql/engine_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":11,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":42},{\"file\":\"promql/functions_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":11,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":32},{\"file\":\"promql/histogram_stats_iterator.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":36,\"importLine\":19},{\"file\":\"promql/histogram_stats_iterator_test.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":25},{\"file\":\"promql/promqltest/test.go\",\"transitiveEdge\":true,\"topologicalLayer\":10,\"edgeKinds\":[\"go-import\"],\"inboundCount\":20,\"importLine\":43},{\"file\":\"promql/promqltest/test_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":10,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":28},{\"file\":\"promql/value.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":36,\"importLine\":28},{\"file\":\"rules/group.go\",\"transitiveEdge\":true,\"topologicalLayer\":7,\"edgeKinds\":[\"go-import\"],\"inboundCount\":13,\"importLine\":41},{\"file\":\"rules/manager_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":11,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":50},{\"file\":\"scrape/scrape_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":10,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":75},{\"file\":\"storage/buffer.go\",\"transitiveEdge\":true,\"topologicalLayer\":4,\"edgeKinds\":[\"go-import\"],\"inboundCount\":108,\"importLine\":21},{\"file\":\"storage/buffer_test.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":23},{\"file\":\"storage/fanout_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":10,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":28},{\"file\":\"storage/interface.go\",\"transitiveEdge\":true,\"topologicalLayer\":4,\"edgeKinds\":[\"go-import\"],\"inboundCount\":108,\"importLine\":25},{\"file\":\"storage/interface_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":26},{\"file\":\"storage/memoized_iterator.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":108,\"importLine\":20},{\"file\":\"storage/memoized_iterator_test.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":22},{\"file\":\"storage/merge.go\",\"transitiveEdge\":true,\"topologicalLayer\":4,\"edgeKinds\":[\"go-import\"],\"inboundCount\":108,\"importLine\":27},{\"file\":\"storage/merge_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":4,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":29},{\"file\":\"storage/remote/client_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":37},{\"file\":\"storage/remote/codec.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":10,\"importLine\":37},{\"file\":\"storage/remote/codec_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":41},{\"file\":\"storage/remote/read_handler_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":11,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":46},{\"file\":\"storage/series.go\",\"transitiveEdge\":true,\"topologicalLayer\":4,\"edgeKinds\":[\"go-import\"],\"inboundCount\":108,\"importLine\":23},{\"file\":\"storage/series_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":4,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":25},{\"file\":\"tsdb/block.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":34},{\"file\":\"tsdb/block_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":40},{\"file\":\"tsdb/blockwriter.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":28},{\"file\":\"tsdb/chunks/chunk_write_queue.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":55,\"importLine\":23},{\"file\":\"tsdb/chunks/chunk_write_queue_test.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":26},{\"file\":\"tsdb/chunks/chunks.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":55,\"importLine\":27},{\"file\":\"tsdb/chunks/chunks_test.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":22},{\"file\":\"tsdb/chunks/head_chunks.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":55,\"importLine\":35},{\"file\":\"tsdb/chunks/head_chunks_test.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":28},{\"file\":\"tsdb/chunks/samples.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":55,\"importLine\":18},{\"file\":\"tsdb/compact.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":33},{\"file\":\"tsdb/compact_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":41},{\"file\":\"tsdb/db.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":42},{\"file\":\"tsdb/db_append_v2_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":45},{\"file\":\"tsdb/db_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":60},{\"file\":\"tsdb/example_test.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":24},{\"file\":\"tsdb/head.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":44},{\"file\":\"tsdb/head_append.go\",\"transitiveEdge\":true,\"topologicalLayer\":7,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":31},{\"file\":\"tsdb/head_append_v2_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":48},{\"file\":\"tsdb/head_read.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":27},{\"file\":\"tsdb/head_read_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":27},{\"file\":\"tsdb/head_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":52},{\"file\":\"tsdb/head_wal.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":39},{\"file\":\"tsdb/head_wal_replay_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":28},{\"file\":\"tsdb/index/index_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":33},{\"file\":\"tsdb/mocks_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":22},{\"file\":\"tsdb/ooo_head.go\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":20},{\"file\":\"tsdb/ooo_head_read.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":27},{\"file\":\"tsdb/ooo_head_read_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":31},{\"file\":\"tsdb/ooo_head_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":24},{\"file\":\"tsdb/querier.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":28},{\"file\":\"tsdb/querier_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":37},{\"file\":\"tsdb/tsdbblockutil.go\",\"transitiveEdge\":true,\"topologicalLayer\":5,\"edgeKinds\":[\"go-import\"],\"inboundCount\":28,\"importLine\":24},{\"file\":\"util/fuzzing/fuzz_test.go\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"go-import\"],\"inboundCount\":0,\"importLine\":28},{\"file\":\"web/api/testhelpers/mocks.go\",\"transitiveEdge\":true,\"topologicalLayer\":10,\"edgeKinds\":[\"go-import\"],\"inboundCount\":4,\"importLine\":30},{\"file\":\"web/federate.go\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"go-import\"],\"inboundCount\":1,\"importLine\":37}],\"summary\":{\"source\":\"tsdb/chunkenc/chunk.go\",\"depth\":1,\"condensationComponentCount\":978,\"topologicalLayerCount\":18,\"transitiveEdgeCount\":6529,\"importResolution\":{\"status\":\"partial\",\"resolved\":2730,\"unresolvedInternal\":286,\"unsupported\":1}},\"confidence\":\"low\"}}],\"shared\":{\"distance\":1,\"via\":\"tsdb/chunkenc/chunk.go\",\"confidence\":\"syntactic\",\"immediateDominator\":\"tsdb/chunkenc/chunk.go\"},\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go\"}\n",
+          "stderr": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "topo-go-subroot",
+    "lang": "go",
+    "task": "Direct dependents of chunk.go (root go/tsdb)",
+    "shell": {
+      "cmd": "rg -l -F '\"github.com/prometheus/prometheus/tsdb/chunkenc\"' -t go go/tsdb",
+      "calls": 1,
+      "chars": 822,
+      "ms": 15,
+      "correct": {
+        "found": 33,
+        "truth": 33,
+        "tp": 33,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      }
+    },
+    "octocode": {
+      "query": {
+        "analysis": "dependents",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb",
+        "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/chunkenc/chunk.go",
+        "pageSize": 100
+      },
+      "calls": 1,
+      "chars": 591,
+      "ms": 990,
+      "correct": {
+        "found": 0,
+        "truth": 33,
+        "tp": 0,
+        "precision": 0,
+        "recall": 0,
+        "missing": [
+          "go/tsdb/block.go",
+          "go/tsdb/block_test.go",
+          "go/tsdb/blockwriter.go",
+          "go/tsdb/chunks/chunk_write_queue.go",
+          "go/tsdb/chunks/chunk_write_queue_test.go",
+          "go/tsdb/chunks/chunks.go",
+          "go/tsdb/chunks/chunks_test.go",
+          "go/tsdb/chunks/head_chunks.go",
+          "go/tsdb/chunks/head_chunks_test.go",
+          "go/tsdb/chunks/samples.go",
+          "go/tsdb/compact.go",
+          "go/tsdb/compact_test.go",
+          "go/tsdb/db.go",
+          "go/tsdb/db_append_v2_test.go",
+          "go/tsdb/db_test.go",
+          "go/tsdb/example_test.go",
+          "go/tsdb/head.go",
+          "go/tsdb/head_append.go",
+          "go/tsdb/head_append_v2_test.go",
+          "go/tsdb/head_read.go"
+        ],
+        "extra": []
+      },
+      "completeness": {
+        "results": "complete",
+        "graph": "complete",
+        "diagnostics": "complete"
+      },
+      "imports": {
+        "resolved": 0,
+        "external": 1304,
+        "unresolvedInternal": 0,
+        "unsupported": 0
+      },
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "analysis": "dependents",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb",
+                "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb/chunkenc/chunk.go",
+                "pageSize": 100
+              }
+            ]
+          },
+          "chars": 591,
+          "ms": 990,
+          "code": 0,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"operation\":\"topology\",\"path\":\".\",\"coverage\":{\"basis\":\"syntactic\",\"referenceBasis\":\"lexical-occurrence\",\"languages\":[{\"language\":\"go\",\"files\":149,\"linking\":\"go-packages\"}],\"imports\":{\"resolved\":0,\"external\":1304,\"unresolvedInternal\":0,\"unsupported\":0}},\"completeness\":{\"results\":\"complete\",\"graph\":\"complete\",\"diagnostics\":\"complete\"},\"results\":[],\"summary\":{\"source\":\"chunkenc/chunk.go\",\"depth\":1,\"condensationComponentCount\":149,\"topologicalLayerCount\":1,\"transitiveEdgeCount\":0}}}],\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/tsdb\"}\n",
+          "stderr": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "topo-c",
+    "lang": "c",
+    "task": "Direct dependents of zmalloc.h (root c/src)",
+    "shell": {
+      "cmd": "rg -l '^\\s*#\\s*include\\s+\"zmalloc\\.h\"' c/src",
+      "calls": 1,
+      "chars": 401,
+      "ms": 21,
+      "correct": {
+        "found": 24,
+        "truth": 24,
+        "tp": 24,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      }
+    },
+    "octocode": {
+      "query": {
+        "analysis": "dependents",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src",
+        "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src/zmalloc.h",
+        "pageSize": 100
+      },
+      "calls": 1,
+      "chars": 7658,
+      "ms": 912,
+      "correct": {
+        "found": 24,
+        "truth": 24,
+        "tp": 24,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      },
+      "completeness": {
+        "results": "complete",
+        "graph": "coverage-incomplete",
+        "diagnostics": "pageable",
+        "coverageGapReasons": [
+          "parseRecovery",
+          "unresolvedImports"
+        ]
+      },
+      "imports": {
+        "resolved": 533,
+        "external": 644,
+        "unresolvedInternal": 1,
+        "unsupported": 0
+      },
+      "confidence": "low",
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "analysis": "dependents",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src",
+                "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src/zmalloc.h",
+                "pageSize": 100
+              }
+            ]
+          },
+          "chars": 7658,
+          "ms": 912,
+          "code": 6,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"operation\":\"topology\",\"path\":\".\",\"next\":{\"nextDiagnostics\":{\"tool\":\"astTopology\",\"confidence\":\"exact\",\"query\":{\"analysis\":\"dependents\",\"file\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src/zmalloc.h\",\"diagnosticSnapshot\":\"c0862fe9d6df574dfa2fed71353be3b96a444ad8fe40dd0a18ae998e07e68937\",\"pageSize\":100,\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src\",\"diagnosticPageSize\":25,\"diagnosticPage\":2,\"followUp\":true}}},\"completeness\":{\"results\":\"complete\",\"graph\":\"coverage-incomplete\",\"diagnostics\":\"pageable\",\"coverageGapReasons\":[\"parseRecovery\",\"unresolvedImports\"]},\"results\":[{\"file\":\"adlist.c\",\"transitiveEdge\":false,\"topologicalLayer\":1,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":14},{\"file\":\"ae.c\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":27},{\"file\":\"chk.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":20},{\"file\":\"crc64.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":166},{\"file\":\"dict.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":28},{\"file\":\"ebuckets.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":14},{\"file\":\"estore.c\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":14},{\"file\":\"eventnotifier.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":21},{\"file\":\"fast_float_strtod.c\",\"transitiveEdge\":false,\"topologicalLayer\":1,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":42},{\"file\":\"fwtree.c\",\"transitiveEdge\":true,\"topologicalLayer\":6,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":14},{\"file\":\"intset.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":35},{\"file\":\"kvstore.c\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":20},{\"file\":\"listpack_malloc.h\",\"transitiveEdge\":false,\"topologicalLayer\":1,\"edgeKinds\":[\"c-include\"],\"inboundCount\":1,\"importLine\":21},{\"file\":\"quicklist.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":35},{\"file\":\"rax_malloc.h\",\"transitiveEdge\":false,\"topologicalLayer\":1,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":20},{\"file\":\"redis-benchmark.c\",\"transitiveEdge\":false,\"topologicalLayer\":3,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":36},{\"file\":\"redis-cli.c\",\"transitiveEdge\":false,\"topologicalLayer\":4,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":40},{\"file\":\"sdsalloc.h\",\"transitiveEdge\":false,\"topologicalLayer\":1,\"edgeKinds\":[\"c-include\"],\"inboundCount\":2,\"importLine\":24},{\"file\":\"server.h\",\"transitiveEdge\":false,\"topologicalLayer\":5,\"edgeKinds\":[\"c-include\"],\"inboundCount\":77,\"importLine\":58},{\"file\":\"util.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":54},{\"file\":\"vector.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":17},{\"file\":\"ziplist.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":187},{\"file\":\"zipmap.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":61},{\"file\":\"zmalloc.c\",\"transitiveEdge\":false,\"topologicalLayer\":2,\"edgeKinds\":[\"c-include\"],\"inboundCount\":0,\"importLine\":36}],\"summary\":{\"source\":\"zmalloc.h\",\"depth\":1,\"condensationComponentCount\":218,\"topologicalLayerCount\":8,\"transitiveEdgeCount\":114,\"importResolution\":{\"status\":\"partial\",\"resolved\":533,\"unresolvedInternal\":1,\"unsupported\":0}},\"confidence\":\"low\",\"coverage\":{\"basis\":\"syntactic\",\"referenceBasis\":\"lexical-occurrence\",\"languages\":[{\"language\":\"c\",\"files\":219,\"linking\":\"c-relative-includes\"}],\"imports\":{\"resolved\":533,\"external\":644,\"unresolvedInternal\":1,\"unsupported\":0},\"diagnosticCounts\":{\"parse-recovery\":51,\"unresolved-internal\":1},\"diagnostics\":[{\"file\":\"acl.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"aof.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"bio.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"bitops.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"cluster_legacy.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"config.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"db.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"debug.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"defrag.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"dict.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"dict.h\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"ebuckets.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"estore.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"fwtree.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"geohash.h\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"hyperloglog.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"iothread.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"kvstore.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"lazyfree.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"listpack.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"lzfP.h\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"lzf_c.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"memtest.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"module.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"mstr.c\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"}],\"diagnosticsPagination\":{\"currentPage\":1,\"totalPages\":3,\"entriesPerPage\":25,\"totalEntries\":52,\"hasMore\":true,\"resultId\":\"c0862fe9d6df574dfa2fed71353be3b96a444ad8fe40dd0a18ae998e07e68937\"}}}}],\"shared\":{\"distance\":1,\"via\":\"zmalloc.h\",\"confidence\":\"syntactic\",\"immediateDominator\":\"zmalloc.h\"},\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/c/src\"}\n",
+          "stderr": ""
+        }
+      ]
+    }
+  },
+  {
+    "id": "topo-java",
+    "lang": "java",
+    "task": "Direct dependents of Lists.java (root java/guava/src)",
+    "shell": {
+      "cmd": "rg -l 'import (static )?com\\.google\\.common\\.collect\\.Lists[.;]' java/guava/src; rg -l '\\bLists\\s*\\.' java/guava/src/com/google/common/collect --max-depth 1",
+      "calls": 2,
+      "chars": 2382,
+      "ms": 38,
+      "correct": {
+        "found": 23,
+        "truth": 23,
+        "tp": 23,
+        "precision": 1,
+        "recall": 1,
+        "missing": [],
+        "extra": []
+      }
+    },
+    "octocode": {
+      "query": {
+        "analysis": "dependents",
+        "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src",
+        "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/Lists.java",
+        "pageSize": 100
+      },
+      "calls": 1,
+      "chars": 5244,
+      "ms": 757,
+      "correct": {
+        "found": 22,
+        "truth": 23,
+        "tp": 22,
+        "precision": 1,
+        "recall": 0.957,
+        "missing": [
+          "java/guava/src/com/google/common/collect/Multimaps.java"
+        ],
+        "extra": []
+      },
+      "completeness": {
+        "results": "complete",
+        "graph": "coverage-incomplete",
+        "diagnostics": "complete",
+        "coverageGapReasons": [
+          "parseRecovery"
+        ]
+      },
+      "imports": {
+        "resolved": 2523,
+        "external": 3963,
+        "unresolvedInternal": 0,
+        "unsupported": 0
+      },
+      "steps": [
+        {
+          "query": {
+            "queries": [
+              {
+                "goal": "benchmark task",
+                "reasoning": "head-to-head validation",
+                "analysis": "dependents",
+                "path": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src",
+                "file": "/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/Lists.java",
+                "pageSize": 100
+              }
+            ]
+          },
+          "chars": 5244,
+          "ms": 757,
+          "code": 0,
+          "stdout": "{\"results\":[{\"index\":0,\"data\":{\"operation\":\"topology\",\"path\":\".\",\"coverage\":{\"basis\":\"syntactic\",\"referenceBasis\":\"lexical-occurrence\",\"languages\":[{\"language\":\"java\",\"files\":611,\"linking\":\"java-imports\"}],\"imports\":{\"resolved\":2523,\"external\":3963,\"unresolvedInternal\":0,\"unsupported\":0},\"diagnosticCounts\":{\"parse-recovery\":5},\"diagnostics\":[{\"file\":\"com/google/common/base/Objects.java\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"com/google/common/base/Platform.java\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"com/google/common/base/Preconditions.java\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"com/google/common/base/Strings.java\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"},{\"file\":\"com/google/common/base/Verify.java\",\"code\":\"parse-recovery\",\"message\":\"tree-sitter recovered from parse errors; graph facts may be partial\"}]},\"completeness\":{\"results\":\"complete\",\"graph\":\"coverage-incomplete\",\"diagnostics\":\"complete\",\"coverageGapReasons\":[\"parseRecovery\"]},\"results\":[{\"file\":\"com/google/common/collect/AllEqualOrdering.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":19},{\"file\":\"com/google/common/collect/Collections2.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":14,\"importLine\":24},{\"file\":\"com/google/common/collect/ConcurrentHashMultiset.java\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":26},{\"file\":\"com/google/common/collect/FluentIterable.java\",\"transitiveEdge\":true,\"topologicalLayer\":7,\"edgeKinds\":[\"java-import\"],\"inboundCount\":4,\"importLine\":20},{\"file\":\"com/google/common/collect/ForwardingList.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":19},{\"file\":\"com/google/common/collect/ImmutableList.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":31,\"importLine\":24},{\"file\":\"com/google/common/collect/ImmutableSortedMultiset.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":19},{\"file\":\"com/google/common/collect/Iterables.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":12,\"importLine\":29},{\"file\":\"com/google/common/collect/Iterators.java\",\"transitiveEdge\":false,\"topologicalLayer\":5,\"edgeKinds\":[\"java-import\"],\"inboundCount\":32,\"importLine\":25},{\"file\":\"com/google/common/collect/LinkedListMultimap.java\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":22},{\"file\":\"com/google/common/collect/Maps.java\",\"transitiveEdge\":true,\"topologicalLayer\":7,\"edgeKinds\":[\"java-import\"],\"inboundCount\":46,\"importLine\":33},{\"file\":\"com/google/common/collect/Ordering.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":4,\"importLine\":21},{\"file\":\"com/google/common/collect/Sets.java\",\"transitiveEdge\":true,\"topologicalLayer\":7,\"edgeKinds\":[\"java-import\"],\"inboundCount\":28,\"importLine\":29},{\"file\":\"com/google/common/collect/SortedLists.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":2,\"importLine\":18},{\"file\":\"com/google/common/collect/StandardTable.java\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":27},{\"file\":\"com/google/common/eventbus/SubscriberRegistry.java\",\"transitiveEdge\":true,\"topologicalLayer\":11,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":20},{\"file\":\"com/google/common/util/concurrent/ClosingFuture.java\",\"transitiveEdge\":true,\"topologicalLayer\":8,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":25},{\"file\":\"com/google/common/util/concurrent/CollectionFuture.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":1,\"importLine\":17},{\"file\":\"com/google/common/util/concurrent/CycleDetectingLockFactory.java\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":18},{\"file\":\"com/google/common/util/concurrent/MoreExecutors.java\",\"transitiveEdge\":false,\"topologicalLayer\":6,\"edgeKinds\":[\"java-import\"],\"inboundCount\":13,\"importLine\":19},{\"file\":\"com/google/common/util/concurrent/ServiceManager.java\",\"transitiveEdge\":true,\"topologicalLayer\":9,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":25},{\"file\":\"com/google/common/util/concurrent/Striped.java\",\"transitiveEdge\":true,\"topologicalLayer\":7,\"edgeKinds\":[\"java-import\"],\"inboundCount\":0,\"importLine\":17}],\"summary\":{\"source\":\"com/google/common/collect/Lists.java\",\"depth\":1,\"condensationComponentCount\":605,\"topologicalLayerCount\":12,\"transitiveEdgeCount\":924}}}],\"shared\":{\"distance\":1,\"via\":\"com/google/common/collect/Lists.java\",\"confidence\":\"syntactic\",\"immediateDominator\":\"com/google/common/collect/Lists.java\"},\"base\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src\"}\n",
+          "stderr": ""
+        }
+      ]
+    }
+  }
+]

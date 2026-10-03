@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetHistoryItem` call on issue #13786 (body and comments) gave the root cause directly, since the reporter had traced it to `core_config()` mutating `config_dict`. The `ghSearchHistory` call with keyword "13786" and `state: merged` found PR #13825 in one step. The second query in that batch also surfaced the closed #13787. The final `ghGetHistoryItem` on #13825 with `patches: all` returned the full diff, tests and PR body, so I needed only three calls.
+
+2. **Did not help:** The patch hunks were elided with "...", so I had no reliable line numbers and cited none. I never read the merged files at the merge commit, the PR comments or the reviews. I said #13787 was "closed unmerged" because it appeared only in the unfiltered search as `closed`, not in the merged-only one. I never read its closing comment, so the reason is unverified. That the PR closed the issue is inferred from matching timestamps.
+
+3. **Next time:** I would read `pydantic/_internal/_config.py` at the merge SHA to get exact lines, and read #13787's discussion for why it was closed.
+
+4. **Confidence:** High on root cause and fix mechanism, because the issue text and diff agree and the PR body says "Fixes #13786". Medium on the #13787 detail and on the exact merged state of the code.

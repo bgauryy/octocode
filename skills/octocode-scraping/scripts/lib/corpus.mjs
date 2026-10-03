@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 const GRAPH_SCHEMA_SOURCE = new URL('../schemas/graph.schema.json', import.meta.url);
-import { bytes, cleanForAgent, chunkTextByBytes, detectTargetError, parsePayload, stripTags, titleFromHtml, truncate } from './text.mjs';
+import { bytes, cleanForAgent, chunkTextByBytes, detectBrowserNeed, detectTargetError, parsePayload, stripTags, titleFromHtml, truncate } from './text.mjs';
 import { buildSiteGraph, buildUnifiedGraph, buildWorkflowIndex, pageSlices } from './analyzers.mjs';
 import { extractButtonsFromHtml, extractCanonicalFromHtml, extractCodeBlocksFromMarkdown, extractFormsFromHtml, extractHeadings, extractJsonLdFromHtml, extractLinksFromHtml, extractLinksFromMarkdown, extractMetaFromHtml, extractResourcesFromHtml, extractTablesFromHtml, extendedExtractFiles, jsonl } from './extractors.mjs';
 
@@ -26,6 +26,7 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
   const providerStatus = Number(parsed.json?.status ?? parsed.json?.status_code ?? parsed.json?.statusCode);
   const targetLikelyError = detectTargetError({ status: response.status, providerStatus, text: parsed.text, json: parsed.json });
   const cleanSource = cleanForAgent(parsed.text || '');
+  const browserReason = config.provider === 'direct' ? detectBrowserNeed({ status: response.status, contentType: response.contentType, body: response.body, cleanText: cleanSource, targetLikelyError }) : null;
   const text = truncate(cleanSource, config.maxTextBytes);
   const chunks = chunkTextByBytes(text.text, config.chunkBytes);
   const textParts = [];
@@ -85,6 +86,7 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
     text: textRel,
     textParts,
     rawTruncated: raw.truncated,
+    networkTruncated: Boolean(response.bodyTruncated),
     rawBytes: raw.bytes,
     textTruncated: text.truncated,
     textBytes: bytes(parsed.text),
@@ -93,7 +95,10 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
     error: response.fetchError,
     providerStatus: Number.isFinite(providerStatus) ? providerStatus : null,
     providerDetail,
-    targetLikelyError
+    targetLikelyError,
+    browserRecommended: Boolean(browserReason),
+    browserReason,
+    retryAfterMs: response.retryAfterMs ?? null,
   };
   const pageMeta = {
     pageId,
@@ -107,11 +112,13 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
     artifacts: { raw: config.noRaw ? null : rawRel, text: textRel, textParts, links: links.length ? 'extracts/links.jsonl' : null, elements: elementRows.length ? 'extracts/elements.jsonl' : null },
     params: { browser: config.browser, waitFor: config.waitFor, mode: config.mode, extractProperties: config.mode === 'extract' ? config.extractProperties : null },
     limits: { maxRawBytes: config.maxRawBytes, maxTextBytes: config.maxTextBytes, chunkBytes: config.chunkBytes },
-    truncation: { raw: raw.truncated, text: text.truncated },
+    truncation: { network: Boolean(response.bodyTruncated), raw: raw.truncated, text: text.truncated },
+    browserRecommendation: browserReason,
+    retryAfterMs: response.retryAfterMs ?? null,
     antCreditsCost: response.creditCost
   };
   await writeFile(join(sessionDir, `pages/${pageId}.json`), JSON.stringify(pageMeta, null, 2));
-  const metadata = { pageId, url: response.url, title: title || null, status: response.status, providerStatus: sourceRow.providerStatus, contentType: response.contentType, route: sourceRow.route, textBytes: bytes(parsed.text), cleanBytes: bytes(cleanSource), rawBytes: raw.bytes, textParts: textParts.length, targetLikelyError, antCreditsCost: response.creditCost };
+  const metadata = { pageId, url: response.url, title: title || null, status: response.status, providerStatus: sourceRow.providerStatus, contentType: response.contentType, route: sourceRow.route, textBytes: bytes(parsed.text), cleanBytes: bytes(cleanSource), rawBytes: raw.bytes, textParts: textParts.length, targetLikelyError, browserRecommendation: browserReason, networkTruncated: Boolean(response.bodyTruncated), antCreditsCost: response.creditCost };
   await writeFile(join(sessionDir, `extracts/${pageId}-metadata.json`), JSON.stringify(metadata, null, 2));
   const pageMap = {
     pageId,
@@ -126,7 +133,7 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
 
 const PAGE_SIZE = 20;
 
-export async function writeSession({ sessionDir, config, startedAt, sources, pageMaps, linksAll, headingsAll, elementsAll = [], resourcesAll = [], costs, failures }) {
+export async function writeSession({ sessionDir, config, startedAt, sources, pageMaps, linksAll, headingsAll, elementsAll = [], resourcesAll = [], costs, failures, robots = [] }) {
   await writeFile(join(sessionDir, 'sources.jsonl'), jsonl(sources));
   await writeFile(join(sessionDir, 'extracts/links.jsonl'), jsonl(linksAll));
   await writeFile(join(sessionDir, 'extracts/headings.jsonl'), jsonl(headingsAll));
@@ -139,6 +146,8 @@ export async function writeSession({ sessionDir, config, startedAt, sources, pag
   const knownTotal = costs.reduce((n, r) => n + (Number.isFinite(r.antCreditsCost) ? r.antCreditsCost : 0), 0);
   await writeFile(join(sessionDir, 'reports/costs.md'), `# Fetch Costs (${config.provider})\n\nKnown total credits: ${knownTotal}\n\n${costs.map((r) => `- ${r.pageId} ${r.url}: ${r.antCreditsCost}`).join('\n') || 'No cost header captured (provider may not report per-request cost).'}\n`);
   const warnings = sources.filter((s) => s.targetLikelyError).map((s) => ({ pageId: s.pageId, url: s.url, warning: s.targetLikelyError }));
+  for (const source of sources) if (source.networkTruncated) warnings.push({ pageId: source.pageId, url: source.url, warning: 'response body reached the network byte cap; evidence is partial' });
+  const browserRecommendations = sources.filter((source) => source.browserRecommended).map((source) => ({ pageId: source.pageId, url: source.url, route: 'octocode-chrome-devtools', reason: source.browserReason }));
   const graph = buildSiteGraph({ rootUrl: config.targetUrl, pageMaps, sources, linksAll, headingsAll, elementRows: elementsAll });
   const slices = pageSlices({ pageMaps, sources, linksAll, headingsAll, pageSize: PAGE_SIZE });
   const workflowIndex = buildWorkflowIndex({ rootUrl: config.targetUrl, pageMaps, linksAll, headingsAll, elementRows: elementsAll });
@@ -155,8 +164,9 @@ export async function writeSession({ sessionDir, config, startedAt, sources, pag
     schemaVersion: 1,
     sessionId: config.sessionId,
     createdAt: startedAt,
-    ok: sources.every((s) => s.ok),
+    ok: sources.length > 0 && sources.every((s) => s.ok),
     warnings,
+    recommendations: browserRecommendations,
     totals: { pages: sources.length, links: linksAll.length, headings: headingsAll.length, elements: elementsAll.length, resources: resourcesAll.length, workflows: workflowIndex.workflows.length, knownAntCredits: knownTotal },
     startHere: ['AGENT_INDEX.json', 'MAP.md', 'page-map.json', 'reports/summary.md', 'sources.jsonl'],
     searchTargets: ['text/*.clean.part-*.md', 'indexes/*.json', 'indexes/*.jsonl', 'graph/graph.json', 'graph/site-graph.json', 'graph/workflows.json', 'extracts/*.jsonl', 'extracts/*-ai-extract.json', 'snippets/*.txt'],
@@ -169,9 +179,10 @@ export async function writeSession({ sessionDir, config, startedAt, sources, pag
   await writeFile(join(sessionDir, 'page-map.json'), JSON.stringify({ sessionId: config.sessionId, createdAt: startedAt, pages: pageMaps }, null, 2));
   await writeFile(join(sessionDir, 'MAP.md'), `# Scrape Session Map\n\nSession: ${config.sessionId}\nCreated: ${startedAt}\n\n| Page | URL | Status | Title | Search first | Raw audit |\n|---|---|---:|---|---|---|\n${pageMaps.map((p) => `| ${p.pageId} | ${p.url} | ${p.status || 0} | ${p.title || ''} | \`${p.files.textIndex}\` → ${p.files.textParts.map((x) => `\`${x}\``).join(', ')} | ${p.files.raw ? `\`${p.files.raw}\`` : 'none'} |`).join('\n')}\n\n## Extracts\n- Metadata: \`extracts/metadata.json\` plus \`extracts/{pageId}-metadata.json\`\n- Headings: \`extracts/headings.jsonl\`\n- Links: \`extracts/links.jsonl\`\n- Costs: \`extracts/costs.jsonl\` / \`reports/costs.md\`\n- Sources: \`sources.jsonl\`\n`);
   await writeFile(join(sessionDir, 'manifest.json'), JSON.stringify({ sessionId: config.sessionId, createdAt: startedAt, target: config.targetUrl, route: `${config.provider}:${config.mode}`, provider: config.provider, apiKeyEnv: config.apiKeyEnv, sessionDir, crawl: config.crawl ? { maxPages: config.maxPages, delayMs: config.delayMs, sameDomain: config.sameDomain, sitemap: config.sitemap } : null, outputs: { agentIndex: 'AGENT_INDEX.json', map: 'MAP.md', pageMap: 'page-map.json', automationGraph: 'graph/graph.json', siteGraph: 'graph/site-graph.json', workflows: 'graph/workflows.json', pageIndexes: 'indexes/pages-*.json', topLinks: 'indexes/top-links.jsonl', workflowCandidates: 'indexes/workflow-candidates.jsonl', raw: config.noRaw ? null : 'raw/', text: 'text/', extracts: 'extracts/', snippets: 'snippets/', reports: 'reports/' }, searchGuidance: { startHere: ['AGENT_INDEX.json', 'indexes/pages-001.json', 'graph/graph.json', 'graph/site-graph.json', 'graph/workflows.json', 'MAP.md', 'page-map.json', 'reports/summary.md', 'sources.jsonl', 'text/*.clean.part-*.md', 'extracts/', 'snippets/'], avoidByDefault: config.noRaw ? [] : ['raw/'] } }, null, 2));
-  const ok = sources.every((s) => s.ok);
+  const ok = sources.length > 0 && sources.every((s) => s.ok);
   const first = sources[0] || {};
   await writeFile(join(sessionDir, 'reports/crawl-summary.md'), `# Crawl Summary\n\nEnabled: ${config.crawl}\nPages fetched: ${sources.length}\nMax pages: ${config.crawl ? config.maxPages : 1}\nSame domain: ${config.sameDomain}\nSitemap: ${config.sitemap}\nDelay ms: ${config.delayMs}\n`);
+  await writeFile(join(sessionDir, 'reports/robots.md'), `# Robots Policy\n\n${config.crawl ? `Checked origins: ${robots.length}\n\n${robots.map((row) => `- ${row.origin}: ${row.status || 'fetch-error'} via ${row.url} at ${row.fetchedAt}`).join('\n') || '- No origin was reached.'}` : 'Not checked: this was one explicit URL, not a crawl.'}\n`);
   await writeFile(join(sessionDir, 'reports/failures.md'), failures.length || !ok ? `# Failures\n\n${failures.map((f) => `- ${f}`).join('\n')}${failures.length ? '\n' : ''}${sources.filter((s) => !s.ok).map((s) => `- ${s.pageId} status ${s.status}: ${s.targetLikelyError || s.providerDetail || s.error || 'HTTP error'}`).join('\n')}\n` : '# Failures\n\nNo fetch failure recorded.\n');
   await writeFile(join(sessionDir, 'reports/summary.md'), `# Scrape Summary\n\nTarget: ${config.targetUrl}\nRoute: ${config.provider}:${config.mode}\nFetched: ${new Date().toISOString()}\nPages: ${sources.length}\nStatus: ${first.status || 'fetch-error'}\nContent-Type: ${first.contentType || 'unknown'}\n\n## Why this corpus matters\n${config.provider} fetched/crawled/extracted the page data; this script normalized it into clean chunks and extracts so Octocode local tools can search/read/prove exact claims without context bloat.\n\n## Artifacts\n- Agent index: \`AGENT_INDEX.json\`\n- Session map: \`MAP.md\` / \`page-map.json\`\n- Source metadata: \`sources.jsonl\`\n- Clean text chunks: \`text/*.clean.part-*.md\`\n- Site graph: \`graph/site-graph.json\`\n- Page indexes: \`indexes/pages-*.json\` / \`indexes/top-links.jsonl\`\n- Metadata: \`extracts/metadata.json\`\n- Headings: \`extracts/headings.jsonl\` (${headingsAll.length})\n- Links: \`extracts/links.jsonl\` (${linksAll.length})\n- Costs: \`reports/costs.md\`\n- Raw audit: \`raw/\`\n\n## Search first\nUse Octocode local tools on \`AGENT_INDEX.json\`, \`indexes/\`, \`graph/site-graph.json\`, \`MAP.md\`, \`page-map.json\`, \`reports/\`, \`text/*.clean.part-*.md\`, \`extracts/\`, \`snippets/\`, \`manifest.json\`, and \`sources.jsonl\`. Read \`raw/\` only for audit/debug.\n${warnings.length ? `\n## Warnings\n${warnings.map((w) => `- ${w.pageId}: ${w.warning}`).join('\n')}\n` : ''}`);
   await writeFile(join(sessionDir, 'README.md'), `# Scrape Session: ${config.sessionId}\n\nTarget: ${config.targetUrl}\nCreated: ${startedAt}\nRoute: ${config.provider}:${config.mode}\nProvider: ${config.provider}\n\n## Start here\n- \`AGENT_INDEX.json\` — compact machine-readable index and search targets\n- \`indexes/pages-001.json\` — paginated page rows for large crawls\n- \`graph/site-graph.json\` — site/workflow graph and smart link candidates\n- \`MAP.md\` / \`page-map.json\` — URL → files map\n- \`reports/summary.md\` — compact overview\n- \`sources.jsonl\` — URL/status/content-type/fetch metadata\n- \`text/\` — cleaned, chunked Markdown/text, good for search\n- \`extracts/\` — structured JSONL rows and metadata\n- \`snippets/\` — small focused evidence excerpts\n\n## Avoid first\n- \`raw/\` — large raw payloads; use only for audit/debug\n`);

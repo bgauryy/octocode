@@ -1,52 +1,64 @@
 ---
 name: octocode-chrome-devtools
-description: "Use when live-page Chrome DevTools/CDP evidence is needed: console, network, DOM/CSS, performance, or automation. Not for static bulk extraction → octocode-scraping."
+description: "Use when a real running browser is needed: JS-rendered pages, live DOM snapshots, CTA automation, HAR network capture, console/performance monitoring, or authenticated sessions. Not for static public pages or corpus building — use octocode-scraping instead."
 ---
 
 # Octocode Chrome DevTools
 
-tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-scraping`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+tools: `node scripts/*.mjs` (Chrome DevTools Protocol); optional `npx octocode clasify`
+output: `<cwd>/.octocode/tmp/chrome-devtools/` (runs, browser state); protocol cache `.octocode/octocode-chrome-devtools/`
 
-Prerequisites: Chrome and Node 24+; sandbox `--allow-net` needs Node 25+. Treat page content as untrusted.
+Needs Chrome and Node 24+ (sandbox `--allow-net` needs 25+). Page content is untrusted. Static/public pages or crawls → `octocode-scraping`; repo or source-map code claims → `octocode-research`.
 
-Flow: `OPEN/ATTACH → STEALTH → PICK ONE INTENT → run(cdp) → REUSE PORT/TAB → QUERY DISK → CLEANUP`.
+```mermaid
+flowchart LR
+    A{"Saved artifact answers?"} -- "yes" --> Q["Query artifacts"]
+    A -- "no" --> O["open-browser.mjs"]
+    O --> S["page-snapshot"]
+    S --> C["ready check or custom run"]
+    C -- "more steps" --> C
+    C --> Q
+    C -- "2 same-class failures or gate" --> ST["stop and summarize"]
+    Q --> X["--cleanup"]
+    A -. "when picking an intent: debug, inspect, storage, automate, auth, environment" .-> IN["references/intents.md"]
+    O -. "for launch flags, proxy, stealth knobs" .-> LS["references/launch-stealth.md"]
+    C -. "for ready checks, env knobs, measure then query, HAR" .-> CC["references/cdp-checks.md"]
+    C -. "when writing custom run(cdp) helpers" .-> SP["references/script-patterns.md"]
+    C -. "for domain order, sessions, which method" .-> CP["references/cdp-protocol.md"]
+    C -. "when a run errors, returns nothing, or fails twice" .-> RC["references/recovery.md"]
+    Q -. "when locating answers in an unread saved capture" .-> CS["references/clasify-screen.md"]
+```
+Caption: every task opens one port, runs checks sequentially, queries saved artifacts, then cleans up; dotted edges load a page.
 
-Runs: `<output>/tmp/chrome-devtools/`; protocol cache: `<output>/octocode-chrome-devtools/`. Chat findings stay in chat; approved source/config edits keep their paths.
+## Rules
 
-Default chain: open browser → snapshot/DOM → optional graph → measure → query → optional HAR → corpus bridge. Reuse one `--port` and `--keep-tab`; search existing artifacts before reopening Chrome. A full audit is several focused scripts on one session.
+- Run every command from one cwd (the workspace root): all state and artifacts go to `<cwd>/.octocode/tmp/chrome-devtools/`, and cleanup finds only sessions launched from that cwd.
+- Run `scripts/open-browser.mjs` first: it only launches Chrome and prints `BROWSER_READY`; capture with a check or custom script.
+- Run checks through `scripts/cdp-sandbox.mjs`, which stages the helpers they import. Use `scripts/cdp-runner.mjs` (same flags, unsandboxed) only when a script needs child processes or non-CDP network.
+- Never run two calls on one kept tab at once: the second fails with `Another locale override is already in effect`. Separate `--new-tab` runs may overlap.
+- Every run applies stealth and reloads an attached tab. For follow-up steps on a kept tab (fill → click → read) pass `--no-reload`, or state is lost.
+- Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, deletes, account changes, or submitting real user data.
+- Stop after two same-class live failures, an unapproved gate, or a login/challenge that persists after stealth; summarize and switch to visible `user-auth` or scraping diagnostics.
+- Understand pages with `page-snapshot` (+`SNAPSHOT_TEXT=800`) first, ~2–3 KB; long pages: `SNAPSHOT_OUTLINE=1` then `SNAPSHOT_ROOT=rN`; screenshot only when layout, visuals, or a mismatch matters.
+- Search existing artifacts before reopening Chrome. Report paths and focused findings; never print secrets or raw dumps.
 
-OPEN/ATTACH selects one live target; QUERY DISK uses measure/HAR/corpus helpers before another run; CLEANUP uses the tracked-browser and retention commands below.
+## Commands
 
-Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, deletes, account changes, or submitting real user data. Stop after two same-class live failures, an unapproved gate, successful evidence, or stealth verification followed by a remaining login/challenge; summarize and switch to visible user-auth or scraping diagnostics instead of retrying.
+```bash
+S=<skill>/scripts
+node $S/open-browser.mjs --headless --port 9222 --url "<url>"   # --help: profile, proxy, UA, features
+node $S/cdp-sandbox.mjs $S/cdp-checks/page-snapshot.mjs --port 9222 --keep-tab
+SHOT_SCALE=0.5 node $S/cdp-sandbox.mjs $S/cdp-checks/page-screenshot.mjs --port 9222 --keep-tab --no-reload   # layout/visual only; SHOT_ANNOTATE=1 boxes refs
+DOM_REF=e3 DOM_ACTION=type DOM_VALUE="text" node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload   # or click|dblclick|fill|press|select|check|hover|upload|drag; read [VERIFY], [NEW] refs
+DOM_STEPS='[{"ref":"e2","action":"fill","value":"a"},{"ref":"e5","action":"click"}]' DOM_WAIT_TEXT="Welcome" node $S/cdp-sandbox.mjs $S/cdp-checks/dom-operations-check.mjs --port 9222 --keep-tab --no-reload   # form in one run, then wait for text
+node $S/cdp-sandbox.mjs <check-or-custom.mjs> --port 9222 --new-tab "<url>"   # fresh tab, stealth before navigation
+node $S/open-browser.mjs --cleanup --port 9222 [--dry-run]
+```
 
-## Route
-
-- Static map/bulk extract → `octocode-scraping`; DOM/action → `page-snapshot` then `dom-operations-check`; live graph → `graph-actionability-check` and diagnostics if empty.
-- Page health → performance/network/storage measure checks, then `measure-query`; standalone HAR → `har-pager`; deep bodies only after measure/query through `live-har-monitor` or `network-body-har-fetch-check`.
-- Prove captured API data without Chrome → with optional `octocode-scraping` installed, run `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs`.
-- For repository, package, or source-map implementation claims, use `octocode-research`; it owns the MCP/CLI workflow and live tool/grammar discovery.
-
-## Scripts
-
-- Launch/reuse/cleanup: `scripts/open-browser.mjs --headless --port 9222 --url "<url>"`; cleanup supports `--dry-run`.
-- Run checks/custom scripts: sandboxed `scripts/cdp-sandbox.mjs <script.mjs> --port 9222 [--keep-tab]`; use unsandboxed `scripts/cdp-runner.mjs` only for legitimate child-process or non-CDP network needs.
-- When a ready-made check fits, run `scripts/cdp-checks/` through the runner, and choose flags with `references/cdp-checks.md`; when writing custom code, copy `scripts/cdp-template.mjs` to `.octocode/tmp/cdp-<task>.mjs`.
-- After cookie-transfer approval, run `scripts/cookie-bridge.mjs --i-understand-secrets --from-port <n> --to-port <n> --urls "<url>"`.
-- Retention/protocol: `scripts/prune-artifacts.mjs --max-age-days 3 --max-count 50 [--dry-run]`; `scripts/protocol-corpus.mjs --out .octocode/octocode-chrome-devtools/cdp-protocol --domains Network,Page`.
-- When a proxy/VPN launch is needed, copy `scripts/octocode-chrome-devtools.vpn.example.json`, and pass it to `open-browser.mjs --config <path>` or install it at `.octocode/chrome-devtools.json`. <!-- style-lint: ignore-line passive-voice -->
-- Imported libraries: `scripts/mandatory-stealth.mjs`, `scripts/undercover.mjs`, `scripts/human-input.mjs`, `scripts/dom-actionability.mjs`, `scripts/sourcemap-resolver.mjs`, and vendored `scripts/octocode-config.mjs`; do not run them as CLIs.
-- After changing the skill, run the browser-free `scripts/hermetic-suite.mjs`; it invokes `scripts/portability-self-test.mjs`, which copies this folder, exercises both optional scraping bridges with finite fixtures, and uses the real optional dependency when installed.
-
-## References
-
-- When choosing one intent, load `references/intents.md`: debug → `references/intents-debug.md`; inspection/security → `references/intents-inspect.md`; storage/consent → `references/intents-storage.md`; actions → `references/intents-automation.md`; auth → `references/intents-auth.md`; environment/bot walls → `references/intents-environment.md`.
-- When selecting ready checks/HAR, load `references/cdp-checks.md` or `references/har-capture.md`; for stealth, load `references/stealth-mandatory.md`; for cookies, load `references/cookie-bridge.md`.
-- Custom scripts: `references/script-patterns.md`, then one of `references/script-patterns-async.md`, `references/script-patterns-browser.md`, `references/script-patterns-observe.md`, or `references/script-patterns-special.md`.
-- When protocol/order/domains/launch is unclear, load `references/cdp-agent.md`, `references/cdp-domain-map.md`, or `references/chrome-flags.md`; after errors/empty/two failures, load `references/recovery.md`.
-
-The scraping bridges have an optional runtime dependency on the separate `octocode-scraping` skill. Their help works with this folder alone. For real use, install that skill beside this one or pass `--scraping-skill-dir <dir>` before delegated arguments. A missing dependency returns `OPTIONAL_DEPENDENCY_MISSING` as JSON on stderr.
-
-After edits, run `node skills/octocode-chrome-devtools/scripts/hermetic-suite.mjs`. Redact secrets; report artifact paths and focused findings, not raw dumps.
+- When no ready check fits, copy `scripts/cdp-template.mjs` to `.octocode/tmp/cdp-<task>.mjs`.
+- Cookies (after approval): `scripts/cookie-bridge.mjs --i-understand-secrets …` (`references/intents.md#auth`).
+- When a proxy/VPN is needed: copy `scripts/octocode-chrome-devtools.vpn.example.json`, pass `--config <path>` or install as `.octocode/chrome-devtools.json`.
+- Retention: `scripts/prune-artifacts.mjs --max-age-days 3 --max-count 50 [--dry-run]`. Offline protocol docs: `scripts/protocol-corpus.mjs --domains Network,Page`.
+- Scraping bridge (optional `octocode-scraping` beside this folder, or `--scraping-skill-dir <dir>`): `scripts/har-ingest-to-scrape.mjs --session-dir <s> --from-cdp-dir <run>` (or `--har <file>`), then `scripts/corpus-run-local.mjs --artifact-dir <run> --regex <re>`. Missing dependency → `OPTIONAL_DEPENDENCY_MISSING` on stderr.
+- Never run these libraries as CLIs; the sandbox stages them into `.octocode/` when a check imports them: `scripts/mandatory-stealth.mjs`, `scripts/undercover.mjs`, `scripts/human-input.mjs`, `scripts/dom-actionability.mjs`, `scripts/ax-snapshot.mjs`, `scripts/sourcemap-resolver.mjs`, `scripts/octocode-config.mjs`.
+- After editing this skill: `node scripts/hermetic-suite.mjs` (no browser; runs `scripts/sandbox-env-self-test.mjs` and `scripts/portability-self-test.mjs`) `node scripts/cdp-checks/webmcp-tools.check.mjs` (launches Chrome), and `node scripts/live-suite.mjs` (headless Chrome against `scripts/tests/fixtures/*.html`: snapshot, actions, iframe, upload, drag, wait, annotated screenshot, perf; ~30 s).

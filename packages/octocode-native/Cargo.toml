@@ -1,0 +1,195 @@
+[workspace]
+members = ["crates/engine", "crates/github", "crates/runtime", "crates/cli", "crates/runtime-napi"]
+default-members = ["crates/cli"]
+resolver = "2"
+
+# Shared metadata keeps internal crates on the native npm release version.
+[workspace.package]
+version = "20.0.0"
+edition = "2024"
+# MSRV floor: highest stable API in use is File::try_lock/unlock (Rust 1.89).
+# Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run
+# with `-D warnings`), which flags any std/core API newer than this floor.
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/bgauryy/octocode.git"
+
+# ── Shared dependency versions ────────────────────────────────────────────────
+# Dependencies shared across crates, or that are ABI/security-critical, are
+# centralized. The napi / napi-derive / napi-build trio is the important one:
+# both addon crates compile against one N-API ABI, so a version skew between them would
+# be a silent breakage. Crate-local single-consumer deps stay in their own
+# manifest — a single-use version has no second place to drift to.
+#
+# `optional` is a per-crate concern and cannot live here, so members write
+# `napi = { workspace = true, optional = true }`. Per-crate `features = [...]`
+# are additive on top of the baseline declared here (see tokio / windows-sys).
+[workspace.dependencies]
+napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"] }
+napi-derive = { version = "3" }
+napi-build = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+serde_yaml_ng = "0.10"
+moka = { version = "0.12", default-features = false, features = ["sync"] }
+regex = "1"
+url = "2"
+sha2 = "0.11"
+hex = "0.4"
+tokio = { version = "1" }
+libc = "0.2"
+windows-sys = { version = "0.61" }
+
+# ── Shared lint policy ────────────────────────────────────────────────────────
+# The common floor both crates enforce. `crates/runtime` inherits this verbatim
+# (`[lints] workspace = true`). `crates/engine` keeps its own stricter inline
+# block: as a pure library it additionally denies stdout/stderr printing and
+# enables extra style lints that would be noise in the CLI-owning runtime.
+[workspace.lints.rust]
+dead_code = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
+unused_mut = "deny"
+let_underscore_drop = "allow"   # allow intentional best-effort `let _ = result;` patterns
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+# Correctness / safety
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+
+[profile.release]
+# Thin LTO recovers nearly all of fat LTO's cross-crate optimization at a
+# fraction of the link time — the dominant cost when this profile is built
+# once per release target across six platforms. Benchmark before/after with the
+# engine's criterion suites (structural/search/minify) and confirm binary size
+# holds; revert to `true` if a hot path regresses beyond ~2%.
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+
+# ── Selective codegen-units (build-speed lever, ruff pattern) ─────────────────
+# `codegen-units = 1` (above) maximizes runtime perf but SERIALIZES a crate's
+# codegen — measured as ~107s of the ~154s release critical path for the runtime
+# crate alone. The runtime is orchestration/IO, not a hot CPU loop, so it pays
+# no meaningful perf cost from parallel codegen; bump it to 16. The engine holds
+# the perf-critical algorithms (structural search / minify / LSP) and stays at
+# the global `codegen-units = 1`.
+[profile.release.package.octocode-native]
+codegen-units = 16
+
+# NOTE (measured 2026-09-22): the engine is the release long pole at the global
+# cu=1 (~146s, compiled up to 3×), but it must STAY at cu=1. Benchmarked cu=1 vs
+# cu=8 and cu=16 on the criterion suites: both cut the engine compile to ~28s but
+# regressed CSS minify (`minify_content_view_css`) ~17-22% and search ~2% —
+# beyond the ~2% gate. The minify hot paths lose cross-function inlining when the
+# crate is split into more codegen units. Do NOT add a per-package
+# codegen-units override for octocode-engine; the parallel-codegen build win is
+# not free here.
+
+# ── Profiling / benchmarking build ────────────────────────────────────────────
+# Inherits the optimized release profile but keeps full debuginfo and drops LTO,
+# so criterion runs and perf/flamegraph traces stay usable without paying the
+# release link cost. Precedent: ruff `[profile.profiling]`, uv, oxc
+# `[profile.release-with-debug]`. Build with `--profile profiling`.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+lto = false
+
+# ── Faster inner-loop debug builds (ruff / uv / biome pattern) ────────────────
+# Emit only line tables: keeps file:line in panics/backtraces but drops the bulk
+# of DWARF, and `split-debuginfo = "unpacked"` skips macOS `dsymutil` on every
+# link. Cross-validated against ruff/uv/biome dev profiles — ~20-40% faster debug
+# rebuilds; full DWARF is only needed when stepping in a debugger (use
+# `--profile profiling` for that). Dependencies below get no debuginfo at all.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.package."regex-automata"]
+opt-level = 3
+
+# Every CLI process builds the secret sanitizer's literal prescan (regex-syntax
+# parse + aho-corasick) and compiles its no-literal fallback patterns on first
+# output. Unoptimized, that one-time init cost ~50 ms per debug tool call
+# (measured 2026-10-02; ~17 ms at opt-level 3).
+[profile.dev.package."regex-syntax"]
+opt-level = 3
+[profile.dev.package."aho-corasick"]
+opt-level = 3
+[profile.dev.package."regex"]
+opt-level = 3
+
+[profile.test.package."regex-automata"]
+opt-level = 3
+
+# ── Heavy dep clusters: optimise for dev-loop runtime without slowing own-crate rebuilds ──
+# Own code stays at opt-level=0 for fast incremental recompile; only dependency
+# code is bumped. This mirrors the regex-automata pattern already applied above.
+# tree-sitter-cpp / -c-sharp / -scala (~74 MB of generated parser.c) are left at
+# opt-level 0 on purpose: `cc` follows the profile level, so -O3 on them costs
+# minutes of cold dev/test build while tests only parse tiny fixtures.
+
+[profile.dev.package."tree-sitter"]
+opt-level = 3
+[profile.dev.package."tree-sitter-asm"]
+opt-level = 3
+[profile.dev.package."tree-sitter-cuda"]
+opt-level = 3
+[profile.dev.package."tree-sitter-javascript"]
+opt-level = 3
+[profile.dev.package."tree-sitter-typescript"]
+opt-level = 3
+[profile.dev.package."tree-sitter-rust"]
+opt-level = 3
+[profile.dev.package."tree-sitter-python"]
+opt-level = 3
+[profile.dev.package."tree-sitter-go"]
+opt-level = 3
+[profile.dev.package."tree-sitter-java"]
+opt-level = 3
+[profile.dev.package."tree-sitter-c"]
+opt-level = 3
+[profile.dev.package."oxc_parser"]
+opt-level = 2
+[profile.dev.package."oxc_semantic"]
+opt-level = 2
+[profile.dev.package."ast-grep-core"]
+opt-level = 2
+
+[profile.test.package."tree-sitter"]
+opt-level = 3
+[profile.test.package."tree-sitter-asm"]
+opt-level = 3
+[profile.test.package."tree-sitter-cuda"]
+opt-level = 3
+[profile.test.package."tree-sitter-javascript"]
+opt-level = 3
+[profile.test.package."tree-sitter-typescript"]
+opt-level = 3
+[profile.test.package."tree-sitter-rust"]
+opt-level = 3
+[profile.test.package."tree-sitter-python"]
+opt-level = 3
+[profile.test.package."tree-sitter-go"]
+opt-level = 3
+[profile.test.package."tree-sitter-java"]
+opt-level = 3
+[profile.test.package."tree-sitter-c"]
+opt-level = 3
+[profile.test.package."oxc_parser"]
+opt-level = 2
+[profile.test.package."oxc_semantic"]
+opt-level = 2
+[profile.test.package."ast-grep-core"]
+opt-level = 2

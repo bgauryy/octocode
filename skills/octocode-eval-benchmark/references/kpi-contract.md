@@ -1,36 +1,20 @@
-# KPI Contract
-Load when filling measurable fields after the goal→KPI cascade. Why: no filled contract → no comparable runs.
+# KPI contract
+Load before a comparison. Link the user-visible goal to one primary measure and guardrails; add leading measures only when they help diagnose or speed development.
 
-## Required fields
-| Field | Rule |
+| Field | Record before baseline |
 |---|---|
-| **Goal** | One user-visible outcome (parent of every KPI) |
-| **Primary KPI** | Single lagging number/pass rate serving that goal |
-| **Direction** | higher-better or lower-better |
-| **Baseline** | Measured *before* the change |
-| **Target** | Explicit threshold or delta |
-| **Leading** (optional) | 1–3 drivers with faster feedback |
-| **Budget** | Fixed eval cost (time, tokens, trials) so runs compare |
-| **Guardrails** | Counter-metrics that must not regress |
-| **Held-out** | Cases **not** used to invent the patch |
-| **Decision rule** | `ACCEPT if … else REVERT` |
+| Goal | One user-visible outcome |
+| Subject | Exact mutable surface; baseline identity and candidate version |
+| Primary | Metric, direction, runnable sensor, aggregation, meaningful effect threshold |
+| Guardrails | Correctness and safety floors; cost and latency bounds; slices that cannot regress |
+| Data | Development, validation, sealed-test, regression IDs and provenance; split unit; exposure owner |
+| Access | Solver input allowlist, evaluator-only material, workspace and service reset, access checks |
+| Harness | Version or hashes of cases, references, graders, schemas, actual prompts, runtime, tools |
+| Judge | Calibration evidence, model and prompt version, error tolerances, abstention and adjudication policy |
+| Budget | Independent tasks, repeats, attempts and repairs, candidate-selection limit, time/token/cost ceiling |
+| Comparison | Pairing and order, uncertainty method, exclusions, retries, missing-data policy, stop rule |
+| Decision | KEEP rule for development; ACCEPT/REVERT/INCONCLUSIVE/INVALID for final evidence |
 
-## Good primary KPIs
-- Deterministic: test pass rate, `skill-review` ERROR count, case score, attend bytes, verify debt
-- Reliability: pass@1 (one-shot) or pass^k (consistency)
-- Coding suites: fail-to-pass rate with pass-to-pass guardrail
-
-## Bad KPIs
-- “Feels better”, stars alone, saturated public benches without transcript audit
-- Editing cases/graders until green · orphan metrics with no parent goal
-
-## Output shape
-```text
-Goal: …
-Primary KPI: <name> (<dir>) baseline=… target=…  [serves goal]
-Leading: …
-Guardrails: …
-Budget: … Held-out: … Decision: ACCEPT if …
-```
-
-Next: cascade depth → `goal-kpi-cascade.md`; run → `agent-loop.md`.
+- Record only applicable fields; state a consequential omission (for example, no calibrated judge).
+- Keep the plan in the run record, not a separate file. A deterministic optimization (exact byte counts) needs a short run record, not statistics.
+- Never fill baseline or target with a plausible number; mark unmeasured values.

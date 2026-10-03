@@ -4,6 +4,7 @@ import { join } from 'path';
 const MONITOR_MS = Number.parseInt(process.env.MONITOR_MS ?? '30000', 10);
 const SLOW_MS = Number.parseInt(process.env.SLOW_MS ?? '1000', 10);
 const MAX_STDOUT_ITEMS = Number.parseInt(process.env.MAX_STDOUT_ITEMS ?? '10', 10);
+const MONITOR_URL = process.env.MONITOR_URL || '';
 
 function nowIso() {
   return new Date().toISOString();
@@ -273,7 +274,8 @@ export async function run(cdp) {
     pushEvent({ kind: 'console', type, message });
   });
 
-  console.log(`[METRIC] live-monitor target="${cdp.targetInfo.url}" durationMs=${MONITOR_MS}`);
+  if (MONITOR_URL) await cdp.send('Page.navigate', { url: MONITOR_URL });
+  console.log(`[METRIC] live-monitor target="${MONITOR_URL || cdp.targetInfo.url}" durationMs=${MONITOR_MS}`);
   await new Promise(resolve => setTimeout(resolve, MONITOR_MS));
 
   const performanceSnapshot = await collectPerformanceSnapshot(cdp);

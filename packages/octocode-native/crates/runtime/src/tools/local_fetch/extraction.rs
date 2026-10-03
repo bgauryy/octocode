@@ -1,0 +1,501 @@
+use super::types::{LineRange, LocalFetchQuery, NextCalls, RegexMatch, line_read, uncovered};
+use crate::tools::id::ToolId;
+
+pub struct Extraction {
+    pub text: String,
+    pub source_lines: Option<Vec<usize>>,
+    pub start: Option<usize>,
+    pub end: Option<usize>,
+    pub match_ranges: Vec<LineRange>,
+    pub matched_lines: Vec<usize>,
+    pub count: Option<usize>,
+    pub warnings: Vec<String>,
+    /// Continuations to the data this view selected but did not return.
+    pub next: NextCalls,
+}
+
+fn follow_up(query: LocalFetchQuery, why: &str) -> Option<super::types::Continuation> {
+    Some(super::types::Continuation {
+        tool: ToolId::LocalFetch.as_str().into(),
+        query,
+        confidence: "exact".into(),
+        reason: Some(why.into()),
+    })
+}
+/// A matched line longer than this (minified or bundled source) is read in
+/// byte windows unless the caller chose a context.
+const LONG_LINE_BYTES: usize = 2_000;
+const LONG_LINE_CONTEXT_BYTES: usize = 200;
+
+/// View-line sentinel for an omission marker (source lines are 1-based).
+pub const OMISSION_LINE: usize = 0;
+
+/// Separates non-adjacent match windows so readers never mistake a gap for
+/// contiguous source.
+pub fn omission_marker(start: usize, end: usize) -> String {
+    if start == end {
+        format!("... [line {start} omitted] ...\n")
+    } else {
+        format!("... [lines {start}-{end} omitted] ...\n")
+    }
+}
+fn records(s: &str) -> Vec<&str> {
+    if s.is_empty() {
+        return vec![];
+    }
+    let mut out = vec![];
+    let mut start = 0;
+    for (i, c) in s.char_indices() {
+        if c == '\n' {
+            out.push(&s[start..=i]);
+            start = i + 1
+        }
+    }
+    if start < s.len() {
+        out.push(&s[start..])
+    }
+    out
+}
+pub fn line_count(s: &str) -> usize {
+    records(s).len()
+}
+pub fn extract(
+    q: &LocalFetchQuery,
+    content: &str,
+    regex: &impl RegexMatch,
+) -> Result<Extraction, String> {
+    let lines = records(content);
+    let total = lines.len();
+    let patterns = q.match_strings();
+    if !patterns.is_empty() {
+        return match_extract(q, content, &lines, &patterns, regex);
+    }
+    let requested = q.line_ranges();
+    if !requested.is_empty() {
+        return ranges_extract(q, content, &lines, &requested);
+    }
+    if let (Some(start), Some(end)) = (q.start_line(), q.end_line())
+        && q.block()
+    {
+        return ranges_extract(q, content, &lines, &[LineRange { start, end }]);
+    }
+    if let (Some(start), Some(end)) = (q.start_line(), q.end_line()) {
+        if end < start {
+            return Err(format!(
+                "startLine {start} is greater than endLine {end} — startLine must be ≤ endLine"
+            ));
+        }
+        if start > total {
+            return Err(format!(
+                "Requested startLine {start} exceeds file length ({total} lines)"
+            ));
+        }
+        let end2 = end.min(total);
+        let selected = &lines[start.saturating_sub(1)..end2];
+        return Ok(Extraction {
+            text: selected.concat(),
+            source_lines: Some((start..=end2).collect()),
+            start: Some(start.max(1)),
+            end: Some(end2),
+            match_ranges: vec![],
+            matched_lines: vec![],
+            count: None,
+            warnings: if end > total {
+                vec![format!(
+                    "Requested endLine {end} adjusted to {total} (file end)"
+                )]
+            } else {
+                vec![]
+            },
+            next: NextCalls::default(),
+        });
+    }
+    Ok(Extraction {
+        text: content.into(),
+        source_lines: None,
+        start: None,
+        end: None,
+        match_ranges: vec![],
+        matched_lines: vec![],
+        count: None,
+        warnings: vec![],
+        next: NextCalls::default(),
+    })
+}
+/// Line ranges joined into one view: sorted, overlapping or adjacent ranges
+/// merged, clamped to the file end; with `block`, each widened to its
+/// enclosing declaration.
+fn ranges_extract(
+    q: &LocalFetchQuery,
+    content: &str,
+    lines: &[&str],
+    requested: &[LineRange],
+) -> Result<Extraction, String> {
+    let total = lines.len();
+    let mut warnings = vec![];
+    let mut kept: Vec<LineRange> = vec![];
+    for range in requested {
+        if range.end < range.start {
+            return Err(format!(
+                "range {}-{} ends before it starts; use start-end with end >= start",
+                range.start, range.end
+            ));
+        }
+        if range.start > total {
+            warnings.push(format!(
+                "Range {}-{} starts past the file end ({total} lines); skipped.",
+                range.start, range.end
+            ));
+            continue;
+        }
+        if range.end > total {
+            warnings.push(format!(
+                "Range {}-{} adjusted to end at {total} (file end).",
+                range.start, range.end
+            ));
+        }
+        kept.push(LineRange {
+            start: range.start.max(1),
+            end: range.end.min(total),
+        });
+    }
+    if kept.is_empty() {
+        return Err(format!(
+            "Requested lines start past the file end ({total} lines)"
+        ));
+    }
+    let mut rest = vec![];
+    if q.block() {
+        kept = super::block::widen_ranges(content, q.path(), kept, &mut warnings, &mut rest);
+    }
+    let windows = merge_ranges(kept);
+    let (text, selected) = windows_text(lines, &windows);
+    let next = NextCalls {
+        continue_block: line_read(q, &uncovered(&merge_ranges(rest), &windows)).and_then(|query| {
+            follow_up(
+                query,
+                "Read the rest of the declaration the block window stopped inside.",
+            )
+        }),
+        ..NextCalls::default()
+    };
+    Ok(Extraction {
+        text,
+        source_lines: Some(selected),
+        start: windows.first().map(|r| r.start),
+        end: windows.last().map(|r| r.end),
+        match_ranges: vec![],
+        matched_lines: vec![],
+        count: None,
+        warnings,
+        next,
+    })
+}
+
+/// Sorted ranges with overlapping or adjacent ones merged.
+fn merge_ranges(mut ranges: Vec<LineRange>) -> Vec<LineRange> {
+    ranges.sort_by_key(|range| (range.start, range.end));
+    let mut merged: Vec<LineRange> = vec![];
+    for range in ranges {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end + 1 => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    merged
+}
+
+/// The text of `windows` (sorted, disjoint), with one omission marker
+/// between non-adjacent windows; `selected` maps each view line to its
+/// source line (markers map to [`OMISSION_LINE`]).
+fn windows_text(lines: &[&str], windows: &[LineRange]) -> (String, Vec<usize>) {
+    let mut selected = vec![];
+    let mut text = String::new();
+    let mut prev_end: Option<usize> = None;
+    for r in windows {
+        if let Some(prev) = prev_end.filter(|prev| r.start > prev + 1) {
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n')
+            }
+            text.push_str(&omission_marker(prev + 1, r.start - 1));
+            selected.push(OMISSION_LINE)
+        }
+        for line in r.start..=r.end {
+            text.push_str(lines[line - 1]);
+            selected.push(line)
+        }
+        prev_end = Some(r.end)
+    }
+    (text, selected)
+}
+
+/// Byte spans of every pattern (a list matches any of its entries), in
+/// source order.
+fn match_spans(
+    q: &LocalFetchQuery,
+    content: &str,
+    patterns: &[&str],
+    regex: &impl RegexMatch,
+) -> Result<Vec<(usize, usize)>, String> {
+    let sensitive = q.match_string_case_sensitive.unwrap_or(false);
+    let mut spans = vec![];
+    for pattern in patterns {
+        if q.match_string_is_regex.unwrap_or(false) {
+            spans.extend(regex.matching_ranges(pattern, sensitive, content).map_err(|error| {
+                if *pattern == "[" { "Invalid regex pattern: Invalid regular expression: /[/: Unterminated character class".to_owned() } else { error }
+            })?);
+        } else {
+            spans.extend(literal_ranges(content, pattern, sensitive));
+        }
+    }
+    if patterns.len() > 1 {
+        spans.sort_unstable();
+        spans.dedup();
+    }
+    Ok(spans)
+}
+
+fn match_extract(
+    q: &LocalFetchQuery,
+    content: &str,
+    lines: &[&str],
+    patterns: &[&str],
+    regex: &impl RegexMatch,
+) -> Result<Extraction, String> {
+    let spans = match_spans(q, content, patterns, regex)?;
+    let mut hits = vec![];
+    let mut line_start = 0;
+    let mut next_match = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let line_end = line_start + line.len();
+        while spans
+            .get(next_match)
+            .is_some_and(|(start, end)| *start < line_start && *end <= line_start)
+        {
+            next_match += 1;
+        }
+        // Include every line touched by a multiline match, not just its start.
+        // A match ending at the next line's start does not touch that line.
+        let found = spans
+            .get(next_match)
+            .is_some_and(|(start, _)| *start < line_end);
+        if found {
+            hits.push(i + 1)
+        }
+        line_start = line_end;
+    }
+    if hits.is_empty() {
+        return Ok(Extraction {
+            text: String::new(),
+            source_lines: Some(vec![]),
+            start: None,
+            end: None,
+            match_ranges: vec![],
+            matched_lines: vec![],
+            count: Some(0),
+            warnings: vec![],
+            next: NextCalls::default(),
+        });
+    }
+    let context = q
+        .context_lines()
+        .unwrap_or(if q.context_bytes().is_none() { 5 } else { 0 });
+    let mut warnings = vec![];
+    let windows: Vec<LineRange> = hits
+        .iter()
+        .map(|&line| LineRange {
+            start: line.saturating_sub(context).max(1),
+            end: (line + context).min(lines.len()),
+        })
+        .collect();
+    let mut oversized = vec![];
+    let windows = if q.block() && q.context_bytes().is_none() {
+        super::block::widen_matches(
+            content,
+            q.path(),
+            &hits,
+            windows,
+            &mut warnings,
+            &mut oversized,
+        )
+    } else {
+        windows
+    };
+    let mut ranges = merge_ranges(windows);
+    let mut next = NextCalls {
+        read_block: line_read(q, &uncovered(&merge_ranges(oversized), &ranges)).and_then(|query| {
+            follow_up(
+                query,
+                "Read the declarations too large for a block window, minus the lines shown.",
+            )
+        }),
+        ..NextCalls::default()
+    };
+    if let Some(requested) = q.context_lines_clamped_from() {
+        let wanted: Vec<LineRange> = hits
+            .iter()
+            .map(|&line| LineRange {
+                start: line.saturating_sub(requested).max(1),
+                end: line.saturating_add(requested).min(lines.len()),
+            })
+            .collect();
+        next.read_context =
+            line_read(q, &uncovered(&merge_ranges(wanted), &ranges)).and_then(|query| {
+                follow_up(
+                    query,
+                    "Read the requested context lines beyond the clamped maximum.",
+                )
+            });
+    }
+    // `selected` maps each emitted view line to its source line; omission
+    // markers between non-adjacent windows map to OMISSION_LINE.
+    let (mut text, mut selected) = windows_text(lines, &ranges);
+    let long_lines = !q.block()
+        && q.context_lines().is_none()
+        && q.context_bytes().is_none()
+        && hits
+            .iter()
+            .any(|line| lines[line - 1].len() > LONG_LINE_BYTES);
+    if let Some(requested) = q.context_lines_clamped_from() {
+        warnings.push(format!(
+            "contextLines {requested} clamped to {}; hints.readContext reads the rest of the requested context.",
+            super::types::MAX_CONTEXT_LINES
+        ));
+    }
+    if long_lines {
+        warnings.push(format!(
+            "longMatchedLines: a matched line exceeds {LONG_LINE_BYTES} bytes (minified source), so each match is shown with {LONG_LINE_CONTEXT_BYTES} bytes of context; `... [N bytes omitted] ...` marks gaps. next.wholeLines (contextLines:0) reads the whole matched lines; contextBytes resizes the windows."
+        ));
+        let mut whole = q.clone();
+        whole.context_lines = Some(0);
+        whole.context_bytes = None;
+        whole.offset = None;
+        whole.chunk_type = None;
+        whole.chunk_size = None;
+        whole.snapshot = None;
+        next.whole_lines = follow_up(whole, "Read the whole matched lines, paged.");
+    }
+    if let Some(bytes) = q
+        .context_bytes()
+        .or(long_lines.then_some(LONG_LINE_CONTEXT_BYTES))
+    {
+        text = String::new();
+        let mut last_end = 0;
+        selected.clear();
+        for (start, end) in spans {
+            let mut a = start.saturating_sub(bytes);
+            while !content.is_char_boundary(a) {
+                a += 1
+            }
+            let mut b = (end + bytes).min(content.len());
+            while b < content.len() && !content.is_char_boundary(b) {
+                b += 1
+            }
+            // Overlapping windows continue from the previous end; re-emitting
+            // the overlap would fabricate text that is not in the source.
+            if !text.is_empty() {
+                a = a.max(last_end)
+            }
+            if a >= b {
+                continue;
+            }
+            if !text.is_empty() && a > last_end {
+                if !text.ends_with('\n') {
+                    text.push('\n')
+                }
+                text.push_str(&format!("... [{} bytes omitted] ...\n", a - last_end));
+            } else if text.is_empty() && long_lines {
+                // The first window starting mid-line says what precedes it.
+                let line_start = content[..a].rfind('\n').map_or(0, |at| at + 1);
+                if a > line_start {
+                    text.push_str(&format!("... [{} bytes omitted] ...\n", a - line_start));
+                }
+            }
+            text.push_str(&content[a..b]);
+            let first_line = content[..a].bytes().filter(|byte| *byte == b'\n').count() + 1;
+            let last_byte = b.saturating_sub(1);
+            let last_line = content.as_bytes()[..last_byte.min(content.len())]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count()
+                + 1;
+            selected.extend(first_line..=last_line.max(first_line));
+            last_end = b
+        }
+        // The last window ending mid-line says what follows it.
+        let line_end = content[last_end..]
+            .find('\n')
+            .map_or(content.len(), |at| last_end + at);
+        if long_lines && line_end > last_end {
+            if !text.ends_with('\n') {
+                text.push('\n')
+            }
+            text.push_str(&format!(
+                "... [{} bytes omitted] ...\n",
+                line_end - last_end
+            ));
+        }
+        selected.sort_unstable();
+        selected.dedup();
+        ranges = super::executor::compress_ranges(&selected);
+    }
+    Ok(Extraction {
+        text,
+        source_lines: Some(selected),
+        start: ranges.first().map(|r| r.start),
+        end: ranges.last().map(|r| r.end),
+        match_ranges: ranges,
+        matched_lines: hits.clone(),
+        count: Some(hits.len()),
+        warnings,
+        next,
+    })
+}
+
+/// Literal matches in original byte coordinates. Unicode lowercasing can
+/// change byte length (e.g. İ → i + combining dot), so folded offsets must
+/// never be used to slice the source. Only length-changing characters need
+/// an entry in the offset map; ordinary text keeps an empty map.
+fn literal_ranges(content: &str, pattern: &str, sensitive: bool) -> Vec<(usize, usize)> {
+    if sensitive {
+        return content
+            .match_indices(pattern)
+            .map(|(start, matched)| (start, start + matched.len()))
+            .collect();
+    }
+    let folded = content.to_lowercase();
+    let needle = pattern.to_lowercase();
+    let mut changes = Vec::new();
+    let mut folded_start = 0;
+    for (start, character) in content.char_indices() {
+        let source_end = start + character.len_utf8();
+        let folded_end = folded_start + character.to_lowercase().map(char::len_utf8).sum::<usize>();
+        if folded_end - folded_start != character.len_utf8() {
+            changes.push((folded_start..folded_end, start..source_end));
+        }
+        folded_start = folded_end;
+    }
+    let original_offset = |offset, end| {
+        let index = changes.partition_point(|(range, _)| range.end <= offset);
+        if let Some((range, source)) = changes.get(index)
+            && range.start < offset
+        {
+            return if end { source.end } else { source.start };
+        }
+        if index == 0 {
+            offset
+        } else {
+            let (range, source) = &changes[index - 1];
+            offset - range.end + source.end
+        }
+    };
+    folded
+        .match_indices(&needle)
+        .map(|(start, matched)| {
+            (
+                original_offset(start, false),
+                original_offset(start + matched.len(), true),
+            )
+        })
+        .collect()
+}

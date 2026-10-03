@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "minify": "standard"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"a.ts","content":"import{helper}from './b';\nexport function alphaNeedle(x: number): number{\nconst y = helper(x);\nreturn y + 1;\n}\nexport class Widget{\nrun(): void{\nconsole.log('run');\nalphaNeedle(2);\n}\n}","contentView":"standard","totalLines":13,"returnedLines":11}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

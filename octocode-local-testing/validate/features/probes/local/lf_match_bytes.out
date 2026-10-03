@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/big.txt", "matchString": "row 0150", "chunkType": "bytes", "contextBytes": 20, "chunkSize": 1024}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"big.txt","content":"xxxxxxxxxxxxxxxxxxx\nrow 0150 xxxxxxxxxxxxxxxxxxx","totalLines":300,"sourceLineRanges":[{"start":149,"end":150}],"matchedLines":[150]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

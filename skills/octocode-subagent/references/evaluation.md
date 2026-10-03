@@ -1,17 +1,11 @@
 # Evaluation And TDD
 
-Load when EXECUTE or VERIFY changes behavior, compares orchestration strategy, or claims improvement beyond ordinary ship checks. Why: regression tests cover normal correctness; strategy claims need a frozen outcome comparison.
+Load when EXECUTE or VERIFY changes behavior, compares orchestration strategy, or claims improvement beyond ordinary ship checks.
 
-## TDD
+- TDD: select or write a failing behavioral case before you change code or instructions. Make the smallest change; rerun that case, then proportionate regression checks. Renames, explanations, read-only audits, and ordinary config edits may use an existing focused check.
+- `octocode-eval-benchmark` owns KPI, held-out, keep/discard, and multi-agent measurement (graph-boundary outcome; worker metrics are guardrails). Load it when available.
+- Without it, record before strategy mutation: the requester-visible goal, one primary KPI with baseline and target, up to three leading indicators, a fixed trial/token/time budget, counter-metric guardrails, held-out cases, a binary accept/revert rule.
+- Never edit cases or graders mid-experiment. Prefer deterministic anchors (test exits, types, builds, schemas); use a fresh-context critic only for judgment they cannot measure.
+- No improvement claim without comparable evidence.
 
-Select or write a failing behavioral case before changing code or instructions. Make the smallest change, run the same case, then run proportionate regression checks. Renames, explanations, read-only audits, and ordinary configuration edits can use an existing focused check.
-
-## Improvement contract
-
-Before strategy mutation record you-visible goal, one primary KPI with baseline and target, up to three leading indicators, fixed trial/token/time budget, counter-metric guardrails, held-out cases, and a binary accept/revert rule. Do not edit cases or graders during the experiment to make the subject pass.
-
-Prefer deterministic anchors: test exits, type diagnostics, builds, schemas, and artifact inspection. Use a fresh-context critic only for judgment dimensions those checks cannot measure. For multi-agent work, measure the result at the graph boundary; worker scores, latency, tokens, packet completeness, collisions, and verifier freshness are leading metrics or guardrails.
-
-Use `octocode-eval-benchmark` when available for the full goal→KPI and held-out workflow. Without it, keep the compact contract above and do not claim improvement without comparable evidence.
-
-Next: load `references/completion.md` for acceptance; if shared state affected the run, load `references/awareness.md` before closing.
+Next: `references/completion.md` for acceptance; if shared state affected the run, `references/shared-work.md` before closing.

@@ -1,0 +1,1 @@
+{"kind":"octocode.toolError","version":1,"tool":"ghGetFileContent","error":"Check the query fields.","details":["minify: minify:\"symbols\" cannot accompany matchString or startLine/endLine. Read the outline, then select source lines."]}

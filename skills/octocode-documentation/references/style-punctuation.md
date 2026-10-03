@@ -1,50 +1,89 @@
-# Punctuation
+# Punctuation, numbers, dates, and units
 
-Load when checking commas, colons, dashes, quotes, or any other mark.
+Load when checking any punctuation mark, or when text holds a quantity, date, time, unit, phone number, or formula.
 
 ## Commas
 
 - Serial comma before the final "and" or "or": "zones, regions, and multi-regions".
-- Comma after an introductory word or phrase; comma before a coordinating conjunction joining two independent clauses unless both are very short.
-- Between an independent and a dependent clause, add a comma only when a reader might otherwise misread the sentence.
-- Comma before nonrestrictive "which"; none before "because" unless the clause is nonrestrictive. Put a semicolon, period, or dash before "however", "therefore", or "otherwise", then a comma after it.
+- Comma after an introductory phrase, and before a conjunction that joins two independent clauses unless both are very short.
+- Comma between an independent and a dependent clause only to prevent a misread.
+- Comma before nonrestrictive "which"; none before "because" unless nonrestrictive. Semicolon, period, or dash before "however", "therefore", "otherwise"; comma after.
 
 ## Colons and semicolons
 
-- When a colon introduces a list, the text before it must stand alone as a sentence: "The fields are as follows:", not "The fields are:". Run-in labels ("Tone:", "Optional:", "**Note:**") are fine.
-- Lowercase the first word after a colon unless it's a proper noun, a heading, a quotation, or a notice label.
-- Avoid semicolons. They earn their place in three cases: two tightly linked independent clauses; a conjunctive adverb or a phrase such as "that is"; long items that carry their own commas.
+- Text before a list colon is a full sentence: "The fields are as follows:", not "The fields are:". Run-in labels ("**Note:**") are fine.
+- Lowercase after a colon unless a proper noun, heading, quotation, or notice label follows.
+- Avoid semicolons except for two tightly linked independent clauses, before a conjunctive adverb or "that is", or between long items that hold commas.
 
 ## Dashes and hyphens
 
-- Em dash (`—`) marks a break in a sentence, with no spaces around it. Don't substitute an en dash or hyphen, and don't use a dash to separate a term from its description — use a colon, a period, or a description list.
-- Hyphenate a compound modifier before a noun ("read-only file"); after a verb, usually don't ("the app is well designed", "written in real time"). Some compounds are always hyphenated: `on-premises`, `add-on`, `cloud-based`, `customer-facing`, `user-friendly`.
-- Don't hyphenate an `-ly` adverb ("publicly available"). Hyphenate after "more" or "most" only to prevent a misread ("more-reliable links").
-- Three-word modifiers are better rewritten; if you must keep one, hyphenate between each word (`cross-data-center replication`).
-- Hyphenate after `self-` and `cross-`, before a capitalized word or a number, when the base term already contains hyphens or spaces (`un-Google-like`), for `non-` compounds that are hard to parse (`non-KSA-based`), and for consistency within a document (`pre-processing`, `post-processing`). Compound nouns are otherwise closed; the word list decides exceptions.
-- No spaces around hyphens; a suspended hyphen takes a following space only ("2- to 3-minute delay").
-- Number plus unit: see `references/style-numbers.md`.
+- Em dash (`—`) for a break, no spaces. No en dash or hyphen in its place.
+- Hyphenate a compound modifier before a noun ("read-only file"), usually not after a verb. Always hyphenated: `on-premises`, `add-on`, `cloud-based`, `customer-facing`, `user-friendly`.
+- No hyphen after an `-ly` adverb. After "more" or "most" only to prevent a misread ("more-reliable links").
+- Rewrite three-word modifiers; if kept, hyphenate each word (`cross-data-center replication`).
+- Hyphenate after `self-` and `cross-`, before a capital or number, when the base has hyphens or spaces (`un-Google-like`), for hard `non-` compounds (`non-KSA-based`), and for consistency (`pre-processing`). Other compound nouns are closed; the word list decides.
+- No spaces around hyphens; a suspended hyphen takes a space after it ("2- to 3-minute delay").
 
 ## Quotation marks and apostrophes
 
-- Straight quotes and apostrophes only, never curly.
-- Double quotes for titles of short works, quoted text, an unlinked reference to a document section, a metaphor, or a person's exact words; single quotes only inside code or nested in another quotation.
-- Commas and periods go inside the closing quotation mark — but when the quotation marks fence an exact literal string, put other punctuation outside so nothing extra lands inside the string. Items in code font take no quotation marks at all unless the quotes are part of the code.
-- Don't quote link text or UI labels; use the right formatting instead (`references/style-format.md`).
+- Straight quotes and apostrophes, never curly.
+- Double quotes for short-work titles, quoted text, an unlinked section reference, a metaphor, or exact words. Single quotes only in code or nested quotes.
+- Commas and periods inside the closing quote, except after an exact literal string: then other punctuation goes outside.
 
 ## Parentheses, periods, ellipses, slashes
 
-- Readers skip parentheses, so keep important information out of them and keep a mid-sentence parenthetical short. Don't park an optional plural in parentheses (`key(s)`).
-- A standalone sentence inside parentheses keeps its period inside; a parenthetical inside a larger sentence puts the period outside.
-- End every complete sentence with a period, except headings, titles, and short list items. One space between sentences. Don't leave a URL at the end of a sentence where the period might look like part of the link. IF quoted material ends in a question mark → THEN don't add a period.
-- Never use an exclamation point in concept or reference documentation. It's fine inside code (`!=`), in a quoted literal or error string, and occasionally to mark a milestone in a tutorial.
-- Avoid ellipses. In quoted text they mark an internal omission: three periods with a space on each side, no space after when punctuation follows, and four dots when the omission spans a sentence boundary. Don't use them for omitted code — use a comment (`references/style-cli.md`). Drop a trailing ellipsis from a UI label: "click **Save**".
-- Avoid slashes: write "or", "and", or "or both"; `and/or` is acceptable only where space is tight, such as a table. No `w/`, `c/o`, or slash dates or fractions (`0.75`, `75%`, or `¾`). Keep slashes for paths, URLs, and code; Windows paths take backslashes; break a long URL after a slash.
+- Keep important information out of parentheses; keep a mid-sentence parenthetical short.
+- A standalone parenthetical sentence keeps its period inside; otherwise the period goes outside.
+- No period on headings, titles, or short list items. Don't end a sentence with a URL where the period looks like part of it.
+- No exclamation point in concept or reference docs; fine in code (`!=`), quoted literals, and rare tutorial milestones.
+- Avoid ellipses. In quotes they mark an omission: three periods, a space each side, no space before following punctuation, four dots across a sentence boundary.
+- Avoid slashes: write "or", "and", or "or both"; `and/or` only where space is tight. No `w/`, `c/o`, slash dates, or slash fractions (`0.75`, `75%`, `¾`). Slashes stay in paths, URLs, and code; Windows paths use backslashes; break a long URL after a slash.
 
 ## Example introductions
 
-At the end of a sentence, use "such as" or "like", or an em dash before "for example" — "…for your managed instances—for example, CPU utilization". Mid-sentence, a short parenthetical works ("(for example, `228B22`)"). Never fence "for example," with commas at the end of a sentence, and never introduce an example with a semicolon.
+At sentence end: "such as", "like", or an em dash before "for example" ("…instances—for example, CPU utilization"). Mid-sentence: a short parenthetical ("(for example, `228B22`)"). Never commas around a sentence-final "for example"; never a semicolon before an example.
 
-Upstream: [Colons](https://developers.google.com/style/colons) · [Commas](https://developers.google.com/style/commas) · [Dashes](https://developers.google.com/style/dashes) · [Ellipses](https://developers.google.com/style/ellipses) · [Hyphens](https://developers.google.com/style/hyphens) · [Parentheses](https://developers.google.com/style/parentheses) · [Periods and end punctuation](https://developers.google.com/style/periods) · [Quotation marks](https://developers.google.com/style/quotation-marks) · [Semicolons](https://developers.google.com/style/semicolons) · [Slashes](https://developers.google.com/style/slashes) · [Examples](https://developers.google.com/style/format-examples). Verify a disputed or missing rule against the live page → `references/style-sources.md`.
+## Numbers
 
-Next: format and capitalization → `references/style-format.md`; numbers and dates → `references/style-numbers.md`.
+- Spell out zero through nine; numerals from 10. If one number in a sentence is 10 or more, use numerals for all.
+- Always numerals: versions, memory and disk sizes, ports, prices, step, chapter, and section numbers, dimensions, measurements, negatives, decimals, percentages, ranges, technical quantities ("6 queries per second").
+- Spell out or move a number that starts a sentence; a four-digit year may start one. A leading percentage spells out both parts ("Forty percent").
+- Adjacent numerals: spell one out ("fifteen 100,000-byte files").
+- Ordinals are words (first, second). Roman numerals only for substeps.
+- Leading zero below one (`0.5`); decimals are plural even at 1.0 ("1.0 inches"); commas from four digits (`1,532,784`), never right of the decimal point.
+- Fractions as decimals when possible; hyphenate spelled-out fractions ("five sixty-fourths"). Dimensions: lowercase x, no spaces (`192x192`).
+- Currency: symbol first (`$10`), nothing after the decimals, disambiguate when needed (`US$10`).
+
+## Dates and times
+
+- `January 19, 2017`; ISO 8601 (`2017-01-19`) when machine-readable. Never `MM/DD/YY`.
+- Mid-sentence, a comma follows the year ("The January 19, 2017, release"). No comma between month and year alone. Weekday first: "Tuesday, April 27, 2021". Date before time: `May 4, 2009, at 6 PM`.
+- Tight space: three-letter abbreviations, no periods ("Mon, Sep 3, 2018"); don't mix forms.
+- Example days greater than 12.
+- 12-hour clock, capital AM/PM, one space, no minutes on the hour (`3 PM`). 24-hour only when the UI or code uses it, then throughout the page.
+- Time zones: avoid them; else spell out the region with the offset ("US and Canadian Pacific Standard Time (UTC-8)"), mirror the UI timestamp, or say "your local time". Months or quarters, not seasons.
+
+## Units of measure
+
+- Nonbreaking space between number and unit (`64 GB`); no space before `%`, a degree symbol, or a currency symbol, or before `k` ("55k download operations", with a noun).
+- Temperature: nonbreaking space before the degree symbol, none before the scale (`50 °C`); Kelvin has no degree symbol (`300 K`).
+- Hyphenate a spelled-out unit before a noun (`64-bit system`, `five-minute wait`); abbreviated units stay open (`200 GB disk`). Hyphenate multiplied units (`5 vCPU-hours`).
+- "per" over a division slash when space allows (`Gbps` over `Gb/s`).
+- Unit ranges repeat symbols and use "to" (`-40 °C to 85 °C`); plain number ranges use a hyphen (`2012-2016`). Don't repeat a noun unit or mix a hyphen with words ("from 8 to 20 files").
+- Decimal bytes kB, MB, GB, TB; binary KiB, MiB, GiB, TiB. Use what the product reports.
+- Give an abstract quantity a practical implication.
+
+## Phone numbers
+
+- Nonbreaking hyphens: `415-555-0132`; international `+1-415-555-0132`; extension "`415-555-0132`, extension 987".
+
+## Mathematical notation
+
+- Notation over words ("whether a > b") unless ambiguous.
+- HTML entities for symbols (`&times;`, `&minus;`, `&le;`); keyboard `+`, `=`, `/`. No caret for exponents, no asterisk for multiplication.
+- Nonbreaking spaces around operators; operators upright, variables italic, identifiers in code font.
+- Short expressions inline; an equation that wraps gets its own line. `<sup>` and `<sub>` for scripts.
+
+Source: [Commas](https://developers.google.com/style/commas).
+
+Next: return to the `SKILL.md` flow.

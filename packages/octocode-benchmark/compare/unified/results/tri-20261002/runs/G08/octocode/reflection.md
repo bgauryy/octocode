@@ -1,0 +1,7 @@
+1. **Helped:** Two calls did all the work. `ghGetHistoryItem` on issue #18837 gave the bug report and a `closedBy` link to PR #18838, with a ready-made `next.readFixPr` query. `ghGetHistoryItem` on PR #18838 with `include: ["body","patches"]` returned the author's explanation and the full diff in one response. Following the `next` hint saved me from searching for the fix PR.
+
+2. **Did not help:** Nothing failed or repeated. I never used the `next.readAtMerge` hint, so I didn't read the merged `proxy.js` or the existing `has` trap. As a result, my line citation is only the diff hunk header (~204). I couldn't check the claim that `has` creates the dependency or the PR's test counts. Those come from the PR description. I did say in the answer that I hadn't read the pre-fix source separately.
+
+3. **Next time:** I'd add one `ghGetFileContent` call at the merge commit, using `matchString` on `has(target, prop)` and on `getOwnPropertyDescriptor`. That would let me cite exact lines for both traps and confirm the root-cause claim from source instead of the PR text.
+
+4. **Confidence:** Medium-high. The issue, the closing PR and the diff agree on the cause and the fix. The remaining gap is that I didn't read the merged source.

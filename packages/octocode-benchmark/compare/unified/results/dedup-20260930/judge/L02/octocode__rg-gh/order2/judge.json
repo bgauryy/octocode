@@ -1,0 +1,98 @@
+{
+  "qid": "L02",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "9aa7cba0bf7866d04f187b0f9d368e34f6496c84c79466e34db8bf2e3356d74c",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2 (partial: save, bulk_create; 1042 call unidentified)",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate line citations (864, 794, 1296-1303, 1322-1329). Does not identify bulk_update at query.py:1042 or its fields= restriction; honestly flagged as unverified."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2 (partial: save, bulk_create; 1042 guessed 'probably bulk_update')",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All substantive claims correct. Some line numbers drift ~3 lines (test cited 1293 vs actual 1296; comment 1287-1292 vs 1290-1295; GFK 1312 vs 1316). Doesn't note bulk_update passes fields= subset."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2 (partial: save, bulk_create; 1042 call unidentified)",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate line citations (864, 794, 1296-1303, 1322-1329). Does not identify bulk_update at query.py:1042 or its fields= restriction; honestly flagged as unverified."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2 (partial: save, bulk_create; 1042 guessed 'probably bulk_update')",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "All substantive claims correct. Some line numbers drift ~3 lines (test cited 1293 vs actual 1296; comment 1287-1292 vs 1290-1295; GFK 1312 vs 1316). Doesn't note bulk_update passes fields= subset."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.0952536,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 7693,
+    "cache_read_input_tokens": 11768,
+    "output_tokens": 11,
+    "context_tokens": 19465,
+    "total_tokens": 19476,
+    "first_request_context": 9143,
+    "fixed_overhead_tokens": 18286,
+    "research_tokens": 1190,
+    "max_request_context": 10322
+  },
+  "timedOut": false
+}

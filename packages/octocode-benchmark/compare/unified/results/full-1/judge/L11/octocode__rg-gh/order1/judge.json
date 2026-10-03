@@ -1,0 +1,100 @@
+{
+  "qid": "L11",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "614a55322336432252d0d8930d85d0a905ae9b2c21c30ee6a65c05857e3ffdcc",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout, with a bonus on drop_join_handle_slow. Vtable hop only asserted, not traced (admitted). Minor line offsets (284 vs 287, state.rs:381 vs 385)."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "harness.rs:508 described as the path for a future that panicked during poll; it is cancel_task (cancellation). The poll panic mapping is panic_to_error at harness.rs:546"
+      ],
+      "notes": "Good vtable citations (raw.rs:290/360). Misses the catch_unwind/panic_to_error capture detail and coop budgeting. Fact 1 only partly covered."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout, with a bonus on drop_join_handle_slow. Vtable hop only asserted, not traced (admitted). Minor line offsets (284 vs 287, state.rs:381 vs 385)."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "harness.rs:508 described as the path for a future that panicked during poll; it is cancel_task (cancellation). The poll panic mapping is panic_to_error at harness.rs:546"
+      ],
+      "notes": "Good vtable citations (raw.rs:290/360). Misses the catch_unwind/panic_to_error capture detail and coop budgeting. Fact 1 only partly covered."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.133483,
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11157,
+    "cache_read_input_tokens": 25615,
+    "output_tokens": 24,
+    "context_tokens": 36778,
+    "total_tokens": 36802,
+    "first_request_context": 10502,
+    "fixed_overhead_tokens": 31506,
+    "research_tokens": 5296,
+    "max_request_context": 13786
+  },
+  "timedOut": false
+}

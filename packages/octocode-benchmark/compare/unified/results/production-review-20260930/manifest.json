@@ -1,0 +1,187 @@
+{
+  "runId": "production-review-20260930",
+  "createdAt": "2026-09-30T18:42:11.483Z",
+  "host": "darwin-arm64",
+  "claudeVersion": "2.1.285 (Claude Code)",
+  "model": "sonnet",
+  "maxTurns": 40,
+  "timeoutMs": 1200000,
+  "concurrency": 2,
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "questionIds": [
+    "G01",
+    "G02",
+    "G03",
+    "G04",
+    "G05",
+    "G06",
+    "G07",
+    "G08",
+    "G09",
+    "G10",
+    "L01",
+    "L02",
+    "L03",
+    "L04",
+    "L05",
+    "L06",
+    "L07",
+    "L08",
+    "L09",
+    "L10",
+    "L11",
+    "L12",
+    "L13",
+    "L14",
+    "L15",
+    "L16",
+    "L17",
+    "L18",
+    "L19",
+    "L20"
+  ],
+  "repo": {
+    "head": "fd2e4e4e37b58d4b8ae71d2dd64a93349ef5ae9c",
+    "branch": "codex/preproduction-hardening",
+    "dirtyFiles": 13
+  },
+  "corpus": [
+    {
+      "repo": "django/django",
+      "dir": "python",
+      "sha": "4fab678a0739d54401ccee7eb587553657c9f76e",
+      "head": "4fab678a0739d54401ccee7eb587553657c9f76e"
+    },
+    {
+      "repo": "langchain-ai/langchain",
+      "dir": "langchain",
+      "sha": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+      "head": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125"
+    },
+    {
+      "repo": "vercel/next.js",
+      "dir": "nextjs",
+      "sha": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+      "head": "d155ba9ebfffe4742efefda8d68c2e0e8e490924"
+    },
+    {
+      "repo": "prometheus/prometheus",
+      "dir": "go",
+      "sha": "ea954809ceafceb53ecfa295ab0947753929de9e",
+      "head": "ea954809ceafceb53ecfa295ab0947753929de9e"
+    },
+    {
+      "repo": "tokio-rs/tokio",
+      "dir": "rust",
+      "sha": "facc6fc47eb2ba13a465a3179f8e34db620561ec",
+      "head": "facc6fc47eb2ba13a465a3179f8e34db620561ec"
+    },
+    {
+      "repo": "redis/redis",
+      "dir": "c",
+      "sha": "20bb2cfc54aa08c8fdfb8c4c0a8b8258e811711e",
+      "head": "20bb2cfc54aa08c8fdfb8c4c0a8b8258e811711e"
+    },
+    {
+      "repo": "lodash/lodash",
+      "dir": "javascript",
+      "sha": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8",
+      "head": "2b5e6f7399a7b48005140b5d5c6bc6c0e62919a8"
+    },
+    {
+      "repo": "google/guava",
+      "dir": "java",
+      "sha": "4d41665af1b05bad09039b82cb2a1a474a7bceaf",
+      "head": "4d41665af1b05bad09039b82cb2a1a474a7bceaf"
+    },
+    {
+      "repo": "JamesNK/Newtonsoft.Json",
+      "dir": "csharp",
+      "sha": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa",
+      "head": "52fa3aef1f2cadcd3a3f874251eddc98d3efbbaa"
+    },
+    {
+      "repo": "nlohmann/json",
+      "dir": "cpp",
+      "sha": "f422b753cca0143b2c8545df2e1422171a2f9cd5",
+      "head": "f422b753cca0143b2c8545df2e1422171a2f9cd5"
+    },
+    {
+      "repo": "microsoft/TypeScript",
+      "dir": "typescript",
+      "sha": "4f5ddae224b9529a69b571f631fe3a2cb283162f",
+      "head": "4f5ddae224b9529a69b571f631fe3a2cb283162f"
+    }
+  ],
+  "build": {
+    "mcpServerDist": "53adc4461aa5deffe52ef3befa5f891cbd175bdd69fbbe1c9bc24d9771062aed",
+    "nativeAddons": {
+      "packages/octocode-native/npm/darwin-arm64/octocode-engine.darwin-arm64.node": "b6157f142f08efe6b14ebd3c3dec9a2ca6fcd72b49e6f92fef53c2f979c92092",
+      "packages/octocode-native/npm/darwin-arm64/octocode-native.darwin-arm64.node": "78498410e7ad7d54c188b1615e0f1464712876239ab84d99103e887c58eeeaaf",
+      "packages/octocode-native/octocode-engine.darwin-arm64.node": "1781ef606f68da83b6a81e7633e8c840b44dea4c68517fecc606aa652e2e3731",
+      "packages/octocode-native/octocode-native.darwin-arm64.node": "667b290fb5f1e613c51d612acade8df024b9a509c44eff1b32c5151c47cb5861"
+    },
+    "fingerprint": {
+      "file": "packages/octocode-config/contract/provenance.json",
+      "sha256": "c6d1ae61e97bc7c1ffb903eeb6aab4bba710e7d1108b4570aded65e6d19b0ea5",
+      "fingerprint": "6c1b042a79b82a081ddfe17aa5f7df9f8d4423d702f5ceeea8c3c063e4e4e4a4"
+    }
+  },
+  "hashes": {
+    "harness": {
+      "lib.mjs": "32909486e15cd5cf4b81033e751beb294cec44e06543fe33d191a90f5963e4b9",
+      "run.mjs": "ab65c82c88bbf7b50d5563c862aa616f9d3c1f8edf8aa5f083c4852950592af5",
+      "judge.mjs": "84a8951e163e36082cd8a8c658c1eb5e86d5ca6ee3e03c76a9f08d223dc76e1d",
+      "report.mjs": "834f69b007be4d7bcdc5204b15fe0608a75ce6f7d15d2940f6442a28e4a4e06d",
+      "reflect.mjs": "bfdc9c1ec37c817e3d5ea87f3d7eca224f57fbddea47a307ae10686041fdc93d",
+      "REFLECT.md": "d58f84fa0376ba0a91c880a98066c2e623c916bf49e997f2c670e20b54080b5c"
+    },
+    "questionsJson": "32629cb10262dc502397e8e454d0356ec6d9168fa76b7bf1fea15f077e2813da",
+    "workers": {
+      "octocode": {
+        "doc": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+        "profile": "56c5b96c4003bbf3fdc054824748965889fc2494672cbf9f997623a9ee13cee3"
+      },
+      "rg-gh": {
+        "doc": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+        "profile": "3c6b988b783d0f2c100372b4d55f637970c8977f21cc72e811d6a14594e9df2d"
+      }
+    },
+    "userOctocoderc": "6a8d7781850c7c72a77ddc7e66a1ae9c8cf051e79cbd0192bb6883b7b55cc847",
+    "prompts": {
+      "G01": "26c3af8d4abd78157db4bb2644f84b65dc7945c392c8bef57e9070f42b09c806",
+      "G02": "f4c7123df281a3c53b852e211db2882b739666b785a7614ce9dae77ac49aba6e",
+      "G03": "13bcdbb19ad0193a1fb23c8928cdaa2e489ac2f407f1854ba1cc51e064647153",
+      "G04": "670e5ec64b59811e076a91709e2ab985005882f7bde48fa846d9c31cbd952b97",
+      "G05": "e2ebad276dc3805f62ba0957e214b2e4578d9ef3b0f979b33cf93971d8301151",
+      "G06": "8d7513b46b250a4395b78b60019bad1a9f95ec6edade08bc1a533c492504ebd2",
+      "G07": "7980e5bafdf3f4070530b8546063133e9dfdcb19bdb06cf67213ea23662ae2d7",
+      "G08": "32f58da553cb699e048c503723744ce4ec2992dabc66cf00521f727c9fc39edf",
+      "G09": "837047d4f8bd84e20af19238147dbbf1080cc08d6436be7724ff8517e6d1064a",
+      "G10": "079f95190a44cd6fb5d2516e75fd9f404cb6812688b1cb3b8802fd9f29ad9ca2",
+      "L01": "a08bc122cd35d743dadde4e80d73f70d83f0df8b8ebdb7b62ca85ddf701f4c44",
+      "L02": "ba79d991590f035b3f8248cf9edf977222a4d1aeada76dd6cbfce57866ea2518",
+      "L03": "7b5cb6f1673cdc01471acbc346cbcbd44729895f98c218f0835b433bcdcda2c1",
+      "L04": "f4cee42b52338a0873fa6e71eaf9101319f6f13f49dc303f96b8491bb825ed2f",
+      "L05": "7a826d0cffb74fac331ebf7f57f8c2d9fc4c5386cd2d9edeb3f5375af54efa32",
+      "L06": "aaf72105b514055c5a1d10b1fe94d72e9a79c4ba54b2c913231f35cc5046a283",
+      "L07": "3c3eb3f0e566559ec8464676d72061857f0e2cf33865cffc7b5ed7f09134017a",
+      "L08": "279d3499a9607fbe52c2b0526db150a6dded7f97aed5cf9cd105e067011f19ff",
+      "L09": "3a7a4fb935e09de8e874e7011a237b5f67aca8d3d0c60448bba8326624a2d515",
+      "L10": "bae053cbd28a5c7d818445b6cf4350186075c7e6fb66e9c2f037bdba2efa66d4",
+      "L11": "e67fa492e0ac1b19fe4cc09f74c4f4fd090d47fbe91dcba20fc64bde1f94cbb6",
+      "L12": "6b79b0633b648f34bff5c8620ce52ee0566281faf2df034da6ee2b6348d38f66",
+      "L13": "d78e4858267356c48dcd065e51399c5df925befab7c0debc1a75b40f49fe64ed",
+      "L14": "3fe27a110a54f023ee3b90d161874220b01b6baeb29c602e194c3e5b773687cf",
+      "L15": "43fe500895570416767f949060ab97a13035260c0d433ee6a14687ffaac53d07",
+      "L16": "a40f8935e01224ede96e8c3e596483a428b32e84873ffff83c6fc7b891ddfe80",
+      "L17": "aa2b6938f454126e0efb5cfce7c62eb5db9a090e0556adb06b0e7e378c5e0446",
+      "L18": "fdd73f64aaa4d96b9b0924f50279e7e754d745a5009050304d9e554fb77756ec",
+      "L19": "432238275cff6ff9e16067a91c917c0eb9bd623098532ae1210aac493728826c",
+      "L20": "675015fe22b2f6a1b16991b71847184eb8663a76e414b46b09799f9bc5c39da9"
+    }
+  }
+}

@@ -12,9 +12,8 @@ export const nodeExternals = [
   ...builtinModules.map(m => `node:${m}`),
 ];
 
-// Published runtime dependencies stay external, including tools-core. Consumers
-// install them from this package's manifest, preserving the interface → core
-// package boundary in the emitted bundle.
+// Published runtime dependencies stay external. Consumers install them from this
+// package's manifest, preserving the interface boundary in the emitted bundle.
 export const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
 export const external = [...nodeExternals, ...runtimeExternals];
@@ -33,6 +32,7 @@ export const sharedBuildOptions = {
   loader: { '.md': 'text' },
   define: {
     'process.env.NODE_ENV': '"production"',
+    __OCTOCODE_BUNDLED__: 'true',
   },
   logLevel: 'info',
 };

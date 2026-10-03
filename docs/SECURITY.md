@@ -1,264 +1,112 @@
 # Security
 
-## Why it matters
+Octocode enforces security inside the native Rust runtime shared by CLI and MCP. Interfaces cannot bypass it and there is no TypeScript fallback.
 
-An AI agent browsing your codebase runs into `.env` files, `~/.aws/credentials`, private keys, and CI tokens. Without active protection, those secrets flow straight into the LLM context window, where logs capture them, tool call results expose them, or prompt injection exfiltrates them.
+## Request path
 
-Octocode enforces a hard boundary between untrusted content and the model:
-
-> **Every returned byte is scanned and redacted before it reaches the LLM.** Secrets are stripped on the way *in* (inputs) and on the way *out* (results). If output sanitization itself fails, Octocode discards the raw result and returns a generic structured error.
-
-You get this by default, for every tool call, over both MCP and CLI.
-
-The boundary applies to all execution classes: external provider tools (`ghSearch`, GitHub history/content, and `artifactSearch`), internal local tools (`localSearch`, `localFetch`, `astSearch`, and `lspSearch`), and hybrid materialization (`ghCloneRepo` and directory fetch). Their data sources differ, but all still pass schema validation, capability and configuration gates, provider and path checks, bounded execution, and output sanitization. See [`OCTOCODE_TOOLS.md`](OCTOCODE_TOOLS.md#internal-external-and-hybrid-tools) for the execution map.
-
----
-
-## The pipeline
-
-Three independent redaction stages guard every tool call.
-
-```mermaid
-flowchart TD
-    REQ(["🔵 Tool call"])
-
-    subgraph S1["① Input guard"]
-        I1["Schema & bounds\nstr ≤10k · arr ≤100 · depth ≤20"]
-        I2["Injection scan\nshell metacharacters · prototype keys · circular refs"]
-        I3["Secret redaction on args"]
-        I1 --> I2 --> I3
-    end
-
-    subgraph S2["Tool execution"]
-        T1["GitHub API · local FS · LSP · npm"]
-    end
-
-    subgraph S3["② Content guard (per file / response)"]
-        C1["Path validation + sensitive-file blocklist"]
-        C2["Rust scanner  300+ patterns → [REDACTED-TYPE]"]
-        C3["File-context patterns + Registry extras"]
-        C1 --> C2 --> C3
-    end
-
-    subgraph S4["③ Output guard"]
-        O1["maskSensitiveData on every text item"]
-        O2["Warn agent when redaction occurred"]
-        O1 --> O2
-    end
-
-    REQ --> S1
-    S1 -->|"invalid / secrets in args"| E1(["❌ Structured error"])
-    S1 -->|clean| S2
-    S2 --> S3
-    S3 -->|"blocked path"| E2(["❌ Redacted error"])
-    S3 -->|clean| S4
-    S4 -->|"sanitizer failure"| E3(["❌ Raw output discarded"])
-    S4 --> MODEL(["✅ Model"])
-
-    style E1 fill:#dc3545,color:#fff,stroke:none
-    style E2 fill:#dc3545,color:#fff,stroke:none
-    style E3 fill:#dc3545,color:#fff,stroke:none
-    style MODEL fill:#28a745,color:#fff,stroke:none
-    style REQ fill:#0d6efd,color:#fff,stroke:none
+```text
+contract validation
+  → configuration and capability admission
+  → input bounds and dangerous-key checks
+  → provider or local path authorization
+  → bounded, cancellable execution
+  → content sanitization
+  → output-contract validation and safe rendering
 ```
 
-The following table shows what the agent sees after redaction:
+A sanitization failure discards the unsafe value and returns a typed error. Bulk rows are isolated, but each successful row passes the same checks.
 
-| Situation | Output |
-|-----------|--------|
-| Secret in file content | `[REDACTED-AWSACCESSKEYID]`, `[REDACTED-GITHUBPAT]`, … |
-| Secret reaching output boundary | `A*I*S*A*4*1*X*…` (every-other-char masked) |
-| Content too large | `[CONTENT-REDACTED-SIZE-LIMIT]` |
-| Path blocked | Structured error — path never echoed |
-| Output sanitizer failure | Generic structured error — raw output and exception details are discarded |
+## Input validation
 
----
+Generated `@octocodeai/octocode-core` schemas reject unknown fields and invalid operation combinations. Native validation additionally rejects:
 
-## Secret detection
+- strings longer than 10,000 UTF-16 code units;
+- arrays longer than 100 entries;
+- object nesting deeper than 20 levels;
+- `__proto__`, `constructor`, and `prototype` keys;
+- invalid paths, cursor identities, snapshots, hashes, and numeric bounds.
 
-The Rust-native `RegexSet` scanner (with a TypeScript fallback from the same pattern list) covers **300+ patterns** across every major cloud, SaaS, and dev-tool credential format.
+Credentials are acquired after request admission and pinned for the request lifetime. They are never accepted through ordinary tool query fields.
 
-```mermaid
-flowchart LR
-    IN(["Content string"])
+## Content sanitization
 
-    subgraph RUST["Rust RegexSet (primary)"]
-        R1["300+ provider patterns\nAWS · Azure · GCP · GitHub\nOpenAI · Stripe · Slack …"]
-    end
+`packages/octocode-native/crates/engine/src/security/` owns the canonical ordered secret-pattern set and native scanner. It covers cloud, AI-provider, version-control, package-registry, database, payment, communications, private-key, bearer-token, and connection-string formats. File-context patterns activate only for matching path classes to reduce false positives.
 
-    subgraph TS["TypeScript layer (secondary)"]
-        T1["File-context-aware patterns\ne.g. password= only fires\ninside .env / config files"]
-        T2["Registry extras\ncustom org patterns"]
-        T1 --> T2
-    end
+The runtime scans untrusted provider and filesystem content before rendering it. Detected values are replaced with typed redaction markers and accompanied by warnings. Oversized values are replaced wholesale rather than partially exposed. A final recursive pass sanitizes nested strings while preserving executable continuation and location structures. Email masking in GitHub output is opt-in: `--redact-emails`, `OCTOCODE_REDACT_EMAILS=true`, or `output.redactEmails`.
 
-    MATCH{"Match?"}
-    REDACT["[REDACTED-TYPENAME]"]
-    OUT(["Sanitized content\n+ warnings[]"])
+The Rust implementation is the only production scanner. `patterns.rs` is its source of truth; a test-only complete regex set verifies that the optimized literal prescan does not lose matches.
 
-    IN --> RUST --> MATCH
-    MATCH -->|"yes"| REDACT --> OUT
-    MATCH -->|"no"| TS --> OUT
-```
+### Classification egress
 
-The scanner covers these categories:
+`clasify` sends data to the configured classification provider (`OCTOCODE_CLASSIFICATION_API_HOST`, default Jev); nothing leaves when no key is set. Each request carries:
+- the captured evidence, after the same output sanitization as a direct tool call, including a search page's absolute `base`;
+- the matrix `mainGoal` and `reasoning`, when the caller set them;
+- the question text;
+- a `read` descriptor naming the tool and its query (search text, paths, repositories).
 
-| Category | Examples |
-|----------|---------|
-| Cloud | AWS (key ID, secret, session token, ARN), Azure (AD, storage, Cosmos), GCP, Alibaba |
-| AI providers | OpenAI, Anthropic, Azure OpenAI, Bedrock, AI21, AssemblyAI |
-| SaaS / dev tools | GitHub (PAT, fine-grained, OAuth, app), Slack, Stripe, npm, Atlassian, Auth0, Adyen |
-| Generic / structural | JWTs, PEM/SSH keys, bearer tokens, passwords in URLs, DB connection strings, high-entropy strings |
+The `read` query passes the input security policy before it is sent: a query the policy rejects is dropped, and secrets in it are redacted. Paging tokens (`snapshot`, `cursor`) are removed. Treat everything in a clasify matrix as disclosed to that provider.
 
-**File-context-aware patterns** avoid false positives in source code: `password =` only fires when the file path matches `.env`, `config`, or `secrets`; Spring Boot credential patterns only apply to `application.yml` / `application.properties`.
+## Filesystem policy
 
----
+Every local operation resolves through `packages/octocode-native/crates/runtime/src/policy/path.rs`.
 
-## Path validation
+- Allowed roots are the workspace root (`WORKSPACE_ROOT` / `local.workspaceRoot`, else the process cwd), `ALLOWED_PATHS` / `local.allowedPaths`, and `OCTOCODE_HOME`. The OS home directory is **not** allowed unless one of these covers it (`runtime/src/runtime/engine.rs`).
+- Relative paths resolve against the process working directory, not `WORKSPACE_ROOT`; pass absolute paths.
+- Relative traversal and paths outside allowed roots are denied (`pathOutsideAllowedRoots`; `structure.policy.outsideAllowedRoots` from structureSearch).
+- System directories such as `/etc` stay denied even when listed in `ALLOWED_PATHS`.
+- Sensitive names and directories are pruned during discovery and denied again before reads.
+- Symlinks are revalidated against their canonical targets; escaped descendants are rejected.
+- File type, size, mutation, and snapshot checks happen before evidence is returned.
 
-Local filesystem access passes through two independent layers, so a bypass of one layer still leaves the other guarding sensitive files.
+Sensitive classes include environment files, private keys and certificates, credential stores, cloud configuration, shell history, browser login stores, infrastructure state, wallets, and application secret files. Denial messages name the path as requested or relative to `~`, and outside-root denials list the allowed roots; the row's `resolvedPath` carries the resolved path, which can be absolute.
 
-```mermaid
-flowchart TD
-    REQ2(["File / path request"])
+Set `ENABLE_LOCAL=false` to disable local tools. `OCTOCODE_BETA=true` (or `local.beta:true`, shell or
+home config only), default off, gates `astTopology` and `astRewrite`. `astRewrite` is
+CLI-only (MCP never exposes it); the gate permits both preview and its hash-guarded mutation path.
 
-    subgraph L1["Layer 1 — Discovery pruning (tree walk)"]
-        D1["Sensitive dirs pruned from results\n.ssh · .aws · .kube · .docker · secrets/ …"]
-    end
+## Structural rewrite safety
 
-    subgraph L2["Layer 2 — Read-time access control"]
-        V1["Resolve + normalize\n WORKSPACE_ROOT → strip ../ → expand ~"]
-        V2["Prefix-check allowed roots\nHOME (default) + ALLOWED_PATHS + registered roots"]
-        V3["Sensitive-file blocklist\n*.pem · .env · id_rsa · *.tfstate …"]
-        V4["Symlink re-validation\nrealpath → repeat prefix check"]
-        V1 --> V2 --> V3 --> V4
-    end
+`astRewrite` uses embedded engine primitives; it does not launch `ast-grep` or another rewrite executable.
 
-    REQ2 --> L1
-    L1 -->|"sensitive dir"| HIDE(["❌ Not visible in results"])
-    L1 -->|safe| L2
-    V2 -->|"outside roots"| DENY1(["❌ Access denied"])
-    V3 -->|"blocked file"| DENY2(["❌ Redacted error"])
-    V4 -->|"symlink escape"| DENY3(["❌ Blocked"])
-    V4 -->|safe| READ(["✅ Read proceeds"])
+Preview is read-only. Apply requires the native configuration gate and exact preview identities. The runtime retains:
 
-    style HIDE fill:#dc3545,color:#fff,stroke:none
-    style DENY1 fill:#dc3545,color:#fff,stroke:none
-    style DENY2 fill:#dc3545,color:#fff,stroke:none
-    style DENY3 fill:#dc3545,color:#fff,stroke:none
-    style READ fill:#28a745,color:#fff,stroke:none
-```
+- canonical-root and path-policy checks;
+- per-root exclusion locks;
+- before/after hashes and unchanged-source guards;
+- explicit match selection;
+- postcondition checks;
+- staged multi-file transactions;
+- crash journals and rollback;
+- cancellation checks between bounded steps.
 
-The blocklist matches on file name and directory path, and covers these categories:
+Public file paths are relative to the preview root. A guarded human apply resolves them against that root before revalidation.
 
-| Category | Examples |
-|----------|---------|
-| Keys and certs | `*.pem`, `*.key`, `*.p12`, `id_rsa`, `id_ed25519`, `.ssh/` |
-| Credentials | `.env`, `.env.*`, `.netrc`, `.npmrc`, `.git-credentials`, `*_token`, `client_secret*.json` |
-| Cloud and infra | `.aws/credentials`, `.kube/`, `*.tfstate`, `*.tfvars`, `.s3cfg` |
-| Secret stores | `.password-store/`, `*.kdbx`, OS keychains, browser login DBs |
-| Shell and history | `.bash_history`, `.zsh_history`, `.*_history` |
-| Crypto wallets | `wallet.dat`, `.bitcoin/`, `.ethereum/` |
-| App secrets | `wp-config.php`, `google-services.json`, `secrets.yml`, `master.key` |
+## External processes
 
-Canonical sources: `packages/octocode-engine/src/security/filePatterns.ts` and `packages/octocode-engine/src/security/pathPatterns.ts`.
+Search, AST analysis, rewrite, providers, response shaping, and bulk orchestration are embedded Rust. External processes are limited to capabilities that intentionally require them:
 
-`ALLOWED_PATHS` (or `local.allowedPaths` in `.octocoderc`) adds roots on top of the HOME default. To turn local tools off entirely, set `ENABLE_LOCAL=false`.
+- system Git for `ghCloneRepo`, with HTTPS-only remotes, bounded arguments/output, process-group cancellation, staged publication, and no token in argv;
+- configured language servers, launched without a shell and owned by the native LSP pool;
+- `gh auth token` as the final supported GitHub credential source;
+- the packaged bounded regex worker for JavaScript-regex features that Rust regex intentionally does not implement.
 
----
+Language-server provisioning accepts only pinned assets from allowed HTTPS hosts, verifies SHA-256 before extraction, uses per-target locks, and publishes atomically.
 
-## Command execution
+## GitHub credentials
 
-External commands run through `child_process.spawn()` with an argument array — not `exec` — and Octocode rejects shell metacharacters before execution.
+Resolution order (environment → encrypted Octocode login → OS credential store → `gh auth token`), login, refresh, and logout are documented in [AUTHENTICATION.md](AUTHENTICATION.md). The security properties:
 
-| Command | Hardening |
-|---------|-----------|
-| `rg` | Explicit flag allowlist; `--pre`/`--pre-glob` blocked (arbitrary binary exec). Combined short flags validated char-by-char. |
-| `git` | Only `clone` + `sparse-checkout`. `file://`, `git://`, `http://` URLs blocked (HTTPS only). `-c` keys allowlisted to safe config (`advice.detachedHead`, `core.autocrlf`, `http.extraHeader`, …). |
-| `find` | `-exec`, `-execdir`, `-ok`, `-delete`, `-printf` and all exec/write operators blocked. |
-| `grep` | Shared dangerous-pattern scan (`;&|$()` etc.) applied to all arguments. |
+- Tokens are never accepted through tool query fields, and an environment token is attached only to the host of the configured `GITHUB_API_URL`, which only the shell or home config can set.
+- `<OCTOCODE_HOME>/credentials.json` uses AES-256-GCM (16-byte IV, authentication tag, ciphertext) with the key in `.key`. Both are mode `0600` on Unix; a newly created home directory is `0700`. Writes are locked and atomically replaced; corrupt or unauthenticated files are rejected without being overwritten; symlinked credential files and Unix hard links are rejected. The adjacent key does not protect against someone who can read both files.
+- `gh auth token` runs without Octocode's token variables in its environment, with a 5-second bound.
+- `.octocoderc` never supplies GitHub tokens, and bootstrap variables such as `PATH`, `HOME` and `NODE_OPTIONS` are blocked in every `.env` file ([rules](CONFIGURATION.md#env--environment-fallback)).
 
----
+GitHub endpoint, credential, session, and cache identities are partitioned. Pagination redirects must remain same-origin. Retries and rate-limit delays are bounded, response bodies are capped, and GraphQL partial failures remain explicit.
 
-## Credentials and tokens
+## Cancellation and lifecycle
 
-**Resolution order.** `OCTOCODE_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN` → `GITHUB_PERSONAL_ACCESS_TOKEN` → encrypted on-disk OAuth → `gh` CLI token. The first non-empty value wins; the four environment variables are protected keys that Octocode never reads from `.env` or `.octocoderc`.
+The runtime admits requests through bounded queues. Cancellation and timeout propagate through provider requests, filesystem work, regex workers, Git, and LSP. Dropped callers release admission and owned resources; runtime shutdown joins workers and terminates pooled processes. Partial or capped evidence is never labeled complete without an executable continuation or explicit terminal diagnostic.
 
-**On-disk storage.** AES-256-GCM encrypted under `OCTOCODE_HOME`.
+## Reporting vulnerabilities
 
-**Output masking.** Output masking covers tokens, so results never echo them.
-
-See [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for token setup and credential architecture.
-
----
-
-## Input limits and injection guards
-
-| Check | Limit / action |
-|-------|---------------|
-| String length | ≤ 10,000 chars |
-| Array length | ≤ 100 items |
-| Object nesting | ≤ 20 levels |
-| Prototype pollution | `__proto__`, `constructor`, `prototype` keys → rejected |
-| Circular references | WeakSet ancestor tracking → rejected |
-| Numeric ranges | depth / context-lines / limits / offsets clamped at schema layer |
-
----
-
-## Tool timeout and cancellation
-
-Every tool call runs under a 60-second timeout. MCP clients can cancel through `AbortSignal`. Both timeout and cancellation return a structured error, so no partial data leaks through. Override the default in either of these ways:
-
-```ts
-configureSecurity({ defaultTimeoutMs: 30_000 })   // process-wide override
-withSecurityValidation(name, handler, { timeoutMs: 10_000 })  // per-tool override
-```
-
----
-
-## Extension API
-
-The `securityRegistry` singleton lets you extend security policy before boot — useful for org-specific secrets or multi-tenant deployments.
-
-```mermaid
-flowchart LR
-    subgraph API["securityRegistry"]
-        A1["addSecretPatterns()\n+ ReDoS safety check"]
-        A2["addAllowedCommands()"]
-        A3["addAllowedRoots()"]
-        A4["addIgnoredPathPatterns()\naddIgnoredFilePatterns()\n+ ReDoS safety check"]
-    end
-
-    A1 & A2 & A3 & A4 --> FREEZE{"freeze()"}
-    FREEZE -->|"locked — mutations throw"| RUNTIME["Runtime\n(immutable policy)"]
-    FREEZE -->|"reset() to unfreeze"| API
-
-    style RUNTIME fill:#28a745,color:#fff,stroke:none
-```
-
-```ts
-import { securityRegistry } from '@octocodeai/octocode-engine/security';
-
-securityRegistry.addSecretPatterns([
-  { name: 'my-service-token', regex: /mst_[A-Za-z0-9]{32}/ }
-]);
-securityRegistry.addAllowedCommands(['my-search-tool']);
-securityRegistry.addAllowedRoots(['/mnt/shared-workspace']);
-securityRegistry.addIgnoredPathPatterns([/\/internal-vault\//]);
-securityRegistry.addIgnoredFilePatterns([/\.company-secret$/]);
-
-securityRegistry.freeze(); // lock — throws on any further mutation
-```
-
-Custom patterns pass through these guards:
-- A **ReDoS timing heuristic** checks every `regex` value against 50-, 500-, and 2,000-character inputs, and rejects any pattern that takes 200 ms or longer on one of them. Rejection happens before registration.
-- Octocode deduplicates repeated names and sources.
-- `securityRegistry.version` increments on every mutation — use it for cache invalidation.
-
----
-
-## Scope and disclosure
-
-Octocode protects the **agent context boundary** — what flows between untrusted content and the model. It does not replace repository secret-scanning, OS-level sandboxing, or network egress controls; run those alongside it.
-
-To report a vulnerability, open a private advisory on the [octocode repository](https://github.com/bgauryy/octocode) rather than a public issue.
+Open a private GitHub security advisory for the Octocode repository rather than a public issue.

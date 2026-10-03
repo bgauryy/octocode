@@ -1,0 +1,96 @@
+{
+  "qid": "L16",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "aef8505d6e1d120da76578a9970b7d130f9b958ca7a61ae423454f4370d6d246",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "Minor citation drift: initial-capacity clamp cited at :280-282 (actually ~275-278); initTable cited at 1976-1979 (actually ~1998-2004)"
+      ],
+      "notes": "Accurate mechanism for segment count, shift/mask, weight split with remainder, UNSET_INT, and the per-segment rationale. Does not cover evictEntries/segmentFor enforcement details, getMaximumWeight returning maximumSize, or the expire==0 case."
+    },
+    "Y": {
+      "correctness": 3,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Example: maximumSize(100), concurrencyLevel(16) gives 4 segments; the loop actually reaches 8 (4*20=80<=100 allows doubling to 8; it stops at 8 because 160>100)"
+      ],
+      "notes": "Broad and well-cited coverage including evictEntries, segmentFor, getMaximumWeight and the Javadoc, but the worked example misapplies the loop condition. Does not cover fact 5 (expire==0 gives maxWeight 0)."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "Minor citation drift: initial-capacity clamp cited at :280-282 (actually ~275-278); initTable cited at 1976-1979 (actually ~1998-2004)"
+      ],
+      "notes": "Accurate mechanism for segment count, shift/mask, weight split with remainder, UNSET_INT, and the per-segment rationale. Does not cover evictEntries/segmentFor enforcement details, getMaximumWeight returning maximumSize, or the expire==0 case."
+    },
+    "rg-gh": {
+      "correctness": 3,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Example: maximumSize(100), concurrencyLevel(16) gives 4 segments; the loop actually reaches 8 (4*20=80<=100 allows doubling to 8; it stops at 8 because 160>100)"
+      ],
+      "notes": "Broad and well-cited coverage including evictEntries, segmentFor, getMaximumWeight and the Javadoc, but the worked example misapplies the loop condition. Does not cover fact 5 (expire==0 gives maxWeight 0)."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.11579120000000001,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 9274,
+    "cache_read_input_tokens": 13416,
+    "output_tokens": 10,
+    "context_tokens": 22694,
+    "total_tokens": 22704,
+    "first_request_context": 10791,
+    "fixed_overhead_tokens": 21582,
+    "research_tokens": 1122,
+    "max_request_context": 11903
+  },
+  "timedOut": false
+}

@@ -1,0 +1,7 @@
+**1. Helped:** I made two parallel calls first. `ghGetHistoryItem` (issue #13786) gave the full root-cause write-up with repro output. `ghSearchHistory` (pullRequest, keyword "13786") found the three related PRs, including merged #13825. One more `ghGetHistoryItem` call on #13825 with `patches.mode: "all"` returned the whole diff and the PR body. That was enough to answer, so I used only three calls.
+
+**2. Did not help:** The search returned closed, unmerged PRs (#13787, #13794) next to the merged one. I told them apart only from the `state` field. The PR #13825 response was partial. The last file's patch, `tests/test_model_signature.py`, was cut off and I didn't fetch it. Patch hunks came back abbreviated with `...`, so I couldn't cite exact line numbers. I didn't open the merged source on the default branch.
+
+**3. Next time:** I would read the issue's comments to see the maintainer discussion and why the author's copy-based patch wasn't merged. I would use `ghGetFileContent` on `pydantic/_internal/_config.py` at the merge commit to get `path:line` citations. I would also follow `next.continuePatch` if the truncated file mattered.
+
+**4. Confidence:** High on root cause and fix mechanism, because both come straight from the issue body and the merged diff. Medium on line-level details, which I didn't verify.

@@ -1,0 +1,140 @@
+{
+  "qid": "L03",
+  "worker": "rg-gh",
+  "started": "2026-09-30T07:11:34.143Z",
+  "promptSha256": "7b5cb6f1673cdc01471acbc346cbcbd44729895f98c218f0835b433bcdcda2c1",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 18466,
+  "status": "ok",
+  "answer": "**Summary:** Callbacks sit in a per-connection list, `connection.run_on_commit`. Rolling back a savepoint, a full rollback, or closing the connection drops them. They run after the outermost `atomic` block commits and autocommit is switched back on. All line numbers below are at 4fab678a07.\n\n**Registering**\n- `transaction.on_commit(func, using=None, robust=False)` at `django/db/transaction.py:142-147` calls `get_connection(using).on_commit(func, robust)`.\n- `BaseDatabaseWrapper.on_commit` (`django/db/backends/base/base.py:727`) first raises `TypeError` if `func` isn't callable.\n- **Inside an atomic block** (`in_atomic_block` true), it appends `(set(self.savepoint_ids), func, robust)` to `self.run_on_commit` (`base.py:732`). The set records which savepoints were active at registration.\n- **Manual transaction management** (not in an atomic block, autocommit off): it raises `TransactionManagementError` (`base.py:733-736`).\n- **Autocommit with no transaction:** it runs `func` immediately (`base.py:737-748`). With `robust=True`, an exception is caught and logged with `logger.exception` instead of propagating.\n- The list is initialised to `[]` at `base.py:102`.\n\n**Discarding**\n- **Savepoint rollback:** `savepoint_rollback(sid)` (`base.py:405`) rebuilds the list at `base.py:416-418`. It keeps only entries whose `sids` set does not contain the rolled-back `sid`. This is how a failed inner `atomic()` discards the callbacks registered inside it.\n- **Full rollback:** `base.py:341` resets the list to `[]` (in the rollback method just above the `needs_rollback = False` line, which I didn't view in full).\n- **Close:** `base.py:347` resets the list to `[]` in `close()`.\n- **New connection:** `base.py:261` resets it after `connect()`.\n\n**Running**\n1. The outermost `Atomic.__exit__` (`transaction.py:236`) calls `connection.commit()`. That call is in the \"Commit transaction\" branch, reached when there is no exception and no `needs_rollback`.\n2. `commit()` (`base.py:~322-330`) calls `_commit()`, then sets `run_commit_hooks_on_set_autocommit_on = True` (`base.py:330`).\n3. On leaving the outermost block, `Atomic.__exit__` restores autocommit. I saw the `finally` block start at `transaction.py:312` but not the `set_autocommit(True)` call itself, so that step is inferred.\n4. In `set_autocommit` (`base.py:490-492`), if `autocommit and self.run_commit_hooks_on_set_autocommit_on`, it calls `run_and_clear_commit_hooks()` and resets the flag to `False`.\n5. `run_and_clear_commit_hooks` (`base.py:749-766`) does the following:\n   - It first calls `validate_no_atomic_block()`.\n   - It swaps `self.run_on_commit` for a fresh `[]`, so callbacks registered while the hooks run go into the new list.\n   - It pops entries from the old list in registration order (FIFO).\n   - It calls each `func()`.\n   - If `robust` is set, exceptions are logged and swallowed. Otherwise the exception propagates, and the callbacks not yet run are lost because the list was already swapped.\n\n**Uncertainty:** I did not view the `set_autocommit(True)` call in `Atomic.__exit__`'s `finally` block, or the exact line of the rollback-path reset.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 8316,
+    "cache_read_input_tokens": 30952,
+    "output_tokens": 843,
+    "context_tokens": 39278,
+    "total_tokens": 40121,
+    "first_request_context": 5122,
+    "fixed_overhead_tokens": 25610,
+    "research_tokens": 14511,
+    "max_request_context": 10253
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3185,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 20
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 950,
+      "cache_read_input_tokens": 5120,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1996,
+      "cache_read_input_tokens": 6070,
+      "output_tokens": 10
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1695,
+      "cache_read_input_tokens": 8066,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 490,
+      "cache_read_input_tokens": 9761,
+      "output_tokens": 781
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 8316,
+    "cache_read_input_tokens": 30952,
+    "output_tokens": 1920
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1920,
+      "cacheReadInputTokens": 30952,
+      "cacheCreationInputTokens": 8316,
+      "webSearchRequests": 0,
+      "costUSD": 0.0586744,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 102,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0586744,
+  "duration_ms": 17299,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "Bash:cd": 3,
+    "Bash:sed": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python && git rev-parse HEAD; rg -n \\\"run_on_commit|on_commit|run_and_clear_commit_hooks\\\" django/db | head -50\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/backends/base && sed -n 255,263p base.py; sed -n 336,349p base.py; sed -n 405,422p base.py; sed -n 470,495p base.py; sed -n 725,772p base.py; rg -n \\\"run_on_commit|def savepoint_rollback|def _savepoint_allowed\\\" -n base.py ../../transaction.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db && rg -n \\\"run_commit_hooks_on_set_autocommit_on|run_on_commit\\\" transaction.py backends/base/base.py; sed -n 225,300p transaction.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"sed -n 300,318p transaction.py; sed -n 322,332p backends/base/base.py\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first Bash call, `git rev-parse HEAD` plus `rg \"run_on_commit|on_commit|run_and_clear_commit_hooks\" django/db`, confirmed the pinned commit. It also mapped every storage, discard and run site in one pass. The `rg` on `run_commit_hooks_on_set_autocommit_on|run_on_commit` then showed the commit → flag → `set_autocommit` chain. Reading `Atomic.__exit__` in `transaction.py` showed the outermost-block commit path.\n\n2. **Did not help:**\n   - My `sed` ranges were sloppy, so the output mixed unrelated code, such as the `set_autocommit` body. Because of that I had to cite lines from the `rg` output instead of from the code I had read.\n   - I never viewed the `set_autocommit(True)` call in `Atomic.__exit__`'s `finally` block. I never viewed the full rollback method around `base.py:341` either. Both went into the answer as inferred or flagged gaps.\n   - The `cd` calls kept shifting the working directory. That was noise, not an error.\n\n3. **Next time:** I would use `rg -n -C4` on the specific hits instead of guessing `sed` ranges. I would also read the `finally` block of `Atomic.__exit__` to the end, so the full chain is verified. And I would use absolute paths without `cd`.\n\n4. **Confidence:** medium-high. The storage, savepoint-discard and run mechanics were read directly at the pinned commit. The gaps I flagged are the inferred `set_autocommit(True)` step and the exact line of the rollback reset.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1554,
+      "cache_read_input_tokens": 10251,
+      "output_tokens": 1,
+      "context_tokens": 11807,
+      "total_tokens": 11808,
+      "first_request_context": 11807,
+      "fixed_overhead_tokens": 11807,
+      "research_tokens": 1,
+      "max_request_context": 11807
+    },
+    "cost_usd": 0.0724246,
+    "toolCallsAttempted": 0
+  }
+}

@@ -1,0 +1,15 @@
+== astTopology without beta
+{"error":"astTopology is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying.","errorCode":"missingConfiguration"}
+
+exit=0
+== astTopology with OCTOCODE_BETA=true
+{"results":[{"index":0,"data":{"operation":"topology","path":".","coverage":{"basis":"syntactic","referenceBasis":"lexical-occurrence","languages":[{"language":"ts","files":4,"linking":"javascript-relative"}],"imports":{"resolved":13,"external":10,"unresolvedInternal":0,"unsupported":1,"nonCode":1},
+exit=0
+== astRewrite preview without beta
+{"error":"astRewrite is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying.","errorCode":"missingConfiguration"}
+
+exit=0
+== OCTOCODE_BETA=false explicit + rc local.beta true (env wins -> off)
+"name":"astTopology","description":"Analyze local dependency and reachability topology.","fields":"analysis=deadCode[defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, entrypoints?, excludeDir?, …] | analysis=cycles[path*, defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, excludeDir?, …] | analysis=dependencies[file*, defaultExcludes?, depth?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …] | analysis=dependents[file*, defaultExcludes?, depth?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …] | analysis=path[file*, target*, defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …] | analysis=reachability[defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, entrypoints?, excludeDir?, …] | analysis=drift[baseline*, path*, defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …]","availability":{"enabled":false,"envVar":"OCTOCODE_BETA"}
+"name":"astTopology","description":"Analyze local dependency and reachability topology.","fields":"analysis=deadCode[defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, entrypoints?, excludeDir?, …] | analysis=cycles[path*, defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, excludeDir?, …] | analysis=dependencies[file*, defaultExcludes?, depth?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …] | analysis=dependents[file*, defaultExcludes?, depth?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …] | analysis=path[file*, target*, defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …] | analysis=reachability[defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, entrypoints?, excludeDir?, …] | analysis=drift[baseline*, path*, defaultExcludes?, diagnosticPage?, diagnosticPageSize?, diagnosticSnapshot?, …]","availability":{"enabled":true}
+rc local.beta via scratch OCTOCODE_HOME: ghSearchRepo,ghSearchCode,ghStructure,ghGetFileContent,ghSearchHistory,ghGetHistoryItem,artifactSearch,localSearch,structureSearch,astSearch,astTopology,localFetch,lspSearch

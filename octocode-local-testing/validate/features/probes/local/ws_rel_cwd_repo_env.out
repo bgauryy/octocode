@@ -1,0 +1,4 @@
+# env {'WORKSPACE_ROOT': '/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx'} cwd /Users/bgaryy/code/octocode
+# q {'path': 'src/a.ts', 'startLine': 1, 'endLine': 1}
+# exit 5
+{"results":[{"index":0,"data":{"errorCode":"pathOutsideAllowedRoots","error":"Path 'src/a.ts' is outside allowed directories (allowed: /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx, /Users/bgaryy/.octocode)","resolvedPath":"src/a.ts","hints":["The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."]},"status":"error"}]}

@@ -1,0 +1,53 @@
+{
+  "qid": "L04",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8,
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        8
+      ],
+      "wrongClaims": [
+        "Lists self/cls stripping among filtered args on this path (not applicable, since filter_args is non-empty)",
+        "Parser location given as function_calling.py:759-820 (starts at 735)",
+        "Implies self/cls stripping applies on the @tool path; it only runs when filter_args is empty, and from_function always passes non-empty filter_args",
+        "Places the parser at function_calling.py 759-820; it starts at line 735"
+      ]
+    },
+    "rg-gh": {
+      "quality": 9,
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": [
+        "Lists self/cls stripping among filtered args on this path; from_function always passes non-empty filter_args so that branch is skipped",
+        "Lists self/cls among the filtered args without noting it only applies when filter_args is empty, which never happens on this path"
+      ]
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.24750840000000002
+}

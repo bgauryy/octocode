@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"queries": [{"contextLines": 0, "followUp": true, "matchContentLength": 200, "matchPage": 3, "pageSize": 20, "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "searchText": "needle", "snapshot": "lexical-live-v1:517ed7588cc3de3763ac62f859be288f00082201ba04c439d8fc5f4458663183"}]}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"files":[{"path":"manyhits.txt","matches":[{"line":21,"value":"line 21 needle value_21"},{"line":22,"value":"line 22 needle value_22"},{"line":23,"value":"line 23 needle value_23"},{"line":24,"value":"line 24 needle value_24"},{"line":25,"value":"line 25 needle value_25"},{"line":26,"value":"line 26 needle value_26"},{"line":27,"value":"line 27 needle value_27"},{"line":28,"value":"line 28 needle value_28"},{"line":29,"value":"line 29 needle value_29"},{"line":30,"value":"line 30 needle value_30"}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode-mcp-host/package.json", "startLine": 1, "endLine": 3}
+# env: None
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"errorCode":"pathOutsideAllowedRoots","error":"Path '/Users/bgaryy/code/octocode-mcp-host/package.json' is outside allowed directories (allowed: /Users/bgaryy/code/octocode, /Users/bgaryy/.octocode)","resolvedPath":"/Users/bgaryy/code/octocode-mcp-host/package.json","hints":["The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."]},"status":"error"}]}

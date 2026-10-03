@@ -1,0 +1,129 @@
+{
+  "qid": "L02",
+  "worker": "rg-gh",
+  "started": "2026-09-30T19:56:56.006Z",
+  "promptSha256": "ba79d991590f035b3f8248cf9edf977222a4d1aeada76dd6cbfce57866ea2518",
+  "workerDocSha256": "b9134f3d8515d3ab80f399aefb999efdd6a17a19001888a21f0360790ebe1ce0",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 14593,
+  "status": "ok",
+  "answer": "The check is in `Model._prepare_related_fields_for_save()` in `django/db/models/base.py:1276`. If a cached related object has no primary key set, it raises `ValueError`.\n\n**Where it's called**\n- `Model.save()` calls it at `django/db/models/base.py:864` with `operation_name=\"save\"`.\n- `bulk_create` calls it at `django/db/models/query.py:794`.\n- A third call is at `query.py:1042`. I didn't read that code, so I don't know which operation it belongs to (probably `bulk_update`).\n\n**How the check works** (`base.py:1281-1330`)\n1. It loops over `self._meta.concrete_fields`. If `fields` was passed, it skips fields not in that list.\n2. It only checks fields where `field.is_relation and field.is_cached(self)`. If nothing was assigned to the relation, the cache is empty and the check is skipped (comment at 1283-1284).\n3. It gets the related object with `getattr(self, field.name, None)` and skips falsy values.\n4. The test is `if not obj._is_pk_set()` (line 1293). If it's true, it does two things:\n   - For a one-to-one relation (`multiple` is false), it clears the reverse cache on the related object with `field.remote_field.delete_cached_value(obj)`.\n   - It then raises `ValueError(\"save() prohibited to prevent data loss due to unsaved related object '<field>'.\")`. The message is built at lines 1300-1303, and the `%s` is the operation name.\n5. The check looks at whether the pk is set, not whether the row exists in the database. The comment at 1287-1292 says a manually assigned or auto-generated pk (such as a `UUIDField`) is allowed. In that case Django relies on the database to raise an `IntegrityError`.\n6. If the related object does have a pk, the method syncs the FK value:\n   - If the FK attname value is empty or an `Expression`, it re-runs `setattr(self, field.name, obj)`. This picks up an object that was saved after being assigned.\n   - If the target's `target_field.attname` no longer matches the FK value, it clears the cached relation with `field.delete_cached_value(self)`.\n\n**Generic foreign keys** (`base.py:1312-1329`)\n- It also loops over `self._meta.private_fields`, which covers `GenericForeignKey`.\n- It looks at cached fields that have `fk_field`. If the cached object's pk isn't set, it raises the same `ValueError`.\n\n**Uncertainty**\n- I read only `base.py:1276-1330` and confirmed the call sites by grep. I didn't open `query.py` around lines 794 and 1042.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 4885,
+    "cache_read_input_tokens": 17976,
+    "output_tokens": 780,
+    "context_tokens": 22869,
+    "total_tokens": 23649,
+    "first_request_context": 5123,
+    "fixed_overhead_tokens": 20492,
+    "research_tokens": 3157,
+    "max_request_context": 6822
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3186,
+      "cache_read_input_tokens": 1935,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 165,
+      "cache_read_input_tokens": 5121,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 348,
+      "cache_read_input_tokens": 5286,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1186,
+      "cache_read_input_tokens": 5634,
+      "output_tokens": 732
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 4885,
+    "cache_read_input_tokens": 17976,
+    "output_tokens": 1221
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1221,
+      "cacheReadInputTokens": 17976,
+      "cacheCreationInputTokens": 4885,
+      "webSearchRequests": 0,
+      "costUSD": 0.0353612,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0353612,
+  "duration_ms": 13300,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "Bash:cd": 2,
+    "Bash:sed": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python && git rev-parse HEAD; rg -n \\\"save\\\\(\\\\) prohibited to prevent data loss\\\" django\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python && rg -n \\\"prohibited to prevent data loss|unsaved related object\\\" django | head\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"sed -n 1280,1340p django/db/models/base.py; rg -n \\\"_prepare_related_fields_for_save\\\" django\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The second `rg -n \"prohibited to prevent data loss|unsaved related object\" django` call found the error message at `base.py:1301` and `:1329`. The third call then printed `base.py:1280-1340` and ran `rg -n \"_prepare_related_fields_for_save\"` for the call sites. Together they gave the whole answer. The first call also printed `git rev-parse HEAD`, which confirmed the checkout was at the pinned commit.\n\n2. **Did not help:** My first `rg` searched for a message string I had guessed, `save() prohibited to prevent data loss due to unsaved...`. The real message is built with `%s` and split across lines, so that search returned nothing. That call was wasted. I never opened `query.py` near lines 794 and 1042. I reported the line 1042 caller as \"probably bulk_update\" without checking, and I flagged that guess in the answer.\n\n3. **Next time:** I would search for the short fragment `prohibited to prevent data loss` first. I would also open `query.py:1042` in the same call as the main read, so the caller list is complete.\n\n4. **Confidence:** High for the core answer. I read the function body directly and the line numbers come from that output. Medium for the `query.py` call sites, because I saw them only in grep output and didn't read the surrounding code.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1199,
+      "cache_read_input_tokens": 6820,
+      "output_tokens": 8,
+      "context_tokens": 8021,
+      "total_tokens": 8029,
+      "first_request_context": 8021,
+      "fixed_overhead_tokens": 8021,
+      "research_tokens": 8,
+      "max_request_context": 8021
+    },
+    "cost_usd": 0.0458252,
+    "toolCallsAttempted": 0
+  }
+}

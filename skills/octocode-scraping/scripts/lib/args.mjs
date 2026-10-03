@@ -1,12 +1,24 @@
 import { createHash } from 'node:crypto';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep, join } from 'node:path';
 import { resolveProvider } from './providers.mjs';
+
+/**
+ * Anchor output outside any `.octocode` tree: a shell whose cwd drifted into an
+ * existing session must not nest a new session inside it. Returns the directory
+ * just above the FIRST `.octocode` segment of cwd, or cwd itself.
+ */
+export function workspaceRootFor(cwd) {
+  const parts = resolve(cwd).split(sep);
+  const octocodeAt = parts.indexOf('.octocode');
+  if (octocodeAt <= 0) return resolve(cwd);
+  return parts.slice(0, octocodeAt).join(sep) || sep;
+}
 
 export const MODE_ENDPOINT = { html: 'general', markdown: 'markdown', extended: 'extended', extract: 'extract' };
 
 export function createArgParser(args) {
   const usage = (exitCode = 2) => {
-    console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--same-domain] [--delay-ms <n>]] [--session <id>] [--out <dir>] [--browser] [--wait-for <selector>] [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--extract-links] [--param k=v] [--cdp-port <n>] [--cdp-wait-ms <n>] [--no-cdp-stealth]\nDefault output: .octocode/tmp/scrape/<sessionId>\n`);
+    console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--same-domain] [--delay-ms <n>]] [--session <id> [--append]] [--out <dir>] [--browser] [--wait-for <selector>] [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--extract-links] [--param k=v] [--cdp-port <n>] [--cdp-wait-ms <n>] [--no-cdp-stealth]\nDefault output: .octocode/tmp/scrape/<sessionId>\n`);
     process.exit(exitCode);
   };
   const take = (flag) => {
@@ -80,8 +92,9 @@ export function parseConfig(args) {
   if (!Number.isFinite(maxRawBytes) || maxRawBytes < 0) throw new Error('--max-raw-bytes must be a non-negative number');
   if (!Number.isFinite(maxTextBytes) || maxTextBytes < 1) throw new Error('--max-text-bytes must be a positive number');
   if (!Number.isFinite(chunkBytes) || chunkBytes < 1_000) throw new Error('--chunk-bytes must be a number >= 1000');
-  const workspaceOutputBase = resolve(process.cwd(), '.octocode');
-  const outBase = resolve(take('--out') || '.octocode/tmp/scrape');
+  const workspaceRoot = workspaceRootFor(process.cwd());
+  const workspaceOutputBase = join(workspaceRoot, '.octocode');
+  const outBase = take('--out') ? resolve(take('--out')) : join(workspaceRoot, '.octocode', 'tmp', 'scrape');
   const outRelative = relative(workspaceOutputBase, outBase);
   if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
     throw new Error(`--out must stay under ${workspaceOutputBase}`);
@@ -101,6 +114,7 @@ export function parseConfig(args) {
     sitemap: has('--sitemap'),
     outBase,
     sessionId: safeSessionId(take('--session'), targetUrl),
+    append: has('--append'),
     maxRawBytes,
     maxTextBytes,
     chunkBytes,

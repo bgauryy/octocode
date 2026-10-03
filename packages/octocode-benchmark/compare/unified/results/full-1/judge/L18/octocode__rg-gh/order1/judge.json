@@ -1,0 +1,96 @@
+{
+  "qid": "L18",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "b0db1c6a1498d307e7b542a46f96fa5d8196561835b44e9087c765008cd046b1",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate but explicitly did not read end_array/remove_discarded_value; fact 1 only implied without citation; several approximate line ranges (end_object ~670-720 vs 650)."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers all facts with precise, verified citations (644, 661, 777, 963, 1006, 1012); omits plain json_sax_dom_parser branch but otherwise complete."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate but explicitly did not read end_array/remove_discarded_value; fact 1 only implied without citation; several approximate line ranges (end_object ~670-720 vs 650)."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers all facts with precise, verified citations (644, 661, 777, 963, 1006, 1012); omits plain json_sax_dom_parser branch but otherwise complete."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1014136,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8766,
+    "cache_read_input_tokens": 12948,
+    "output_tokens": 12,
+    "context_tokens": 21718,
+    "total_tokens": 21730,
+    "first_request_context": 10323,
+    "fixed_overhead_tokens": 20646,
+    "research_tokens": 1084,
+    "max_request_context": 11395
+  },
+  "timedOut": false
+}

@@ -1,0 +1,177 @@
+{
+  "qid": "G06",
+  "pairKey": "octocode__octocode-npm",
+  "label": "order1",
+  "subjectSha": "0a2071620e85d24ad8c9ce0824d51aed50755bc0fa23e2a86c804ba7726cfe4a",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "octocode-npm",
+  "attempts": 1,
+  "promptSha256": "a9ee2787d7a316487f195e85c2b26b3ee47b653e847fd10b3bdfcf712651f638",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3"
+      ],
+      "wrong_claims": [
+        "Minor: says `send` calls _transport_for_url at 1005; it is _send_single_request"
+      ],
+      "notes": "Accurate on construction and per-request lookup with precise line cites; explicitly does not cover env-proxy parsing, URLPattern matching/ordering, or Proxy/HTTPTransport details."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Same core as X plus correct summary of get_environment_proxies (getproxies, scheme keys, NO_PROXY -> None, '*' -> {}, all://*google.com example). Missing ordering criteria, matches() semantics, Proxy scheme validation. Lines approximate but correct."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3"
+      ],
+      "wrong_claims": [
+        "Minor: says `send` calls _transport_for_url at 1005; it is _send_single_request"
+      ],
+      "notes": "Accurate on construction and per-request lookup with precise line cites; explicitly does not cover env-proxy parsing, URLPattern matching/ordering, or Proxy/HTTPTransport details."
+    },
+    "octocode-npm": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [],
+      "notes": "Same core as X plus correct summary of get_environment_proxies (getproxies, scheme keys, NO_PROXY -> None, '*' -> {}, all://*google.com example). Missing ordering criteria, matches() semantics, Proxy scheme validation. Lines approximate but correct."
+    }
+  },
+  "preferredWorker": "octocode-npm",
+  "reference_issues": "none",
+  "cost_usd": 0.1213474,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 9148,
+        "cache_read_input_tokens": 32557,
+        "output_tokens": 2081,
+        "context_tokens": 41713,
+        "total_tokens": 43794,
+        "first_request_context": 9350,
+        "fixed_overhead_tokens": 37400,
+        "research_tokens": 6394,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 9148,
+          "cache_read_input_tokens": 32557,
+          "output_tokens": 77
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2004
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9148,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 11520
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 2,
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1213474,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 9148,
+    "cache_read_input_tokens": 32557,
+    "output_tokens": 2081,
+    "context_tokens": 41713,
+    "total_tokens": 43794,
+    "first_request_context": 9350,
+    "fixed_overhead_tokens": 37400,
+    "research_tokens": 6394,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 9148,
+      "cache_read_input_tokens": 32557,
+      "output_tokens": 77
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2004
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9148,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 11520
+  },
+  "timedOut": false
+}

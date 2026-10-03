@@ -1,0 +1,142 @@
+{
+  "qid": null,
+  "worker": "octocode",
+  "started": "2026-09-30T07:08:50.690Z",
+  "promptSha256": "18f0c716d6f4c354cb0743ca8f67adbca035be2cdda16fcd48328801150b4a34",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "timedOut": false,
+  "wallMs": 9478,
+  "status": "ok",
+  "answer": "Results from the four attempts (4 tool calls used):\n\n1. **Read `.../compare/unified/references/G01.md`**: failed. Error `pathOutsideAllowedRoots`: \"Path '/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md' is outside allowed directories\".\n2. **List `.../compare/unified/references`**: failed. Error `structure.policy.outsideAllowedRoots`, with the same \"outside allowed directories\" message.\n3. **Read `/Users/bgaryy/.octocode/.env`**: failed. Error `fileAccessFailed`: \"Path '~/.octocode/.env' is in an ignored directory or matches an ignored pattern\". `/Users/bgaryy/.octocode` is an allowed root, but this file is blocked by the ignore pattern. I did not see any of its contents.\n4. **List `/Users/bgaryy/code/octocode/octocode-local-testing/repos/python`**: succeeded. The first 3 entries are `AUTHORS (45.1KB)`, `CONTRIBUTING.rst (1.1KB)` and `Gruntfile.js (369B)`. The directory has 19 entries in total.\n\nThe allowed roots are `octocode-local-testing/repos` and its subfolders (c, cpp, csharp, go, java, javascript, langchain, nextjs, python, rust, typescript), plus `/Users/bgaryy/.octocode`.\n\n**Tools available to me:**\n- `mcp__octocode__artifactSearch`\n- `mcp__octocode__astSearch`\n- `mcp__octocode__clasify`\n- `mcp__octocode__ghGetFileContent`\n- `mcp__octocode__ghGetHistoryItem`\n- `mcp__octocode__ghSearchCode`\n- `mcp__octocode__ghSearchHistory`\n- `mcp__octocode__ghSearchRepo`\n- `mcp__octocode__ghStructure`\n- `mcp__octocode__localFetch`\n- `mcp__octocode__localSearch`\n- `mcp__octocode__lspSearch`\n- `mcp__octocode__structureSearch`\n\nI have no shell tool and no file-write tool.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 5759,
+    "cache_read_input_tokens": 78551,
+    "output_tokens": 781,
+    "context_tokens": 84314,
+    "total_tokens": 85095,
+    "first_request_context": 41024,
+    "fixed_overhead_tokens": 82048,
+    "research_tokens": 3047,
+    "max_request_context": 43290
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3493,
+      "cache_read_input_tokens": 37529,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2266,
+      "cache_read_input_tokens": 41022,
+      "output_tokens": 757
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 5759,
+    "cache_read_input_tokens": 78551,
+    "output_tokens": 1276
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1276,
+      "cacheReadInputTokens": 78551,
+      "cacheCreationInputTokens": 5759,
+      "webSearchRequests": 0,
+      "costUSD": 0.051514199999999996,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.051514199999999996,
+  "duration_ms": 8099,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "mcp__octocode__localFetch": 2,
+    "mcp__octocode__structureSearch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0,
+    "followUp uses": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md\",\"startLine\":1,\"endLine\":1,\"goal\":\"access check\",\"reasoning\":\"access check\"}]}"
+    },
+    {
+      "name": "mcp__octocode__structureSearch",
+      "input": "{\"queries\":[{\"operation\":\"tree\",\"path\":\"/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references\",\"maxDepth\":0,\"pageSize\":3,\"goal\":\"access check\",\"reasoning\":\"access check\"}]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/.octocode/.env\",\"startLine\":1,\"endLine\":1,\"goal\":\"access check only\",\"reasoning\":\"report only success/failure\"}]}"
+    },
+    {
+      "name": "mcp__octocode__structureSearch",
+      "input": "{\"queries\":[{\"operation\":\"tree\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python\",\"maxDepth\":0,\"pageSize\":3,\"goal\":\"access check\",\"reasoning\":\"access check\"}]}"
+    }
+  ],
+  "toolErrorCount": 3,
+  "toolErrors": [
+    {
+      "tool_use_id": "toolu_015P1TnYFFcZfFRE7pC4fHSn",
+      "text": "result: 0 (error)\nresolvedPath: /Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md\nerror: 'Path ''/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md'' is outside allowed directories (allowed: /Users/bgaryy/code/octocode/octocode-local-testing/repos, /Users/bgaryy/code/octocode/octocode-local-testing/repos/c, /Users/bgary"
+    },
+    {
+      "tool_use_id": "toolu_01Rkv2QwzrtAPoWwGqMdrB1a",
+      "text": "status: error\nerror: 'Path ''/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references'' is outside allowed directories (allowed: /Users/bgaryy/code/octocode/octocode-local-testing/repos, /Users/bgaryy/code/octocode/octocode-local-testing/repos/c, /Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp, /Users/bgaryy/code/octocode/octocode-local-testing/repos/csharp, "
+    },
+    {
+      "tool_use_id": "toolu_01QD8Br5C8Q7pgDH3tpnRMki",
+      "text": "result: 0 (error)\nresolvedPath: /Users/bgaryy/.octocode/.env\nerror: Path '~/.octocode/.env' is in an ignored directory or matches an ignored pattern\nerrorCode: fileAccessFailed\nhints:\n- Verify the path with structureSearch operation:\"files\", then retry the exact path."
+    }
+  ],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "probe": "isolation",
+  "leak": {
+    "referenceCanaryInToolResults": false,
+    "envLikeContentInToolResults": false
+  }
+}

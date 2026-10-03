@@ -1,46 +1,68 @@
-# Headings and lists
+# Page structure: headings, lists, procedures, notices, and tables
 
-Load when checking page skeleton: titles, headings, paragraph flow, lists.
+Load when checking a page skeleton, numbered steps, callouts, or tabular data.
 
 ## Headings and titles
 
-- Sentence case everywhere: capitalize the first word and proper nouns only. No end period. Contractions and articles follow the same rules as body text.
-- Title the document by its primary purpose; one unique H1 per page, used once; never skip levels (H2 → H4); every heading carries content.
-- Task sections take the bare infinitive: "Create an instance", not "Creating an instance". Concept sections take a noun phrase: "Migration to Cloud Run". Both styles can appear in one document.
-- Avoid an `-ing` form as the first word, but keep it when no better alternative exists ("Billing", "Pricing"), and it's fine later in a heading.
-- Don't number headings to signal sequence, don't link inside a heading, and don't use heading tags for visual styling.
-- Avoid code items in headings; if you must, pair them with a descriptive noun ("The `Delimiter` class").
-- You can define an abbreviation in a heading when the added length pays for itself; otherwise define it in the first paragraph. Only use the abbreviation if it's the better-known form.
-- Don't repeat the exact page title as a heading on the page. Optional sections start with "Optional:".
-- Frequently linked headings deserve stable anchors (`references/style-links.md`).
-
-## Paragraphs and flow
-
-- Lead with the point; one topic per paragraph; sentence and paragraph limits live in `references/style-voice.md`.
-- Introduce a group of subsections with "the following sections" — not "this section" or "these sections".
-- Transitions carry the logic; don't rely on the reader inferring order.
+- Sentence case: capitalize the first word and proper nouns only. No end period.
+- Title by primary purpose; one H1 per page; never skip levels (H2 → H4); every heading has content.
+- Task sections: bare infinitive ("Create an instance"). Concept sections: noun phrase ("Migration to Cloud Run"). Both can share a page.
+- Avoid an `-ing` first word unless no better option exists ("Billing"); fine later in a heading.
+- No numbered headings for sequence, no links in headings, no heading tags for styling.
+- Avoid code items in headings; if needed, add a noun ("The `Delimiter` class").
+- Don't repeat the page title as a heading. Optional sections start with "Optional:". Stable anchors: `references/style-claims.md`.
+- Introduce subsections with "the following sections", not "this section".
 
 ## Lists
 
-- Four types: numbered for any sequence-significant order, bulleted for unordered items, description lists for term/definition pairs, and description lists with bulleted run-in headings.
-- Introduce a list with a complete sentence — colon when the list follows immediately, period when other material (a note, a paragraph) intervenes. IF the preceding heading already gives all the context → THEN skip the introduction. Never let list items complete a fragment.
-- Bulleted lists must say whether every item is mandatory.
-- Capitalize the first word of each item unless case carries meaning (a code item, a flag, a glossary term).
-- End punctuation: period on items that are sentences or contain a verb; none on single words, verbless fragments, code-only items, or items that are entirely link text or a document title.
-- IF punctuation ends up mixed → THEN rewrite for parallel construction, or punctuate every item.
-- Parallel structure across items; don't attach an explanatory phrase to one item only — use a description list instead.
-- No single-item lists; set a lone item off with other formatting.
-- Nest with lowercase letters, then lowercase Roman numerals. Multiple paragraphs in one item use real paragraphs, not line breaks.
-- Three or more properties per item belongs in a table (`references/style-blocks.md`).
+- Numbered for order that matters, bulleted for unordered items, description lists for term/definition pairs (optionally with bold run-in headings).
+- Introduce with a full sentence: colon when the list follows, period when other material intervenes. Skip it when the heading gives all the context. Items never complete a fragment.
+- Say whether every bulleted item is mandatory. Capitalize each item unless case carries meaning (code, flag, glossary term).
+- Period on items that are sentences or contain a verb; none on single words, verbless fragments, code-only items, or link-only or title-only items. Mixed result: rewrite in parallel, or punctuate all.
+- Parallel items; no explanation on one item only (use a description list). No single-item lists.
+- Nest with lowercase letters, then lowercase Roman numerals. Real paragraphs, not line breaks, inside an item.
+- Description terms: capitalized, no period. Run-in headings: bold, capitalized, a period or colon used the same way throughout; capital after a period, lowercase after a colon.
+- Description ends with a period when it has a verb or is a full thought. Separate term and description with a colon, period, or description list, never a dash.
 
-## Description lists and run-in headings
+## Procedures
 
-- Start each term with a capital letter and don't end it with a period.
-- A run-in heading is bold, starts capitalized, and ends with a period or a colon — consistently within the list.
-- Text after a period starts capitalized; text after a colon starts lowercase.
-- End the description with a period when it contains a verb or stands as a thought; leave it off for short verbless phrases.
-- Separate a term from its description with a colon, a period, or a description list — never a dash (`references/style-punctuation.md`).
+- Numbered steps; substeps a, b, c; then i, ii, iii. A one-step procedure is one bulleted item.
+- Introduce with a full sentence ending in a colon ("do the following:"); drop it if it only repeats the heading.
+- Prerequisites, permissions, and software go before step 1. Link an existing procedure; don't repeat it.
+- Document one path that works for everyone: keyboard-accessible, shortest, most familiar. Never a keyboard shortcut as the documented way.
+- Each step starts with an imperative; location and goal come first ("In the console, click **Create**"; "To enable billing, click **Enable**"). If "To …" might read as optional, name the outcome first: "Start a new document: click **File** > **New** > **Document**".
+- One action per step; chain only trivial menu hops. Optional steps: "Optional: Enter a description.", not `(Optional)`. Say when to press Enter.
+- Give a reason when it prevents a mistake ("You need it in the next step"). Keep a result in its step; no separate "the dialog appears" step.
+- Bold only the UI elements the reader acts on. A step with substeps ends its text with a colon or period.
+- Complex step order: action → command → placeholder explanations → what it does → sample output → result. Say what a command accomplishes, not "run the following command".
+- Not in a procedure: directional language (hard-to-find element: screenshot or icon name, `references/style-format.md`), tables, notices that hold a required step.
 
-Upstream: [Headings and titles](https://developers.google.com/style/headings) · [Lists](https://developers.google.com/style/lists). Verify a disputed or missing rule against the live page → `references/style-sources.md`.
+## Notices
 
-Next: numbered steps → `references/style-procedures.md`; notices, tables → `references/style-blocks.md`; images → `references/style-images.md`.
+Four common types; any other needs a house convention:
+
+| Type | Use for |
+|---|---|
+| Note | aside or tip, not needed for success |
+| Caution | proceed carefully |
+| Warning | the outcome might be irreversible: data, money, or work loss, security breach |
+| Success | completed action or clean state; interactive content only |
+
+- Start with the bold label: `**Note:** …`. HTML fallback: `<aside class="note"><b>Note:</b> …</aside>`.
+- No required information, prerequisites, steps, or cross-references in a notice. Unsure: write it as regular text first.
+- Use notices sparingly; never stack two; restructure instead.
+
+## Tables
+
+- Use a table for three or more related values per row; pairs are a description list; one dimension is a list.
+- No table for layout, one column, code blocks, a split one-dimensional list, mid-sentence, or one data row (reference entries excepted).
+- Split a long or complex table.
+- Introduce like a list, naming its position ("the following table").
+- Refer back by number ("table 2"), never by direction. Avoid links to tables. Lowercase "table" mid-sentence.
+- Caption when there are several: `**Table 1.** Supported regions`, sentence case, no period.
+- Header row and header column only; sentence case; concise; no end punctuation; no merged cells (`colspan`, `rowspan`).
+- Sort rows logically or alphabetically; parallel cells; paragraph elements, not line breaks; footnotes right after the table.
+- Accessibility: `th` with `scope`; alt text for images or symbols in cells; responsive width.
+- Avoid footnotes; use a cross-reference, note, or parenthetical. Unavoidable: superscript number, text at page bottom.
+
+Source: [Headings and titles](https://developers.google.com/style/headings).

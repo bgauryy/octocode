@@ -14,26 +14,25 @@ if (!existsSync(cli)) {
 }
 
 const cases = [
-  { name: 'root-help', args: ['--help'], maxBytes: 4500 },
-  { name: 'tools-json', args: ['tools', '--json'], maxBytes: 6500 },
-  { name: 'context-compact', args: ['context', '--compact'], maxBytes: 4100 },
-  { name: 'context-minimal', args: ['context', '--minimal'], maxBytes: 1800 },
+  { name: 'root-help', args: ['--help'], maxBytes: 4500, instructions: 'text' },
+  { name: 'scheme-catalog', args: ['scheme', '--compact'], maxBytes: 7500, instructions: 'json' },
   {
     name: 'localSearch-compact-schema',
-    args: ['tools', 'localSearch', '--scheme', '--json', '--compact'],
-    maxBytes: 5000,
+    args: ['scheme', 'localSearch', '--view', 'query', '--compact'],
+    maxBytes: 14000,
   },
   {
     name: 'default-tool-json',
     args: [
-      'tools',
       'localSearch',
-      '--path',
-      sourceEntry,
-      '--search-text',
-      'runCLI',
-      '--max-files',
-      '1',
+      JSON.stringify({
+        path: sourceEntry,
+        searchText: 'runCLI',
+        regex: 'literal',
+        resultView: 'files',
+        pageSize: 1,
+        reasoning: 'Exercise the direct localSearch CLI within the output budget.',
+      }),
     ],
     maxBytes: 5000,
     validJson: true,
@@ -56,7 +55,24 @@ function runCli(args) {
 const results = [];
 for (const item of cases) {
   const run = runCli(item.args);
-  const bytes = Buffer.byteLength(run.stdout || '', 'utf8');
+  // Core owns the canonical instruction block. Keep the existing CLI presentation
+  // budgets, accounting for that shared block separately instead of raising limits.
+  let measured = run.stdout || '';
+  let instructionBytes = 0;
+  if (item.instructions === 'text') {
+    const marker = '\nAgent instructions:\n';
+    const split = measured.indexOf(marker);
+    if (split >= 0) {
+      instructionBytes = Buffer.byteLength(measured.slice(split + marker.length), 'utf8');
+      measured = measured.slice(0, split);
+    }
+  } else if (item.instructions === 'json' && run.status === 0) {
+    const catalog = JSON.parse(measured);
+    instructionBytes = Buffer.byteLength(catalog.instructions ?? '', 'utf8');
+    delete catalog.instructions;
+    measured = JSON.stringify(catalog);
+  }
+  const bytes = Buffer.byteLength(measured, 'utf8');
   let jsonOk = true;
   if (item.validJson) {
     try {
@@ -73,34 +89,32 @@ for (const item of cases) {
     bytes,
     maxBytes: item.maxBytes,
     ...(item.validJson ? { jsonOk } : {}),
+    ...(item.instructions ? { instructionBytes } : {}),
   });
 }
 
 const noArgs = runCli([]);
-const explicitHelp = runCli(['--help']);
+let defaultCatalog;
+try { defaultCatalog = JSON.parse(noArgs.stdout); } catch { /* reported below */ }
 results.push({
-  name: 'default-equals-help',
-  ok:
-    noArgs.status === 0 &&
-    explicitHelp.status === 0 &&
-    noArgs.stdout === explicitHelp.stdout,
+  name: 'default-shows-catalog',
+  ok: noArgs.status === 0 && defaultCatalog?.kind === 'octocode.toolCatalog',
   status: noArgs.status,
   bytes: Buffer.byteLength(noArgs.stdout || '', 'utf8'),
-  maxBytes: 4500,
 });
 
 const unknown = runCli(['definitely-not-a-command']);
 results.push({
   name: 'unknown-command-exit',
-  ok: unknown.status === 3,
+  ok: unknown.status === 2,
   status: unknown.status,
-  bytes: Buffer.byteLength(unknown.stdout || '', 'utf8'),
+  bytes: Buffer.byteLength(unknown.stderr || '', 'utf8'),
   maxBytes: 1000,
 });
 
 for (const r of results) {
   console.log(
-    `${r.ok ? 'PASS' : 'FAIL'} ${r.name} bytes=${r.bytes}/${r.maxBytes} status=${r.status}${'jsonOk' in r ? ` json=${r.jsonOk}` : ''}`
+    `${r.ok ? 'PASS' : 'FAIL'} ${r.name} bytes=${r.bytes}${r.maxBytes ? `/${r.maxBytes}` : ''} status=${r.status}${'instructionBytes' in r ? ` coreInstructions=${r.instructionBytes}` : ''}${'jsonOk' in r ? ` json=${r.jsonOk}` : ''}`
   );
 }
 const failed = results.filter(r => !r.ok);

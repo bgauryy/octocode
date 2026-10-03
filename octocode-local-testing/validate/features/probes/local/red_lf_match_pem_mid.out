@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/creds.ts", "startLine": 7, "endLine": 8}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"path":"creds.ts","content":"[REDACTED-PRIVATEKEYFRAGMENT]\n[REDACTED-PRIVATEKEYFRAGMENT]\n","warnings":["Redacted private-key block(s) found in the source before selecting the window.","redactedContent: 2 secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."],"totalLines":11,"sourceLineRanges":[{"start":7,"end":8}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec"}

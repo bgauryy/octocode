@@ -1,0 +1,5 @@
+# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "references", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/b.ts", "symbolName": "helper", "lineHint": 1}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"resolvedSymbol":{"name":"helper","foundAtLine":1,"foundAtCharacter":17},"payload":{"kind":"references","locations":[{"displayRange":{"startLine":1,"startCharacter":10,"endLine":1},"content":"import { helper } from './b';","source":"recoveredImporter","path":"a.ts"},{"displayRange":{"startLine":4,"startCharacter":13,"endLine":4},"content":"  const y = helper(x);","source":"recoveredImporter","path":"a.ts"},{"displayRange":{"startLine":1,"startCharacter":17,"endLine":1},"content":"export function helper(n: number): number {","path":"b.ts"}],"totalReferences":3,"totalFiles":2,"coverage":{"scope":"languageServer","exhaustive":false,"importerScan":"complete","verifiedImporterFiles":1}},"path":"b.ts"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

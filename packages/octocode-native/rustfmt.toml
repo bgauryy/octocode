@@ -1,0 +1,17 @@
+# rustfmt configuration for octocode-native.
+# Run: yarn fmt:rust
+# Check: yarn fmt:rust:check
+#
+# Stable-only options. rustfmt silently ignores unstable options on the stable
+# channel (and warns on every run), so keys like wrap_comments, comment_width,
+# imports_granularity, group_imports, format_macro_*, trailing_*, and
+# match_arm_blocks are intentionally omitted — they had no effect on the stable
+# toolchain this repo formats with. Re-add them behind a nightly fmt job if one
+# is ever introduced.
+
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+use_field_init_shorthand = true   # Foo { x } instead of Foo { x: x }
+use_try_shorthand = true          # ? instead of try!()
+fn_params_layout = "Tall"         # each param on its own line when they don't fit

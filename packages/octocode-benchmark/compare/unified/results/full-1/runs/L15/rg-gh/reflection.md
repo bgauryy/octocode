@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call did most of the work. It combined `git rev-parse HEAD`, which confirmed the pinned commit, with one `rg` for flooding-related identifiers (`MAX_RUN_MULTIPLIER`, `maxRunBeforeFallback`, `hashFloodingDetected`, `MAX_HASH_BUCKET_LENGTH`) across four files. That located the mechanism and gave line numbers immediately. The follow-up `sed` calls on lines 655-760 and 795-830 supplied the code and javadoc I cited.
+
+2. **Did not help:** The second `sed`/`rg` call partly repeated the first. My last `sed` (886-935) was needed only for `JdkBackedSetBuilderImpl`, and I could have combined it with the earlier reads. I never read the body of `hashFloodingDetected` (835-870), so the answer says only what its javadoc claims and I flagged that as unverified. I also never opened `RegularImmutableMap`'s `MAX_HASH_BUCKET_LENGTH` use or `JdkBackedImmutableSet`. The `cd` in each command changed the working directory, which was just noise.
+
+3. **Next time:** I'd run one `rg` with context (`-C`) and one `sed` covering 830-885. That would let me verify the detection loop rather than rely on its javadoc.
+
+4. **Confidence:** High for the core claim. The fallback threshold, the `review()` check and the JDK `HashSet` fallback are all in code I read directly. Medium for the details of the full-table scan, since I only saw its comments and a few lines of the method.

@@ -1,0 +1,5 @@
+# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "matchString": "zzznotfound"}
+# env: None
+# exit: 1
+# stderr: 
+{"results":[{"index":0,"data":{"path":"a.ts","content":"","errorCode":"noMatches","hints":["No line contains this text; try a shorter token, matchStringIsRegex:true, or localSearch."],"totalLines":13,"returnedLines":0},"status":"empty"}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

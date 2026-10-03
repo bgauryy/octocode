@@ -1,7 +1,6 @@
 # KPI.md template — success and verification
 
-Load when defining acceptance and post-ship success. Why: bind RFC goals to testable behavior, measurable outcomes, guardrails, and a decision rule.
-Reference `RFC.md` goals or standalone `PLAN.md` context; never restate them.
+Load when defining acceptance and post-ship success. Bind RFC goals to testable behavior, measurable outcomes, guardrails, and a decision rule.
 
 ````markdown
 # Success and Verification: {Title}

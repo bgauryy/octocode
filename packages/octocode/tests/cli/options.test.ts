@@ -1,40 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { nonNegIntOption, posIntOption } from '../../src/cli/options.js';
+import { getBool, getString } from '../../src/cli/options.js';
 
-describe('nonNegIntOption', () => {
-  it('returns undefined for empty/absent', () => {
-    expect(nonNegIntOption('')).toBeUndefined();
+describe('getBool', () => {
+  it('is true when any listed key is truthy', () => {
+    expect(getBool({ json: true }, 'json')).toBe(true);
+    expect(getBool({ other: true }, 'json', 'other')).toBe(true);
   });
 
-  it('accepts zero and positive integers', () => {
-    expect(nonNegIntOption('0')).toBe(0);
-    expect(nonNegIntOption('42')).toBe(42);
-  });
-
-  it('rejects negatives and non-integers', () => {
-    expect(nonNegIntOption('-1')).toBeUndefined();
-    expect(nonNegIntOption('abc')).toBeUndefined();
+  it('is false for absent, false, and empty-string values', () => {
+    expect(getBool({}, 'json')).toBe(false);
+    expect(getBool({ json: false }, 'json')).toBe(false);
+    expect(getBool({ json: '' }, 'json')).toBe(false);
   });
 });
 
-describe('posIntOption', () => {
-  it('rejects zero', () => {
-    expect(posIntOption('0')).toBeUndefined();
+describe('getString', () => {
+  it('returns the first string value among the listed keys', () => {
+    expect(getString({ platform: 'pi' }, 'platform')).toBe('pi');
+    expect(getString({ a: true, b: 'x' }, 'a', 'b')).toBe('x');
   });
 
-  it('accepts positive integers', () => {
-    expect(posIntOption('7')).toBe(7);
-  });
-
-  it('rejects negatives and empty', () => {
-    expect(posIntOption('-3')).toBeUndefined();
-    expect(posIntOption('')).toBeUndefined();
-  });
-
-  it('is lenient about trailing junk (matches legacy parseInt behavior)', () => {
-    // The copy-pasted helpers it replaces all used Number.parseInt, which
-    // stops at the first non-digit — preserve that to avoid behavior drift.
-    expect(posIntOption('5x')).toBe(5);
-    expect(nonNegIntOption('5x')).toBe(5);
+  it('returns empty string when no listed key holds a string', () => {
+    expect(getString({}, 'platform')).toBe('');
+    expect(getString({ platform: true }, 'platform')).toBe('');
   });
 });

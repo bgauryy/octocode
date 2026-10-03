@@ -1,35 +1,24 @@
-# Agent Loop
-Load when running the **inner experiment** loop. Why: hill-climb with a frozen harness.
+# Agent loop and loop levels
+Load when you improve a subject with a validated frozen harness, or choose which loop to run.
 
-For suite vs meta loops, load `nested-loops.md` first.
+1. Before you change the subject, record the development baseline, harness hashes, comparable budget, and a failing case or below-target outcome.
+2. State the failure mechanism and predicted effect. Make the smallest change that tests it; one coherent factor aids attribution.
+3. Compare baseline and candidate under the frozen plan. Keep raw outcomes, cost, error categories, and every hypothesis tried.
+4. KEEP a candidate only when the selection rule and guardrails hold; else DISCARD its targeted changes. Never revert unrelated workspace edits.
+5. Stop at the declared budget, target, or no-new-hypothesis condition. Check development failures for sensor defects or missing coverage before you escalate a loop level.
 
-## Contract
-```text
-BASELINE → MUTATE (one subject) → MEASURE (fixed budget) → KEEP | DISCARD → REPEAT
-```
+- TDD: a failing development check before the fix, the same check after.
+- Parallel hypotheses (when authorized) use separate subject copies and trials (`references/clean-lab.md`). More candidates raise selection bias. Never report the luckiest attempt as pass@1.
+- First verify that the sensor measures the intended outcome at useful cost; if noise hides the expected effect, improve measurement first. A cheap leading proxy can guide development; final verification measures the user-visible outcome.
 
-**TDD mapping (same loop, agent-shaped):**
-1. **Red** — pick/add a failing case or record baseline below target (held-out untouched).
-2. **Green** — smallest subject change; re-run the **same** command until primary improves.
-3. **Refactor / discard** — keep only if guardrails hold; else revert; grow suite **between** experiments only.
+## Loop levels
+| Loop | Cycle | Owner | KPI | Actuators |
+|---|---|---|---|---|
+| Experiment (inner) | baseline → mutate → measure → keep or discard | Developer or optimizer; solvers get task inputs only | Primary metric | One file, prompt, or skill paragraph |
+| Suite (middle) | error-analyze traces → add or fix tasks → rebalance capability and regression | Human + agent | Coverage of top failure modes; regression stay-green rate | Cases, criteria, failure categories |
+| Meta (outer) | improve program, skill, graders, budgets | Authorized maintainer | Fewer repeated failure signatures | Skill lobby and refs, harness |
 
-1. Freeze the eval harness (cases, graders, prepare scripts) for this experiment.
-2. Record baseline under the same budget and command.
-3. Make the **smallest** change to the subject (not the harness).
-4. Re-measure with the same command and budget.
-5. **Keep** only if primary improves and guardrails hold; else **discard**.
-6. Log: id · metric · status · one-line hypothesis.
-7. Do not pause mid-loop for permission unless you interrupted.
-
-## Stop gates
-- Primary flat across N trials with no new hypothesis → escalate to suite/meta
-- Guardrail breach · env flakiness · user interrupt
-
-## Isolation
-Each trial starts clean. Shared state or peeking at prior-trial artifacts corrupts independence.
-N independent hypotheses in one round → fan out through `octocode-subagent` (one sealed packet each); measurement and keep/discard return here under the frozen harness.
-
-## Creativity vs path grading
-Grade **outcomes** over exact tool-call sequences.
-
-Next: graders → `eval-techniques.md`; overfitting → `held-out-and-guards.md`.
+- Grow the suite only between experiments, from real failures.
+- A meta change needs a new baseline and sealed VERIFY. Outer loops inspect development traces only.
+- Inner loop flat: missing cases → suite; bad program → meta.
+- Bilevel meta: if the inner loop is flat, no new hypothesis category appears, and error analysis finds no new failure mode, read the inner-loop trace, find recurrent search patterns, and generate a new search strategy (code or program change), not only `program.md` wording.

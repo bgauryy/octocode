@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "octocode-mcp",
   "display_name": "Octocode MCP Extension",
-  "version": "19.1.0",
+  "version": "19.2.0",
   "description": "Code research MCP server for GitHub, npm, local files, and LSP semantics",
   "long_description": "MCP server with code research tools across GitHub, npm, local files, and LSP semantics. Agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
   "author": {
@@ -35,44 +35,60 @@
   },
   "tools": [
     {
-      "name": "ghSearch",
-      "description": "Search GitHub code or repositories, or browse a repository tree"
+      "name": "clasify",
+      "description": "Classify supplied state or locate answers in unread resources without returning bodies (conditional: requires OCTOCODE_CLASSIFICATION_API)"
+    },
+    {
+      "name": "ghSearchRepo",
+      "description": "Discover GitHub repositories by keywords, owner, or filters"
+    },
+    {
+      "name": "ghSearchCode",
+      "description": "Find indexed code or file paths in a GitHub owner or repo"
+    },
+    {
+      "name": "ghStructure",
+      "description": "Browse a known GitHub repository's directory tree"
     },
     {
       "name": "ghGetFileContent",
-      "description": "Fetch file content from GitHub repositories"
+      "description": "Read a known GitHub file or exact source region"
     },
     {
       "name": "ghSearchHistory",
-      "description": "Search GitHub pull requests, issues, or commits"
+      "description": "Find GitHub pull requests, issues, or commits"
     },
     {
       "name": "ghGetHistoryItem",
-      "description": "Read one GitHub pull request, issue, commit, or ref comparison"
+      "description": "Read a known pull request, issue, commit, or comparison"
     },
     {
       "name": "artifactSearch",
-      "description": "Find packages by capability or resolve dependency metadata and upstream source across eight ecosystems"
-    },
-    {
-      "name": "ghCloneRepo",
-      "description": "Clone a GitHub repository or subtree for local analysis"
+      "description": "Find packages, dependency metadata, or upstream source"
     },
     {
       "name": "localSearch",
-      "description": "Search local text with literal or regex matching"
+      "description": "Find literal or regex matches in local files"
+    },
+    {
+      "name": "structureSearch",
+      "description": "Outline local directories or find files by name or metadata"
     },
     {
       "name": "astSearch",
-      "description": "Inspect local syntax, symbols, structural matches, files, trees, and graph topology"
+      "description": "Find declarations, syntax trees, or structural code matches"
+    },
+    {
+      "name": "astTopology",
+      "description": "Analyze local dependency and reachability topology (beta: requires OCTOCODE_BETA)"
     },
     {
       "name": "localFetch",
-      "description": "Read local file content with minification and exact slices"
+      "description": "Read a known local file or exact source region"
     },
     {
       "name": "lspSearch",
-      "description": "Run LSP semantic navigation over local files"
+      "description": "Resolve symbols, references, calls, types, or diagnostics"
     }
   ],
   "keywords": [

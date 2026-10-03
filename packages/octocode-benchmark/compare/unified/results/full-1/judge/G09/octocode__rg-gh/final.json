@@ -1,0 +1,48 @@
+{
+  "qid": "G09",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 1,
+    "rg-gh": 1
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8.5,
+      "correctness": 5,
+      "completeness": 2.5,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        9
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 7.5,
+      "correctness": 4,
+      "completeness": 2.5,
+      "evidence": 1,
+      "perJudgment": [
+        7,
+        8
+      ],
+      "wrongClaims": [
+        "Merge commit SHA garbled as 5da36b5de4f44a572ca5c12104fd2f8669fd feca (actual ...8669dfeaca)",
+        "Merge commit SHA quoted as '5da36b5de4f44a572ca5c12104fd2f8669fd feca'; the actual SHA is 5da36b5de4f44a572ca5c12104fd2f8669dfeaca"
+      ]
+    }
+  },
+  "preferred": [
+    "octocode",
+    "octocode"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.19573839999999998
+}

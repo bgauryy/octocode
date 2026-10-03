@@ -1,0 +1,5 @@
+# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "match", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "langType": "typescript", "rule": "rule:\n  kind: not_a_real_kind"}
+# env: None
+# exit: 5
+# stderr: 
+{"results":[{"index":0,"data":{"error":"[structural.query.compileFailed] unknown node kind 'not_a_real_kind' for this language grammar","errorCode":"structural.query.compileFailed","hints":["Fix the YAML rule at the position the error names: `rule:` takes keys such as kind, pattern, regex, has, inside,…"]},"status":"error"}]}

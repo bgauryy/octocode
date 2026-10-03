@@ -1,0 +1,5 @@
+# cmd: octocode astRewrite {"queries": [{"path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/rw", "langType": "typescript", "apply": true, "ruleKind": "pattern", "pattern": "console.log($A)", "rewrite": "logger.info($A)", "snapshot": "bf76b45ecb70f6c4d92abcc721d9032156b18c6bdab77fc61e9c608a734f8e73", "expectedHashes": {"r.ts": "305837091fee89dab73980f8f4580cb8021607f0af4d3918fd0812fbcbe135a2"}, "followUp": true}]}
+# env: {'OCTOCODE_BETA': ''}
+# exit: 5
+# stderr: 
+{"error":"astRewrite is a beta feature, disabled by default. Set OCTOCODE_BETA=true or local.beta:true before retrying.","errorCode":"missingConfiguration"}

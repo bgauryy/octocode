@@ -1,0 +1,7 @@
+**1. Helped:** The `localSearch` for `class json_sax_dom_callback_parser` gave the file and line (`json_sax.hpp:509`) in one call, and its `next.read` hint pointed to the right fetch. The two `localFetch` line-range reads (`json_sax.hpp:509-860` and `895-1211`) covered all the callback logic. A parallel `localSearch` for `discarded` in `parser.hpp` led me to the root-`null` handling at `parser.hpp:121-133`.
+
+**2. Did not help:** The class read ended mid-`#if JSON_DIAGNOSTIC_POSITIONS` block, so I needed a second fetch, and 860-895 was skipped, which was only diagnostics code. The 895-1211 fetch also returned the unrelated `json_sax_acceptor`, which wasted tokens. I never read `sax_parse_internal` or the `basic_json::parse` wrapper, and I did not use `lspSearch` or `astSearch` to confirm the call chain.
+
+**3. Next time:** I would end the read at the `handle_value` closing line (1098) rather than reading into `json_sax_acceptor`. I would also read `sax_parse_internal` and the `parse` wrapper to close the gap, rather than just noting it as uncertain.
+
+**4. Confidence:** High for the callback and discard mechanics, because every claim comes from lines I read at the pinned checkout. Medium for completeness across the whole parse path, because I did not read the two entry points above.

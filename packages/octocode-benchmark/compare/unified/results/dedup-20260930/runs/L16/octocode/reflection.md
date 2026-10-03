@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` for `segmentShift|segmentCount|maxSegmentWeight|segmentMask` in `LocalCache.java` pointed straight at lines 285-297. The following `localFetch` of lines 270-325 returned the whole constructor logic, including the code comment explaining the per-segment eviction rationale. I sent it in parallel with a `localSearch` for `DEFAULT_CONCURRENCY_LEVEL` in `CacheBuilder.java`, which gave the default of 4. That was two rounds in total, with no wasted calls.
+
+2. **Did not help:** Nothing errored. The search output was paginated (27 matches, 3 pages) and I only read page 1. I never followed up on `evictsBySize()`, `maxWeight`, `createSegment`, or how a hash picks its segment, and I said so in the answer. I also didn't read `CacheBuilder.maximumSize` or `concurrencyLevel` themselves, so the claim that the builder only stores the settings rests on the default-value lines, not on those methods. I also didn't check that the local checkout matched the pinned commit.
+
+3. **Next time:** I'd add one `localFetch` of `CacheBuilder.maximumSize` and `concurrencyLevel` for their validation and Javadoc. I'd also do one `localSearch` for `segmentFor` to show the hash-to-segment step, and one for `evictsBySize`.
+
+4. **Confidence:** High for the segment-count and per-segment weight mechanics, because I read the source lines directly. Medium for the claim that the builder "only stores" the settings, since that part is inferred.

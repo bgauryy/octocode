@@ -1,18 +1,14 @@
 # Architecture Lenses
 
-Load when modeling a consequential design, boundary, interface, flow, or unfamiliar path. Why: one view hides dependencies and ownership that another exposes.
+Load when modeling a consequential design, boundary, interface, flow, or unfamiliar path. One view hides dependencies and ownership that another exposes.
 
 ## Start with wiring
 
-Trace the behavior as:
+Along the lobby MODEL trace, also name each hop's interface. Static types document and constrain checked code; runtime schemas and validation are the executable boundary contracts. Make invalid states difficult or impossible to represent, then verify the runtime path. Keep core decisions separate from UI, storage, and transport edges.
 
-`source → parse/validate → transform/decide → boundary → sink/effect → observation`
+Record `module/layer → responsibility → owned data/invariants → public interface → allowed dependencies`. Mark rules `declared`, `observed`, or `inferred`.
 
-At each hop, name the data shape, owner, invariant, failure mode, and interface. Static types document and constrain checked code; runtime schemas and validation are the executable boundary contracts. Make invalid states difficult or impossible to represent, then verify the runtime path. Keep core decisions separate from UI, storage, and transport edges.
-
-Record `module/layer → responsibility → owned data/invariants → public interface → allowed dependencies`. Mark rules `declared`, `observed`, or `inferred`; only a declared rule can directly prove a violation.
-
-## Cross-check four views
+## Cross-check the views
 
 | View | Question |
 |---|---|
@@ -34,7 +30,7 @@ Give each part explicit inputs, outputs, and a verification point. Compose only 
 
 ## Affected scope and impact
 
-Map both direct and second-order effects:
+Before a change, map both direct and second-order effects:
 
 - public and internal interfaces, callers, consumers, and dependency edges;
 - persisted or serialized data, schemas, defaults, migrations, and compatibility;
@@ -42,6 +38,6 @@ Map both direct and second-order effects:
 - trust boundaries, sensitive data, authorization, and output from untrusted sources or models;
 - tests, telemetry, rollout, rollback, generated outputs, and repository records.
 
-Evaluate only material dimensions; mark a surprising omission N/A with a reason. After editing, inspect the diff, and retrace the affected wiring for stale copies, asymmetric branches, changed defaults, and widened impact.
+Evaluate only material dimensions; mark a surprising omission N/A with a reason. The VERIFY retrace looks for stale copies, asymmetric branches, changed defaults, and widened impact.
 
-Next: plan with `output-contracts.md` when the decision needs a written contract; otherwise return to the workflow in `SKILL.md`.
+Next: plan with `references/output-contracts.md` when the decision needs a written contract; otherwise return to the workflow in `SKILL.md`.

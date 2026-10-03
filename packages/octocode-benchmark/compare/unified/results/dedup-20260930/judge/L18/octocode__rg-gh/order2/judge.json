@@ -1,0 +1,100 @@
+{
+  "qid": "L18",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "bd178023144f7e5d5ae994524b936e92b96691cd209b0cc48c5770f607e79287",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "end_object discard cited at lines 689-695 (actually line 661; 688-694 are asserts/pops)"
+      ],
+      "notes": "Mechanism described correctly. Fact 1 partial: no mention of the non-callback json_sax_dom_parser or sax_parse_internal, and no parser.hpp line. Fact 6 partial: omits parse error -> discarded. Admits it did not read end_array or resolve_duplicate_key_stash."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, well-cited line numbers (654/752 callbacks, 661/777 discard, 699/807 removal, 800 array pop, parser.hpp 100 and 121-133). Covers both top-level outcomes: rejected root -> null, parse error -> discarded. Does not explicitly name json_sax_dom_parser as the no-callback alternative, a minor gap."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "end_object discard cited at lines 689-695 (actually line 661; 688-694 are asserts/pops)"
+      ],
+      "notes": "Mechanism described correctly. Fact 1 partial: no mention of the non-callback json_sax_dom_parser or sax_parse_internal, and no parser.hpp line. Fact 6 partial: omits parse error -> discarded. Admits it did not read end_array or resolve_duplicate_key_stash."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, well-cited line numbers (654/752 callbacks, 661/777 discard, 699/807 removal, 800 array pop, parser.hpp 100 and 121-133). Covers both top-level outcomes: rejected root -> null, parse error -> discarded. Does not explicitly name json_sax_dom_parser as the no-callback alternative, a minor gap."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1146934,
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10215,
+    "cache_read_input_tokens": 12887,
+    "output_tokens": 12,
+    "context_tokens": 23106,
+    "total_tokens": 23118,
+    "first_request_context": 10262,
+    "fixed_overhead_tokens": 20524,
+    "research_tokens": 2594,
+    "max_request_context": 12844
+  },
+  "timedOut": false
+}

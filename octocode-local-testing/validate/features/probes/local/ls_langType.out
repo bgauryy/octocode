@@ -1,0 +1,5 @@
+# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "searchText": "needle", "langType": "ts", "resultView": "files"}
+# env: None
+# exit: 0
+# stderr: 
+{"results":[{"index":0,"data":{"files":[{"path":"src/a.ts"},{"path":"src/index.ts"}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"}

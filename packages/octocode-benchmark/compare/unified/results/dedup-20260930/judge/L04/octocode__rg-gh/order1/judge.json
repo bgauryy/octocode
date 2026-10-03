@@ -1,0 +1,108 @@
+{
+  "qid": "L04",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "e54cf977bee708f0924b021d5810f8a219a630fb0fad369d972dabf16b015eba",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Lists self/cls stripping among filtered args on this path; from_function always passes non-empty filter_args so that branch is skipped"
+      ],
+      "notes": "Accurate chain with precise, verified line cites. Omits RunnableConfig filtering (admits not reading _filter_schema_args). Honest about what it did not read."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Lists self/cls stripping among filtered args on this path (not applicable, since filter_args is non-empty)",
+        "Parser location given as function_calling.py:759-820 (starts at 735)"
+      ],
+      "notes": "More detail (v1 subset path, base-class doc check, _SchemaConfig), but citations are mostly approximate ranges, some off (pydantic.py 274-310 vs 240-276). Omits RunnableConfig filtering."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Lists self/cls stripping among filtered args on this path; from_function always passes non-empty filter_args so that branch is skipped"
+      ],
+      "notes": "Accurate chain with precise, verified line cites. Omits RunnableConfig filtering (admits not reading _filter_schema_args). Honest about what it did not read."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Lists self/cls stripping among filtered args on this path (not applicable, since filter_args is non-empty)",
+        "Parser location given as function_calling.py:759-820 (starts at 735)"
+      ],
+      "notes": "More detail (v1 subset path, base-class doc check, _SchemaConfig), but citations are mostly approximate ranges, some off (pydantic.py 274-310 vs 240-276). Omits RunnableConfig filtering."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.130384,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11199,
+    "cache_read_input_tokens": 27440,
+    "output_tokens": 20,
+    "context_tokens": 38645,
+    "total_tokens": 38665,
+    "first_request_context": 11897,
+    "fixed_overhead_tokens": 35691,
+    "research_tokens": 2974,
+    "max_request_context": 13828
+  },
+  "timedOut": false
+}

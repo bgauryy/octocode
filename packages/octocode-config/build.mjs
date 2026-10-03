@@ -3,7 +3,8 @@
  * Build script for @octocodeai/config.
  * Uses esbuild (fast) for JS output + tsc --emitDeclarationOnly for .d.ts files.
  *
- * The package has zero external dependencies; only Node built-ins are used.
+ * The published package has zero runtime dependencies; build-only validation
+ * is completed before esbuild emits the self-contained runtime.
  * esbuild produces a self-contained ESM file for each entry point, which is
  * then injected by package builds into each skill's scripts/ dir
  * as octocode-config.mjs for standalone use without npm.
@@ -46,6 +47,17 @@ await esbuild.build({
   ...shared,
   entryPoints: ['src/cli.ts'],
   outfile: 'dist/cli.js',
+});
+
+// Contract hub entries: thin re-exports of @octocodeai/octocode-core so every
+// surface imports contracts from "@octocodeai/config/{schema,mcp}". Core (and
+// its Zod dependency) are marked external — never bundled here — so the source
+// of truth stays in octocode-core and the zero-dep dist/index.js is untouched.
+await esbuild.build({
+  ...shared,
+  external: [...shared.external, '@octocodeai/octocode-core', '@octocodeai/octocode-core/*', 'zod'],
+  entryPoints: ['src/contracts/schema.ts', 'src/contracts/mcp.ts'],
+  outdir: 'dist/contracts',
 });
 
 // Generate TypeScript declarations (uses workspace tsc, not global PATH).

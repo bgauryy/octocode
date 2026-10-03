@@ -1,0 +1,130 @@
+[package]
+name = "octocode-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+publish = false
+description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
+license.workspace = true
+repository.workspace = true
+keywords = ["napi", "llm", "context", "lsp", "nodejs"]
+categories = ["development-tools", "text-processing"]
+
+[lints.rust]
+dead_code = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
+unused_mut = "deny"
+let_underscore_drop = "allow"   # allow intentional best-effort let _ = result; patterns
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+# Correctness / safety
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+needless_pass_by_value = "allow"   # noisy in complex match arms
+# Style / idiomatic
+use_self = "warn"
+cloned_instead_of_copied = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aho-corasick = "1"
+ast-grep-core = { version = "0.45.3", optional = true }
+ast-grep-config = { version = "0.45.3", optional = true }
+grep-matcher = "0.1.9"
+grep-pcre2 = { version = "0.1.10", optional = true }
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
+globset = "0.4"
+hex = { workspace = true }
+ignore = "0.4"
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
+oxc_allocator = "=0.150.0"
+oxc_ast = "=0.150.0"
+oxc_ast_visit = "=0.150.0"
+oxc_parser = "=0.150.0"
+oxc_semantic = "=0.150.0"
+oxc_span = "=0.150.0"
+rayon = "1"
+regex = { workspace = true }
+regex-syntax = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+sha2 = { workspace = true }
+moka = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tree-sitter = "0.27"
+tree-sitter-asm = { version = "0.24", optional = true }
+tree-sitter-c = "0.24"
+tree-sitter-c-sharp = { version = "0.23", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-cuda = { version = "0.21.2", optional = true }
+tree-sitter-go = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-rust = "0.24.2"
+tree-sitter-scala = { version = "0.26", optional = true }
+tree-sitter-typescript = "0.23"
+url = { workspace = true }
+which = "8"
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects"] }
+
+[dev-dependencies]
+criterion = { version = "0.8" }
+proptest = "1"
+tokio = { workspace = true, features = ["test-util"] }
+
+[[bench]]
+name = "structural"
+harness = false
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "minify"
+harness = false
+
+[features]
+default = ["portable-default", "napi-addon"]
+portable-default = ["tree-sitter-asm", "tree-sitter-large-grammars", "tree-sitter-scala", "pcre2"]
+pcre2 = ["dep:grep-pcre2"]
+napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build", "embedded-ast-grep-rewrite"]
+napi-test = ["napi-addon", "napi/noop"]
+embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config"]
+tree-sitter-asm = ["dep:tree-sitter-asm"]
+tree-sitter-cpp = ["dep:tree-sitter-cpp"]
+tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
+tree-sitter-cuda = ["dep:tree-sitter-cuda"]
+# CUDA is intentionally excluded from the default bundle: its tree-sitter parse
+# tables are ~7 MB of `__const` — the single largest grammar — for a niche
+# GPU-kernel language. `.cu`/`.cuh` still route to `clangd` for LSP navigation
+# (see crates/engine/src/lsp/config.rs), so semantic nav survives; only native
+# signatures/structural parsing is gated off. Re-enable by adding
+# "tree-sitter-cuda" here (the optional dep + feature below are retained).
+tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
+tree-sitter-scala = ["dep:tree-sitter-scala"]
+
+[build-dependencies]
+napi-build = { workspace = true, optional = true }

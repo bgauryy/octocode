@@ -1,0 +1,7 @@
+**1. Helped:** My first call, `localSearch` with an alternation regex (`APPEND_SLASH|should_redirect_with_slash|def get_full_path`) and an `include` filter on three files, did most of the work. It returned `common.py`, `request.py` and `global_settings.py` with line numbers in one round trip. The follow-up `localFetch` of `common.py` lines 34-116 gave the exact branch conditions, so I could cite lines instead of snippets.
+
+**2. Did not help:** `localSearch` output was noisy. It matched docstrings and comments, such as the referer check at 180-183, and gave only partial context. That left me citing code I never saw in full. I also didn't read `request.py`'s `_get_full_path`, `escape_leading_slashes`, `is_valid_path`, or where `response_redirect_class` is defined. I flagged those gaps in the answer, but they were avoidable. I also never confirmed which status code the redirect uses.
+
+**3. Next time:** I'd use `astSearch` or `lspSearch` for `response_redirect_class` and `should_append_slash`, to close the status-code and opt-out gaps. I'd make one extra `localFetch` of `request.py` around line 226 and of the referer method. I'd also use `matchString` to keep reads small.
+
+**4. Confidence:** High for the core mechanism (404 in `process_response`, `should_redirect_with_slash` conditions, the DEBUG error), since I read those lines directly. Medium for the peripheral details I flagged as unverified.

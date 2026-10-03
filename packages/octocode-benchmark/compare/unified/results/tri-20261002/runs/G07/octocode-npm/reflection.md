@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetFileContent` call, which batched three full-file reads (`applications.py`, `middleware/exceptions.py`, `_exception_handler.py`) with `branch: "63c5760d8a"`. That one call held almost the whole answer. The second call used `matchString` with `contextLines` to pull the `ServerErrorMiddleware.__call__` body and the `wrap_app_handling_exceptions` call sites in `routing.py` without reading entire files.
+
+2. **Did not help:** `fullContent` responses carried no line numbers, so I cited functions instead of `path:line`. That falls short of the "cite `path:line`" requirement. The `routing.py` match output elided most lines with "[... omitted ...]" and gave only three matched line numbers (16, 65, 84), so I never saw the surrounding route code. The `errors.py` result's `matchedLines: [149]` didn't line up with the content shown, so I treated its line numbers as unreliable. I used a short SHA as `branch` and it worked, but nothing confirmed it was pinned to the exact commit. The `lastModified` dates were later than I'd expect for that commit, which makes me doubt that.
+
+3. **Next time:** I'd use `matchString` or line-range reads to get verifiable line numbers for the key claims. I'd also read `Router.app`, `Mount` and `middleware/__init__.py` instead of leaving them as stated gaps.
+
+4. **Confidence:** Medium-high on the behavior described, because I read the code directly and it is consistent across files. Medium on whether it is the exact pinned commit, and low on line-level citations because I gave none.

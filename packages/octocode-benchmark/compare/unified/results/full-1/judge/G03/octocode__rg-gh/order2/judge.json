@@ -1,0 +1,94 @@
+{
+  "qid": "G03",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "9fe4d87bf9ca1ea0050500f44e1b1e9ce9af896385bd9f853a57a1e05068ec97",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate against the diff, including the destroyed/retiring guard, the synchronous callback note, the old and new drain condition, and RoundRobinPool previously having no drain call. Citations are file-level only, with no line numbers."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, and the merge SHA is correct. Slightly less detail on kRetireClient's guards. Says 'three cases' but lists all four tests, a minor slip. Citations are file-level only."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate against the diff, including the destroyed/retiring guard, the synchronous callback note, the old and new drain condition, and RoundRobinPool previously having no drain call. Citations are file-level only, with no line numbers."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, and the merge SHA is correct. Slightly less detail on kRetireClient's guards. Says 'three cases' but lists all four tests, a minor slip. Citations are file-level only."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1508368,
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 15040,
+    "cache_read_input_tokens": 23464,
+    "output_tokens": 24,
+    "context_tokens": 38510,
+    "total_tokens": 38534,
+    "first_request_context": 10026,
+    "fixed_overhead_tokens": 30078,
+    "research_tokens": 8456,
+    "max_request_context": 17669
+  },
+  "timedOut": false
+}

@@ -1,0 +1,9 @@
+refs-rust    rg 2826c 24ms P0.621/R1 (29/18)        | lsp 1x 3146c 6586ms P1/R1 (18/18) {"scope":"languageServer","exhaustive":false}
+refs-ts      rg 2773c 14ms P0.259/R1 (27/7)         | lsp 1x 12226c 5101ms P1/R1 (7/7) {"scope":"languageServer","exhaustive":false,"importerScan":"complete","verifiedImporterFiles":0}
+refs-python  rg 1369c 84ms P0.308/R0.8 (13/5)       | lsp 1x 1477c 3202ms P1/R1 (5/5) {"scope":"languageServer","exhaustive":false}
+refs-c       rg 2552c 15ms P0.9/R1 (30/27)          | lsp 1x 596c 2791ms P1/R0.074 (2/27) {"scope":"languageServer","exhaustive":false}
+refs-go      rg 8506c 23ms {"hits":101,"note":"no LSP truth possible without  | lsp 1x 729c 324ms {"error":"lsp.serverUnavailable"} null
+refs-java    rg 2936c 23ms {"hits":21,"note":"no LSP truth possible without a | lsp 1x 803c 277ms {"error":"lsp.serverUnavailable"} null
+def-ts       shell 2x 330c 22ms | lsp 1x 542c 3423ms {"ok":true,"got":["tsx/packages/element/src/index.ts:55"],"want":"tsx/packages/element/src/index.ts:55"}
+def-python   shell 2x 129c 16ms | lsp 1x 418c 2810ms {"ok":true,"got":["python/django/utils/text.py:466"],"want":"python/django/utils/text.py:466"}
+def-rust     shell 4x 1136c 43ms | lsp 1x 450c 5878ms {"ok":true,"got":["rust/tokio/src/sync/mpsc/chan.rs:582"],"want":"rust/tokio/src/sync/mpsc/chan.rs:582"}

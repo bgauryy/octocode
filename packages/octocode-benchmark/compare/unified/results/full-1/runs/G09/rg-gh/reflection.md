@@ -1,0 +1,7 @@
+1. **Helped:** The second call, `gh issue view 13786 --json title,body,state,url,comments`, returned the whole issue body. That body contained the root cause, a reproduction and the affected code path. The first call's `gh pr list --search "13786"` found the candidate PRs (#13787, #13794, #13825). `gh pr view 13825 --json ...` gave the merge commit and file list. `gh pr diff 13825` showed the actual fix.
+
+2. **Did not help:** The first call's `gh issue view --comments | head -100` printed nothing, so I had to repeat it with `--json`. I cut the diff with `sed -n 1,200p` and never read the rest, meaning `config.py`, `deprecated/decorator.py` and the tests. I did not check the merged code on `main`. I also did not open the closed PRs #13787 and #13794. My guess that #13787 was the issue author's patch is unverified, though I said so.
+
+3. **Next time:** I would use `--json` from the start. I would read the full diff, or at least the test hunks. I would open PR #13787 briefly to check who wrote it.
+
+4. **Confidence:** Medium-high on the root cause and the fix, because the issue text and the diff agree. One error to correct: in my answer, the merge SHA `5da36b5de4f44a572ca5c12104fd2f8669fd feca` has a stray space and may be mistyped. Use the value from the `gh pr view` output, not my transcription.

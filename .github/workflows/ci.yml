@@ -16,6 +16,9 @@ jobs:
   ci:
     name: Lint, Build & Test
     runs-on: ubuntu-latest
+    env:
+      # Native is never built in CI; addon-loading suites are excluded.
+      OCTOCODE_NO_NATIVE: '1'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -24,7 +27,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          cache: 'yarn'
+          package-manager-cache: false
 
       - name: Enable Corepack
         run: corepack enable
@@ -32,32 +35,26 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      # Build must run before Lint/Docs/Typecheck/Test because packages consume
+      # compiled sibling outputs. Native is never built in CI (build:ci excludes it).
+      - name: Build
+        run: node skills-dev/octocode-dev/scripts/dev.mjs build:ci
+
       - name: Verify docs
-        run: yarn docs:verify
+        run: node skills-dev/octocode-dev/scripts/dev.mjs docs:verify
 
       - name: Lint
-        # octocode-engine excluded: Rust/clippy compilation is too costly for CI
-        run: yarn lint:ci
-
-      # Build must run before Typecheck/Test: packages consume their siblings'
-      # compiled output (e.g. @octocodeai/octocode-engine subpath exports map to
-      # ./dist/*, which is gitignored), and tools-core tests load the host
-      # octocode-engine native addon through the workspace dependency.
-      - name: Build
-        # build:ci builds the host octocode-engine native addon once, then skips
-        # rebuilding octocode-engine while compiling dependent packages.
-        run: yarn build:ci
+        # Native Rust fmt/clippy/tests run in rust-tools-core.yml and engine.yml.
+        run: node skills-dev/octocode-dev/scripts/dev.mjs lint:ci
 
       - name: Verify build outputs
-        run: node scripts/workspace-health.mjs check-outputs
+        run: node skills-dev/octocode-dev/scripts/workspace-health.mjs check-outputs
 
       - name: Typecheck
-        # octocode-engine excluded: needs napi-generated index.d.ts which requires Rust build
-        run: yarn typecheck:ci
+        run: node skills-dev/octocode-dev/scripts/dev.mjs typecheck:ci
 
       - name: Test
-        # octocode-engine excluded: depends on napi native build
-        run: yarn test:ci
+        run: node skills-dev/octocode-dev/scripts/dev.mjs test:ci
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

@@ -1,0 +1,398 @@
+{
+  "qid": "L02",
+  "worker": "octocode",
+  "started": "2026-10-02T15:15:53.198Z",
+  "promptSha256": "ba79d991590f035b3f8248cf9edf977222a4d1aeada76dd6cbfce57866ea2518",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 15481,
+  "status": "ok",
+  "answer": "Django blocks this in `Model._prepare_related_fields_for_save()` in `django/db/models/base.py:1276-1330`. It raises `ValueError`.\n\n**Where it is called**\n- `Model.save()` calls it at `base.py:864` with `operation_name=\"save\"`.\n- `bulk_create` calls it at `query.py:794` with `\"bulk_create\"`.\n- A third call at `query.py:1042` passes `operation_name` across more than one line. I didn't read its context, so I'm not sure which method it belongs to. It is probably `bulk_update`.\n\n**How the check works** (`base.py:1281-1303`)\n1. It loops over `self._meta.concrete_fields`. If a `fields` subset was passed, it skips fields outside that subset (`1282-1283`).\n2. It only looks at relation fields whose related object is already cached on the instance (`field.is_relation and field.is_cached(self)`, `1286`). If nothing was assigned, there is nothing to check.\n3. It gets the related object with `getattr(self, field.name, None)` and skips it if it is falsy (`1287-1289`).\n4. If `not obj._is_pk_set()` (`1296`), the related object is unsaved. In that case:\n   - For one-to-one relations (where `field.remote_field.multiple` is false), it first removes the object from the related instance's cache with `field.remote_field.delete_cached_value(obj)` (`1298-1299`).\n   - It then raises `ValueError(\"<op>() prohibited to prevent data loss due to unsaved related object '<field>'.\")` (`1300-1303`).\n5. The check tests whether the primary key is set, not whether the row exists in the database. A manually assigned or auto-generated pk (for example a `UUIDField`) passes. The code comments (`1290-1295`) say the database is then left to raise `IntegrityError`.\n\n**Other behaviour in the same method**\n- If the related object was saved after being assigned, the FK attname value is empty (or an `Expression`). `setattr(self, field.name, obj)` then copies the object's pk into the FK column (`1304-1309`).\n- If the related object's target field value no longer matches the FK value, the cached relation is cleared (`1312-1315`).\n- Private fields are handled separately, which covers `GenericForeignKey` (`1317-1330`). The check there is the same, except it only applies to fields that have `fk_field`, and it raises with an f-string message.\n\nI didn't verify the line 1042 call site or the field descriptors, which are the other place that handles assignment.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 6006,
+    "cache_read_input_tokens": 38336,
+    "output_tokens": 1608,
+    "context_tokens": 44350,
+    "total_tokens": 45958,
+    "first_request_context": 9950,
+    "fixed_overhead_tokens": 39800,
+    "research_tokens": 6158,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 6006,
+      "cache_read_input_tokens": 38336,
+      "output_tokens": 805
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -803
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6006,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+    "max_request_context": 13039
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2917,
+      "cache_read_input_tokens": 7031,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 339,
+      "cache_read_input_tokens": 9948,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 783,
+      "cache_read_input_tokens": 10287,
+      "output_tokens": 25
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1967,
+      "cache_read_input_tokens": 11070,
+      "output_tokens": 732
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 6006,
+    "cache_read_input_tokens": 38336,
+    "output_tokens": 1608
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1608,
+      "cacheReadInputTokens": 38336,
+      "cacheCreationInputTokens": 6006,
+      "webSearchRequests": 0,
+      "costUSD": 0.0477872,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0477872,
+  "costVerified": true,
+  "duration_ms": 14738,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 3,
+    "mcp__octocode__localFetch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"save\\\\(\\\\) prohibited to prevent data loss due to unsaved related object\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\",\"goal\":\"find check\",\"reasoning\":\"known message\",\"contextLines\":3}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"unsaved related object\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\",\"goal\":\"find check\",\"reasoning\":\"message text\",\"contextLines\":12}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/base.py\",\"startLine\":1270,\"endLine\":1318,\"goal\":\"read function start\",\"reasoning\":\"need def and FK part\"}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"_prepare_related_fields_for_save\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models\",\"goal\":\"callers\",\"reasoning\":\"find call sites\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** The second `localSearch` (searchText \"unsaved related object\", contextLines 12) was the key call. Dropping the first query's longer phrase matched the wrapped string literal and returned the private-fields branch at `base.py:1329`, which pointed me at the right function. The `localFetch` of lines 1270-1318 then gave the full FK check. The `localSearch` for `_prepare_related_fields_for_save` listed all call sites in one pass.\n\n**2. Did not help:** My first `localSearch` used the full message and returned empty. The error string is split across two source lines (`1301-1302`), so a literal search can't match it. The empty-result hint was reasonable, but I should have anticipated the split. I never read the context around `query.py:1042`, so I could only say it was \"probably `bulk_update`\". I didn't read the field descriptors either.\n\n**3. Next time:** Search for the function name or a short fragment such as \"prohibited to prevent data loss\". Then fetch the `query.py:1042` context with `localFetch` and `matchString`, using the `next` query the tool offered. That would settle the third call site in one more call.\n\n**4. Confidence:** High for the main answer, since I read lines 1276-1330 directly and checked the callers at `base.py:864` and `query.py:794`. Medium for the `query.py:1042` call site, which I flagged as unverified.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7482,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 452,
+      "context_tokens": 7484,
+      "total_tokens": 7936,
+      "first_request_context": 7484,
+      "fixed_overhead_tokens": 7484,
+      "research_tokens": 452,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7482,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 2
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -450
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 7482,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": null,
+      "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+      "max_request_context": 7484
+    },
+    "cost_usd": 0.034451999999999997,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7482,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 452,
+        "context_tokens": 7484,
+        "total_tokens": 7936,
+        "first_request_context": 7484,
+        "fixed_overhead_tokens": 7484,
+        "research_tokens": 452,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 7482,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 2
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -450
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7482,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "No versioned tariff; use reported cost and cache TTL breakdown.",
+        "max_request_context": 7484
+      },
+      "cost_usd": 0.034451999999999997,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 7482,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 452,
+          "costUSD": 0.034451999999999997
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 1608,
+            "cacheReadInputTokens": 38336,
+            "cacheCreationInputTokens": 6006,
+            "webSearchRequests": 0,
+            "costUSD": 0.0477872,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0477872
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 2060,
+            "thinkingTokens": 0,
+            "cacheReadInputTokens": 38336,
+            "cacheCreationInputTokens": 13488,
+            "webSearchRequests": 0,
+            "costUSD": 0.0822392,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0822392
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7482,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 452
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 7482,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-02T15:15:56.085Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:15:56.121Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localSearch",
+      "startedAt": "2026-10-02T15:15:58.074Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:15:58.094Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "localFetch",
+      "startedAt": "2026-10-02T15:16:00.759Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:16:00.771Z"
+    },
+    {
+      "requestId": "native-4",
+      "tool": "localSearch",
+      "startedAt": "2026-10-02T15:16:01.353Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-02T15:16:01.392Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 7
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}
