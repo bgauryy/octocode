@@ -1,0 +1,188 @@
+{
+  "qid": "G03",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "0b438131114b3e1424ea545b427646b8d6e1c2d4ee3b7a9906e84b8502abff32",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "7a3ce57e111ec1c1d243a2d9b11d21041f479c464eae6e1a4f2650bb80ce89bd",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate against the diff, including the kRemoveClient tracking gap that explains the clientTtl case. Does not explicitly name the kOnDrain closed/destroyed guard. Cites files, the SHA and the PR but no line numbers."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Pool only spliced the client out on clientTtl eviction (it actually called kRemoveClient, which closed it)",
+        "Implies the TTL path was changed to call kRetireClient instead of splicing (the TTL path is unchanged; kRemoveClient now delegates)"
+      ],
+      "notes": "Otherwise accurate and explicitly explains why a closed client stops draining. No line numbers."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate against the diff, including the kRemoveClient tracking gap that explains the clientTtl case. Does not explicitly name the kOnDrain closed/destroyed guard. Cites files, the SHA and the PR but no line numbers."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Pool only spliced the client out on clientTtl eviction (it actually called kRemoveClient, which closed it)",
+        "Implies the TTL path was changed to call kRetireClient instead of splicing (the TTL path is unchanged; kRemoveClient now delegates)"
+      ],
+      "notes": "Otherwise accurate and explicitly explains why a closed client stops draining. No line numbers."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1456064,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 14221,
+        "cache_read_input_tokens": 12012,
+        "output_tokens": 1471,
+        "context_tokens": 26237,
+        "total_tokens": 27708,
+        "first_request_context": 9644,
+        "fixed_overhead_tokens": 19288,
+        "research_tokens": 8420,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 14221,
+          "cache_read_input_tokens": 12012,
+          "output_tokens": 15
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1456
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 14221,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 16593
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1456064,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 14221,
+    "cache_read_input_tokens": 12012,
+    "output_tokens": 1471,
+    "context_tokens": 26237,
+    "total_tokens": 27708,
+    "first_request_context": 9644,
+    "fixed_overhead_tokens": 19288,
+    "research_tokens": 8420,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 14221,
+      "cache_read_input_tokens": 12012,
+      "output_tokens": 15
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1456
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 14221,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 16593
+  },
+  "timedOut": false
+}

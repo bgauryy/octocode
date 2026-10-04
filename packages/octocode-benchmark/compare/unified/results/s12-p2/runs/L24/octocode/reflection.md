@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` call, a regex for `\bgo (func|[a-zA-Z_.]+\()` with `*_test.go` excluded, returned all seven goroutine sites with line numbers in one shot. The batched `localFetch` calls with line ranges then gave me the context for each site. The ranges were cheap and targeted.
+
+2. **Did not help:** The `astSearch` symbols call was mostly wasted. I only needed function boundaries, and it also returned test-file hits that I had to ignore. I never read `reloader` (`manager.go:249-281`), so my description of that goroutine is thin. The `localFetch` output elided large spans ("lines 301-379 omitted"). That was fine here, but it meant I had to be careful about what I had actually seen. I also never opened `restartLoops` beyond the `go` statement and its neighbours.
+
+3. **Next time:** I would fetch `reloader`'s body in the same `localFetch` batch, since it was the one goroutine I couldn't describe. I would skip `astSearch` and rely on the enclosing function names visible in the fetched ranges. I could also add a second `localSearch` with a looser pattern, such as `errgroup` or `.Go(`, to check for goroutines started by other means.
+
+4. **Confidence:** High for the six goroutine sites I read directly, and medium overall. The regex covered only the `go` keyword forms, and `reloader` is described only from `Run`'s doc comment.

@@ -1,0 +1,7 @@
+1. **Helped:** The `artifactSearch` PyPI call gave `requires_python`, the repository URL and the publish date in one cheap step. The batched `ghGetFileContent` call then answered the rest in a single round trip. It used `matchString` on `setup.py` and `src/requests/adapters.py`, pinned to branch `v2.32.3`. That returned the exact lines and also the commit SHA `0e322af8...`.
+
+2. **Did not help:** `matchString` output omitted ranges, including `setup.py` lines 66-67 inside the `requires` list. I could not see them, so I leaned on the PyPI count of 4 dependencies to confirm the list was complete. The `def __init__` match was also noisy, pulling in `BaseAdapter`. I never checked where `DEFAULT_POOL_TIMEOUT` is used, so I said so. `artifactSearch` reported only a dependency count, not the dependency list.
+
+3. **Next time:** I would request explicit line ranges, such as `setup.py` 61-70, so no omitted gap sits inside the dependency list. I would also add a `ghSearchCode` or a second read for `DEFAULT_POOL_TIMEOUT`, if usage mattered.
+
+4. **Confidence:** High for Python version, dependencies, extras, and adapter defaults. The values were read directly at the pinned tag and match the PyPI metadata. Medium-high for completeness of the dependency list, because of the omitted lines.

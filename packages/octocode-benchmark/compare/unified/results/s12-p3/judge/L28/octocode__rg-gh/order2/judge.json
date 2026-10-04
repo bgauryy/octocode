@@ -1,0 +1,179 @@
+{
+  "qid": "L28",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "ee27ccef321aef1ce583a23a8a424793e1f50f21e2fdcb18b0d40252fd8503a1",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "8cde394da002c9bb6a05da2fefe90b5e766323ce4278fffb5984a9ea4d6295b0",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate location, cause and fix details, with correct line citations. It omits the merge SHA and the tests, and it says openly that it did not check the tests."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. It also covers the REV output, the concrete anchor-fix example and the three added tests, all of which match the PR diff. It omits the merge SHA."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate location, cause and fix details, with correct line citations. It omits the merge SHA and the tests, and it says openly that it did not check the tests."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. It also covers the REV output, the concrete anchor-fix example and the three added tests, all of which match the PR diff. It omits the merge SHA."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1215226,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 10545,
+        "cache_read_input_tokens": 31153,
+        "output_tokens": 1545,
+        "context_tokens": 41706,
+        "total_tokens": 43251,
+        "first_request_context": 8902,
+        "fixed_overhead_tokens": 35608,
+        "research_tokens": 7643,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 10545,
+          "cache_read_input_tokens": 31153,
+          "output_tokens": 31
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1514
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10545,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 12917
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 4,
+      "toolCounts": {
+        "Bash:invocation": 3,
+        "Read": 1
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.1215226,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 5,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 10545,
+    "cache_read_input_tokens": 31153,
+    "output_tokens": 1545,
+    "context_tokens": 41706,
+    "total_tokens": 43251,
+    "first_request_context": 8902,
+    "fixed_overhead_tokens": 35608,
+    "research_tokens": 7643,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 10545,
+      "cache_read_input_tokens": 31153,
+      "output_tokens": 31
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1514
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10545,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 12917
+  },
+  "timedOut": false
+}

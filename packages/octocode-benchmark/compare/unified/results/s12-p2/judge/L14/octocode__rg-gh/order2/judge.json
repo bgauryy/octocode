@@ -1,0 +1,186 @@
+{
+  "qid": "L14",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "251e15f3cbe0b59c03eb9d84245a2cee92cf64a74b2c2fd63250e72d25dd50c6",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "2e3d9316895a36faadce14be0ac1687da857cdde4e588b69d4cf91095ebafa86",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout, including the evaluate-then-record order in debounced(). Misses throttle (part of fact 6). Several helper line numbers are off by about 3-6 lines (leadingEdge, remainingWait, cancel, flush), which the answer itself admits."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says debounced() records lastArgs/lastThis/lastCallTime and then evaluates shouldInvoke; the code evaluates shouldInvoke first (10501) and records afterwards (10503-10505)."
+      ],
+      "notes": "Line citations are precise. Misses throttle. One minor ordering error, otherwise correct."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout, including the evaluate-then-record order in debounced(). Misses throttle (part of fact 6). Several helper line numbers are off by about 3-6 lines (leadingEdge, remainingWait, cancel, flush), which the answer itself admits."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says debounced() records lastArgs/lastThis/lastCallTime and then evaluates shouldInvoke; the code evaluates shouldInvoke first (10501) and records afterwards (10503-10505)."
+      ],
+      "notes": "Line citations are precise. Misses throttle. One minor ordering error, otherwise correct."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.1068404,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8693,
+        "cache_read_input_tokens": 11502,
+        "output_tokens": 1749,
+        "context_tokens": 20199,
+        "total_tokens": 21948,
+        "first_request_context": 9134,
+        "fixed_overhead_tokens": 18268,
+        "research_tokens": 3680,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8693,
+          "cache_read_input_tokens": 11502,
+          "output_tokens": 18
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1731
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8693,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11065
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1068404,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8693,
+    "cache_read_input_tokens": 11502,
+    "output_tokens": 1749,
+    "context_tokens": 20199,
+    "total_tokens": 21948,
+    "first_request_context": 9134,
+    "fixed_overhead_tokens": 18268,
+    "research_tokens": 3680,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 8693,
+      "cache_read_input_tokens": 11502,
+      "output_tokens": 18
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1731
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8693,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 11065
+  },
+  "timedOut": false
+}

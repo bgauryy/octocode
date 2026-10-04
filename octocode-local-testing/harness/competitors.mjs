@@ -46,7 +46,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { RESULTS, ROOT, checks, expandShared, inventoryRows, nextHints, startServer, structureFiles, writeResults } from './mcp-client.mjs';
+import { RESULTS, ROOT, checks, expandShared, inventoryRows, nextHints, outlineRows, startServer, structureFiles, writeResults } from './mcp-client.mjs';
 import {
   ANCHOR_FILE, GATE_FACTOR, ROLLING_FILE, allHintEntries, baselineRecord, bodyHash, bytesUnderKey, callRows, canonical, describeFlag, envelopeContainer,
   gateTask, hintEntries, isHintContainer, isHintKey, keyBytes, keyShares, leadBytes, loadVerboseRules, maxLeadEntries, mergeCounts, schemaErrors, selfTest, verboseFields,
@@ -289,9 +289,10 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
     if (typeof node.line === 'number') pair(here, node.line);
     if (typeof node.content === 'string') numbered(here, node.content);
     if (Array.isArray(node.lines) && node.lines.every(l => typeof l === 'string')) for (const l of node.lines) { const m = /^(\d+)\t/.exec(l); if (m) pair(here, +m[1]); }
-    // Compact rows lead with their line: symbols outline "<line>[-<end>] kind name",
-    // lean structural matches "<line>[-<end>]\t<value>".
-    for (const key of ['declarations', 'matches']) if (Array.isArray(node[key])) for (const row of node[key]) { const m = typeof row === 'string' && /^\s*(\d+)/.exec(row); if (m) pair(here, +m[1]); }
+    // Compact rows: symbols outline rows (grouped and merged, see outlineRows)
+    // and lean structural matches "<line>[-<end>]\t<value>".
+    if (Array.isArray(node.declarations)) for (const decl of outlineRows(node.declarations.filter(row => typeof row === 'string'))) if (Number.isInteger(decl.line)) pair(here, decl.line);
+    if (Array.isArray(node.matches)) for (const row of node.matches) { const m = typeof row === 'string' && /^\s*(\d+)/.exec(row); if (m) pair(here, +m[1]); }
     if (Array.isArray(node.byFile)) for (const f of node.byFile) {
       for (const ref of f.refs ?? []) { const m = /^(\d+)/.exec(ref); if (m) pair(f.path, +m[1]); }
       // Direct callers: "<line>:<col>[,<line>:<col>…] in <kind> <name> …" lists call sites.

@@ -535,19 +535,18 @@ pub fn process_fetched_content(
     }
     // A mid-size file read without an anchor returns a whole first page;
     // the deciding lines usually need only a window of it.
-    let hints = if !head
+    // Rows with content keep no prose hint, so this is a warning.
+    if !head
         && !out_of_range
         && pg.pagination.has_more
         && applied == MinifyMode::None
         && unanchored_first_read(q)
     {
-        vec![format!(
-            "Read without an anchor: lines {}-{} of {total_lines}. For the deciding lines only, use matchString, startLine/endLine, or minify:\"symbols\" to outline; next.continue reads on.",
+        warnings.push(format!(
+            "Unanchored read: lines {}-{} of {total_lines}. Read the deciding lines with matchString or startLine/endLine.",
             pg.view_lines.0, pg.view_lines.1
-        )]
-    } else {
-        vec![]
-    };
+        ));
+    }
     // Redaction (source-wide for matchString, or on the page) replaces text
     // within lines; the anchors stay and the warning above says the text is
     // not verbatim.
@@ -587,7 +586,7 @@ pub fn process_fetched_content(
         error: None,
         resolved_path: None,
         warnings,
-        hints,
+        hints: vec![],
         total_lines: Some(total_lines),
         start_line: ext.start,
         end_line: ext.end,
@@ -1226,11 +1225,19 @@ mod line_page_scan_tests {
         assert_eq!(ranged.returned_lines, Some(191));
         let small = fetch(&filler(LARGE_READ_LINES - 1), &plain);
         assert!(small.returned_lines.expect("lines") > HEAD_LINES);
-        assert!(small.warnings.is_empty(), "{:?}", small.warnings);
+        // A smaller file keeps its full page; only the deciding-lines note.
+        assert!(
+            small
+                .warnings
+                .iter()
+                .all(|warning| warning.starts_with("Unanchored read: lines 1-")),
+            "{:?}",
+            small.warnings
+        );
     }
 
     /// A mid-size file read without an anchor returns its first page with a
-    /// tip toward the deciding lines; complete and anchored reads get none.
+    /// note toward the deciding lines; complete and anchored reads get none.
     #[test]
     fn an_unanchored_partial_read_points_at_the_deciding_lines() {
         let plain = LocalFetchQuery {
@@ -1239,15 +1246,14 @@ mod line_page_scan_tests {
         };
         let page = fetch(&filler(LARGE_READ_LINES - 1), &plain);
         assert!(page.next.is_some(), "{page:?}");
-        let tip = page.hints.join(" ");
-        assert!(
-            tip.contains("Read without an anchor: lines 1-")
-                && tip.contains("matchString")
-                && tip.contains("next.continue"),
-            "{tip}"
-        );
+        let tip = page
+            .warnings
+            .iter()
+            .find(|warning| warning.starts_with("Unanchored read: lines 1-"))
+            .unwrap_or_else(|| panic!("{:?}", page.warnings));
+        assert!(tip.contains("matchString") && tip.len() <= 120, "{tip}");
         let whole = fetch(&filler(20), &plain);
-        assert!(whole.hints.is_empty(), "{:?}", whole.hints);
+        assert!(whole.warnings.is_empty(), "{:?}", whole.warnings);
         let ranged = fetch(
             &filler(LARGE_READ_LINES - 1),
             &LocalFetchQuery {
@@ -1256,7 +1262,7 @@ mod line_page_scan_tests {
                 ..plain.clone()
             },
         );
-        assert!(ranged.hints.is_empty(), "{:?}", ranged.hints);
+        assert!(ranged.warnings.is_empty(), "{:?}", ranged.warnings);
     }
 
     /// The head warning names only calls every surface has: a clasify lead,

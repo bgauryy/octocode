@@ -1,0 +1,7 @@
+**1. Helped:** The first `ghGetFileContent` call, with `matchString: "def resolve_redirects"` on the short SHA, returned most of `SessionRedirectMixin` in one read. That covered `get_redirect_target`, `should_strip_auth` and most of the loop. The response also gave the full commit SHA, which I pinned for later calls. The second call, `ranges: ["286-420"]`, finished the loop and added `rebuild_auth`, `rebuild_proxies` and `rebuild_method`.
+
+**2. Did not help:** The first call clamped `contextLines` from 130 to 100 and cut off at line 286, so I needed a follow-up read. The third call (`matchString: "allow_redirects"`, `contextLines: 6`) matched 11 places. It omitted lines 780-795 and 809-811 of `send`, which I then had to leave unread and flag as such. It added only modest value over a targeted range.
+
+**3. Next time:** I would ask for `ranges` directly (about 186-310 and 770-825) in one batched call. That would avoid the clamp, the noisy match and the gaps in `send`. I would also pin the full SHA from the start.
+
+**4. Confidence:** High. Every behaviour I described comes from lines I read directly. The two small unread spans in `send` are disclosed in my answer. They are the hooks dispatch and a small history step, and neither affects the redirect mechanics.

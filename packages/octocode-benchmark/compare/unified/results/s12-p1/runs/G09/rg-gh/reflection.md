@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call (`gh api issues/13786` plus the `/timeline` filter) was the fastest step. The issue body gave the root cause, and the timeline listed the cross-referenced PRs (#13787, #13794, #13825) and the closure. The second call (`pulls/$n` and `pulls/$n/files` in a loop) showed that #13825 is the merged one, with merge SHA `5da36b5`, and gave its patch.
+
+2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. That was noise only, since the output was still correct. The loop's `head -c 14000` cut the #13825 patch off mid-diff. I never saw `_build_effective_config`'s body or the PR's test changes, and I said so in the answer. I never checked the merge state in `main` or in a release. `merge_commit_sha` is also populated on unmerged PRs, so only `merged: true` is meaningful there.
+
+3. **Next time:** I would fetch #13825's files separately, or filter the patch with `jq` to just `_config.py`. I would also confirm the merge with `gh api commits/5da36b5` and read `_build_effective_config` at that SHA through the contents API. That would give exact `path:line` citations, which I did not provide.
+
+4. **Confidence:** High on the root cause, which comes straight from the issue and PR text. Medium-high on the fix, because the diff was truncated. Low on any claim about releases, since I did not check.

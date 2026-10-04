@@ -1,0 +1,7 @@
+**1. Helped:** The single `localSearch` call for `TargetFramework` in `*.csproj`/`*.props` under `Src/Newtonsoft.Json` was the fastest path. It returned line 3 with the full current target list and the per-framework property groups in one shot. That settled the "current" half of the question.
+
+**2. Did not help:** Nothing was noisy or errored, but I made only one call, and it covered only half the question. The 13.0.3 baseline came from my memory, not from evidence. I never looked at the repo's git history or the 13.0.3 tag. I also did not check `Directory.Build.props` or other build files for overrides to the framework list. I only noted that `$(LibraryFrameworks)` can override it.
+
+**3. Next time:** I would verify the baseline with `ghGetFileContent` on the csproj at the 13.0.3 tag, or with `ghSearchHistory` for commits that touched `TargetFrameworks`. I would also use `ghSearchHistory` to find the commits that added net8.0/net10.0 and dropped netstandard1.x. That gives citable evidence for both sides of the diff.
+
+**4. Confidence:** Medium-high for the current target list, because it comes directly from line 3. Medium for the added and dropped sets, because the 13.0.3 side is recalled, not verified. My answer did say it was a recollection, but it should have been more prominent.

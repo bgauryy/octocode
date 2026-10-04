@@ -1,0 +1,7 @@
+1. **Helped:** Two Bash calls did all the work. The first was `grep -n -i "TargetFramework"` on the local `Src/Newtonsoft.Json/Newtonsoft.Json.csproj`, which gave the pinned commit's list on line 3. The second was `gh api -X GET repos/JamesNK/Newtonsoft.Json/contents/...csproj?ref=13.0.3 --jq .content | base64 -d | grep`, which gave the 13.0.3 list. Both are single-purpose, so the comparison took two calls.
+
+2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. That is sandbox noise, but it hid whether a real failure had happened. The `git log -1` I added to confirm the checkout was at the pinned commit failed with `fatal: could not open '/dev/null'`. So I never verified that the local files matched 52fa3aef1f; I relied on the task statement. I also did not read the 13.0.3 NuGet package contents, only its source tag.
+
+3. **Next time:** I would try `git -C <repo> rev-parse HEAD`, or read `.git/HEAD` directly, to confirm the commit. I would also check the `gh api` result with `--jq` for the SHA of the tag. I would grep only for `<TargetFrameworks` rather than every `TargetFramework`, which pulled in unrelated lines.
+
+4. **Confidence:** Medium-high. Both lists were read directly from the csproj files. The remaining uncertainty is the unverified checkout commit and the gap between the tagged source and the shipped package.

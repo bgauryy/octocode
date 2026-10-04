@@ -1,0 +1,7 @@
+**1. Helped:** Two `gh api -X GET` calls did all the work. The first fetched issue 18837 and its `/timeline`, filtered with `--jq` to cross-references and commit references. That surfaced PR #18838 and merge commit `a72dc8e` at once. The second fetched `pulls/18838` and `pulls/18838/files`, which gave the PR description and the full patch in one pass.
+
+**2. Did not help:** Both calls printed `/bin/bash: /dev/null: Operation not permitted`. This was harmless noise, but it could hide real errors. I never read `proxy.js` at the merged commit, so I have no line numbers. I also didn't look at the `has` trap, so the claim that `getOwnPropertyDescriptor` created no dependency for absent properties is inferred from the diff's removed lines, not from the full file. I didn't read the issue comments for maintainer discussion either.
+
+**3. Next time:** I'd add one `gh api repos/sveltejs/svelte/contents/packages/svelte/src/internal/client/proxy.js?ref=a72dc8e` call. Decoding that would give pinned line numbers and the `has` trap's code. I'd also fetch the issue comments.
+
+**4. Confidence:** Medium-high. The issue-to-PR-to-commit chain and the patch are directly observed, and the PR says "Fixes #18837". The root-cause wording about the missing dependency is inference from the diff, and the test results are the PR author's own claims.

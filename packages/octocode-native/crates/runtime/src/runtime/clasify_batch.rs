@@ -9,7 +9,7 @@ use super::{
     ExecutionContext, ExecutionError,
     clasify_locate::{
         LocateRead, bare_identifier, bare_target_hint, drop_redundant_page_reads, literal_search,
-        literal_target_hint, rank_locate, read_first_hint, readable_best, with_row_reads,
+        literal_target_hint, rank_locate, readable_best, with_row_reads,
     },
     clasify_output::{self, PageOutcome},
     dispatch::{self, DomainResult},
@@ -1745,7 +1745,6 @@ const MAX_OUTLINE_FOLLOW_PAGES: usize = 20;
 /// the rows of the file an earlier page started. Returns the page state and,
 /// when following pages were read, the continuation that replaces the page's
 /// own (`Some(None)`: the outline is exhausted).
-#[allow(clippy::type_complexity)]
 fn whole_outline_files(
     source: &Value,
     mut state: Value,
@@ -2256,7 +2255,6 @@ fn usage_summary(records: &[Value]) -> Value {
 
 /// One matrix's output: compact by default; `debug:true` keeps every page's
 /// full answers and adds provider usage receipts (per page and per matrix).
-#[allow(clippy::too_many_arguments)]
 fn execute_query(
     query: &Value,
     dispatcher: &DomainDispatcher,
@@ -2297,7 +2295,6 @@ fn execute_query(
     Ok((result, usage))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn execute_query_verbose(
     query: &Value,
     dispatcher: &DomainDispatcher,
@@ -2620,20 +2617,14 @@ fn execute_query_verbose(
         // Public rows gain an exact read; `carry` keeps the copyable rows.
         .map(|visible| with_row_reads(visible, &locate_reads));
     drop_redundant_page_reads(&mut rendered, visible.as_ref());
-    let read_first = visible
-        .as_ref()
-        .filter(|_| walk_open)
-        .and_then(|visible| read_first_hint(visible, &locate_ids));
+    // A strong window needs no prose: its exact read is `hints.read`, which
+    // comes before the walk in `next.clasify`.
     if let Some(visible) = visible {
         output["best"] = visible;
     }
-    let hints = read_first
-        .into_iter()
-        .chain(
-            locate_targets
-                .iter()
-                .filter_map(|(_, target)| literal_target_hint(target)),
-        )
+    let hints = locate_targets
+        .iter()
+        .filter_map(|(_, target)| literal_target_hint(target))
         .collect::<Vec<_>>();
     if !hints.is_empty() {
         // Already in its public shape, so the tips keep their place ahead of
@@ -2792,7 +2783,6 @@ pub(super) struct Receipts {
 /// return the finished `{"queries": rows}` envelope. Rows are receipts, not
 /// ordinary result rows: no result-row shaping, minimizing, path compaction,
 /// or cross-tool handoff. Rejected input rows keep their input positions.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn execute(
     queries: &[Value],
     rejected_rows: Vec<(usize, Value)>,

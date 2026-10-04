@@ -1,0 +1,7 @@
+**Helped:** The first `localSearch`, a regex alternation of `StaleNaN` and the key function names scoped to `scrape.go`, gave me the whole call map in one call. The batched `localFetch` with `ranges` plus `matchString` then read `iterDone`, `forEachStale`, `endOfRunStaleness` and `updateStaleMarkers` together. The later range reads (1100-1112, 1600-1631) closed the cache-swap and failed-scrape gaps.
+
+**Did not help:** The `matchString` queries returned elided "lines omitted" blocks that hid code I needed. That cost follow-up fetches, one of which (1699-1735) partly repeated what I had already seen. My `disableEndOfRunStalenessMarkers` search ran twice, once inside a `localFetch` and once as a separate `localSearch`. The second added only the `manager.go` hit. I never used `lspSearch` for references, so call sites came from text matching only.
+
+**Next time:** I would batch the exact ranges up front. I would also run one `localSearch` over the whole `scrape` directory instead of a single file, which would have found the `manager.go` caller earlier.
+
+**Confidence:** High on the mechanism, since every claim has a line number from fetched bytes. Medium-high on completeness. I did not read the body of `reportStale` past its first lines, or the `manager.go` code around line 559.

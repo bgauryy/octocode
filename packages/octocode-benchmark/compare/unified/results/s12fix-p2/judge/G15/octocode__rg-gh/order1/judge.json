@@ -1,0 +1,180 @@
+{
+  "qid": "G15",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "9b8c5d072be0967314cab0f1bc0ad28c5ac669354ea353e0b60abde47774a005",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "779d275925c6b005b647a851956916d9386f3dd140de8bdfd67b37397e559021",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "Describes #8067 as an open, unmerged re-land PR; it is an open tracking issue, and the re-land was merged in #8337"
+      ],
+      "notes": "Core facts correct. No SHAs, no opt-in mechanism, and the revert reason is thin. #8527 exists as described."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and detailed: SHAs, enable mechanism, revert rationale, the #8135 prep refactor. The #8532 side note checks out. Code-level fact 5 not verified, but it says so."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "Describes #8067 as an open, unmerged re-land PR; it is an open tracking issue, and the re-land was merged in #8337"
+      ],
+      "notes": "Core facts correct. No SHAs, no opt-in mechanism, and the revert reason is thin. #8527 exists as described."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and detailed: SHAs, enable mechanism, revert rationale, the #8135 prep refactor. The #8532 side note checks out. Code-level fact 5 not verified, but it says so."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.0858234,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 7093,
+        "cache_read_input_tokens": 20077,
+        "output_tokens": 1252,
+        "context_tokens": 27176,
+        "total_tokens": 28428,
+        "first_request_context": 8578,
+        "fixed_overhead_tokens": 25734,
+        "research_tokens": 2694,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 7093,
+          "cache_read_input_tokens": 20077,
+          "output_tokens": 819
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -433
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7093,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 9465
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 3
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0858234,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7093,
+    "cache_read_input_tokens": 20077,
+    "output_tokens": 1252,
+    "context_tokens": 27176,
+    "total_tokens": 28428,
+    "first_request_context": 8578,
+    "fixed_overhead_tokens": 25734,
+    "research_tokens": 2694,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 7093,
+      "cache_read_input_tokens": 20077,
+      "output_tokens": 819
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -433
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7093,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 9465
+  },
+  "timedOut": false
+}

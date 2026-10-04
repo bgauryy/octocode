@@ -1,0 +1,377 @@
+{
+  "qid": "L23",
+  "worker": "octocode",
+  "started": "2026-10-03T20:07:07.984Z",
+  "promptSha256": "1b4f6e4e019ac36e41ebbef848c08ceb7e1fd0573fd0d63c435b883a44228bb1",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 15475,
+  "status": "ok",
+  "answer": "Twenty-five `QuerySet` methods call `self._chain()` directly. I searched `django/db/models/query.py` for `self._chain(` and matched each hit's line to its method's line range.\n\n| Method | `_chain()` line |\n|---|---|\n| `__getitem__` | 520 and 532 (two calls) |\n| `__and__` | 547 (`combined = self._chain()`) |\n| `get` | 736 (`self._chain() if self.query.combinator else …`, so only when a combinator is set) |\n| `_earliest` | 1223 |\n| `delete` | 1396 (`del_query`) |\n| `_values` | 1575 |\n| `none` | 1708 |\n| `all` | 1721 (`return self._chain()`) |\n| `_filter_or_exclude` | 1742 |\n| `complex_filter` | 1770 (inside a conditional branch) |\n| `_combinator_query` | 1778 |\n| `select_for_update` | 1823 |\n| `select_related` | 1847 |\n| `prefetch_related` | 1874 |\n| `_annotate` | 1924 |\n| `order_by` | 1966 |\n| `distinct` | 1980 |\n| `extra` | 1997 |\n| `reverse` | 2005 |\n| `defer` | 2019 |\n| `only` | 2043 |\n| `using` | 2049 |\n| `fetch_mode` | 2055 |\n\n- **Nothing found for `__or__` and `__xor__`:** the search found no `self._chain(` call in either. I did not read their bodies, so I don't know how they build their result.\n- **Other methods that don't call it directly:** `filter`, `exclude`, `union`, `intersection`, `difference`, `annotate`, `alias`, `values`, `values_list`, `dates` and `datetimes` also had no hit. I did not read these either, but they likely reach `_chain()` through other methods such as `_filter_or_exclude`, `_combinator_query`, `_annotate` and `_values`.\n- **Search limits:** I matched the literal text `self._chain(`, so a call written another way (an alias, or a call on another object) would be missed. The method names come from line ranges, not from reading each body.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6394,
+    "cache_read_input_tokens": 27478,
+    "output_tokens": 1529,
+    "context_tokens": 33878,
+    "total_tokens": 35407,
+    "first_request_context": 9874,
+    "fixed_overhead_tokens": 29622,
+    "research_tokens": 5785,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 6394,
+      "cache_read_input_tokens": 27478,
+      "output_tokens": 69
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1460
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6394,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 23186.8,
+    "weighted_tokens_cold": 36412.7,
+    "tariff_cost_usd": 0.0463736,
+    "tariff_cost_usd_cold": 0.0728254,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 13357
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2911,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 773,
+      "cache_read_input_tokens": 9872,
+      "output_tokens": 37
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2710,
+      "cache_read_input_tokens": 10645,
+      "output_tokens": 4
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6394,
+    "cache_read_input_tokens": 27478,
+    "output_tokens": 1529
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1529,
+      "cacheReadInputTokens": 27478,
+      "cacheCreationInputTokens": 6394,
+      "webSearchRequests": 0,
+      "costUSD": 0.0463736,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 272,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0463736,
+  "costVerified": true,
+  "duration_ms": 14752,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 1,
+    "mcp__octocode__astSearch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 1
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py\",\"searchText\":\"self\\\\._chain\\\\(\"}"
+    },
+    {
+      "name": "mcp__octocode__astSearch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/query.py\",\"operation\":\"symbols\",\"kinds\":[\"method\",\"function\"],\"name\":[\"__getitem__\",\"__and__\",\"__or__\",\"__xor__\",\"_combinator_query\",\"get\",\"_earliest\",\"delete\",\"_values\",\"values\",\"values_list\",\"dates\",\"datetimes\",\"none\",\"all\",\"filter\",\"exclude\",\"complex_filter\",\"_filter_or_exclude\",\"union\",\"intersection\",\"difference\",\"select_for_update\",\"select_related\",\"prefetch_related\",\"annotate\",\"alias\",\"order_by\",\"distinct\",\"extra\",\"reverse\",\"defer\",\"only\",\"using\",\"_prefetch_related_objects\",\"_next_is_sticky\",\"raw\",\""
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** `localSearch` with the regex `self\\._chain\\(` on `query.py` was the key call. It returned all 24 call-site lines at once. `astSearch` (symbols) then gave each method's line range, so I could map lines to methods without reading the file.\n\n**2. Did not help:** In the `astSearch` call I passed a long guessed list of names. It appears to have ignored the filter and returned all 108 declarations, which was noisy. I never used `localFetch` to read the code. The line-to-method mapping was done by eye, and I didn't check the borderline cases (`get` at 736, `complex_filter` at 1770, `__or__`, `__xor__`). I also didn't confirm the checkout was at the pinned commit.\n\n**3. Next time:** I'd run the same `localSearch`, then use `lspSearch` or `localFetch` on the borderline methods. I'd also drop the name filter and let `astSearch` return everything.\n\n**4. Confidence:** Medium-high on the method list, since the line ranges are unambiguous. But my answer said \"Twenty-five methods\" when the table has 23 methods and 24 call sites (`__getitem__` has two). That count was wrong and should be corrected. The claims about `__or__`, `__xor__` and the other methods were presented as absences, but I only checked the search hits, not the bodies.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7752,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 829,
+      "context_tokens": 7754,
+      "total_tokens": 8583,
+      "first_request_context": 7754,
+      "fixed_overhead_tokens": 7754,
+      "research_tokens": 829,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7752,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -826
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 7752,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 19651,
+      "weighted_tokens_cold": 19651,
+      "tariff_cost_usd": 0.039302,
+      "tariff_cost_usd_cold": 0.039302,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 7754
+    },
+    "cost_usd": 0.039302000000000004,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7752,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 829,
+        "context_tokens": 7754,
+        "total_tokens": 8583,
+        "first_request_context": 7754,
+        "fixed_overhead_tokens": 7754,
+        "research_tokens": 829,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 7752,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -826
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7752,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 19651,
+        "weighted_tokens_cold": 19651,
+        "tariff_cost_usd": 0.039302,
+        "tariff_cost_usd_cold": 0.039302,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 7754
+      },
+      "cost_usd": 0.039302000000000004,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 7752,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 829,
+          "costUSD": 0.039302000000000004
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1529,
+            "cacheReadInputTokens": 27478,
+            "cacheCreationInputTokens": 6394,
+            "webSearchRequests": 0,
+            "costUSD": 0.0463736,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 272,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0463736
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2358,
+            "thinkingTokens": 657,
+            "cacheReadInputTokens": 27478,
+            "cacheCreationInputTokens": 14146,
+            "webSearchRequests": 0,
+            "costUSD": 0.0856756,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0856756
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7752,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 829
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 7752,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:07:10.892Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:07:10.931Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "astSearch",
+      "startedAt": "2026-10-03T20:07:15.952Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:07:16.135Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 5
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

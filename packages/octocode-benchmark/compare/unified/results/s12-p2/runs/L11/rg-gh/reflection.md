@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call, a `grep -nE` for the function names (`try_read_output`, `complete`, `store_output`, `take_output`, `set_join_waker`) across `*.rs` in the task directory, mapped the whole flow at once. The next call, a batch of `sed -n` range reads of `join.rs`, `harness.rs`, `core.rs` and `state.rs`, gave me the actual code. Reading ranges instead of whole files kept the output small.
+
+2. **Did not help:** `rg` isn't installed, so my first call was wasted. Every command also printed "/dev/null: Operation not permitted", which was noise, and `git log -1` failed for the same reason. That left me unable to confirm the checkout is at `facc6fc47e`. My `sed` ranges were partly guessed, and one cut off the top of the `poll_future` function, so I never saw its signature. I also never opened `task/mod.rs`, which holds the waker-ownership rules.
+
+3. **Next time:** Check the tool exists first and use `grep` from the start. Read `git rev-parse HEAD` straight from `.git/HEAD` to pin the commit. Use `grep -n` to anchor each `sed` range, so function boundaries are exact.
+
+4. **Confidence:** Medium-high. The mechanism and the cited lines come from code I actually read. The commit pin is unverified, and the `poll_future` name and its line numbers are inferred.

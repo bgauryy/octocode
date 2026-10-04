@@ -1,0 +1,397 @@
+{
+  "qid": "L15",
+  "worker": "octocode",
+  "started": "2026-10-03T20:29:48.230Z",
+  "promptSha256": "43fe500895570416767f949060ab97a13035260c0d433ee6a14687ffaac53d07",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 15358,
+  "status": "ok",
+  "answer": "Guava's `ImmutableSet` builder detects hash flooding and, when it does, falls back to a `java.util.HashSet`-backed implementation. Per the comments, the JDK set has built-in flooding protection. All lines below are in `guava/src/com/google/common/collect/ImmutableSet.java`. I only read the builder code there and did not read `RegularImmutableSet` or `JdkBackedImmutableSet` themselves.\n\n**Default implementation.** `RegularSetBuilderImpl` (line 667) builds an open-addressed, linear-probing table. The class comment at lines 664-665 says it detects hash flooding and then falls back to `JdkBackedSetBuilderImpl`.\n\n**Two detection checks:**\n\n1. **Online probe-run limit while inserting.**\n   - `insertInHashTable` (lines 706-726) probes at most `maxRunBeforeFallback` slots.\n   - If it never finds an empty slot or an equal element, it returns `new JdkBackedSetBuilderImpl<E>(this).add(e)` (line 725).\n   - The limit is `maxRunBeforeFallback(tableSize) = MAX_RUN_MULTIPLIER * log2(tableSize)` (lines 878-880), with `MAX_RUN_MULTIPLIER = 13` (line 815).\n   - The comment says the multiplier was \"determined experimentally\" to match the desired false-positive probability. A higher value slows worst-case `contains`, speeds up `hashFloodingDetected` and reduces false positives (lines 807-815).\n   - This catches many identical hash codes, which would otherwise make construction O(n²) (lines 821-823).\n\n2. **Whole-table scan at `review()`.**\n   - `review()` (lines 734-745) returns a `JdkBackedSetBuilderImpl` if `hashFloodingDetected(hashTable)` is true (line 744).\n   - `hashFloodingDetected` (lines 835-871) scans for any run of filled slots longer than `maxRunBeforeFallback`, including runs that wrap around the end of the table.\n   - It skips ahead when it can, so it takes O(n) in the worst case and O(n / log n) on average (lines 817-818).\n   - It catches adversarial hash codes that map to ascending table slots. Those keep construction O(n) but could make later queries O(n) (lines 821-825).\n   - If it returns false, no query can take more than O(log n) (line 826).\n\n**The fallback.**\n- `JdkBackedSetBuilderImpl` (lines 886-930) copies the deduplicated elements into a JDK hash set (lines 889-898).\n- For two or more elements, `build()` returns `new JdkBackedImmutableSet<>(delegate, asImmutableList(dedupedElements, distinct))` (line 927).\n\n**Also in the checkout.** `RegularImmutableMap.java:70` defines `MAX_HASH_BUCKET_LENGTH = 8`, and line 250 checks `++bucketSize > MAX_HASH_BUCKET_LENGTH`. This looks like the analogous check for maps, but I did not read it beyond those two lines.\n\n**Uncertainty.** Detection is probabilistic and can fire on truly random input. The comment at lines 832-833 says `ImmutableSetTest` checks that this is unlikely. I did not look at that test.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 10252,
+    "cache_read_input_tokens": 43813,
+    "output_tokens": 1689,
+    "context_tokens": 54073,
+    "total_tokens": 55762,
+    "first_request_context": 9886,
+    "fixed_overhead_tokens": 39544,
+    "research_tokens": 16218,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 10252,
+      "cache_read_input_tokens": 43813,
+      "output_tokens": 896
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -793
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10252,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 33338.3,
+    "weighted_tokens_cold": 46564.200000000004,
+    "tariff_cost_usd": 0.0666766,
+    "tariff_cost_usd_cold": 0.09312840000000001,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 17215
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2923,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 899,
+      "cache_read_input_tokens": 9884,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5402,
+      "cache_read_input_tokens": 10783,
+      "output_tokens": 48
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1028,
+      "cache_read_input_tokens": 16185,
+      "output_tokens": 800
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 10252,
+    "cache_read_input_tokens": 43813,
+    "output_tokens": 1689
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1689,
+      "cacheReadInputTokens": 43813,
+      "cacheCreationInputTokens": 10252,
+      "webSearchRequests": 0,
+      "costUSD": 0.0666766,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0666766,
+  "costVerified": true,
+  "duration_ms": 14648,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 1,
+    "mcp__octocode__localFetch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"MAX_RUN_LENGTH|MAX_HASH_BUCKET_LENGTH|hashFloodingDetected|HashFloodingCheck\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect\",\"include\":[\"ImmutableSet.java\",\"ImmutableMap.java\",\"RegularImmutableSet.java\",\"JdkBackedImmutableSet.java\",\"JdkBackedImmutableMap.java\",\"RegularImmutableMap.java\"]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/ImmutableSet.java\",\"ranges\":[\"640-900\"]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/collect/ImmutableSet.java\",\"ranges\":[\"900-944\"]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** The first `localSearch` was the fastest step. I guessed literals (`MAX_RUN_LENGTH|MAX_HASH_BUCKET_LENGTH|hashFloodingDetected|HashFloodingCheck`) and scoped it to a few filenames. It returned exact lines in `ImmutableSet.java` and a ready-made `localFetch` hint. A single `localFetch` of lines 640-900 then covered the whole mechanism, and the code comments explained intent. A short second `localFetch` (900-944) confirmed the fallback's `build()`.\n\n**2. Did not help:** My regex mixed literals that don't exist (`MAX_RUN_LENGTH`, `HashFloodingCheck`), which added noise but no harm. The `include` list named files I hadn't confirmed exist, and only two matched. I never opened `RegularImmutableSet`, `JdkBackedImmutableSet`, or the `RegularImmutableMap` code around line 250. I also didn't use `lspSearch` to confirm references. There were no errors.\n\n**3. Next time:** I'd run one `localSearch` for `JdkBacked` across the directory to see every fallback site. Then I'd fetch `RegularImmutableMap.java` around line 250 so the map comparison is verified, not just flagged as likely.\n\n**4. Confidence:** High for the set-builder mechanism, since I read the exact code with line numbers and the comments. Medium for the map aside and for any claim about the final set classes, because I didn't read them.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 12014,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 653,
+      "context_tokens": 12016,
+      "total_tokens": 12669,
+      "first_request_context": 12016,
+      "fixed_overhead_tokens": 12016,
+      "research_tokens": 653,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12014,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -650
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 12014,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 27295,
+      "weighted_tokens_cold": 27295,
+      "tariff_cost_usd": 0.05459,
+      "tariff_cost_usd_cold": 0.05459,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 12016
+    },
+    "cost_usd": 0.05459,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12014,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 653,
+        "context_tokens": 12016,
+        "total_tokens": 12669,
+        "first_request_context": 12016,
+        "fixed_overhead_tokens": 12016,
+        "research_tokens": 653,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 12014,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -650
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 12014,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 27295,
+        "weighted_tokens_cold": 27295,
+        "tariff_cost_usd": 0.05459,
+        "tariff_cost_usd_cold": 0.05459,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 12016
+      },
+      "cost_usd": 0.05459,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 12014,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 653,
+          "costUSD": 0.05459
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 1689,
+            "cacheReadInputTokens": 43813,
+            "cacheCreationInputTokens": 10252,
+            "webSearchRequests": 0,
+            "costUSD": 0.0666766,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0666766
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 2342,
+            "thinkingTokens": 140,
+            "cacheReadInputTokens": 43813,
+            "cacheCreationInputTokens": 22266,
+            "webSearchRequests": 0,
+            "costUSD": 0.1212666,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1212666
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12014,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 653
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 12014,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:29:51.359Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:29:51.422Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T20:29:53.180Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:29:53.191Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T20:29:55.368Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:29:55.379Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

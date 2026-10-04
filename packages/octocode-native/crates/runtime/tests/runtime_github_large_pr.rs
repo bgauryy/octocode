@@ -1,5 +1,5 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic)]
 //! Large pull-request review: changed-file inventory, patch availability,
 //! provider file-list cap, continuation payload size, and scan latency.
 

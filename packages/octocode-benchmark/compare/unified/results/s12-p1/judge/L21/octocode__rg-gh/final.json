@@ -1,0 +1,168 @@
+{
+  "qid": "L21",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8,
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        8,
+        8
+      ],
+      "wrongClaims": [
+        "Claims there are five functions named begin_shutdown and four run per shutdown; there are four and three run (its own list contradicts the count)",
+        "Says there are five functions named begin_shutdown and that four run per shutdown; there are four, and three run. Its own list excludes BlockingPool::shutdown, so the count contradicts itself."
+      ]
+    },
+    "rg-gh": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2167928,
+  "judgeTokens": 83853,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 8748,
+        "cache_read_input_tokens": 31566,
+        "output_tokens": 1571,
+        "context_tokens": 40322,
+        "total_tokens": 41893,
+        "first_request_context": 9478,
+        "fixed_overhead_tokens": 37912,
+        "research_tokens": 3981,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 8748,
+          "cache_read_input_tokens": 31566,
+          "output_tokens": 44
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1527
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8748,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11120
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 4,
+      "toolCounts": {
+        "Bash:invocation": 2,
+        "Read": 2
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.1077492,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 8732,
+        "cache_read_input_tokens": 31578,
+        "output_tokens": 1642,
+        "context_tokens": 40318,
+        "total_tokens": 41960,
+        "first_request_context": 9487,
+        "fixed_overhead_tokens": 37948,
+        "research_tokens": 4012,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 8732,
+          "cache_read_input_tokens": 31578,
+          "output_tokens": 35
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1607
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8732,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11104
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 4,
+      "toolCounts": {
+        "Bash:invocation": 2,
+        "Read": 2
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.1090436,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

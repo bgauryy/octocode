@@ -1,0 +1,185 @@
+{
+  "qid": "L08",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "950fe65dff7a21b5b812c20f0d6609d813591d60997dcc3a087ef909598a7e25",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "5e35c61291941fcbb1de43583d16ae9e3284013ad19735215727757efa12da1d",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on config, wiring, limitAppender counting with stale exemption, checkAddError continuation, and metric. Explicitly does not confirm rollback (fact 6 missing), though it points to line 1620. V2 path only mentioned via limitAppenderV2."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says the returned error is handled by the deferred function at scrape/scrape.go:1829; that defer only skips cache iterDone on error, and rollback happens in scrapeAndReport (~1620). Hedged."
+      ],
+      "notes": "Good wiring and check coverage, including V2 and the exported metric name. Lacks config declaration and global inheritance (fact 1). No rollback (fact 6), and misdirects to the defer."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on config, wiring, limitAppender counting with stale exemption, checkAddError continuation, and metric. Explicitly does not confirm rollback (fact 6 missing), though it points to line 1620. V2 path only mentioned via limitAppenderV2."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Says the returned error is handled by the deferred function at scrape/scrape.go:1829; that defer only skips cache iterDone on error, and rollback happens in scrapeAndReport (~1620). Hedged."
+      ],
+      "notes": "Good wiring and check coverage, including V2 and the exported metric name. Lacks config declaration and global inheritance (fact 1). No rollback (fact 6), and misdirects to the defer."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.11506,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 9301,
+        "cache_read_input_tokens": 21840,
+        "output_tokens": 1813,
+        "context_tokens": 31147,
+        "total_tokens": 32960,
+        "first_request_context": 9582,
+        "fixed_overhead_tokens": 28746,
+        "research_tokens": 4214,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 9301,
+          "cache_read_input_tokens": 21840,
+          "output_tokens": 28
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1785
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9301,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11673
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 4,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 3
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.11506,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 5,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9301,
+    "cache_read_input_tokens": 21840,
+    "output_tokens": 1813,
+    "context_tokens": 31147,
+    "total_tokens": 32960,
+    "first_request_context": 9582,
+    "fixed_overhead_tokens": 28746,
+    "research_tokens": 4214,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 9301,
+      "cache_read_input_tokens": 21840,
+      "output_tokens": 28
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1785
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9301,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 11673
+  },
+  "timedOut": false
+}

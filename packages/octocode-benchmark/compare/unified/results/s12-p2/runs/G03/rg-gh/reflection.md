@@ -1,0 +1,7 @@
+1. **Helped:** I made one Bash call, two chained `gh api -X GET` requests. The first was `repos/nodejs/undici/pulls/5881`, with a `--jq` filter for title, state, merge SHA and body. The second was `.../pulls/5881/files`, which returned the full patch for every changed file. That gave me the PR description, the code diff and the tests together. The code comments written by the PR author explained the intent directly. Nothing else was needed.
+
+2. **Did not help:** Bash printed `/bin/bash: /dev/null: Operation not permitted` three times. It was harmless, but it suggests the sandbox is restrictive. I could not check the merged code at the commit. The patch gives hunk offsets, not lines at the pinned commit, so I had no exact `path:line` citations. I also did not look at the PR comments, linked issues or review discussion. The PR body says little about the failure mode, and I took the cause from the diff.
+
+3. **Next time:** I would run a follow-up `gh api repos/nodejs/undici/contents/lib/dispatcher/pool-base.js?ref=da911f0...` call to get real line numbers. I would also fetch `issues/5881/comments` to see whether a linked issue confirms the symptom.
+
+4. **Confidence:** medium-high. The mechanism comes straight from the diff and the PR text. The line-level citations and the merged state are unverified, and my answer said so.

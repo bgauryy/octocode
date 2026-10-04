@@ -1,0 +1,7 @@
+**1. Helped:** My single `localSearch` on `common.py` was the fastest step. One regex alternation (`APPEND_SLASH|def should_redirect_with_slash|def process_response|...`) found all the relevant definitions and line numbers. The follow-up `localFetch` with range 63–120 then gave the full logic of the decision, the URL building and the 404 trigger in one read.
+
+**2. Did not help:** Nothing errored. The `localSearch` output with `resultView: detailed` was somewhat noisy. It included docstring text and unrelated matches such as the `BrokenLinkEmailsMiddleware` hits at lines 126 and 180. I guessed the file path from memory of Django's layout instead of locating it first, and that worked only by luck. I did not verify the checkout was at commit 4fab678a07. I trusted the prompt and cited lines from that checkout.
+
+**3. Next time:** I would also fetch the helpers (`is_valid_path`, `HttpRequest.get_full_path`, `escape_leading_slashes`) with `lspSearch` or `localSearch`. My answer admitted I had not read them, and that gap was avoidable and cheap to close. I would also confirm the pinned commit if a tool exposes it.
+
+**4. Confidence:** High for the middleware flow, because I read the exact lines. Medium for the helper internals, because I only inferred them from names and call sites.

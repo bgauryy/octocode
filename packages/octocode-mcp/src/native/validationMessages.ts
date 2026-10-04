@@ -515,6 +515,14 @@ export function formatIssues(
           return;
         }
         if (issue.code === 'too_small') break;
+        // A string sent for the queries array already gets the array fix;
+        // a length bound on that string only misleads.
+        if (
+          path.length === 1 &&
+          path[0] === 'queries' &&
+          typeof supplied === 'string'
+        )
+          return;
         const rows = Array.isArray(supplied) ? supplied.length : undefined;
         const maximum = Number(issue.maximum);
         if (

@@ -2,7 +2,8 @@
 //! ref comparison, each with one page of changed files.
 use super::continuations::attach_diff_continuations;
 use super::files::{
-    PathScope, attach_patch_cursor, clamp_warning, in_path_scope, push_warning, scope_files, shape_files,
+    PathScope, attach_patch_cursor, clamp_warning, in_path_scope, push_warning, scope_files,
+    shape_files,
 };
 use super::util::{array, compare_identity, str_at, string, usize_at};
 use super::window::{

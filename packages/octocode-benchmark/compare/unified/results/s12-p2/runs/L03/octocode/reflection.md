@@ -1,0 +1,7 @@
+**1. Helped:** The first `localSearch` call, a regex alternation (`run_on_commit|def on_commit|savepoint_ids|run_commit_hooks_on_set_autocommit_on`) with tests excluded. It located every relevant site in `base.py` and `transaction.py` in one call. The batched `localFetch` with multiple `ranges` then returned the exact bodies I needed (`on_commit`, `run_and_clear_commit_hooks`, `savepoint_rollback`, `set_autocommit`, `Atomic.__enter__`/`__exit__`). Two calls got most of the answer.
+
+**2. Did not help:** The `localFetch` range output elided gaps ("lines 426-483 omitted"). That hid `savepoint_commit`'s body and the `finally` clause of `Atomic.__exit__`. My second fetch stopped at 312 and I never went back for either, so I flagged them as unread. That was my choice, not a tool error. The `hints.read` suggestion from `localSearch` was fine but redundant. No errors or repeated calls.
+
+**3. Next time:** I would add `426-483` and `312-340` to the batched fetch so `savepoint_commit` and the autocommit re-enable are read, not inferred. I'd also run a `localSearch` for `set_autocommit(` in `transaction.py` to confirm the re-enable path.
+
+**4. Confidence:** High for storage, rollback discarding, and the run path (all read directly with line numbers). Medium for the inferred autocommit re-enable and for what `savepoint_commit` does to stored callbacks, since I stated those as unverified.

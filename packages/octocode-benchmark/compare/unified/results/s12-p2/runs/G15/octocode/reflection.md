@@ -1,0 +1,7 @@
+**1. Helped:** The `ghSearchHistory` pullRequest call with keywords ["sharded", "blocking"] did nearly all the work. One call returned #8337, #8135, #7757, #8057 and #7973, with titles, states, merge dates and labels. That was enough to reconstruct the timeline: shard, revert, refactor, opt-in.
+
+**2. Did not help:** The parallel `ghSearchCode` call ("blocking_queue shards") returned empty. It was a guess at a literal and added nothing. I never used `ghGetHistoryItem` on #8337, #8057 or #7757, so I didn't read the PR bodies or the revert's stated reason. I also never checked that facc6fc47e contains the #8337 merge, for example with a commit lookup or a file read at that SHA. Results also included noise, such as #6114, #1625 and #8045.
+
+**3. Next time:** I'd read #8057 and #8337 with `ghGetHistoryItem` (body, files) to confirm the revert reason and the opt-in API name. I'd also verify the SHA includes the merge, and fetch the builder or blocking pool source with `ghGetFileContent` to cite `path:line`.
+
+**4. Confidence:** High on the PR numbers, titles and dates, since they come straight from search metadata. Medium on the revert rationale, which I inferred from the title only. Not verified: that the commit includes #8337, and that the opt-in is unstable.

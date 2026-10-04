@@ -1,0 +1,390 @@
+{
+  "qid": "G17",
+  "worker": "octocode",
+  "started": "2026-10-03T20:21:16.178Z",
+  "promptSha256": "b4aa3ab43020f29b757d5de457fd9bf3b4eacf178c569d56cc022875e10f10e6",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 14014,
+  "status": "ok",
+  "answer": "**Summary:** requests 2.32.3 requires Python >=3.8 and has four runtime dependencies plus three extras. Its source is the `v2.32.3` tag of `psf/requests`. The HTTP adapter defaults to 10 pooled connections, a pool size of 10, no retries and non-blocking pools.\n\n**Python versions**\n- PyPI metadata says `requires_python >=3.8`, and `setup.py:97` has `python_requires=\">=3.8\"`.\n- `setup.py:10` sets `REQUIRED_PYTHON = (3, 8)`.\n- The classifiers list 3.8, 3.9, 3.10, 3.11 and 3.12 (`setup.py:110-114`). They also list CPython and PyPy (`setup.py:116-117`).\n\n**Runtime dependencies** (`setup.py:61-66`)\n- `charset_normalizer>=2,<4`\n- `idna>=2.5,<4`\n- `urllib3>=1.21.1,<3`\n- `certifi>=2017.4.17`\n\nPyPI reports 4 dependencies, which matches this list.\n\n**Extras** (`setup.py:123-127`)\n- `security`: empty list.\n- `socks`: `PySocks>=1.5.6, !=1.5.7`.\n- `use_chardet_on_py3`: `chardet>=3.0.2,<6`.\n\n**Source for this release**\n- The repository is https://github.com/psf/requests, taken from the PyPI metadata and `setup.py:130`.\n- I read the files at tag `v2.32.3`, which resolved to commit `0e322af87745eff34caffe4df68456ebc20d9068`.\n- Dependencies are declared in `setup.py`. `pyproject.toml` at that tag only holds isort and pytest settings.\n\n**HTTP adapter defaults** (`src/requests/adapters.py`)\n- Module constants (lines 71-74):\n  - `DEFAULT_POOLBLOCK = False`\n  - `DEFAULT_POOLSIZE = 10`\n  - `DEFAULT_RETRIES = 0`\n  - `DEFAULT_POOL_TIMEOUT = None`\n- `HTTPAdapter.__init__` (lines 202-208) defaults `pool_connections=10`, `pool_maxsize=10`, `max_retries=0` and `pool_block=False`.\n- When `max_retries == DEFAULT_RETRIES`, it sets `self.max_retries = Retry(0, read=False)` (lines 209-210).\n  - That means no retries, and read errors are not retried either.\n  - Any other value goes through `Retry.from_int` (line 212).\n\n**Uncertainty:** I did not open the published wheel or sdist. The dependency and extras lists come from the git tag's `setup.py`, but the PyPI metadata agrees on the Python requirement and the dependency count.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6917,
+    "cache_read_input_tokens": 28067,
+    "output_tokens": 1412,
+    "context_tokens": 34990,
+    "total_tokens": 36402,
+    "first_request_context": 9830,
+    "fixed_overhead_tokens": 29490,
+    "research_tokens": 6912,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 6917,
+      "cache_read_input_tokens": 28067,
+      "output_tokens": 1040
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -372
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6917,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 23706.7,
+    "weighted_tokens_cold": 36932.6,
+    "tariff_cost_usd": 0.0474134,
+    "tariff_cost_usd_cold": 0.07386519999999999,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 13880
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2867,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1450,
+      "cache_read_input_tokens": 9828,
+      "output_tokens": 44
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2600,
+      "cache_read_input_tokens": 11278,
+      "output_tokens": 964
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6917,
+    "cache_read_input_tokens": 28067,
+    "output_tokens": 1412
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1412,
+      "cacheReadInputTokens": 28067,
+      "cacheCreationInputTokens": 6917,
+      "webSearchRequests": 0,
+      "costUSD": 0.0474134,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0474134,
+  "costVerified": true,
+  "duration_ms": 13325,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__artifactSearch": 1,
+    "mcp__octocode__ghGetFileContent": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 2,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__artifactSearch",
+      "input": "{\"queries\":[{\"type\":\"pypi\",\"packageName\":\"requests\",\"version\":\"2.32.3\"}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"psf\",\"repo\":\"requests\",\"path\":\"src/requests/adapters.py\",\"branch\":\"v2.32.3\",\"matchString\":[\"DEFAULT_POOLSIZE\",\"DEFAULT_RETRIES\",\"DEFAULT_POOL_TIMEOUT\",\"def __init__\"],\"contextLines\":3},{\"owner\":\"psf\",\"repo\":\"requests\",\"path\":\"pyproject.toml\",\"branch\":\"v2.32.3\",\"fullContent\":true}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"psf\",\"repo\":\"requests\",\"path\":\"setup.py\",\"branch\":\"v2.32.3\",\"matchString\":[\"requires = [\",\"extras_require\",\"python_requires\"],\"contextLines\":12}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped**\n- `artifactSearch` (pypi, requests 2.32.3) gave `requires_python >=3.8`, the dependency count of 4 and the repo URL in one call. The count let me check the dependency list I found later.\n- The batched `ghGetFileContent` on `adapters.py` with `matchString` returned the constants and the `__init__` signature without reading the whole 719-line file. It also reported the tag's commit SHA.\n- `ghGetFileContent` on `setup.py` with `matchString` gave the dependency list, extras and classifiers.\n\n**2. Did not help**\n- Reading `pyproject.toml` with `fullContent` was a wasted guess. I assumed it held the dependencies, but it only has isort and pytest settings.\n- The `setup.py` call used `contextLines: 12` and returned essentially the whole file, so it was noisy.\n- `artifactSearch` gave only a dependency count, not the names or extras. Its repo link was marked \"unverified\".\n- I never read the published wheel or sdist metadata, so that comparison is untested.\n\n**3. Next time**\n- Go straight from `artifactSearch` to `setup.py` with a tight line range.\n- Batch the `adapters.py` and `setup.py` reads into one call.\n\n**4. Confidence**\n- High for the dependencies, extras, adapter defaults and commit SHA, since I read them at tag `v2.32.3`.\n- Medium-high that they match the published PyPI metadata, since I did not check that directly.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8517,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 895,
+      "context_tokens": 8519,
+      "total_tokens": 9414,
+      "first_request_context": 8519,
+      "fixed_overhead_tokens": 8519,
+      "research_tokens": 895,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8517,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -892
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 8517,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 21511,
+      "weighted_tokens_cold": 21511,
+      "tariff_cost_usd": 0.043022,
+      "tariff_cost_usd_cold": 0.043022,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 8519
+    },
+    "cost_usd": 0.043022,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8517,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 895,
+        "context_tokens": 8519,
+        "total_tokens": 9414,
+        "first_request_context": 8519,
+        "fixed_overhead_tokens": 8519,
+        "research_tokens": 895,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 8517,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -892
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8517,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 21511,
+        "weighted_tokens_cold": 21511,
+        "tariff_cost_usd": 0.043022,
+        "tariff_cost_usd_cold": 0.043022,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 8519
+      },
+      "cost_usd": 0.043022,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 8517,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 895,
+          "costUSD": 0.043022
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1412,
+            "cacheReadInputTokens": 28067,
+            "cacheCreationInputTokens": 6917,
+            "webSearchRequests": 0,
+            "costUSD": 0.0474134,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0474134
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2307,
+            "thinkingTokens": 395,
+            "cacheReadInputTokens": 28067,
+            "cacheCreationInputTokens": 15434,
+            "webSearchRequests": 0,
+            "costUSD": 0.0904354,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0904354
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8517,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 895
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 8517,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "artifactSearch",
+      "startedAt": "2026-10-03T20:21:19.320Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:21:19.672Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T20:21:19.971Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:21:20.554Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T20:21:22.790Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:21:23.073Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

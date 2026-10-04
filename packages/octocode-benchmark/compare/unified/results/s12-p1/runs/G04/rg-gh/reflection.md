@@ -1,0 +1,7 @@
+1. **Helped:** The first call, `gh api -X GET repos/pallets/click/pulls/3866` with a `--jq` filter, gave the title, merge date, merge SHA and a PR body that stated the intent. Listing `/pulls/3866/files` in the same call showed which files changed. The second call, which printed the `.patch` for `core.py` and `CHANGES.md`, gave the actual warning logic and messages. It was the one that turned the PR description into evidence.
+
+2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. The output was still usable, but it was noise. My `| head -150` truncated the patch, so I never saw where `_check_name_is_usable` and `_check_name_is_normalized` are called, and I had to report the `Argument` and `Parameter` paths as unverified. I also gave no `path:line` citations, because I only had patch hunks and no checkout at the merge commit.
+
+3. **Next time:** I would fetch the `core.py` patch without `head`, or write it to a file and `rg` it for the call sites. I would also read `tests/test_deprecations.py` and the file at the merge SHA via `gh api repos/pallets/click/contents/src/click/core.py?ref=06b2a67`. That would confirm the behaviour and give real line numbers.
+
+4. **Confidence:** Medium-high. What the PR deprecates and the keyword, identifier and lower-casing rules are directly supported by the PR body and the diff. Which `Argument` declarations warn, and the exact call sites, are not verified.

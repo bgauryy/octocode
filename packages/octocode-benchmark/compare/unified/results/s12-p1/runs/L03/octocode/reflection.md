@@ -1,0 +1,7 @@
+**1. Helped:** The first `localSearch` for `run_on_commit` across `django/` gave every touch point in `base.py` in one call. The multi-range `localFetch` on `base.py` then returned `on_commit`, `savepoint_rollback` and `run_and_clear_commit_hooks` with line numbers. Searching `run_commit_hooks_on_set_autocommit_on` showed the commit-to-autocommit trigger.
+
+**2. Did not help:** My regex `localSearch` on `transaction.py` (`run_and_clear_commit_hooks|...|connection.on_commit`) matched only the `get_connection(using).on_commit` line, so it was mostly wasted. `localFetch` with multiple ranges omitted large spans, including `commit()` around line 330 and the `Atomic` body. I never opened those directly. The last `localSearch` on `transaction.py` returned only line numbers with no context.
+
+**3. Next time:** I would run one `localFetch` on `db/transaction.py` lines ~220-325 to read `Atomic.__enter__` and `__exit__` in full. I would also fetch `base.py` around lines 320-335 to confirm `commit()` sets the flag. I'd use fewer, wider reads instead of several narrow greps.
+
+**4. Confidence:** Medium-high. Storage, savepoint-rollback discard, and `run_and_clear_commit_hooks` are read directly from source. The outermost-exit sequence (`commit()` then `set_autocommit(True)`) is inferred from grep line numbers, which I flagged in the answer.

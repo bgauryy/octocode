@@ -202,9 +202,9 @@ impl DomainDispatcher {
         let lead = prewarm::targeted_enabled(self.config.env_value("OCTOCODE_LSP_PREWARM"))
             .then(|| prewarm::lead_file(&result.data))
             .flatten();
-        if let Some(file) = lead.or_else(|| {
-            prewarm_query.and_then(|query| prewarm::anchor_file(&query, &result.data))
-        }) {
+        if let Some(file) = lead
+            .or_else(|| prewarm_query.and_then(|query| prewarm::anchor_file(&query, &result.data)))
+        {
             prewarm::schedule(
                 &self.handle,
                 &self.lsp_pool,

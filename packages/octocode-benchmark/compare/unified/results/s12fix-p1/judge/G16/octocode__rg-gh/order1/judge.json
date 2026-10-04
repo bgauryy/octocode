@@ -1,0 +1,178 @@
+{
+  "qid": "G16",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "f7ea7f47c483def8d9f97c3019d85b4b3754ba645672636402dcf57833c0a70c",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "d62d61aa80ce59ca6371d29582d52e6848cb5186bd4bc68433d545b0d763c21a",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts match the PR #19399 body and the reference. Inclusion in ea954809ce was checked by date rather than ancestry, which the answer states honestly."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts are correct, and the ancestry claim matches the reference. Uses short SHAs and is honest about not reading the diffs or issue #12024."
+    },
+    "preferred": "tie",
+    "reference_issues": "Key fact 5 names the label `__unix_socket__`, but the PR #19399 body calls it `__scrape_unix_socket__`. The constant's actual value at ea954809ce was not checked because the local search of scrape.go failed. This is minor and does not affect grading."
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts match the PR #19399 body and the reference. Inclusion in ea954809ce was checked by date rather than ancestry, which the answer states honestly."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts are correct, and the ancestry claim matches the reference. Uses short SHAs and is honest about not reading the diffs or issue #12024."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "Key fact 5 names the label `__unix_socket__`, but the PR #19399 body calls it `__scrape_unix_socket__`. The constant's actual value at ea954809ce was not checked because the local search of scrape.go failed. This is minor and does not affect grading.",
+  "cost_usd": 0.0866382,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 7165,
+        "cache_read_input_tokens": 19071,
+        "output_tokens": 1274,
+        "context_tokens": 26242,
+        "total_tokens": 27516,
+        "first_request_context": 8180,
+        "fixed_overhead_tokens": 24540,
+        "research_tokens": 2976,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 7165,
+          "cache_read_input_tokens": 19071,
+          "output_tokens": 32
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1242
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7165,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 9537
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.0866382,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7165,
+    "cache_read_input_tokens": 19071,
+    "output_tokens": 1274,
+    "context_tokens": 26242,
+    "total_tokens": 27516,
+    "first_request_context": 8180,
+    "fixed_overhead_tokens": 24540,
+    "research_tokens": 2976,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 7165,
+      "cache_read_input_tokens": 19071,
+      "output_tokens": 32
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1242
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7165,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 9537
+  },
+  "timedOut": false
+}

@@ -230,7 +230,6 @@ fn continuation(query: LocalFetchQuery, reason: &str) -> Continuation {
 }
 
 /// Serve `q` from a source larger than the whole-file ceiling.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn fetch_window(
     q: &LocalFetchQuery,
     path: &Path,

@@ -71,16 +71,12 @@ pub fn execute_syntax(
     )
     .map_err(super::native_error)?;
     // Line/column locate every node; byte offsets double each node's size and
-    // are diagnostics, so they ride only on `debug`.
+    // are verbose (core field class): the verbose stage keeps them for `debug`.
     let nodes = r
         .nodes
         .into_iter()
         .map(|n| {
-            let mut v = json!({"id":n.id,"kind":n.kind,"named":n.named,"startLine":n.start_line,"startColumn":n.start_column,"endLine":n.end_line,"endColumn":n.end_column});
-            if q.debug {
-                v["startByte"] = json!(n.start_byte);
-                v["endByte"] = json!(n.end_byte);
-            }
+            let mut v = json!({"id":n.id,"kind":n.kind,"named":n.named,"startLine":n.start_line,"startColumn":n.start_column,"endLine":n.end_line,"endColumn":n.end_column,"startByte":n.start_byte,"endByte":n.end_byte});
             if let Some(parent) = n.parent_id {
                 v["parentId"] = json!(parent)
             }

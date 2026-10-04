@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call, `grep -n "def _save_table" -A95 django/db/models/base.py`, gave nearly the whole decision logic in one shot. The third call, `sed -n 1165,1215p` plus `grep -n "def _do_update" -A50`, covered the INSERT fallback and `_do_update`. Reading the code directly was faster than searching broadly.
+
+2. **Did not help:** The first call failed. `git log -1` hit `fatal: could not open '/dev/null'`, and every later call printed the same `/dev/null: Operation not permitted` noise. As a result I never verified the commit SHA with git, and I said so in the answer. The first call also combined git and grep with `&&`, so the grep never ran and I had to repeat it. I did not read `save_base` or `save()` either, so the inheritance-parent handling is stated from memory, not from the checkout.
+
+3. **Next time:** Run `grep` first without git. Check the pinned commit by reading `.git/HEAD` or `packed-refs` with a plain file read. Also read `save_base` so the caller layer is covered.
+
+4. **Confidence:** High for the `_save_table` and `_do_update` behaviour and the line numbers, since I saw that code in the checkout. Medium for the claim that `save_base` calls `_save_table` once per table in the inheritance chain, and for the pinned-commit identity, because neither was verified directly.

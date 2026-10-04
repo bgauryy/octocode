@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetFileContent` on `httpx/_client.py` used a multi-literal `matchString` (`_mounts`, `_transport_for_url`, `get_environment_proxies`, `proxy`). It showed me the file's structure and the line numbers I needed. The second call used `ranges` (239-252, 684-775) to read the decision code, and a `matchString` on `_utils.py` to read `get_environment_proxies`. Batching the two files into one call saved a round trip. The pinned commit (`branch: b5addb64f0`) resolved correctly, and the response confirmed the full SHA.
+
+2. **Did not help:** The first call's output was fragmented. It had many "gaps omitted" markers and a mix of async and sync lines, so I had to follow up anyway. I never read `URLPattern`'s ordering code (`__lt__` and the matching logic after `_utils.py:160`). I stated the sort's effect as an assumption and flagged it, but a third read would have verified it. The unrequested async-client lines added noise.
+
+3. **Next time:** I'd go straight to `ranges` on `_client.py` (the proxy map, `__init__` mounts and `_transport_for_url`) plus `URLPattern` through its end, in one batched call.
+
+4. **Confidence:** High on the flow: proxy map, mounts, first-match `_transport_for_url`, and the `NO_PROXY`→`None` direct path. Medium on the claim that the sort puts more specific patterns first, because I didn't read that code. I did say so in the answer.

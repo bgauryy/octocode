@@ -1,0 +1,7 @@
+**1. Helped:** My first call, `localSearch` with a regex alternation of guessed identifiers (`MAX_RUN_LENGTH|MAX_HASH_BUCKET_LENGTH|hashFloodingDetected|...`) restricted to five collect files. It landed on `hashFloodingDetected` at `ImmutableSet.java:835` and the `RegularImmutableMap` constants straight away. One `localFetch` of lines 690-900 then returned the full mechanism: the insert loop, the run limit, the end-of-build scan and the JDK fallback. Two calls were enough.
+
+**2. Did not help:** Nothing errored, and there were no repeated calls. The identifier guesses came from my prior knowledge of Guava; the tools gave me no way to discover them. I never verified that the checkout was at 4d41665af1, because I assumed the path was pinned. I did not read past line 900, so I never saw the rest of `JdkBackedSetBuilderImpl` or how `build()` behaves after a fallback. I did not open the `RegularImmutableMap` code around line 250. I did not read `RegularImmutableSet` either, so I never saw how lookups behave on the final table.
+
+**3. Next time:** I would fetch the map code around line 250, and the tail of `JdkBackedSetBuilderImpl`, to answer fully instead of listing those as caveats. I would also confirm the commit.
+
+**4. Confidence:** High for the `ImmutableSet` builder mechanism, since every claim cites lines I read. Medium for completeness: the map side is unexplored, and I did not read how `RegularImmutableSet` itself uses the table after the build.

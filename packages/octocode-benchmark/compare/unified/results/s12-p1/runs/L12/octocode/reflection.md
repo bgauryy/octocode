@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` for "lifo" on the multi_thread directory found `MAX_LIFO_POLLS_PER_TICK`, the loop, and `reset_lifo_enabled` in one call. A single regex `localSearch` (`lifo_slot|lifo_enabled|is_yield|disable_lifo`) with `resultView: content` then gave a compact line index of every use. The two `localFetch` calls with multiple ranges (`690-800`, `1350-1430`) read the deciding code directly.
+
+2. **Did not help:** The first `localFetch` was a guess. I requested `1060-1140`, which turned out to be unrelated `time_alt` code and `next_task`, so that range was wasted. The detailed `localSearch` output was noisy, with counters.rs hits and pagination. I never fetched lines 271-689, which includes `Context::run` and the core handoff. I did not use `lspSearch` or any history tools.
+
+3. **Next time:** I would use the regex index search first, then fetch only the ranges it points to. I would also read the `run`/`run_task` region around `:560-690`, and the `is_yield` callers, so the answer would not rest on a comment at `:478-484`.
+
+4. **Confidence:** Medium-high. The mechanics and the 3-poll cap are directly evidenced. One sentence was loosely worded: "only case where a notify is issued on this path" is true only for the LIFO branch. The non-LIFO branch also notifies (`should_notify = true`, `:1395`). The handoff claim rests on a comment, not on the surrounding code.

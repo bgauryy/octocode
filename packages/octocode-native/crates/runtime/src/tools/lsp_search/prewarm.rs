@@ -232,7 +232,8 @@ mod tests {
 
     #[test]
     fn a_lead_naming_lsp_search_points_at_its_anchor_file() {
-        let dir = std::env::temp_dir().join(format!("octocode-prewarm-lead-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("octocode-prewarm-lead-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");
         let file = dir.join("a.ts");
         std::fs::write(&file, "export const a = 1;\n").expect("file");

@@ -1,5 +1,5 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic)]
 
 mod support;
 
@@ -1230,7 +1230,11 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
         data["hints"]["viewTree"]["query"]["path"], "tokio/src",
         "{data}"
     );
-    assert_eq!(data["hints"]["viewTree"]["confidence"], "exact", "{data}");
+    // R4: a hint is not proof, so no continuation carries confidence:"exact".
+    assert!(
+        data["hints"]["viewTree"].get("confidence").is_none(),
+        "{data}"
+    );
     runtime.close().await;
 }
 
@@ -1302,7 +1306,11 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
             data["hints"]["viewTree"]["query"]["branch"], "main",
             "{data}"
         );
-        assert_eq!(data["hints"]["viewTree"]["confidence"], "exact", "{data}");
+        // R4: a hint is not proof, so no continuation carries confidence:"exact".
+        assert!(
+            data["hints"]["viewTree"].get("confidence").is_none(),
+            "{data}"
+        );
         assert!(
             data["error"]
                 .as_str()
@@ -1942,6 +1950,14 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
         );
         let warning = data["warnings"][0].as_str().unwrap_or_default();
         assert!(warning.contains("25 of 31"), "window {window}: {data}");
+        if window < 2 {
+            assert!(
+                data["warnings"]
+                    .to_string()
+                    .contains("more body chars: follow next.continueBody"),
+                "window {window} names its remaining body: {data}"
+            );
+        }
         if window == 0 {
             assert_eq!(
                 data["issues"][0]["closedBy"].as_array().map(Vec::len),
@@ -1973,6 +1989,70 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
             .iter()
             .all(|document| !document.contains("nodes")),
         "{documents:?}"
+    );
+    runtime.close().await;
+}
+
+/// Through the whole response stage, a code search pinned to a non-default
+/// ref warns with the index commit and keeps its ghStructure lead to the ref
+/// first among the leads.
+#[tokio::test]
+async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
+    let server = MockServer::start().await;
+    let at_ref = "0123456789abcdef0123456789abcdef01234567";
+    let head = "fedcba9876543210fedcba9876543210fedcba98";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count":1,"incomplete_results":false,"items":[
+                {"name":"base.py","path":"pkg/base.py","sha":"1","html_url":"https://x",
+                 "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                 "text_matches":[{"fragment":"class Base:","matches":[{"text":"class","indices":[0,5]}]}]}
+            ]
+        })))
+        .mount(&server)
+        .await;
+    for (reference, sha) in [("dev", at_ref), ("HEAD", head)] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/commits/{reference}")))
+            .respond_with(ResponseTemplate::new(200).set_body_string(sha))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/pkg%2Fbase.py"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"base64","content":STANDARD.encode("class Base:\n    pass\n")
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let out = call(
+        &runtime,
+        "ghSearchCode",
+        json!({"owner":"a","repo":"b","keywords":["class"],"path":"pkg","branch":"dev"}),
+    )
+    .await
+    .expect("search");
+    let data = row_data(&out);
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("default-branch index at fedcba9, not dev")
+            && warnings.contains("hints.viewRepo"),
+        "{data}"
+    );
+    let lead = &data["hints"]["viewRepo"];
+    assert_eq!(lead["tool"], "ghStructure", "{data}");
+    assert_eq!(lead["query"]["branch"], at_ref, "{data}");
+    assert_eq!(lead["query"]["path"], "pkg", "{data}");
+    assert_eq!(
+        data["hints"]
+            .as_object()
+            .and_then(|hints| hints.keys().next())
+            .map(String::as_str),
+        Some("viewRepo"),
+        "{data}"
     );
     runtime.close().await;
 }

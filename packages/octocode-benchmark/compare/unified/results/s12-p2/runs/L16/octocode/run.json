@@ -1,0 +1,376 @@
+{
+  "qid": "L16",
+  "worker": "octocode",
+  "started": "2026-10-03T20:19:18.760Z",
+  "promptSha256": "a40f8935e01224ede96e8c3e596483a428b32e84873ffff83c6fc7b891ddfe80",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 16135,
+  "status": "ok",
+  "answer": "**Short answer:** `concurrencyLevel` sets how many `Segment`s the cache has. `maximumSize` caps that count and is divided across the segments. Eviction then runs inside each segment, not across the whole cache. Everything below is from `LocalCache.java` and `CacheBuilder.java` at the pinned commit.\n\n**How `concurrencyLevel` is set**\n- The builder default is 4 (`CacheBuilder.java:199`, applied in `getConcurrencyLevel()` at `CacheBuilder.java:473-474`).\n- The `LocalCache` constructor clamps it to `MAX_SEGMENTS`, which is 1<<16 (`LocalCache.java:150`, `LocalCache.java:250`).\n\n**Segment count** (`LocalCache.java:285-295`)\n- The segment count is the smallest power of two that reaches `concurrencyLevel`. The loop starts at `segmentCount = 1` and doubles it.\n- If the cache evicts by size, the loop also stops once `segmentCount * 20 > maxWeight`. The comment at lines 280-284 says this keeps each segment at roughly 10 or more entries. Size-based eviction is per segment, so too many segments against a small maximum would give random-looking eviction.\n- `segmentMask = segmentCount - 1`, and `segmentShift = 32 - log2(segmentCount)`.\n- `segments` is an array of `Segment` objects, each a `ReentrantLock` subclass that is its own hash table (`LocalCache.java:1867`, `LocalCache.java:188`). Its entry table is an `AtomicReferenceArray` (`LocalCache.java:1926`).\n- Keys are routed with `segments[(hash >>> segmentShift) & segmentMask]` (`LocalCache.java:1768`). This uses the upper bits of the hash.\n\n**`maximumSize`**\n- `LocalCache` stores it as `maxWeight` (`LocalCache.java:258`, from `builder.getMaximumWeight()`). `evictsBySize()` is `maxWeight >= 0` (`LocalCache.java:326-328`).\n- `maximumSize` is divided across the segments (`LocalCache.java:307-317`). Each segment gets `maxWeight / segmentCount`, and the first `remainder` segments get one extra. The segment limits therefore add up exactly to `maxWeight`. Each limit is stored as that segment's `maxSegmentWeight` (`LocalCache.java:1929`).\n- Each segment evicts independently. `evictEntries` runs while `totalWeight > maxSegmentWeight` and removes entries with `RemovalCause.SIZE` (`LocalCache.java:2658-2675`). An entry heavier than the whole segment limit is removed on its own (`LocalCache.java:2666`).\n- When there is no custom weigher, the initial capacity is capped at `maxWeight` (`LocalCache.java:276-278`). The per-segment initial capacity is `initialCapacity / segmentCount`, rounded up (`LocalCache.java:297-300`).\n- `initTable` nudges the resize threshold up by one if it would equal `maxSegmentWeight`, so the table does not expand before eviction starts (`LocalCache.java:2000-2003`).\n- Size-based eviction also turns on the access queue (`usesAccessQueue()`, `LocalCache.java:350-352`).\n\n**Uncertainty:** I didn't read lines 301-306. They appear to compute `segmentSize` as a power of two at least `segmentCapacity`, but I didn't confirm that. I also didn't read `CacheBuilder.maximumSize` or `getMaximumWeight` in full. That means I didn't check how `maximumSize` maps to weight, or the 0 return at `CacheBuilder.java:604-606`.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8349,
+    "cache_read_input_tokens": 30797,
+    "output_tokens": 1715,
+    "context_tokens": 39152,
+    "total_tokens": 40867,
+    "first_request_context": 9890,
+    "fixed_overhead_tokens": 29670,
+    "research_tokens": 11197,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 8349,
+      "cache_read_input_tokens": 30797,
+      "output_tokens": 916
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -799
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8349,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 28358.7,
+    "weighted_tokens_cold": 41584.6,
+    "tariff_cost_usd": 0.0567174,
+    "tariff_cost_usd_cold": 0.0831692,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 15312
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2927,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4060,
+      "cache_read_input_tokens": 9888,
+      "output_tokens": 45
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1362,
+      "cache_read_input_tokens": 13948,
+      "output_tokens": 843
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 8349,
+    "cache_read_input_tokens": 30797,
+    "output_tokens": 1715
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1715,
+      "cacheReadInputTokens": 30797,
+      "cacheCreationInputTokens": 8349,
+      "webSearchRequests": 0,
+      "costUSD": 0.0567174,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0567174,
+  "costVerified": true,
+  "duration_ms": 15403,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"segmentShift|segmentMask|maxSegmentWeight|segmentCount|evictsBySize|concurrencyLevel\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache/LocalCache.java\",\"resultView\":\"detailed\"}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"maxWeight = |DEFAULT_CONCURRENCY_LEVEL =|int getConcurrencyLevel|long getMaximumWeight|MAX_SEGMENTS =\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache\",\"contextLines\":3}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `localSearch` on `LocalCache.java`, with one regex alternation (`segmentShift|segmentMask|maxSegmentWeight|...|concurrencyLevel`), returned the constructor logic at lines 248-324 with context. That covered the segment-count loop, the per-segment weight split, `segmentFor`, and `evictEntries`. The second `localSearch` over the `cache` directory then got the builder default (4) and `MAX_SEGMENTS` in one call.\n\n2. **Did not help:** The first regex was too broad. It also matched the serialization proxy (lines 4678-4735), which added noise. The second search showed only the first few lines of `getMaximumWeight`, so I reported its odd `return 0` branch without understanding it. I never read lines 301-306 or `CacheBuilder.maximumSize`. I also never confirmed the checkout was at the pinned commit; I took that from the task statement.\n\n3. **Next time:** I would use `localFetch` with a line range for `LocalCache.java` 296-324 and for `CacheBuilder.maximumSize`/`getMaximumWeight`. That would close the gaps instead of leaving them as caveats. I would also narrow the regex to the constructor region.\n\n4. **Confidence:** High on the segment-count, mask/shift and per-segment weight-split claims, since I read the code directly. Medium on the `maximumSize`-to-weight mapping and the segment initial-size detail, which I flagged as unverified.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 10274,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 899,
+      "context_tokens": 10276,
+      "total_tokens": 11175,
+      "first_request_context": 10276,
+      "fixed_overhead_tokens": 10276,
+      "research_tokens": 899,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 10274,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -896
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 10274,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 25045,
+      "weighted_tokens_cold": 25045,
+      "tariff_cost_usd": 0.05009,
+      "tariff_cost_usd_cold": 0.05009,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 10276
+    },
+    "cost_usd": 0.050089999999999996,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 10274,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 899,
+        "context_tokens": 10276,
+        "total_tokens": 11175,
+        "first_request_context": 10276,
+        "fixed_overhead_tokens": 10276,
+        "research_tokens": 899,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 10274,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -896
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10274,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 25045,
+        "weighted_tokens_cold": 25045,
+        "tariff_cost_usd": 0.05009,
+        "tariff_cost_usd_cold": 0.05009,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 10276
+      },
+      "cost_usd": 0.050089999999999996,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 10274,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 899,
+          "costUSD": 0.050089999999999996
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1715,
+            "cacheReadInputTokens": 30797,
+            "cacheCreationInputTokens": 8349,
+            "webSearchRequests": 0,
+            "costUSD": 0.0567174,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0567174
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2614,
+            "thinkingTokens": 399,
+            "cacheReadInputTokens": 30797,
+            "cacheCreationInputTokens": 18623,
+            "webSearchRequests": 0,
+            "costUSD": 0.1068074,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1068074
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 10274,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 899
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 10274,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:19:21.941Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:19:21.990Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:19:24.762Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:19:24.784Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 5
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

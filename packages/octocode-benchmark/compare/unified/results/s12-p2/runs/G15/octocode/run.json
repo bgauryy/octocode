@@ -1,0 +1,370 @@
+{
+  "qid": "G15",
+  "worker": "octocode",
+  "started": "2026-10-03T20:20:59.091Z",
+  "promptSha256": "530f23c21286c2a17c794d1108d8d1a4a6fc5e1ee401dcc63fbf2df3b93233e6",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 11724,
+  "status": "ok",
+  "answer": "The opt-in was added by **PR #8337**, \"runtime: add an opt-in sharded spawn_blocking queue\". Alex authored it, and it merged on 2026-08-09. I didn't open the PR body or diff. This comes from PR search metadata (titles, states and dates), and I didn't check that facc6fc47e includes the merge.\n\nThe earlier attempt to shard the queue was **PR #7757**, \"rt: improve spawn_blocking scalability with sharded queue\", also by Alex. It merged on 2026-04-10 and was later reverted:\n- **Revert:** PR #8057, \"rt: revert #7757 to fix regression in `spawn_blocking`\", merged on 2026-04-16 by hawkw. The title gives the reason as a `spawn_blocking` regression, but I didn't read the PR to confirm the details.\n- **Follow-up:** PR #8135 refactored the blocking queue so a sharded implementation could be added more easily. It merged on 2026-07-31. #8337 then added the sharded queue as an opt-in on top of that.\n\nA separate Alex PR, #7973, tried to shard the multi-thread inject queue. It was closed without merging. It concerns a different queue, not the `spawn_blocking` one.\n\nI'm confident in the PR numbers, titles and dates. The reasoning behind the revert is inferred from the PR title only.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 4595,
+    "cache_read_input_tokens": 16791,
+    "output_tokens": 762,
+    "context_tokens": 21390,
+    "total_tokens": 22152,
+    "first_request_context": 9832,
+    "fixed_overhead_tokens": 19664,
+    "research_tokens": 2488,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 4595,
+      "cache_read_input_tokens": 16791,
+      "output_tokens": 40
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -722
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 4595,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 14683.1,
+    "weighted_tokens_cold": 27909,
+    "tariff_cost_usd": 0.029366200000000002,
+    "tariff_cost_usd_cold": 0.055818,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 11558
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2869,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1726,
+      "cache_read_input_tokens": 9830,
+      "output_tokens": 8
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 4595,
+    "cache_read_input_tokens": 16791,
+    "output_tokens": 762
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 762,
+      "cacheReadInputTokens": 16791,
+      "cacheCreationInputTokens": 4595,
+      "webSearchRequests": 0,
+      "costUSD": 0.029366200000000002,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 42,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.029366200000000002,
+  "costVerified": true,
+  "duration_ms": 11018,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "mcp__octocode__ghSearchHistory": 1,
+    "mcp__octocode__ghSearchCode": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghSearchHistory",
+      "input": "{\"operation\":\"pullRequest\",\"owner\":\"tokio-rs\",\"repo\":\"tokio\",\"keywords\":[\"sharded\",\"blocking\"]}"
+    },
+    {
+      "name": "mcp__octocode__ghSearchCode",
+      "input": "{\"owner\":\"tokio-rs\",\"repo\":\"tokio\",\"keywords\":\"blocking_queue shards\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** The `ghSearchHistory` pullRequest call with keywords [\"sharded\", \"blocking\"] did nearly all the work. One call returned #8337, #8135, #7757, #8057 and #7973, with titles, states, merge dates and labels. That was enough to reconstruct the timeline: shard, revert, refactor, opt-in.\n\n**2. Did not help:** The parallel `ghSearchCode` call (\"blocking_queue shards\") returned empty. It was a guess at a literal and added nothing. I never used `ghGetHistoryItem` on #8337, #8057 or #7757, so I didn't read the PR bodies or the revert's stated reason. I also never checked that facc6fc47e contains the #8337 merge, for example with a commit lookup or a file read at that SHA. Results also included noise, such as #6114, #1625 and #8045.\n\n**3. Next time:** I'd read #8057 and #8337 with `ghGetHistoryItem` (body, files) to confirm the revert reason and the opt-in API name. I'd also verify the SHA includes the merge, and fetch the builder or blocking pool source with `ghGetFileContent` to cite `path:line`.\n\n**4. Confidence:** High on the PR numbers, titles and dates, since they come straight from search metadata. Medium on the revert rationale, which I inferred from the title only. Not verified: that the commit includes #8337, and that the opt-in is unstable.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5682,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 482,
+      "context_tokens": 5684,
+      "total_tokens": 6166,
+      "first_request_context": 5684,
+      "fixed_overhead_tokens": 5684,
+      "research_tokens": 482,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 5682,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -474
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 5682,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 13776,
+      "weighted_tokens_cold": 13776,
+      "tariff_cost_usd": 0.027552,
+      "tariff_cost_usd_cold": 0.027552,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 5684
+    },
+    "cost_usd": 0.027552,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 5682,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 482,
+        "context_tokens": 5684,
+        "total_tokens": 6166,
+        "first_request_context": 5684,
+        "fixed_overhead_tokens": 5684,
+        "research_tokens": 482,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 5682,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -474
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 5682,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 13776,
+        "weighted_tokens_cold": 13776,
+        "tariff_cost_usd": 0.027552,
+        "tariff_cost_usd_cold": 0.027552,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 5684
+      },
+      "cost_usd": 0.027552,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 5682,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 482,
+          "costUSD": 0.027552
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 4,
+            "outputTokens": 762,
+            "cacheReadInputTokens": 16791,
+            "cacheCreationInputTokens": 4595,
+            "webSearchRequests": 0,
+            "costUSD": 0.029366200000000002,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 42,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.029366200000000002
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1244,
+            "thinkingTokens": 42,
+            "cacheReadInputTokens": 16791,
+            "cacheCreationInputTokens": 10277,
+            "webSearchRequests": 0,
+            "costUSD": 0.0569182,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0569182
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 5682,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 482
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 5682,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "ghSearchHistory",
+      "startedAt": "2026-10-03T20:21:03.165Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:21:04.144Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghSearchCode",
+      "startedAt": "2026-10-03T20:21:04.153Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:21:05.000Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 5
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

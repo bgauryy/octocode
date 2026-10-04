@@ -1,0 +1,7 @@
+**1. Helped:** The `ghGetFileContent` call on `node_exporter.go` at `branch: "v1.8.2"` with `matchString` was the decisive step. It returned the `/metrics` default (lines 160-163), the `40` max-requests default (168-171), and pinned commit f1e0e83. The second `ghGetFileContent` batch confirmed `:9100` at line 179 and the toolkit's `--web.listen-address` registration. Running it as two parallel reads saved a round trip.
+
+**2. Did not help:** The opening two `ghSearchCode` calls were wasted. `web.listen-address` returned only test-file hits from the default branch, and the `web.max-requests` search hit a rate limit (`rateLimited`). Some output was elided (line 165, lines 182-220), though nothing I needed was lost. I could not read the exporter-toolkit at the version v1.8.2 pins.
+
+**3. Next time:** I would skip code search and go straight to `ghGetFileContent` on the tag. I would also read `go.mod` at v1.8.2 to find the pinned toolkit version, then read `flag.go` at that tag instead of the default branch.
+
+**4. Confidence:** High for `/metrics`, `40` and `:9100`, since I read all three at the v1.8.2 tag. The one gap is that the toolkit flag code came from the default branch. I disclosed that in the answer.

@@ -1,0 +1,182 @@
+{
+  "qid": "G12",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "1952ebc51ee821ec092115b041893710e73a699b4ce2d4bb84356cd77547eaba",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "210a95790d538f0292b8104d441ab665b139a86df8bd16dd7c3287a70b8fd1cd",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "States __init__.py re-exports 14 names; it actually re-exports 15 (and X's own list has 15)"
+      ],
+      "notes": "Structure and hierarchy are correct. Class lists were admittedly taken from the default branch but match the pinned commit. utils.py was not read and its function is not named. Few citations, with no per-class line numbers."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All classes are cited with line numbers matching the reference. Correctly separates schemes from non-schemes. Names get_authorization_scheme_param through the imports in http.py and oauth2.py. Did not list the contents of utils.py, but makes no wrong claims about it."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "States __init__.py re-exports 14 names; it actually re-exports 15 (and X's own list has 15)"
+      ],
+      "notes": "Structure and hierarchy are correct. Class lists were admittedly taken from the default branch but match the pinned commit. utils.py was not read and its function is not named. Few citations, with no per-class line numbers."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All classes are cited with line numbers matching the reference. Correctly separates schemes from non-schemes. Names get_authorization_scheme_param through the imports in http.py and oauth2.py. Did not list the contents of utils.py, but makes no wrong claims about it."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.09080260000000001,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8254,
+        "cache_read_input_tokens": 12173,
+        "output_tokens": 1116,
+        "context_tokens": 20431,
+        "total_tokens": 21547,
+        "first_request_context": 9805,
+        "fixed_overhead_tokens": 19610,
+        "research_tokens": 1937,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8254,
+          "cache_read_input_tokens": 12173,
+          "output_tokens": 15
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1101
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8254,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 10626
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.09080260000000001,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8254,
+    "cache_read_input_tokens": 12173,
+    "output_tokens": 1116,
+    "context_tokens": 20431,
+    "total_tokens": 21547,
+    "first_request_context": 9805,
+    "fixed_overhead_tokens": 19610,
+    "research_tokens": 1937,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 8254,
+      "cache_read_input_tokens": 12173,
+      "output_tokens": 15
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1101
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8254,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 10626
+  },
+  "timedOut": false
+}

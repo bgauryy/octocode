@@ -910,7 +910,6 @@ fn is_non_code_specifier(spec: &str) -> bool {
 /// an external package (as opposed to an unresolved or unsupported one).
 /// `internal_bare` marks a bare specifier that names project code (alias or
 /// workspace package), so an unlinked one is an internal gap.
-#[allow(clippy::too_many_arguments)]
 fn record_resolution(
     b: &mut BuiltGraph,
     file: &str,
@@ -962,7 +961,6 @@ fn record_resolution(
     false
 }
 
-#[allow(clippy::too_many_arguments)]
 fn resolve(
     spec: &str,
     importer: &str,

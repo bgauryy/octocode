@@ -1,0 +1,7 @@
+1. **Helped:** Two `ghGetHistoryItem` calls did all the work. The issue read (#13786) gave the author's root-cause analysis and the `closedBy` list, and its `readFixPr` hint pointed straight at PR #13825. The PR read with `include: ["body","patches"]` returned the full diff for `_config.py` plus the tests, so I could confirm the fix directly.
+
+2. **Did not help:** The patch output was truncated (`isPartial`, `contentPagination`), so I never saw the end of the `tests/test_model_signature.py` change. I said so in my answer but did not fetch the rest. I also never read source at the merge commit with `ghGetFileContent`. My answer therefore cites the PR diff and no `path:line` references, which the output format asks for. I did not look at why PR #13794 was closed. I only relied on its state being `closed` and not `merged`.
+
+3. **Next time:** After the PR read, I would call `ghGetFileContent` on `pydantic/_internal/_config.py` at the merge commit. That would give real line numbers for `_build_effective_config` and `core_config`. I would also follow `next.continuePatch` for the truncated file, and read #13794 to see why it was dropped.
+
+4. **Confidence:** High on the root cause and the core fix, because both come straight from the issue text and the diff. Medium on the finer details, such as the signature cleanups and the "once per config" warning behavior. Those rest on the diff and test comments, not on checked source lines.

@@ -56,6 +56,7 @@
         "reviewSummary",
         "searchCode",
         "searchContent",
+        "searchLiteral",
         "searchRepositoryCode",
         "textSearch",
         "verifyReferences",
@@ -111,7 +112,7 @@
     "pagesKey": "next"
   },
   "contractFormatVersion": 2,
-  "fingerprint": "97763a43625230fa53fc3d3639aa0060a707a96de479ccb117f2db5b7b349699",
+  "fingerprint": "a2a9ec26c982ec6c13ecb20ff322e2ff8246800fd761d906698dd35d3747f0d5",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -2660,7 +2661,7 @@
                                   "type": "string"
                                 },
                                 "contextLines": {
-                                  "maximum": 100,
+                                  "maximum": 10000,
                                   "minimum": 0,
                                   "type": "integer"
                                 },
@@ -11601,7 +11602,7 @@
                                   "type": "string"
                                 },
                                 "contextLines": {
-                                  "maximum": 100,
+                                  "maximum": 10000,
                                   "minimum": 0,
                                   "type": "integer"
                                 },
@@ -26207,7 +26208,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -29076,7 +29077,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -29346,7 +29347,6 @@
                         },
                         "pagination": {
                           "additionalProperties": {},
-                          "description": "Row-local pagination summary. Inspect data.next, partialReasons, and terminalLimit for completeness.",
                           "properties": {
                             "currentPage": {
                               "maximum": 9007199254740991,
@@ -29358,6 +29358,11 @@
                               "type": "boolean"
                             },
                             "nextPage": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "providerPagesRead": {
                               "maximum": 9007199254740991,
                               "minimum": 0,
                               "type": "integer"
@@ -29491,7 +29496,6 @@
                         },
                         "pagination": {
                           "additionalProperties": {},
-                          "description": "Row-local pagination summary. Inspect data.next, partialReasons, and terminalLimit for completeness.",
                           "properties": {
                             "currentPage": {
                               "maximum": 9007199254740991,
@@ -29503,6 +29507,11 @@
                               "type": "boolean"
                             },
                             "nextPage": {
+                              "maximum": 9007199254740991,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "providerPagesRead": {
                               "maximum": 9007199254740991,
                               "minimum": 0,
                               "type": "integer"
@@ -29945,6 +29954,9 @@
       "variants": [],
       "verbosePaths": [
         "results[].cache",
+        "results[].data.pagination.currentPage",
+        "results[].data.pagination.providerPagesRead",
+        "results[].data.pagination.totalPages",
         "results[].data.repositories[].createdAt",
         "results[].data.repositories[].forks",
         "results[].data.repositories[].updatedAt",
@@ -34036,7 +34048,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -36905,7 +36917,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -41965,7 +41977,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -44834,7 +44846,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -49724,7 +49736,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -52616,7 +52628,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -58180,7 +58192,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -61049,7 +61061,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -67663,7 +67675,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -71775,7 +71787,7 @@
             "description": "Optional-content leads for this pull request row: omitted bodies, patches, comments, reviews, or commits. They are not completeness recovery.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -71791,7 +71803,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -76794,7 +76806,7 @@
                       "type": "string"
                     },
                     "version": {
-                      "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates; go exact.",
+                      "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates.",
                       "maxLength": 100,
                       "minLength": 1,
                       "pattern": "\\S",
@@ -76908,7 +76920,7 @@
                       "type": "string"
                     },
                     "version": {
-                      "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates; go exact.",
+                      "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates.",
                       "maxLength": 100,
                       "minLength": 1,
                       "pattern": "\\S",
@@ -80945,7 +80957,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -83814,7 +83826,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -84541,7 +84553,7 @@
                 "type": "string"
               },
               "version": {
-                "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates; go exact.",
+                "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates.",
                 "maxLength": 100,
                 "minLength": 1,
                 "pattern": "\\S",
@@ -84655,7 +84667,7 @@
                 "type": "string"
               },
               "version": {
-                "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates; go exact.",
+                "description": "Exact, range (\"^3\"), or tag; npm/pypi/crates.",
                 "maxLength": 100,
                 "minLength": 1,
                 "pattern": "\\S",
@@ -88863,7 +88875,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -91732,7 +91744,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -92442,8 +92454,8 @@
                   "type": "string"
                 },
                 "contextLines": {
-                  "description": "Lines around each hit; default 0 (detailed: 3).",
-                  "maximum": 100,
+                  "description": "Lines around each hit; default 0 (detailed: 3); over 100 clamps.",
+                  "maximum": 10000,
                   "minimum": 0,
                   "type": "integer"
                 },
@@ -96599,7 +96611,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -99468,7 +99480,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -99532,7 +99544,7 @@
                               "type": "string"
                             },
                             "contextLines": {
-                              "maximum": 100,
+                              "maximum": 10000,
                               "minimum": 0,
                               "type": "integer"
                             },
@@ -100790,8 +100802,8 @@
             "type": "string"
           },
           "contextLines": {
-            "description": "Lines around each hit; default 0 (detailed: 3).",
-            "maximum": 100,
+            "description": "Lines around each hit; default 0 (detailed: 3); over 100 clamps.",
+            "maximum": 10000,
             "minimum": 0,
             "type": "integer"
           },
@@ -105415,7 +105427,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -108284,7 +108296,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -114468,7 +114480,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -117337,7 +117349,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -125893,7 +125905,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -128762,7 +128774,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -136169,7 +136181,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -139038,7 +139050,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -145316,7 +145328,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -148208,7 +148220,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },
@@ -153855,7 +153867,7 @@
                         "type": "string"
                       },
                       "contextLines": {
-                        "maximum": 100,
+                        "maximum": 10000,
                         "minimum": 0,
                         "type": "integer"
                       },
@@ -157490,7 +157502,7 @@
             "description": "Optional guidance: text tips and lead calls (tool, query) by name; run a lead unchanged when it serves the question. Leads never complete a partial result.",
             "properties": {
               "text": {
-                "description": "Prose tips.",
+                "description": "Prose tips, only on empty or failed rows; a successful row states what it needs in warnings.",
                 "items": {
                   "type": "string"
                 },

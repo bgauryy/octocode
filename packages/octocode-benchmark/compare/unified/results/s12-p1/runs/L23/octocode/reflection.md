@@ -1,0 +1,7 @@
+**1. Helped:** `localSearch` with the regex `self\._chain\(` on `query.py` was the key call. It returned all 24 call-site lines at once. `astSearch` (symbols) then gave each method's line range, so I could map lines to methods without reading the file.
+
+**2. Did not help:** In the `astSearch` call I passed a long guessed list of names. It appears to have ignored the filter and returned all 108 declarations, which was noisy. I never used `localFetch` to read the code. The line-to-method mapping was done by eye, and I didn't check the borderline cases (`get` at 736, `complex_filter` at 1770, `__or__`, `__xor__`). I also didn't confirm the checkout was at the pinned commit.
+
+**3. Next time:** I'd run the same `localSearch`, then use `lspSearch` or `localFetch` on the borderline methods. I'd also drop the name filter and let `astSearch` return everything.
+
+**4. Confidence:** Medium-high on the method list, since the line ranges are unambiguous. But my answer said "Twenty-five methods" when the table has 23 methods and 24 call sites (`__getitem__` has two). That count was wrong and should be corrected. The claims about `__or__`, `__xor__` and the other methods were presented as absences, but I only checked the search hits, not the bodies.

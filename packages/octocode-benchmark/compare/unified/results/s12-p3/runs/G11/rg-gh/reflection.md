@@ -1,0 +1,7 @@
+**1. Helped:** The second Bash call was the one that produced the answer. It looped `gh api -X GET .../contents/httpx/_transports/$f.py?ref=b5addb64f0` with the raw Accept header and piped each file to `grep -nE "^class |def handle_request|def handle_async_request"`. That gave class names, base classes and handler methods with line numbers at the pinned commit in one call. The directory listing in the first call also confirmed which modules exist.
+
+**2. Did not help:** The first call used `rg`, which isn't installed (exit 127), so five loop iterations returned nothing. I should have checked for `rg` first or used `grep` from the start. Every call also printed "/dev/null: Operation not permitted", which is harmless noise but made the output harder to trust at a glance. I never fetched `Client`/`AsyncClient` source or `_transports/__init__.py`.
+
+**3. Next time:** I'd use `grep` straight away. I'd also fetch `_client.py` to confirm how each client handles the transport it's given, and `__init__.py` to see which names are exported.
+
+**4. Confidence:** Medium-high. The classes, modules, base classes and line numbers were all seen directly. The "Client only / AsyncClient only" split is inferred from the base class and handler method, not from the client code. I said so in the answer.

@@ -1,0 +1,7 @@
+**1. Helped:** `artifactSearch` (npm, undici 6.21.0) was the best step. One call returned `engines >=18.17`, the publish date, and a release-source SHA. The final `ghGetFileContent` with `branch: "v6.21.0"` and several `matchString` values then showed all the timeout defaults in one read. Its response carried `commitSha` 61ec353…, which matched the SHA from `artifactSearch`. `ghGetHistoryItem` on the tag confirmed that SHA and showed it was a version-bump commit.
+
+**2. Did not help:** My `ghSearchCode` call was wasted. It searches the default branch, so it returned a different commit (a60d1ed…) and `client.js` line numbers that don't apply to 6.21.0. I only caught this because the SHA differed, and I had to re-read at the tag. The `artifactSearch` hint marked the release source "unverified", so tag matching was my only cross-check. I did not read the engines field in the packed tarball's `package.json`, and I did not read the keep-alive hint handling.
+
+**3. Next time:** I would skip `ghSearchCode` for version-specific facts and go straight to `ghGetFileContent` at the tag or SHA. I would also add a `matchString` for the `Keep-Alive` header handling in `lib/dispatcher/client-h1.js`.
+
+**4. Confidence:** High for the Node range, the commit, and the timeout defaults, since each came from fetched bytes at the pinned commit. Medium for how the keep-alive hint changes the timeout, since I never read that code.

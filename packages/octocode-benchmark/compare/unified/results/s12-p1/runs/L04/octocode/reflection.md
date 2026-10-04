@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` was the fastest step. One regex for `parse_docstring|_create_subset_model|create_schema_from_function|_infer_arg_descriptions` mapped the call chain across `convert.py`, `base.py` and `structured.py`. The `localFetch` range reads of `base.py:165-375` and `structured.py:235-310` then gave the deciding lines with exact numbers. Running three calls in parallel (the `base.py:100-168` read, the `_create_subset_model` search, and the `convert.py:300-345` read) kept the round trips low.
+
+2. **Did not help:** The `localSearch` for `def _create_subset_model` with `contextLines: 45` returned a huge, noisy block. It showed unrelated code from before the match, and its line numbers were prefixed inside the value text. I never read `_parse_google_docstring`, which is the core of the docstring parsing. I skipped it and flagged that in the answer. That was a real gap, because one search plus one read would have closed it.
+
+3. **Next time:** I would locate `_parse_google_docstring` right away (likely in `langchain_core/utils/`) and read it. I would also use a smaller `contextLines` value, or `localFetch` with `matchString`, instead of a wide context search.
+
+4. **Confidence:** Medium-high. The call chain, the description fallback logic and the subset-model construction are all backed by lines I read. The exact description/args split rests on a function I didn't read.

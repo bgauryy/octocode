@@ -1,0 +1,7 @@
+1. **Helped:** The `localSearch` for "stack" in `lodash.js` found every `Stack` use in `baseIsEqualDeep`, `equalArrays`, `equalByTag` and `equalObjects` in one call. The single `localFetch` with three ranges (5706-5766, 5826-5840, 5881-5926) then returned the exact cycle-check lines I cited.
+
+2. **Did not help:** The "stack" search was noisy. About 100 matches came back, many from `baseClone`, `baseMerge`, doc comments and "call stack" prose. The fetch output also elided lines 5767-5825 and 5841-5880, so I never saw the rest of `equalByTag` or the start of `equalObjects`. I saw `baseIsEqualDeep` (3338-3380) only as grep hits, not as read code. I ran no examples, so the behavior is read from the code, not tested.
+
+3. **Next time:** I'd search for "cyclic" or "Assume cyclic" instead, which targets the three relevant blocks directly. I'd fetch `baseIsEqualDeep` and the omitted `equalByTag`/`equalObjects` ranges to close the gaps.
+
+4. **Confidence:** High on the core mechanism and the two-way pairing rule, because I read those lines directly. Medium on the Map/Set one-sided check, because I saw only part of that function. The claim that cyclic pairs leave the result to the non-cyclic parts is inferred from the code, not tested.

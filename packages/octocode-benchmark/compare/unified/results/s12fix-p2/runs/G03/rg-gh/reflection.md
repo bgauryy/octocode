@@ -1,0 +1,7 @@
+1. **Helped:** One Bash call did nearly all the work. It ran `gh api -X GET repos/nodejs/undici/pulls/5881` for the title, body and merge SHA, and `.../pulls/5881/files` with `--jq` to print every file's patch. That gave the rationale, the code diff and the tests together, with no need to clone or search.
+
+2. **Did not help:** The call printed three `/bin/bash: /dev/null: Operation not permitted` errors. They were harmless, but they suggest the sandbox blocks `/dev/null`. The PR body only describes the bug at a high level ("Bug Fixes: N/A"). I did not look for linked issues or review comments that might give the original report. I also never fetched the files at the merge commit, so I could not give `path:line` citations. I cited diff content only, and I said so.
+
+3. **Next time:** I would add a second call. It would fetch `gh api repos/nodejs/undici/pulls/5881/comments` and `.../issues/5881/comments`, plus `contents/lib/dispatcher/pool-base.js?ref=<merge sha>`. That would give line numbers and any maintainer discussion. I would also check whether a related issue exists.
+
+4. **Confidence:** Medium-high. The mechanism comes straight from the diff and the author's own comments, so I'm confident in how the fix works. I'm less sure about the exact original failure scenario, since I only have the PR text. I did not run the tests.

@@ -1,0 +1,10 @@
+**Root cause:** The `$state` proxy in `packages/svelte/src/internal/client/proxy.js` made `prop in s` reactive through its `has` trap, which subscribes to a per-property source. `Object.hasOwn(s, prop)` doesn't call `has`. It calls the `getOwnPropertyDescriptor` trap, and that trap never created a dependency for a property that didn't exist yet. When `s.y = true` was set later, nothing was subscribed, so `{Object.hasOwn(s, 'y')}` never updated. I inferred this from the PR diff. I didn't read the file at the pinned commit, so I have no line numbers.
+
+**Fix:** PR #18838, "fix: make Object.hasOwn reactive for state proxies", is marked "Fixes #18837". It was merged on 2026-09-18 as commit `a72dc8eadbf63189d9ae12e9ea18711378f8f12f`, and the issue was closed the same day. The PR changed the `getOwnPropertyDescriptor` trap in `packages/svelte/src/internal/client/proxy.js` in three ways:
+- **Dependency:** the trap now begins with `this.has?.(target, prop);`. This reuses the `has` trap's logic to create the per-property source, with the same eligibility rules, so inherited properties keep their existing behaviour.
+- **Source lookup:** it reads `sources.get(prop)` once. If a source exists, it calls `get(s)` to register the dependency.
+- **Descriptor handling:** if the source's value is `UNINITIALIZED` (the property was deleted), the trap returns `undefined`. Otherwise it patches `descriptor.value`, or builds an `{enumerable: true, configurable: true, ...}` descriptor when the target has none. This merges the two earlier branches.
+
+The PR also adds a changeset (`.changeset/reactive-has-own.md`, patch for `svelte`). It adds a regression test, `tests/runtime-runes/samples/object-has-own-reactive/`, which checks that `Object.hasOwn(state, 'y')` flips to true after `state.y = true` and back to false after `delete state.y`.
+
+**Uncertainty:** I read the PR diff and description but not the source at the merged commit. I didn't run the tests either. The PR's own test results are self-reported.

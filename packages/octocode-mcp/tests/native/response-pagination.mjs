@@ -65,7 +65,8 @@ async function collect(client) {
     args = continuation.query;
   }
   assert.ok(pages.length > 1);
-  assert.equal(pages.at(-1).structuredContent.responsePagination.hasMore, false);
+  // The last page has nothing left to page: it carries no responsePagination.
+  assert.equal(pages.at(-1).structuredContent.responsePagination, undefined);
   return pages;
 }
 
@@ -79,13 +80,8 @@ try {
   assert.ok(localFetch, 'native catalog must advertise localFetch');
   assert.ok(localFetch.title);
   assert.equal(Object.hasOwn(localFetch, 'outputSchema'), false);
-  assert.deepEqual(localFetch.annotations, {
-    title: localFetch.title,
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-  });
+  // tools/list omits annotations and output schemas (ARCHITECTURE.md).
+  assert.equal(Object.hasOwn(localFetch, 'annotations'), false);
   const [expected, actual] = await Promise.all([collect(reference), collect(native)]);
   assert.deepEqual(withoutOpaqueCursors(actual), withoutOpaqueCursors(expected));
 

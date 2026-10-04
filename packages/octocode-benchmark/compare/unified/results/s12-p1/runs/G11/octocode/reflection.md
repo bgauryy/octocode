@@ -1,0 +1,7 @@
+1. **Helped:** The two parallel first calls did nearly all the work. `ghStructure` on `httpx/_transports` with branch `b5addb64f0` listed the six modules and resolved the short SHA to the full commit. `ghSearchCode` for "Transport" scoped to that path returned class declarations with base classes and line numbers for every module, including `MockTransport` inheriting both bases.
+
+2. **Did not help:** `ghSearchCode` was called without a branch. Its description says it covers indexed default-branch code, so I cannot be sure the line numbers come from the pinned commit. The response did report the matching `commitSha`, which is reassuring but not a guarantee. I never ran `ghGetFileContent`, so I read no method bodies and did not check the top-level `httpx` exports or `Client`/`AsyncClient` type hints. The sync/async mapping rests on base classes and docstring examples.
+
+3. **Next time:** I'd add one `ghGetFileContent` on `mock.py` and one on `__init__.py`, both pinned to the SHA. I'd also search `httpx/_client.py` for `BaseTransport` to confirm the client-side type constraints.
+
+4. **Confidence:** Medium-high. The class-to-module mapping and base classes are directly evidenced. The line numbers and the "both" claim for `MockTransport` are slightly less certain, because of the unpinned search and the unread method bodies.

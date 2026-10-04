@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` call, one regex alternation (`sampleLimit|errSampleLimit|ErrSampleLimit|SampleLimit`) over `scrape/` with tests excluded, located the whole mechanism at once: config copy, wrapper, error sentinel, handler and metric. The `localFetch` of `target.go` 365-420 gave the exact `limitAppender` logic, including the staleness-marker bypass. The multi-range `localFetch` on `scrape.go` confirmed the wiring and error handling.
+
+2. **Did not help:** The multi-range fetch auto-elided large gaps (1996-2049, 2067-2158), so I saw only the slices I asked for. I never read what the scrape loop does with the returned error, so I could not say whether appended samples are rolled back. I did not open the V2 path beyond grep hits, and I did not use `lspSearch`, so I did not confirm where `limitAppender` is referenced.
+
+3. **Next time:** I would add one more fetch of the scrape loop's commit/rollback code around the `sampleLimitErr` return, and read the caller of that function. That would close the rollback gap, and I would then run the fetches in parallel. I would also read the `scrape_append_v2.go` limit appender directly instead of inferring it.
+
+4. **Confidence:** High for the core mechanism (wrapper, counter, sentinel error, continue-parsing behaviour), since each point was read at a cited line. Medium for what happens to samples after the limit is hit, which I flagged as unverified. The pinned-commit state rests on the user's statement about the checkout, which I did not check.

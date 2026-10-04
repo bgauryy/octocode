@@ -1,0 +1,7 @@
+1. **Helped:** My single `localSearch` call for `TargetFramework` in `Src/Newtonsoft.Json`, filtered to `*.csproj`/`*.props` with content view, returned the default `TargetFrameworks` list at line 3 plus the per-framework property groups. That answered the current-commit half in one step, and the include filter kept the output small.
+
+2. **Did not help:** I made no call to establish the 13.0.3 baseline. I wrote that list from memory (net6.0, net45, net40, net35, net20, netstandard2.0, netstandard1.3, netstandard1.0), which is the weak point of the answer. I never opened the csproj with `localFetch`, so the surrounding conditions (lines 1-10) went unseen. I also did not check for other csproj files, `Directory.Build.props`, or a `LibraryFrameworks` override elsewhere in the repo. The tools did not error, but they have no way to read the NuGet package's contents.
+
+3. **Next time:** Use `ghSearchHistory` or `ghGetFileContent` against tag 13.0.3 to read `Newtonsoft.Json.csproj` there. I would also use `localFetch` with `matchString: TargetFramework` and context lines to confirm line 3 in place, then diff the two lists against each other.
+
+4. **Confidence:** High for the commit's target list, since it comes straight from line 3. Medium for the added/dropped lists, because the 13.0.3 baseline was unverified recall.

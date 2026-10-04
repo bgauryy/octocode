@@ -366,7 +366,6 @@ pub(super) fn review_selection(files: &[Value], budget: usize) -> Vec<String> {
 
 /// Shape a pull request's changed-file page into `row`: compact inventory
 /// rows without patches, one object per file with them.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn shape_pr_files(
     row: &mut Value,
     pagination: &mut Map<String, Value>,

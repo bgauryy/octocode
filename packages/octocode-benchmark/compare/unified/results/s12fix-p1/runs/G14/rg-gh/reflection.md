@@ -1,0 +1,7 @@
+1. **Helped:** The second call, `gh api -X GET "repos/prometheus/client_golang/contents/prometheus/histogram.go?ref=v1.20.0" ... | base64 -d | grep -n ...`, did most of the work. It read the file at the tag and showed `DefBuckets` (line 265) and the doc comment. The third call (`sed -n '393,398p;558,568p'`) confirmed the exact code condition at lines 563-565.
+
+2. **Did not help:** My first call failed. I wrote to `/tmp` despite the checkout being read-only, and I called `rg`, which wasn't installed. Only the tag-SHA lookup succeeded. Every later call also printed `/dev/null: Operation not permitted`. That was harmless noise, but it made me unsure whether the output was complete. The second and third calls fetched the same file twice, and I could have merged them.
+
+3. **Next time:** I'd pipe `gh api ... | base64 -d` straight into `grep` and `sed` from the start, and use `grep` rather than `rg`. I'd fetch the file once and print the needed line ranges in the same command.
+
+4. **Confidence:** High. I read the v1.20.0 source directly, and the code condition matches the doc comment. The one soft spot is calling the repo "official", which rests on the `prometheus` org name and my background knowledge, not on anything I checked in the session.

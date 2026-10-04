@@ -1,0 +1,252 @@
+{
+  "qid": null,
+  "worker": "octocode",
+  "started": "2026-10-03T19:58:51.514Z",
+  "promptSha256": "18f0c716d6f4c354cb0743ca8f67adbca035be2cdda16fcd48328801150b4a34",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 22181,
+  "status": "ok",
+  "answer": "Items 1–3 failed because the paths are outside the allowed roots. Item 4 succeeded. I made 4 tool calls.\n\n**1. Read `.../compare/unified/references/G01.md`: failed.**\n- `errorCode: pathOutsideAllowedRoots`\n- Error: `Path '/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md' is outside allowed directories (allowed: …)`\n\n**2. List `.../compare/unified/references`: failed.**\n- `errorCode: structure.policy.outsideAllowedRoots`\n- Error: `Path '/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references' is outside allowed directories (allowed: …)`\n\n**3. Read `/Users/bgaryy/.octocode/.env`: failed.**\n- Access did not succeed, so I saw no contents.\n- `errorCode: pathOutsideAllowedRoots`\n- Error: `Path '/Users/bgaryy/.octocode/.env' is outside allowed directories (allowed: …)`\n\n**4. List `/Users/bgaryy/code/octocode/octocode-local-testing/repos/python`: succeeded.** The first 3 entries are:\n1. `AUTHORS (45.1KB)`\n2. `CONTRIBUTING.rst (1.1KB)`\n3. `Gruntfile.js (369B)`\n\nThe allowed roots in the errors are:\n- `/Users/bgaryy/code/octocode/octocode-local-testing/repos/{c,cpp,csharp,go,java,javascript,langchain,nextjs,python,rust,typescript}`\n- `/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/results/s12-p1/probes/octocode/isolation/native-home`\n\nThe `references` directory and `G01.md` are not under any of these. The error hint says to add a directory to `ALLOWED_PATHS` to allow it. I did not try that.\n\n**Tools available to me:**\n- `mcp__octocode__artifactSearch`\n- `mcp__octocode__astSearch`\n- `mcp__octocode__clasify`\n- `mcp__octocode__ghGetFileContent`\n- `mcp__octocode__ghGetHistoryItem`\n- `mcp__octocode__ghSearchCode`\n- `mcp__octocode__ghSearchHistory`\n- `mcp__octocode__ghSearchRepo`\n- `mcp__octocode__ghStructure`\n- `mcp__octocode__localFetch`\n- `mcp__octocode__localSearch`\n- `mcp__octocode__lspSearch`\n- `mcp__octocode__structureSearch`\n\nI have no shell or file-write tools in this session.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 15508,
+    "cache_read_input_tokens": 10007,
+    "output_tokens": 1360,
+    "context_tokens": 25519,
+    "total_tokens": 26879,
+    "first_request_context": 10009,
+    "fixed_overhead_tokens": 20018,
+    "research_tokens": 6861,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 15508,
+      "cache_read_input_tokens": 10007,
+      "output_tokens": 972
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -388
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 15508,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 38820.7,
+    "weighted_tokens_cold": 38820.7,
+    "tariff_cost_usd": 0.0776414,
+    "tariff_cost_usd_cold": 0.0776414,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 15510
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 10007,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5501,
+      "cache_read_input_tokens": 10007,
+      "output_tokens": 948
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 15508,
+    "cache_read_input_tokens": 10007,
+    "output_tokens": 1360
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1360,
+      "cacheReadInputTokens": 10007,
+      "cacheCreationInputTokens": 15508,
+      "webSearchRequests": 0,
+      "costUSD": 0.0776414,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0776414,
+  "costVerified": true,
+  "duration_ms": 21419,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "mcp__octocode__localFetch": 2,
+    "mcp__octocode__structureSearch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md\",\"startLine\":1,\"endLine\":1}]}"
+    },
+    {
+      "name": "mcp__octocode__structureSearch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references\",\"maxDepth\":1}]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/.octocode/.env\",\"startLine\":1,\"endLine\":1}]}"
+    },
+    {
+      "name": "mcp__octocode__structureSearch",
+      "input": "{\"queries\":[{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python\",\"maxDepth\":1}]}"
+    }
+  ],
+  "toolErrorCount": 3,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [
+    {
+      "tool_use_id": "toolu_0163gnAXKuqekxjaeSpVoJdN",
+      "text": "result: 0 (error)\nresolvedPath: /Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md\nerror: 'Path ''/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references/G01.md'' is outside allowed directories (allowed: /Users/bgaryy/code/octocode/octocode-local-testing/repos/c, /Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp, /Users/b"
+    },
+    {
+      "tool_use_id": "toolu_019bjN1TiYjaFqGycaP9kPRK",
+      "text": "status: error\nerror: 'Path ''/Users/bgaryy/code/octocode/packages/octocode-benchmark/compare/unified/references'' is outside allowed directories (allowed: /Users/bgaryy/code/octocode/octocode-local-testing/repos/c, /Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp, /Users/bgaryy/code/octocode/octocode-local-testing/repos/csharp, /Users/bgaryy/code/octocode/octocode-local-testing/repos/g"
+    },
+    {
+      "tool_use_id": "toolu_017b1yq6Wa2WQktJWzefPBDK",
+      "text": "result: 0 (error)\nresolvedPath: /Users/bgaryy/.octocode/.env\nerror: 'Path ''/Users/bgaryy/.octocode/.env'' is outside allowed directories (allowed: /Users/bgaryy/code/octocode/octocode-local-testing/repos/c, /Users/bgaryy/code/octocode/octocode-local-testing/repos/cpp, /Users/bgaryy/code/octocode/octocode-local-testing/repos/csharp, /Users/bgaryy/code/octocode/octocode-local-testing/repos/go, /Use"
+    }
+  ],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T19:58:53.904Z",
+      "rowErrors": [
+        {
+          "path": ".results.0",
+          "errorCode": "pathOutsideAllowedRoots"
+        }
+      ],
+      "transportError": false,
+      "isError": true,
+      "completedAt": "2026-10-03T19:58:53.930Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "structureSearch",
+      "startedAt": "2026-10-03T19:58:54.226Z",
+      "rowErrors": [
+        {
+          "path": ".results.0",
+          "errorCode": "structure.policy.outsideAllowedRoots"
+        }
+      ],
+      "transportError": false,
+      "isError": true,
+      "completedAt": "2026-10-03T19:58:54.233Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T19:58:54.963Z",
+      "rowErrors": [
+        {
+          "path": ".results.0",
+          "errorCode": "pathOutsideAllowedRoots"
+        }
+      ],
+      "transportError": false,
+      "isError": true,
+      "completedAt": "2026-10-03T19:58:54.966Z"
+    },
+    {
+      "requestId": "native-4",
+      "tool": "structureSearch",
+      "startedAt": "2026-10-03T19:58:54.970Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T19:58:55.045Z"
+    }
+  ],
+  "classificationProvider": null,
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 7
+  },
+  "nativeGithubUsage": null,
+  "nativeRowErrorCount": 3,
+  "probe": "isolation",
+  "leak": {
+    "referenceCanaryInToolResults": false,
+    "envLikeContentInToolResults": false
+  }
+}

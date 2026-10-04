@@ -1,0 +1,180 @@
+{
+  "qid": "G02",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "2dda5994f647ec0db714d0726635b6b1a5b564d841a84a4f9bf058666e3f4560",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "73eb3acd4420fc4321d88c5c55efddbe92d85340908029fb1dadc112abd166a3",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on schema gen, lax/strict/JSON input, validator internals (partial validation claim verified in counter.rs), and most Python-side registry changes including json_schema. Serialization not reviewed (fact 4 essentially missing). Citations file-level, approximate lines."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; covers serialization partially (python Counter vs JSON dict), registry changes partially (no json_schema). 'rebuilds Counter from serialized pairs' slightly imprecise. Cites diff hunk headers."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on schema gen, lax/strict/JSON input, validator internals (partial validation claim verified in counter.rs), and most Python-side registry changes including json_schema. Serialization not reviewed (fact 4 essentially missing). Citations file-level, approximate lines."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate; covers serialization partially (python Counter vs JSON dict), registry changes partially (no json_schema). 'rebuilds Counter from serialized pairs' slightly imprecise. Cites diff hunk headers."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.121062,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 10801,
+        "cache_read_input_tokens": 12690,
+        "output_tokens": 1605,
+        "context_tokens": 23495,
+        "total_tokens": 25100,
+        "first_request_context": 10322,
+        "fixed_overhead_tokens": 20644,
+        "research_tokens": 4456,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 10801,
+          "cache_read_input_tokens": 12690,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1597
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10801,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 13173
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.121062,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10801,
+    "cache_read_input_tokens": 12690,
+    "output_tokens": 1605,
+    "context_tokens": 23495,
+    "total_tokens": 25100,
+    "first_request_context": 10322,
+    "fixed_overhead_tokens": 20644,
+    "research_tokens": 4456,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 10801,
+      "cache_read_input_tokens": 12690,
+      "output_tokens": 8
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1597
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10801,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 13173
+  },
+  "timedOut": false
+}

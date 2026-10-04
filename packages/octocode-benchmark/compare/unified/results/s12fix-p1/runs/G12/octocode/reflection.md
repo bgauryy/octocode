@@ -1,0 +1,7 @@
+1. **Helped:** `ghStructure` on `fastapi/security` with the pinned SHA gave the module list at 4b3949cd9e in one call. `ghGetFileContent` on `__init__.py` with the full SHA gave the exact re-exports. The `ghSearchCode` call for "class" scoped to that path listed every class, its base and its line number across all modules at once.
+
+2. **Did not help:** `ghSearchCode` ignores the ref and ran against a different commit (5f9fc5c, the default branch), not the pinned 4b3949cd9e. I only noticed this in the output. So the class names and line numbers are not verified at the pinned commit, and I said so in the answer. Its hint also pointed at the wrong SHA. I never read `utils.py`, so "no classes" there rests only on the search finding none, which I did not confirm.
+
+3. **Next time:** after the search, I would batch `ghGetFileContent` reads of `base.py`, `api_key.py`, `http.py`, `oauth2.py` and `open_id_connect_url.py` at the pinned SHA, using `matchString: "^class "`. That would confirm the classes and lines at the right commit. I would also read `utils.py` to check it.
+
+4. **Confidence:** high for the module list, the `__init__.py` re-exports and the `SecurityBase` hierarchy. Those are very unlikely to have changed between the two commits. Medium for the exact line numbers, which came from the wrong commit.

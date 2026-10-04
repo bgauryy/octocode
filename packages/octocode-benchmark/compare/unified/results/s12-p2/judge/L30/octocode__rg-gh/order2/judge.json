@@ -1,0 +1,191 @@
+{
+  "qid": "L30",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "6fe25d9db767cb18224ded925585ce887855068de72aa8802a64d57693bebe6f",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "8365f6d4a4c9aa5bb4080e189b636b5b003c32ba3abac38540fa7909b12ab0a4",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Groups channel_from_list and list::channel_from_index under 'all test-only' changes, but neither is cfg(test) (minor)"
+      ],
+      "notes": "All three spots and the PR changes are right, and the line numbers check out. Mentions the target branch tokio-1.51.x, the merge date, issue #8545 and the 32-bit impact. Leaves out the merge SHA but is honest about not checking ancestry."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Puts list::channel_from_index under 'test-only changes', but it is not cfg(test) (minor)"
+      ],
+      "notes": "All three spots and the PR changes are right, with the merge SHA 8513291fda and date. Correctly notes the existing wrapping_add at block.rs:298 and block.rs:329. Leaves out the channel_from_list helper."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Groups channel_from_list and list::channel_from_index under 'all test-only' changes, but neither is cfg(test) (minor)"
+      ],
+      "notes": "All three spots and the PR changes are right, and the line numbers check out. Mentions the target branch tokio-1.51.x, the merge date, issue #8545 and the 32-bit impact. Leaves out the merge SHA but is honest about not checking ancestry."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Puts list::channel_from_index under 'test-only changes', but it is not cfg(test) (minor)"
+      ],
+      "notes": "All three spots and the PR changes are right, with the merge SHA 8513291fda and date. Correctly notes the existing wrapping_add at block.rs:298 and block.rs:329. Leaves out the channel_from_list helper."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.1503892,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 12164,
+        "cache_read_input_tokens": 36026,
+        "output_tokens": 2292,
+        "context_tokens": 48198,
+        "total_tokens": 50490,
+        "first_request_context": 8735,
+        "fixed_overhead_tokens": 34940,
+        "research_tokens": 15550,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 12164,
+          "cache_read_input_tokens": 36026,
+          "output_tokens": 25
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2267
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 12164,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 14536
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 6,
+      "toolCounts": {
+        "Bash:invocation": 3,
+        "Read": 3
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.1503892,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 7,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 12164,
+    "cache_read_input_tokens": 36026,
+    "output_tokens": 2292,
+    "context_tokens": 48198,
+    "total_tokens": 50490,
+    "first_request_context": 8735,
+    "fixed_overhead_tokens": 34940,
+    "research_tokens": 15550,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 12164,
+      "cache_read_input_tokens": 36026,
+      "output_tokens": 25
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2267
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 12164,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 14536
+  },
+  "timedOut": false
+}

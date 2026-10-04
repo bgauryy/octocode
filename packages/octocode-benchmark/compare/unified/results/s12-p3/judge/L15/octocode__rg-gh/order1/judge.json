@@ -1,0 +1,179 @@
+{
+  "qid": "L15",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "2a948ad1b9046c49a99361da67dff5714d8d1f2656cda8bddf45681c1914ba31",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "d07d5574ecbbc8beacd29b5933f4df86739f2d286db136ce7c91b5abcf086c5c",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts are correct, with precise line citations (706-726, 725, 734-745, 835-871, 815, 878-880, 927). It does not mention that Builder.build() calls review(), or that maxRunBeforeFallback is recomputed when the table is resized. The RegularImmutableMap side note is accurate and presented as the map's analogue, not the set mechanism."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "The mechanism is correct and it mentions Hashing.smear. Several line citations are off: insertInHashTable is cited at ~713-735 (actually 706-726), the ascending-slot doc at 826-829 (actually 821-825), and the O(log n) doc at 830-831 (actually 826). It has the same minor omissions as X."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts are correct, with precise line citations (706-726, 725, 734-745, 835-871, 815, 878-880, 927). It does not mention that Builder.build() calls review(), or that maxRunBeforeFallback is recomputed when the table is resized. The RegularImmutableMap side note is accurate and presented as the map's analogue, not the set mechanism."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "The mechanism is correct and it mentions Hashing.smear. Several line citations are off: insertInHashTable is cited at ~713-735 (actually 706-726), the ascending-slot doc at 826-829 (actually 821-825), and the O(log n) doc at 830-831 (actually 826). It has the same minor omissions as X."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1741884,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 14515,
+        "cache_read_input_tokens": 37382,
+        "output_tokens": 2528,
+        "context_tokens": 51905,
+        "total_tokens": 54433,
+        "first_request_context": 9530,
+        "fixed_overhead_tokens": 38120,
+        "research_tokens": 16313,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 14515,
+          "cache_read_input_tokens": 37382,
+          "output_tokens": 36
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2492
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 14515,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 16887
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 6,
+      "toolCounts": {
+        "Bash:invocation": 3,
+        "Read": 3
+      },
+      "toolErrors": 3,
+      "cost_usd": 0.1741884,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 7,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 14515,
+    "cache_read_input_tokens": 37382,
+    "output_tokens": 2528,
+    "context_tokens": 51905,
+    "total_tokens": 54433,
+    "first_request_context": 9530,
+    "fixed_overhead_tokens": 38120,
+    "research_tokens": 16313,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 14515,
+      "cache_read_input_tokens": 37382,
+      "output_tokens": 36
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2492
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 14515,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 16887
+  },
+  "timedOut": false
+}

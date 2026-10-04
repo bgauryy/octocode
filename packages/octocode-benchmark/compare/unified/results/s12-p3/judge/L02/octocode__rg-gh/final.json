@@ -1,0 +1,164 @@
+{
+  "qid": "L02",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 1
+  },
+  "scores": {
+    "octocode": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 8.5,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1.5,
+      "perJudgment": [
+        9,
+        8
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "octocode",
+    "octocode"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.16408620000000002,
+  "judgeTokens": 47030,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 7472,
+        "cache_read_input_tokens": 19479,
+        "output_tokens": 1176,
+        "context_tokens": 26957,
+        "total_tokens": 28133,
+        "first_request_context": 8432,
+        "fixed_overhead_tokens": 25296,
+        "research_tokens": 2837,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 7472,
+          "cache_read_input_tokens": 19479,
+          "output_tokens": 32
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1144
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7472,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 9844
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 1
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.08721580000000001,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 7244,
+        "cache_read_input_tokens": 10812,
+        "output_tokens": 837,
+        "context_tokens": 18060,
+        "total_tokens": 18897,
+        "first_request_context": 8444,
+        "fixed_overhead_tokens": 16888,
+        "research_tokens": 2009,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 7244,
+          "cache_read_input_tokens": 10812,
+          "output_tokens": 12
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -825
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7244,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 9616
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0768704,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

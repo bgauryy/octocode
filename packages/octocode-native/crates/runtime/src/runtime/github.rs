@@ -169,7 +169,6 @@ impl GitHubServices {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn execute_query(
         &self,
         tool: ToolId,
@@ -250,7 +249,6 @@ impl GitHubServices {
         Ok(request_context)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn execute_resolved(
         &self,
         tool: ToolId,

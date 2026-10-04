@@ -92,6 +92,7 @@ fn split_walk(value: &mut Value, tool: ToolId) {
                 return;
             }
             split_object(object, tool);
+            drop_exact_confidence(object);
             for (key, child) in object.iter_mut() {
                 if key != PAGES_KEY && key != HINTS_KEY {
                     split_walk(child, tool);
@@ -130,7 +131,38 @@ fn split_object(object: &mut Map<String, Value>, tool: ToolId) {
         }
         _ => {
             cap_leads(&mut moved);
-            object.insert(HINTS_KEY.to_owned(), Value::Object(moved));
+            // Leads read before the pages that follow them (clasify's exact
+            // read ahead of its walk), so `hints` takes `next`'s place.
+            let at = object
+                .keys()
+                .position(|key| key == PAGES_KEY)
+                .unwrap_or(object.len());
+            object.shift_insert(at, HINTS_KEY.to_owned(), Value::Object(moved));
+        }
+    }
+}
+
+/// A continuation without `confidence` is an exact replay (a page cursor,
+/// the read of a named item); `high`/`medium`/`low` mark a judgment, so
+/// `"exact"` says nothing and goes. Continuation queries are caller input
+/// and stay untouched.
+fn drop_exact_confidence(object: &mut Map<String, Value>) {
+    for key in [PAGES_KEY, HINTS_KEY] {
+        if let Some(Value::Object(calls)) = object.get_mut(key) {
+            drop_exact_in(calls);
+        }
+    }
+}
+
+/// Named calls, or named groups of calls (per-item menus).
+fn drop_exact_in(calls: &mut Map<String, Value>) {
+    for call in calls.values_mut().filter_map(Value::as_object_mut) {
+        if call.get("tool").is_some_and(Value::is_string) && call.get("query").is_some() {
+            if call.get("confidence").and_then(Value::as_str) == Some("exact") {
+                call.shift_remove("confidence");
+            }
+        } else {
+            drop_exact_in(call);
         }
     }
 }
@@ -238,6 +270,38 @@ mod tests {
         let once = structured.clone();
         split_hints(&mut structured, ToolId::LspSearch);
         assert_eq!(structured, once, "idempotent");
+    }
+
+    #[test]
+    fn exact_confidence_goes_and_judgments_stay_on_every_tool() {
+        let mut structured = json!({"results":[{"index":0,"data":{
+            "next": {
+                "nextPage": {"tool":"localSearch","confidence":"exact","query":{"page":2,"confidence":"exact"}},
+                "readTopMatch": {"tool":"localFetch","confidence":"exact","query":{"path":"a"}},
+                "widen": {"tool":"localSearch","confidence":"medium","query":{}}
+            },
+            "files": [{"path":"a","hints":{"read":{"tool":"localFetch","confidence":"exact","query":{}}}}],
+            "confidence": "exact"
+        }}]});
+        split_hints(&mut structured, ToolId::LocalSearch);
+        let data = &structured["results"][0]["data"];
+        assert!(
+            data["next"]["nextPage"].get("confidence").is_none(),
+            "{data}"
+        );
+        assert_eq!(data["next"]["nextPage"]["query"]["confidence"], "exact");
+        assert!(
+            data["hints"]["readTopMatch"].get("confidence").is_none(),
+            "{data}"
+        );
+        assert_eq!(data["hints"]["widen"]["confidence"], "medium");
+        assert!(
+            data["files"][0]["hints"]["read"]
+                .get("confidence")
+                .is_none(),
+            "{data}"
+        );
+        assert_eq!(data["confidence"], "exact", "only continuations change");
     }
 
     #[test]

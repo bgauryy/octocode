@@ -1,0 +1,7 @@
+**1. Helped:** Two calls did the work. `localSearch` for `function debounce` in `lodash.js` returned the definition at line 10403 and a `localFetch` hint. `localFetch` with an explicit range (10403-10525) then returned the whole function with line numbers. That was enough to cite every claim, and no further calls were needed.
+
+**2. Did not help:** Nothing errored and no calls were wasted. The `include` filter listed `debounce.js` too, but only `lodash.js` matched, so that entry was a guess. I never confirmed the checkout was at commit 2b5e6f7. I had no git or history tool for it, so I relied on the user's statement that it was pinned. I also didn't check whether `debounce.js` or other modular copies exist. I didn't run the code, so the behavior comes from reading it alone.
+
+**3. Next time:** I would use `localFetch` with `matchString: "function debounce"` and a large `contextLines` to do this in one call. I would also check for a `.git/HEAD` file to confirm the pinned commit, since the answer's line numbers depend on it.
+
+**4. Confidence:** High on the behavior description, because it comes straight from the fetched source with matching line numbers. Medium on the commit pin, since I didn't verify it.

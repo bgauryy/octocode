@@ -1,0 +1,7 @@
+**1. Helped:** My only call was one `ghGetHistoryItem` on pallets/click #3866 with body, files and patches included. It returned the PR description, the CHANGES.md and upgrade-guide text, and the `core.py` diff with the `_check_name_is_usable` and `_check_name_is_normalized` bodies. That covered what is deprecated and which declarations warn, with no further searching.
+
+**2. Did not help:** The response was flagged `isPartial` because of content pagination. The `tests/test_arguments.py` patch was cut off mid-parameter list. The `test_deprecations.py`, `test_options.py` and `uv.lock` patches never appeared. The `core.py` patch had `...` elisions in place of unchanged context, so I never saw the full `_parse_decls` flow. I didn't follow `next.continuePatch`, and I didn't read `core.py` at `mergeCommitSha` to confirm the merged state. I cited the diff only.
+
+**3. Next time:** I would follow `next.continuePatch` for the remaining test files. I would also read `src/click/core.py` at the merge commit with `ghGetFileContent` and `matchString` on `_check_name_is_usable` to confirm the final code paths.
+
+**4. Confidence:** High on what is deprecated and which declarations warn, since the PR body, changelog, docs and source diff all agree. Medium on completeness, because some test files went unread and could hold edge cases I didn't see. I disclosed that gap in the answer.

@@ -88,6 +88,7 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
     let fragment_read = code_output::read_top_match(&json!({"files": &items}));
     let mut value = json!({});
     let resolution = code_output::resolve_lines(provider, query, &items, context, security).await?;
+    let resolved_sha = resolution.as_ref().map(|resolution| resolution.sha.clone());
     let reads = code_output::shape_files(&mut value, &mut items, query, resolution, fragment_read);
     if !items.is_empty() {
         value["files"] = json!(items);
@@ -109,6 +110,9 @@ pub async fn execute_code<R: CredentialResolver, C: crate::providers::github::Co
             n => format!("readHits{}", n + 1),
         };
         value["next"][key] = read;
+    }
+    if !items.is_empty() {
+        code_output::disclose_index_ref(provider, &mut value, query, resolved_sha, context).await?;
     }
     // Provider-index completeness is reported on every page, apart from
     // whether another page exists.
@@ -285,7 +289,7 @@ pub async fn execute_repositories<
         let wanted = wanted_topics(query);
         data.items
             .into_iter()
-            .map(|item| repository_row(item, &wanted, query.debug))
+            .map(|item| repository_row(item, &wanted))
             .collect::<Vec<_>>()
     };
     let repositories_empty = repositories.is_empty();
@@ -296,23 +300,20 @@ pub async fn execute_repositories<
         // more exists and how many matched. The listing is ordered by latest
         // push (the REST listing reports no total).
         Some(listing) => {
-            let mut value =
-                json!({"repositories":repositories,"order":"pushed","pagination":{"hasMore":more}});
-            if query.debug {
-                value["pagination"]["currentPage"] = json!(current);
-                value["pagination"]["providerPagesRead"] = json!(listing.last_page + 1 - current);
-            }
-            value
+            // Page counters are verbose (core field class).
+            json!({"repositories":repositories,"order":"pushed","pagination":{
+                "hasMore":more,
+                "currentPage":current,
+                "providerPagesRead":listing.last_page + 1 - current
+            }})
         }
         None => {
             let mut value = json!({"repositories":repositories,"pagination":{"totalMatches":total,"hasMore":more}});
             if provider_capped {
                 value["pagination"]["totalMatchesCapped"] = json!(true);
             }
-            if query.debug {
-                value["pagination"]["currentPage"] = json!(current);
-                value["pagination"]["totalPages"] = json!(pages);
-            }
+            value["pagination"]["currentPage"] = json!(current);
+            value["pagination"]["totalPages"] = json!(pages);
             value
         }
     };
@@ -392,7 +393,6 @@ fn add_next(
     next["page"] = json!(page + 1);
     value["next"] = json!({"nextPage":{"tool":tool.as_str(),"query":next,"confidence":"exact"}});
 }
-#[allow(clippy::too_many_arguments)]
 fn apply_partial(
     value: &mut Value,
     tool: ToolId,
@@ -450,11 +450,10 @@ fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
 
 /// One compact repository row: `owner/repo`, the decision facts, the whole
 /// description, and every topic (query matches first). Forks and the creation
-/// and metadata-update dates are diagnostics (`debug`).
+/// and metadata-update dates are verbose (core field class).
 fn repository_row(
     item: crate::providers::github::RepositorySearchItem,
     wanted: &[String],
-    debug: bool,
 ) -> Value {
     let mut topics = item.topics;
     // Stable: matching topics keep GitHub's order, then the rest.
@@ -470,11 +469,9 @@ fn repository_row(
     if !topics.is_empty() {
         row["topics"] = json!(topics);
     }
-    if debug {
-        row["forks"] = json!(item.forks_count);
-        row["createdAt"] = json!(date(item.created_at));
-        row["updatedAt"] = json!(date(item.updated_at));
-    }
+    row["forks"] = json!(item.forks_count);
+    row["createdAt"] = json!(date(item.created_at));
+    row["updatedAt"] = json!(date(item.updated_at));
     remove_null_fields(&mut row);
     row
 }
@@ -1009,6 +1006,73 @@ mod tests {
             );
         }
 
+        /// A search pinned to a non-default ref warns that its files come
+        /// from the default-branch index at the index commit and leads to
+        /// the ref's own listing first; a ref that is the default-branch head
+        /// adds neither.
+        #[tokio::test]
+        async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
+            const HEAD_SHA: &str = "fedcba9876543210fedcba9876543210fedcba98";
+            let server = MockServer::start().await;
+            mount_code_search(&server).await;
+            mount_ref(&server, "dev").await;
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/commits/HEAD"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(HEAD_SHA))
+                .mount(&server)
+                .await;
+            mount_content(&server, "src/handler.py", "def wrap_app(app):\n").await;
+            mount_content(&server, "src/routing.py", "await wrap_app(app)\n").await;
+            let out = run(
+                &server,
+                json!({"operation":"code","owner":"a","repo":"b","keywords":["wrap_app"],
+                    "path":"src","branch":"dev"}),
+            )
+            .await
+            .expect("search");
+            let data = &out.data;
+            let warning = data["warnings"][0].as_str().unwrap_or_default();
+            assert!(
+                warning.contains("default-branch index at fedcba9") && warning.contains("not dev"),
+                "{data}"
+            );
+            assert!(warning.contains("hints.viewRepo"), "{data}");
+            let lead = &data["next"]["viewRepo"];
+            assert_eq!(lead["tool"], "ghStructure", "{data}");
+            for (key, value) in [
+                ("owner", "a"),
+                ("repo", "b"),
+                ("path", "src"),
+                ("branch", TREE_SHA),
+            ] {
+                assert_eq!(lead["query"][key], value, "{data}");
+            }
+            assert_eq!(
+                data["next"]
+                    .as_object()
+                    .and_then(|next| next.keys().next())
+                    .map(String::as_str),
+                Some("viewRepo"),
+                "the ref's listing is the first lead: {data}"
+            );
+
+            let default_head = MockServer::start().await;
+            mount_code_search(&default_head).await;
+            mount_ref(&default_head, "main").await;
+            mount_ref(&default_head, "HEAD").await;
+            mount_content(&default_head, "src/handler.py", "def wrap_app(app):\n").await;
+            mount_content(&default_head, "src/routing.py", "await wrap_app(app)\n").await;
+            let out = run(
+                &default_head,
+                json!({"operation":"code","owner":"a","repo":"b","keywords":["wrap_app"],
+                    "branch":"main"}),
+            )
+            .await
+            .expect("search");
+            assert!(out.data.get("warnings").is_none(), "{}", out.data);
+            assert!(out.data.pointer("/next/viewRepo").is_none(), "{}", out.data);
+        }
+
         /// A file the index lists but the requested ref lacks offers no
         /// read: the fragment came from the default branch, and reading it
         /// there would cross the requested scope.
@@ -1516,11 +1580,34 @@ mod tests {
                 "query-matching topics come first: {row}"
             );
             assert_eq!(row["description"], long.as_str(), "{row}");
-            for absent in ["owner", "forks", "createdAt", "updatedAt", "topicCount"] {
+            for absent in ["owner", "topicCount"] {
                 assert!(row.get(absent).is_none(), "{absent}: {row}");
             }
+            // Forks and dates are verbose: the verbose stage drops them by
+            // default and debug keeps them.
+            for verbose in ["forks", "createdAt", "updatedAt"] {
+                assert!(
+                    crate::tools::id::ToolId::GhSearchRepo
+                        .verbose_paths()
+                        .contains(&format!("results[].data.repositories[].{verbose}").as_str()),
+                    "{verbose}"
+                );
+            }
+            // Page counters are verbose too; the verbose stage drops them.
+            let mut pagination = out.data["pagination"].clone();
+            for verbose in ["currentPage", "totalPages"] {
+                assert!(
+                    crate::tools::id::ToolId::GhSearchRepo
+                        .verbose_paths()
+                        .contains(&format!("results[].data.pagination.{verbose}").as_str()),
+                    "{verbose}"
+                );
+                if let Some(fields) = pagination.as_object_mut() {
+                    fields.shift_remove(verbose);
+                }
+            }
             assert_eq!(
-                out.data["pagination"],
+                pagination,
                 json!({"totalMatches":25,"hasMore":true}),
                 "{}",
                 out.data
@@ -1992,9 +2079,18 @@ mod tests {
                 .expect("location");
             assert!(std::path::Path::new(local).join("ok.rs").exists());
             // The warning carries the count; `location.skipped` names the file.
-            assert_eq!(out.data["location"]["skipped"], json!(["img.png"]), "{}", out.data);
+            assert_eq!(
+                out.data["location"]["skipped"],
+                json!(["img.png"]),
+                "{}",
+                out.data
+            );
             let warnings = out.data["warnings"].to_string();
-            assert!(warnings.contains("Skipped 1 unreadable file(s)"), "{}", out.data);
+            assert!(
+                warnings.contains("Skipped 1 unreadable file(s)"),
+                "{}",
+                out.data
+            );
             let _ = std::fs::remove_dir_all(local);
         }
 

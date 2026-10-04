@@ -13,7 +13,10 @@ import {
   getPublicToolCatalog,
   getNativeContractFingerprint,
 } from '@octocodeai/config/schema';
-import { buildMcpInstructions } from '@octocodeai/config/mcp';
+import {
+  buildMcpInstructions,
+  publishedInputSchema,
+} from '@octocodeai/config/mcp';
 
 const catalog = getPublicToolCatalog();
 const tools = catalog.tools as unknown as readonly JsonObject[];
@@ -311,8 +314,59 @@ describe('compact query view', () => {
     );
   };
 
+  // The compact view shows each optional brief with its published MCP note
+  // (no non-blank pattern: a blank brief is dropped before validation).
+  // CLI-only tools have no published view; they share the default notes.
+  const briefNotes = (tool: JsonObject): Record<string, string> => {
+    const published = tool.cliOnly === true ? toolNamed('localSearch') : tool;
+    const notes: Record<string, string> = {};
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (!isObject(value)) return;
+      const properties = value.properties;
+      if (isObject(properties))
+        for (const name of ['mainGoal', 'reasoning']) {
+          const field = properties[name];
+          if (isObject(field) && typeof field.description === 'string')
+            notes[name] ??= field.description;
+        }
+      Object.values(value).forEach(walk);
+    };
+    walk(
+      publishedInputSchema(
+        String(published.name),
+        published.inputSchema as Parameters<typeof publishedInputSchema>[1]
+      )
+    );
+    return notes;
+  };
+
+  // Every brief field, nested ones included (a clasify resource's tool query).
+  const shortenBriefs = (
+    value: unknown,
+    notes: Record<string, string>
+  ): void => {
+    if (Array.isArray(value))
+      return value.forEach(v => shortenBriefs(v, notes));
+    if (!isObject(value)) return;
+    const properties = value.properties;
+    if (isObject(properties))
+      for (const [name, note] of Object.entries(notes)) {
+        const field = properties[name];
+        if (!isObject(field)) continue;
+        delete field.pattern;
+        field.description = note;
+      }
+    Object.values(value).forEach(v => shortenBriefs(v, notes));
+  };
+
   it('keeps every field, requirement and small definition of each tool', () => {
     for (const tool of tools) {
+      const notes = briefNotes(tool);
+      expect(Object.keys(notes).sort(), String(tool.name)).toEqual([
+        'mainGoal',
+        'reasoning',
+      ]);
       const full = tool.querySchema as JsonObject;
       const view = project({ ...tool }, 'query').querySchema as JsonObject;
       expect(view.$schema, String(tool.name)).toBeUndefined();
@@ -364,11 +418,16 @@ describe('compact query view', () => {
                 : child
             )
           );
-        for (const [name, field] of Object.entries(fields))
+        for (const [name, field] of Object.entries(fields)) {
+          const expected = unguarded(
+            expand(full, field, summaries)
+          ) as JsonObject;
+          shortenBriefs({ properties: { [name]: expected } }, notes);
           expect(
             expand(view, shown[name], summaries),
             `${String(tool.name)}.${name}`
-          ).toEqual(unguarded(expand(full, field, summaries)));
+          ).toEqual(expected);
+        }
         if (original.additionalProperties === false && fullBranches.length > 1)
           expect(rooted(view).unevaluatedProperties).toBe(false);
       });

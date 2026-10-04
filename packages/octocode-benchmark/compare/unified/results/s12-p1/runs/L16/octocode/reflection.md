@@ -1,0 +1,7 @@
+**1. Helped:** The first `localSearch` on `LocalCache.java` (regex `segmentShift|segmentCount|maxSegmentWeight|concurrencyLevel|segmentMask`) found the relevant constructor and segment-lookup lines in one call. The following `localFetch` with three ranges (`246-322`, `1995-2003`, `2660-2680`) read the exact deciding code, including the author comment on why segments are capped by size. Running the `CacheBuilder.java` search in parallel with that fetch saved a round trip.
+
+**2. Did not help:** The `CacheBuilder.java` search returned about 60 matches, mostly Javadoc. I only needed the defaults, setters and `getMaximumWeight`. A tighter pattern would have cut the noise. I never read the `MAX_SEGMENTS` value or the full Javadoc text. I cited `CacheBuilder.java:452` and `:481-483` from search snippets alone. No errors occurred, and the tools had no way to confirm the checkout was at 4d41665af1; I took that from the task statement.
+
+**3. Next time:** I would fetch the `CacheBuilder` Javadoc ranges directly, and the `MAX_SEGMENTS` declaration. Since the answer cites the rounding and cap behavior, I would also check `evictsBySize()`.
+
+**4. Confidence:** High on the segment-count, per-segment weight and eviction mechanics, because I read those lines directly. Medium on the Javadoc citations and on the claim that segment count is "at most `concurrencyLevel` rounded up", which I inferred from the loop without testing.

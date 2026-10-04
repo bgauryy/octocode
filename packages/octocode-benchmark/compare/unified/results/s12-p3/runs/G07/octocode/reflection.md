@@ -1,0 +1,7 @@
+**1. Helped:** The first batch worked best. `ghGetFileContent` on `applications.py` with `matchString: "def build_middleware_stack"` and `contextLines: 40` returned the assembly code plus `__call__` and `add_middleware` in one read. A full-file read of `_exception_handler.py` (65 lines) gave the core handler lookup. Pinning `branch: 63c5760d8a` returned `commitSha` 63c5760d8a67…, which confirmed the pin.
+
+**2. Did not help:** `ghSearchCode` ignores the pinned ref and searches the indexed default branch. It reported commit 6beaa2e, not the pinned one. I only used it to find callers, then re-read `routing.py` at the pin, but it nearly gave me unpinned line numbers. The `errors.py` `matchString` landed on `__call__` but returned template text first, so I saw lines 99-199 and missed `debug_response` and `error_response`. I never opened `Router.__call__` or `app`, so 404/405 production is unverified.
+
+**3. Next time:** I'd batch the `routing.py` `matchString` reads in the first round, include the `Router` dispatch code, and skip `ghSearchCode` entirely. I'd use `ghGetFileContent` with explicit line ranges for `errors.py`.
+
+**4. Confidence:** High for the stack order and the exception flow, since every claim cites lines I read at the pinned commit. Medium for completeness: `Router` internals and the debug/default 500 bodies are unread, and the answer says so.

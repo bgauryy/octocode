@@ -1,0 +1,10 @@
+**Answer:** The tracing event is the `tracing::trace!` at `tokio/src/sync/batch_semaphore.rs:561`. It sits inside `Waiter::assign_permits` (lines 551–572), wrapped in `self.ctx.async_op_span.in_scope(...)` at line 560. It only exists under `cfg(all(tokio_unstable, feature = "tracing"))`. I read the code but did not open issue #8541 or run a reproduction, so the account below is inferred from the source.
+
+**Why a panic there leaves a completed waiter linked:**
+- `assign_permits` first does the `compare_exchange` on `self.state` (line 556). That subtracts the assigned permits, so a waiter that gets everything it needed now has `state == 0`, meaning it is complete. This happens before the event is emitted.
+- The event is emitted after that (lines 559–566). The `return next == 0` that tells the caller to unlink the waiter only comes at line 567.
+- Any `Subscriber` or `Layer` callback invoked by that event runs arbitrary user code. If it panics, `assign_permits` unwinds and never returns the "remove" signal.
+- The caller is `add_permits_locked`, which calls `waiter.assign_permits(&mut rem)` at line 316. That call comes from `waiters.queue.last()`, so the waiter is still in the queue and only borrowed. The `pop_back()` that unlinks it is at line 327, after the call, and it is skipped on unwind.
+- The result is a waiter whose `state` is already 0 but which is still in the intrusive linked list (`waiters.queue`). Its owner can now see its own `state` as 0, so it is free to treat the acquire as finished. The waiter lives inside the `Acquire` future, which is pinned and can be dropped or freed. If the stale node is then dropped without being unlinked, or the list is still walked while it is linked, the queue holds a dangling pointer. That is the use-after-free.
+
+**Uncertainty:** I did not read the `Acquire` drop path or `poll` to confirm exactly how the owner skips unlinking a waiter with `state == 0`. That step is inferred from the code and from the issue's title.

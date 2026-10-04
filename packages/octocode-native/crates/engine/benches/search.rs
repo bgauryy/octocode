@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used)]
 //! High-hit parallel search benchmark: many matched files across many
 //! directories, so per-file result collection (not regex evaluation) is a
 //! visible share of the runtime. Guards the worker-local collection path in

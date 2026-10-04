@@ -1,0 +1,357 @@
+{
+  "qid": "L07",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:17:32.676Z",
+  "promptSha256": "3c3eb3f0e566559ec8464676d72061857f0e2cf33865cffc7b5ed7f09134017a",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 19035,
+  "status": "ok",
+  "answer": "**Short answer:** `redirect()` and `permanentRedirect()` don't write a response. They throw a special error whose `digest` string holds the redirect details. Whichever server layer catches it (page render, route handler, or server action) detects it with `isRedirectError`. That layer then sets the status code and `Location` header on the response. All paths are under `packages/next/src`.\n\n**1. Throwing the error**\n- `getRedirectError` builds `new Error('NEXT_REDIRECT')` and sets `error.digest = \"NEXT_REDIRECT;<type>;<url>;<status>;\"` (`client/components/redirect.ts:9-17`).\n- `redirect()` throws it with status 307 (`redirect.ts:~38-40`). Its type defaults to `push` inside a server action and `replace` otherwise.\n- `permanentRedirect()` throws it with status 308 and type `replace` (`redirect.ts:~58-63`).\n- The status codes come from the enum 303 / 307 / 308 in `client/components/redirect-status-code.ts`.\n\n**2. Recognizing the error**\n- `isRedirectError` in `client/components/redirect-error.ts:19-41` parses the digest. It checks that the code is `NEXT_REDIRECT`, the type is `push` or `replace`, and the status is in `RedirectStatusCode`.\n- `getURLFromRedirectError`, `getRedirectStatusCodeFromError` and `getRedirectTypeFromError` read the fields back out of the digest (`redirect.ts:~70-100`).\n\n**3. Turning it into a response**\n- **Page and RSC render** (`server/app-render/app-render.tsx`):\n  - In the catch block at ~4386-4403, it sets `res.statusCode = getRedirectStatusCodeFromError(err)`. It prefixes the URL with `basePath` via `addPathPrefix`, copies any mutable cookies into `set-cookie`, and calls `setHeader('location', redirectUrl)`.\n  - A second, similar path at ~9833-9846 sets the status and the `location` header the same way. That path covers the case where an error occurs after the RSC prerender.\n  - If the redirect happens after the response has started streaming, the status and headers are already sent. In that case `make-get-server-inserted-html.tsx:56-70` injects `<meta id=\"__next-page-redirect\" http-equiv=\"refresh\" content=\"0|1;url=...\">` into the HTML. It uses `0` for a 308 and `1` otherwise.\n- **Route handlers** (`server/route-modules/app-route/module.ts:424-449`):\n  - It returns `new Response(null, { status, headers: { Location: url } })`, with mutable cookies appended.\n  - The status is the digest's 307/308, but 303 if `actionStore.isAction`.\n  - It throws an invariant error if the URL is empty.\n- **Server actions** (`server/app-render/action-handler.ts:1324-1357`):\n  - For a non-fetch (MPA/form) action, it sets status 303 and the `Location` header with an empty body (`:1350-1357`).\n  - For a fetch action, the status stays 200 and the redirect is carried in the `x-action-redirect` header. The body can include the target's Flight response (`createRedirectRenderResult`, ~1327-1346). I did not read that function.\n\n**Uncertainty:** the `redirect.ts` line numbers marked `~` are approximate. I did not trace the client-side handling of the meta tag or the `x-action-redirect` header.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 9992,
+    "cache_read_input_tokens": 32368,
+    "output_tokens": 1908,
+    "context_tokens": 42370,
+    "total_tokens": 44278,
+    "first_request_context": 4866,
+    "fixed_overhead_tokens": 24330,
+    "research_tokens": 19948,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 9992,
+      "cache_read_input_tokens": 32368,
+      "output_tokens": 850
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1058
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9992,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 32770.8,
+    "weighted_tokens_cold": 36356.100000000006,
+    "tariff_cost_usd": 0.0655416,
+    "tariff_cost_usd_cold": 0.07271220000000002,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 11881
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2977,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 20
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1853,
+      "cache_read_input_tokens": 4864,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1167,
+      "cache_read_input_tokens": 6717,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3132,
+      "cache_read_input_tokens": 7884,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 863,
+      "cache_read_input_tokens": 11016,
+      "output_tokens": 781
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 9992,
+    "cache_read_input_tokens": 32368,
+    "output_tokens": 1908
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1908,
+      "cacheReadInputTokens": 32368,
+      "cacheCreationInputTokens": 9992,
+      "webSearchRequests": 0,
+      "costUSD": 0.0655416,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0655416,
+  "costVerified": true,
+  "duration_ms": 18459,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "Bash:invocation": 4
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs/packages/next/src; cat client/components/redirect.ts | head -90; rg -n \\\"isRedirectError|getURLFromRedirectError|getRedirectStatusCodeFromError\\\" server --glob '!*.test.*' | head -40\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs/packages/next/src; grep -rnE \\\"isRedirectError|getURLFromRedirectError|getRedirectStatusCodeFromError\\\" server --include=*.ts --include=*.tsx | grep -v test | head -40\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs/packages/next/src; sed -n 4375,4400p server/app-render/app-render.tsx; echo ----; sed -n 9825,9875p server/app-render/app-render.tsx; echo ---; sed -n 418,455p server/route-modules/app-route/module.ts; echo ---; sed -n 1318,1350p server/app-render/action-handler.ts; echo; sed -n 50,75p server/app-render/make-get-server-inserted-html.tsx; cat client/components/redirect-error.ts | sed -n 1,50p\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/nextjs/packages/next/src; sed -n 4400,4415p server/app-render/app-render.tsx; sed -n 1350,1375p server/app-render/action-handler.ts; cat client/components/redirect-status-code.ts\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The second Bash call, a `grep -rnE \"isRedirectError|getURLFromRedirectError|getRedirectStatusCodeFromError\" server`, listed every server-side consumer in one pass. The third call then printed line ranges from `app-render.tsx`, `module.ts`, `action-handler.ts`, `make-get-server-inserted-html.tsx` and `redirect-error.ts` together. The first call's `cat redirect.ts | head -90` gave the thrower side.\n\n2. **Did not help:** `rg` was not installed, so the first call's grep half failed and I redid it with `grep`. Every Bash call printed `/dev/null: Operation not permitted`, which was harmless but noisy. The `cat redirect.ts | head -90` cut off before the end of `getRedirectStatusCodeFromError`. I never opened `createRedirectRenderResult`, so the fetch-action path is unverified. I also never checked that the 4375-4415 and 9825-9846 blocks sit in the functions I implied.\n\n3. **Next time:** Use `grep -n` from the start, and run `sed -n` with exact ranges instead of `head`. I would also open `createRedirectRenderResult`. Line numbers marked `~` should have been pinned with `grep -n` first.\n\n4. **Confidence:** Medium-high. The throw, detect and set-header chain is directly observed. The `~` line numbers and the fetch-action header details are less certain.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 12235,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 488,
+      "context_tokens": 12237,
+      "total_tokens": 12725,
+      "first_request_context": 12237,
+      "fixed_overhead_tokens": 12237,
+      "research_tokens": 488,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12235,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 7
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -481
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 12235,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 26912,
+      "weighted_tokens_cold": 26912,
+      "tariff_cost_usd": 0.053824,
+      "tariff_cost_usd_cold": 0.053824,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 12237
+    },
+    "cost_usd": 0.053824,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12235,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 488,
+        "context_tokens": 12237,
+        "total_tokens": 12725,
+        "first_request_context": 12237,
+        "fixed_overhead_tokens": 12237,
+        "research_tokens": 488,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 12235,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 7
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -481
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 12235,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 26912,
+        "weighted_tokens_cold": 26912,
+        "tariff_cost_usd": 0.053824,
+        "tariff_cost_usd_cold": 0.053824,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 12237
+      },
+      "cost_usd": 0.053824,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 12235,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 488,
+          "costUSD": 0.053824
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 1908,
+            "cacheReadInputTokens": 32368,
+            "cacheCreationInputTokens": 9992,
+            "webSearchRequests": 0,
+            "costUSD": 0.0655416,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0655416
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 12,
+            "outputTokens": 2396,
+            "thinkingTokens": 0,
+            "cacheReadInputTokens": 32368,
+            "cacheCreationInputTokens": 22227,
+            "webSearchRequests": 0,
+            "costUSD": 0.1193656,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1193656
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12235,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 488
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 12235,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

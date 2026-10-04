@@ -234,3 +234,52 @@ describe('lossless scalar strings and stringified batches (benchmark input slips
     expect(message).toMatch(/^queries\.0\.ranges\.0: /);
   });
 });
+
+describe('benchmark replays: exact inputs agents sent that the schema rejected', () => {
+  it.each([
+    [
+      { path: 'db/models/base.py', ranges: ['1084', '1084-1140'] },
+      ['1084-1084', '1084-1140'],
+    ],
+    [
+      { path: 'tools/structured.py', ranges: ['190', '236-310'] },
+      ['190-190', '236-310'],
+    ],
+    [{ path: 'middleware/common.py', ranges: '[“63-120”]' }, ['63-120']],
+  ])(
+    'reads a bare line or a curly-quoted encoded list: %j',
+    async (row, expected) => {
+      const result = await validate('localFetch', row);
+      expect(result.issues).toBeUndefined();
+      expect(result.value).toMatchObject({ queries: [{ ranges: expected }] });
+    }
+  );
+
+  it('rejects a code expression sent as queries with only the fix', async () => {
+    const message = await sdkMessage('localFetch', {
+      queries:
+        '[{"path":"/r/tokio/src/sync/batch_semaphore.rs","ranges":[[300,380],[525,600]].map(r=>r.join("-"))}]',
+    });
+    expect(message).toBe(
+      'queries: Expected an array of query objects; send queries as a JSON array, not a string'
+    );
+  });
+
+  it('names lineHint with an example and where to find it', async () => {
+    const message = await sdkMessage('lspSearch', {
+      queries: [
+        {
+          operation: 'callers',
+          uri: '/r/django/db/models/query.py',
+          symbolName: '_chain',
+        },
+      ],
+    });
+    expect(message).toContain(
+      'queries.0.lineHint: Missing required field: lineHint'
+    );
+    expect(message).toContain(
+      'lineHint (the 1-based line where symbolName appears, e.g. "lineHint": 120; find it with localSearch or astSearch)'
+    );
+  });
+});

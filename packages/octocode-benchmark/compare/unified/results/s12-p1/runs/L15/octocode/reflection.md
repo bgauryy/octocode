@@ -1,0 +1,7 @@
+**1. Helped:** The first `localSearch` was the main win. One regex alternation (`MAX_RUN_LENGTH|HashFloodingCheck|hashFloodingDetected|MAX_HASH_BUCKET_LENGTH`) over the collect directory returned `ImmutableSet.java`, the multiset, the maps and the Compact* classes at once, with line numbers. The `localFetch` with two ranges (690-750 and 795-900) then gave the deciding code and its javadoc in one call. Running the `JdkBackedSetBuilderImpl` search in parallel located the fallback class cheaply.
+
+**2. Did not help:** My first regex guessed at names, and a few alternatives (`MAX_RUN_LENGTH`, `HashFloodingCheck`) matched nothing. The `localFetch` ranges skipped lines 751-794, so I never saw `build()`. I also didn't check `JdkBackedImmutableSet`. There were no errors or repeated calls.
+
+**3. Next time:** I would fetch `build()` and the rest of `JdkBackedSetBuilderImpl` (lines 751-794 and 900 onward) in the same batch. I'd also read the context around line 446 instead of guessing at it. I would use `lspSearch` or `astSearch` to confirm the callers of `hashFloodingDetected`.
+
+**4. Confidence:** High for the core claims: the capped probe loop, the whole-table check in `review()`, the `HashSet` fallback, and the related maps and multiset. I read those lines directly. Medium-low for anything about `build()` and line 446, which I flagged as unverified in the answer.

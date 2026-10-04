@@ -67,7 +67,6 @@ pub async fn execute(
 }
 
 /// [`execute`] with the user npmrc location made explicit (tests inject it).
-#[allow(clippy::too_many_arguments)]
 async fn run(
     query: &Value,
     deadline: Instant,
@@ -260,14 +259,13 @@ async fn run(
     Ok(data)
 }
 
-/// Drop what a row restates: the registry URL (derivable from type and
-/// name; kept under `debug`) and a homepage that is the repository page.
+/// Drop a homepage that restates the repository page. The registry URL is
+/// verbose (core field class).
 fn compact_rows(rows: &mut Value) {
     for row in rows.as_array_mut().into_iter().flatten() {
         let Some(row) = row.as_object_mut() else {
             continue;
         };
-        row.remove("registryUrl");
         let duplicate = match (
             row.get("homepage").and_then(Value::as_str),
             row.get("repository").and_then(Value::as_str),
@@ -342,7 +340,7 @@ mod github_repo_tests {
     use super::{compact_rows, github_repo, github_repo_dir, lean_rows};
 
     #[test]
-    fn rows_drop_the_registry_url_and_a_homepage_that_is_the_repository() {
+    fn rows_drop_a_homepage_that_is_the_repository() {
         let mut rows = serde_json::json!([
             {"name":"zod","registryUrl":"https://registry.npmjs.org/zod",
              "homepage":"https://github.com/colinhacks/zod#readme",
@@ -353,9 +351,16 @@ mod github_repo_tests {
         assert_eq!(
             rows,
             serde_json::json!([
-                {"name":"zod","repository":"https://github.com/colinhacks/zod"},
+                {"name":"zod","registryUrl":"https://registry.npmjs.org/zod",
+                 "repository":"https://github.com/colinhacks/zod"},
                 {"name":"x","homepage":"https://zod.dev","repository":"https://github.com/o/x"}
             ])
+        );
+        // The registry URL is verbose: the verbose stage drops it by default.
+        assert!(
+            crate::tools::id::ToolId::ArtifactSearch
+                .verbose_paths()
+                .contains(&"results[].data.artifacts[].registryUrl")
         );
     }
 
@@ -666,8 +671,7 @@ mod npm_auth_tests {
         assert_eq!(release["source"]["verification"], "unverified", "{data}");
         let row = data["artifacts"][0].as_object().expect("row");
         assert!(
-            row.keys()
-                .all(|key| key != "gitHead" && key != "sourceRef" && key != "registryUrl"),
+            row.keys().all(|key| key != "gitHead" && key != "sourceRef"),
             "{data}"
         ); // A pinned version's code is its release: the default-branch lead
         // would only repeat the release lead without its branch, which the

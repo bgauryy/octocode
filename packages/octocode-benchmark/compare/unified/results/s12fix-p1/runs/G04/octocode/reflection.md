@@ -1,0 +1,7 @@
+1. **Helped:** One call did nearly all the work: `ghGetHistoryItem` (pullRequest 3866, include body/files/patches). It returned the PR body, CHANGES.md, the upgrade guide, and the `core.py` patch with both check functions and their warning text. That was enough to answer.
+
+2. **Did not help:** The patches came back truncated (`isPartial`, "4 unfinished patches"). I never followed `next.continuePatch`, so I didn't read the rest of `tests/test_arguments.py`, `test_options.py` or `test_deprecations.py`. The `core.py` patch also elides context, with `...` between hunks. The class headers weren't shown, so I inferred that `_check_name_is_usable` is on `Parameter` and `_check_name_is_normalized` is on `Option` from hunk positions. The claim that `Argument` lower-cases silently comes from test names and docstrings, not from `Argument._parse_decls` itself. The dot/space warning cases come from a cut-off parametrize list, and I didn't see the assertions.
+
+3. **Next time:** I would fetch `src/click/core.py` at the merge commit with `ghGetFileContent` and `matchString` on `_check_name_`. I would also continue the test patches. That would confirm class ownership and the argument behaviour instead of inferring them.
+
+4. **Confidence:** High on what is deprecated, the two checks, and the keyword, identifier and lower-case rules, which the changelog, upgrade guide and code all state. Medium on the class attribution, the Argument details and the dot/space examples.

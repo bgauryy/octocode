@@ -316,12 +316,10 @@ mod tests {
             ("providers/artifact/types.rs", 4),
             // Not yet migrated (files held by other lanes, or CLI-only beta).
             ("tools/ast_rewrite/output.rs", 8),
-            ("tools/gh_search/mod.rs", 4),
             ("tools/artifact_search/mod.rs", 1),
             ("tools/gh_get_history_item/continuations.rs", 2),
             ("tools/gh_get_history_item/pr_sections.rs", 1),
             ("tools/gh_get_history_item/pull_request.rs", 3),
-            ("tools/ast_search/syntax.rs", 1),
         ];
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = Vec::new();

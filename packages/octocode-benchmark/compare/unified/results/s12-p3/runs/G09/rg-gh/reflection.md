@@ -1,0 +1,7 @@
+1. **Helped:** Two `gh api -X GET` calls did nearly all the work. The first fetched issue #13786 (its body had the full root-cause analysis and repro) and its `/timeline` filtered to cross-references, which surfaced PRs #13787, #13794 and #13825. The second fetched each PR's merged state and pulled the files and patch for #13825. A `--jq` filter kept the output compact.
+
+2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless noise, but it could hide real errors. I never saw a checkout of the repo, so I could not cite `path:line` at the pinned commit. The citations I gave are PR and issue numbers plus patch hunks. I did not check release tags, so I cannot say which version contains the fix.
+
+3. **Next time:** I would also fetch the merged commit's file at its SHA. That would let me cite line numbers and confirm that `effective_config` exists on main. I would check `gh api repos/pydantic/pydantic/releases` or the compare endpoint for the release that includes the fix.
+
+4. **Confidence:** High on the root cause and the merged fix. The issue text and the PR patch agree with each other, and the PR body says it fixes the issue. Medium on the exact behavior after the merge, because I only read the diff and did not see the code on main.

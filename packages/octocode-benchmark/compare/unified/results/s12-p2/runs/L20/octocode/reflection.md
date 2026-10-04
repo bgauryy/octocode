@@ -1,0 +1,7 @@
+**1. Helped:** The second `localSearch` for `ResolveJsonModule` (scoped to `tsc/internal`, `include: *.go`, `contextLines: 0`) was the key call. It returned every caller with line numbers in one response. The `localFetch` of lines 268-282 in `compileroptions.go` then showed the exact default logic, including the TODO. Batching the first two calls in parallel also saved a round trip.
+
+**2. Did not help:** The first `localSearch` for `GetResolveJsonModule` with `resultView: files` was capped (`binaryQuit`, `isPartial: true`) and listed only 6 files, so it could not show full coverage. It also produced NUL-byte warnings from unrelated testdata. The `structureSearch` for `*.go`, `go.mod` and `_submodules` was nearly useless. It returned only `tools/` and `tsc/go.mod`, plus a withheld-entries warning, and its name filters were poorly matched to what I needed.
+
+**3. Next time:** I would skip the file-list search and the structure call, and run the scoped `localSearch` immediately. I would add `lspSearch` references on `GetResolveJsonModule` to get reliable transitive callers instead of relying on text matches. I would also search for direct uses of the raw `ResolveJsonModule` field. I never did that, and I said so in the answer.
+
+**4. Confidence:** High for the default logic and the direct callers, since I fetched the lines and saw the matches. Medium for completeness. The search was text-based, so it could miss callers and indirect effects. The test and baseline impact is inferred from names, not read.

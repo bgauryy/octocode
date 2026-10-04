@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call (`cat go.work; ls packages tsc; grep -rIl "ResolveJsonModule" . --include=*.go`) found the Go module under `tsc/` and listed every file that mentions the option. The third call (`grep -rIn "ResolveJsonModule\|resolveJsonModule"` over `internal` and `cmd`, plus `grep -n "GetResolveJsonModule" -A12` on `compileroptions.go`) gave line-numbered evidence for the getter and its callers in one pass.
+
+2. **Did not help:** The first call used `rg`, which isn't installed, and `git log -1`, which failed. Every Bash call also printed "/dev/null: Operation not permitted", which is noise. Because `git log` failed, I never confirmed the checkout is at 4f5ddae224; I only assumed it from the task. I also never opened the test files or the `project.go:218` context, so I only know that they mention the option, not what they check.
+
+3. **Next time:** I would start with `grep` instead of `rg`. I would read `showconfig.go`, `project.go` around line 218, and one test or baseline to make the impact claims firmer. I would also verify the commit another way, for example by reading `.git/HEAD`.
+
+4. **Confidence:** High for the getter logic and the list of callers, because I read those lines directly. Medium for the claims about tests, baselines, and diagnostics 5070/5071, because I only grepped for those and did not open them.

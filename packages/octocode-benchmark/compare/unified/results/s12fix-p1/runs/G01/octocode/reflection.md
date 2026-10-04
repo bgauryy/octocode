@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetHistoryItem` (body, files, comments) gave the file inventory and the merge SHA in one call. The `ghGetFileContent` calls pinned to `4b3949c` with `fullContent` on `_asgi.py` and `_runtime.py` were the best evidence, since they gave exact line numbers for the request flow and startup logic. The `matchString` read of `pyproject.toml` kept that file small.
+
+2. **Did not help:** The patches call for `applications.py`, `routing.py`, `background.py`, `pyproject.toml` and `_runtime.py` came back minified, with elided hunks and `partial: true`. It said two patches were unfinished, and I never followed `next.continuePatch`. I never read `_api.py` at all. `_api.py` holds `_operation`, `_run_sync_endpoint` and `TelemetryConfig`, and I only inferred how it behaves from call sites. I also never read the tests or docs. The `pyproject.toml` read was repeated work, since the patch call had already requested it.
+
+3. **Next time:** I would read `_api.py` in the same batch as `_asgi.py`. I would use `include: patches` with `minify: none` for `routing.py`, or fetch the key hunks from the merged file with `matchString`. I would also scan the tests for the default-off and legacy-detection cases.
+
+4. **Confidence:** Medium. The `_asgi.py` and `_runtime.py` claims and the dependency claims are well grounded. The `routing.py` and `applications.py` claims rest on elided hunks. My review concerns about sync endpoints, contextvar propagation and body handling are unverified guesses.

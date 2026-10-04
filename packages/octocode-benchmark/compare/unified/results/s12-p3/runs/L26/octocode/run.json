@@ -1,0 +1,377 @@
+{
+  "qid": "L26",
+  "worker": "octocode",
+  "started": "2026-10-03T20:33:25.455Z",
+  "promptSha256": "1c953d64fbe51175d2d616f7a0983cb9ea204fcf4ccdbe87ae859223e2680b33",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 10777,
+  "status": "ok",
+  "answer": "**Answer:** With neither force flag set, `Model._save_table` (`django/db/models/base.py:1075`) tries an UPDATE first whenever the primary key is set. If that UPDATE matches no row, it falls back to an INSERT. The one exception is a new instance whose PK has a default, which skips the UPDATE.\n\n**How it decides**\n- **PK handling (1103–1108).** If the PK isn't set (and isn't a `DatabaseDefault`), `get_pk_value_on_save` is called to fill it in. `pk_set` is then recomputed.\n- **Skipping the UPDATE (1113–1120).** If none of `raw`, `force_insert` or `force_update` is set, `self._state.adding` is true, and every PK field has a default or db default, `force_insert` becomes `True`. So the UPDATE is skipped.\n- **Attempting the UPDATE (1123).** The condition is `pk_set and not force_insert`.\n  - It builds the field values, then calls `_do_update` (1148). `_do_update` filters `base_qs.filter(pk=pk_val)` (1229).\n  - If there are no non-PK values, it returns `[()]` when `update_fields` is not None or the row still exists (`filtered.exists()`). Otherwise it returns `[]` (1230–1238).\n  - If `select_on_save` is set and the update isn't forced, it first checks `filtered.exists()` and returns `[]` if the row is gone (1239–1248). I didn't read the rest of `_do_update` past line 1250.\n\n**When the UPDATE matches no row** (`results` is empty, so `updated` is `False`, 1157–1164)\n- If `force_update` is set, it raises `NotUpdated(\"Forced update did not affect any rows.\")` (1159–1160).\n- If `update_fields` is set, it raises `NotUpdated(\"Save with update_fields did not affect any rows.\")` (1161–1164).\n- Otherwise, `if not updated:` (1165) runs the INSERT path:\n  - It sets `_order` if the model has `order_with_respect_to` (1166–1182).\n  - It builds `insert_fields`, which excludes generated fields and the auto field when the PK isn't set (1183–1187).\n  - It calls `_do_insert` (1207) and assigns any returned values (1210–1211).\n- `_save_table` returns `updated`, which is `False` when the INSERT ran.\n\n**Uncertainty:** I didn't read the lines after 1250, which cover the rest of `_do_update`. I also didn't read the caller `save_base`.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6504,
+    "cache_read_input_tokens": 27149,
+    "output_tokens": 1143,
+    "context_tokens": 33659,
+    "total_tokens": 34802,
+    "first_request_context": 9924,
+    "fixed_overhead_tokens": 29772,
+    "research_tokens": 5030,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 6504,
+      "cache_read_input_tokens": 27149,
+      "output_tokens": 846
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -297
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6504,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 21443.9,
+    "weighted_tokens_cold": 34669.8,
+    "tariff_cost_usd": 0.042887800000000004,
+    "tariff_cost_usd_cold": 0.0693396,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 13467
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2961,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 344,
+      "cache_read_input_tokens": 9922,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3199,
+      "cache_read_input_tokens": 10266,
+      "output_tokens": 794
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6504,
+    "cache_read_input_tokens": 27149,
+    "output_tokens": 1143
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1143,
+      "cacheReadInputTokens": 27149,
+      "cacheCreationInputTokens": 6504,
+      "webSearchRequests": 0,
+      "costUSD": 0.042887800000000004,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.042887800000000004,
+  "costVerified": true,
+  "duration_ms": 10082,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 1,
+    "mcp__octocode__localFetch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"def _save_table\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/base.py\",\"resultView\":\"detailed\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/models/base.py\",\"startLine\":1075,\"endLine\":1250}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** Two calls did all the work. `localSearch` for `def _save_table` in `base.py` gave the exact line (1075) in one hit. A single `localFetch` of lines 1075-1250 then returned the whole decision logic with line numbers: the PK-default force-insert skip, the `pk_set and not force_insert` UPDATE gate, the `NotUpdated` branches and the INSERT fallback. Guessing the literal first, as the server instructions suggest, avoided any broad searching.\n\n2. **Did not help:** Nothing errored and no calls were wasted. My `localFetch` range ended at 1250, in the middle of `_do_update`. The comment at 1239-1246 says existence is re-checked when the UPDATE returns 0, but I never saw that code. I also never looked at `save_base` or `save`, so I haven't confirmed how they call `_save_table`. I disclosed both gaps in the answer.\n\n3. **Next time:** I'd fetch to about line 1270 so `_do_update` is complete. I'd also batch a second `localSearch` for `save_base` in the same call as the first.\n\n4. **Confidence:** High for the core answer. The UPDATE-versus-INSERT decision, the PK-default exception and the `NotUpdated` behavior are all quoted from lines I read. Medium for the `select_on_save` detail, since the tail of `_do_update` is unread.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7992,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 682,
+      "context_tokens": 7994,
+      "total_tokens": 8676,
+      "first_request_context": 7994,
+      "fixed_overhead_tokens": 7994,
+      "research_tokens": 682,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7992,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -679
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 7992,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 19396,
+      "weighted_tokens_cold": 19396,
+      "tariff_cost_usd": 0.038792,
+      "tariff_cost_usd_cold": 0.038792,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 7994
+    },
+    "cost_usd": 0.03879199999999999,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7992,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 682,
+        "context_tokens": 7994,
+        "total_tokens": 8676,
+        "first_request_context": 7994,
+        "fixed_overhead_tokens": 7994,
+        "research_tokens": 682,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 7992,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -679
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7992,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 19396,
+        "weighted_tokens_cold": 19396,
+        "tariff_cost_usd": 0.038792,
+        "tariff_cost_usd_cold": 0.038792,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 7994
+      },
+      "cost_usd": 0.03879199999999999,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 7992,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 682,
+          "costUSD": 0.03879199999999999
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1143,
+            "cacheReadInputTokens": 27149,
+            "cacheCreationInputTokens": 6504,
+            "webSearchRequests": 0,
+            "costUSD": 0.042887800000000004,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.042887800000000004
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 1825,
+            "thinkingTokens": 216,
+            "cacheReadInputTokens": 27149,
+            "cacheCreationInputTokens": 14496,
+            "webSearchRequests": 0,
+            "costUSD": 0.0816798,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0816798
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7992,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 682
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 7992,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:33:27.885Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:33:27.921Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T20:33:29.755Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:33:29.776Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 5
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

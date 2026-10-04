@@ -1,0 +1,7 @@
+1. **Helped:** Two `gh api -X GET` calls did all the work. The first fetched issue #18837 and its `/timeline`, with `--jq` filtering for cross-references and the closing commit. That surfaced PR #18838 and commit a72dc8e immediately. The second fetched `pulls/18838` plus `/files`, which gave the PR body and the full patch in one pass. The patch showed the root cause and the fix, so I never needed a checkout.
+
+2. **Did not help:** Each Bash call printed `/dev/null: Operation not permitted`. That was harmless noise, but it looked alarming. The `/files` endpoint returns patch hunks only, so I have no `path:line` numbers at the pinned commit and couldn't see the final trap code in full. I never viewed the issue comments, so I can't say whether maintainers described the root cause differently. I also didn't run the tests, so the numbers I cited come from the PR description.
+
+3. **Next time:** I'd fetch `repos/sveltejs/svelte/contents/packages/svelte/src/internal/client/proxy.js?ref=a72dc8e` to get exact lines and the complete trap. I'd also read the issue comments and PR review for any maintainer rationale. I'd redirect stderr, or ignore the `/dev/null` noise explicitly.
+
+4. **Confidence:** Medium-high. The issue, PR, merge SHA and diff agree with each other. What's missing is line-level evidence and the end of the trap function.

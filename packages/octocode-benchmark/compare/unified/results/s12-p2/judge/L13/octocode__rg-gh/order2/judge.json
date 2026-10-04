@@ -1,0 +1,182 @@
+{
+  "qid": "L13",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "b6a7130d5f5364acbd18173476821fbd1f34159076f0f8af89569758d82aa711",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "8a4b755e8b9c8f1bc6a966ca7785be1d38b63cd8e35ff1a9b3feaf77334bfa4e",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2 (partial)",
+        "3",
+        "4 (partial)",
+        "5",
+        "1 (partial)"
+      ],
+      "wrong_claims": [],
+      "notes": "All checked claims and citations are accurate. It doesn't cover the lookupKeyReadOrReply/lookupKeyRead chain (it says so), the lazy UNLINK vs DEL choice, stat_expiredkeys, dispatch through processCommand/call, or the end-of-call propagation flush."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1 (partial)",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and more complete: full lookup chain, keyIsExpired details, UNLINK vs DEL, stat_expiredkeys, KEY_TRIMMED. Several approximate line numbers are off: lookupKeyRead given as ~395 (actually 373), replica branch as 3036-3039 (code is at 3043-3045), stat_expiredkeys as ~2878-2883 (actually 2889). It leaves out EXPIRE_AVOID_DELETE_EXPIRED and the flush after call()."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2 (partial)",
+        "3",
+        "4 (partial)",
+        "5",
+        "1 (partial)"
+      ],
+      "wrong_claims": [],
+      "notes": "All checked claims and citations are accurate. It doesn't cover the lookupKeyReadOrReply/lookupKeyRead chain (it says so), the lazy UNLINK vs DEL choice, stat_expiredkeys, dispatch through processCommand/call, or the end-of-call propagation flush."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1 (partial)",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and more complete: full lookup chain, keyIsExpired details, UNLINK vs DEL, stat_expiredkeys, KEY_TRIMMED. Several approximate line numbers are off: lookupKeyRead given as ~395 (actually 373), replica branch as 3036-3039 (code is at 3043-3045), stat_expiredkeys as ~2878-2883 (actually 2889). It leaves out EXPIRE_AVOID_DELETE_EXPIRED and the flush after call()."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1767668,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 14978,
+        "cache_read_input_tokens": 26794,
+        "output_tokens": 2578,
+        "context_tokens": 41778,
+        "total_tokens": 44356,
+        "first_request_context": 10064,
+        "fixed_overhead_tokens": 30192,
+        "research_tokens": 14164,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 14978,
+          "cache_read_input_tokens": 26794,
+          "output_tokens": 17
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2561
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 14978,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 17350
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Read": 3
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1767668,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 14978,
+    "cache_read_input_tokens": 26794,
+    "output_tokens": 2578,
+    "context_tokens": 41778,
+    "total_tokens": 44356,
+    "first_request_context": 10064,
+    "fixed_overhead_tokens": 30192,
+    "research_tokens": 14164,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 14978,
+      "cache_read_input_tokens": 26794,
+      "output_tokens": 17
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2561
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 14978,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 17350
+  },
+  "timedOut": false
+}

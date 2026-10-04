@@ -1,0 +1,7 @@
+1. **Helped:** One batched Bash call did nearly all the work. `gh api -X GET repos/encode/httpx/git/trees/b5addb64f0?recursive=1` piped through `grep -i transport` listed the `_transports` modules. A loop then fetched each file with the raw Accept header and ran `grep -nE` for `class` and `handle*`/`__enter__` definitions. That gave line numbers and the sync/async base-class split in one pass.
+
+2. **Did not help:** Each shell invocation printed `/bin/bash: /dev/null: Operation not permitted` three times, which is sandbox noise. The output was still complete. I never opened `httpx/_client.py`, so the claim that `Client` and `AsyncClient` accept these types is inferred from the `BaseTransport`/`AsyncBaseTransport` split, not read from the client code. I also did not read `docs/advanced/transports.md`, which showed up in the tree.
+
+3. **Next time:** In the same call, I would grep `_client.py` for `BaseTransport` and `AsyncBaseTransport` type hints to confirm the compatibility claim directly. I would also run a repo-wide grep for `BaseTransport` subclasses, since my tree filter only matched paths containing "transport".
+
+4. **Confidence:** High for the module locations, class names, line numbers and base classes, because I saw them directly in the output. Medium-high for the sync/async compatibility conclusion, since it is inferred, though the `handle_request` and `handle_async_request` method names strongly support it.

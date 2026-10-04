@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call, a grep for `keep_stack|ref_stack|callback` in `json_sax.hpp`, mapped the whole callback handler in one pass. The second call, which printed `sed` ranges of `start_object`, `key`, `end_object`, `remove_discarded_value` and `handle_value`, gave the core logic. The third call read `parser.hpp` and `end_array`, which confirmed the root-to-null behavior.
+
+2. **Did not help:** Every Bash call printed "/dev/null: Operation not permitted" noise, though results were intact. Some line ranges overlapped. I never viewed the `parser.hpp` code that picks the callback handler versus the plain DOM handler. I also didn't view the `sdp` declaration above `parser.hpp:108`. I didn't check `git log` to see that this checkout deviates from upstream; I only inferred it from code comments, so that claim is weakly supported. I ran no tests.
+
+3. **Next time:** I'd read `parser.hpp:90-140` in full in the first batch, run the greps in parallel, and use `rg` with `-n -C` instead of `sed` ranges. I'd also run `git log` or `git diff` against upstream to back the "modified" claim.
+
+4. **Confidence:** Medium-high. Every cited line came from output I saw, and the mechanism is consistent across functions. The remaining risks are the unread handler-selection code and the unverified "modified checkout" remark.

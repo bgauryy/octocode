@@ -405,7 +405,6 @@ const FILE_KIND: u64 = 1;
 /// function or method the server's `documentSymbol` places around it, or
 /// the file itself for a top-level call. The walk drops edges for files its
 /// own call hierarchy already answered.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn callers_from_references(
     client: &NativeLspClient,
     sources: &mut SourceCache<'_>,

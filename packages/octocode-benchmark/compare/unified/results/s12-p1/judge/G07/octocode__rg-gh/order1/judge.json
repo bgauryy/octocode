@@ -1,0 +1,182 @@
+{
+  "qid": "G07",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "044105eba6a9c4b7bf67a00b3e5982d7226306320c6474d1d65805e203475f6e",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "437ada3ea4cdd0d451ae1bd95af64d8a806cacf621c897d6450b3e55fa5347da",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; citations match the source. Only partly covers the per-route wrapping and says so. Leaves out the sender tracking of http.response.start and that ServerErrorMiddleware handles only http scopes."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, and covers the sender tracking, the http-only scope check in ServerErrorMiddleware, and pass-through of other scope types. Honest that its routing.py search ran against a different commit."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; citations match the source. Only partly covers the per-route wrapping and says so. Leaves out the sender tracking of http.response.start and that ServerErrorMiddleware handles only http scopes."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, and covers the sender tracking, the http-only scope check in ServerErrorMiddleware, and pass-through of other scope types. Honest that its routing.py search ran against a different commit."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.099115,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 9401,
+        "cache_read_input_tokens": 13055,
+        "output_tokens": 1064,
+        "context_tokens": 22460,
+        "total_tokens": 23524,
+        "first_request_context": 10687,
+        "fixed_overhead_tokens": 21374,
+        "research_tokens": 2150,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 9401,
+          "cache_read_input_tokens": 13055,
+          "output_tokens": 16
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1048
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9401,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11773
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.099115,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 9401,
+    "cache_read_input_tokens": 13055,
+    "output_tokens": 1064,
+    "context_tokens": 22460,
+    "total_tokens": 23524,
+    "first_request_context": 10687,
+    "fixed_overhead_tokens": 21374,
+    "research_tokens": 2150,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 9401,
+      "cache_read_input_tokens": 13055,
+      "output_tokens": 16
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1048
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9401,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 11773
+  },
+  "timedOut": false
+}

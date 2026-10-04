@@ -1,0 +1,7 @@
+1. **Helped:** The `grep -rn "begin_shutdown" tokio/src` call (second call) was the key step. It found all four definitions and their call sites at once. One `sed -n` call then printed every relevant body, so I needed only three calls in total.
+
+2. **Did not help:** The first call failed. `rg` isn't installed even though the brief said it was, and `git rev-parse HEAD` failed. So I never confirmed the checkout is at facc6fc47e. Every call also printed `/dev/null: Operation not permitted` noise. The `sed` output had no line numbers, which caused a problem in my answer. I cited `pool.rs:~316`, `~345`, `321-337`, and the range ends `156-166`, `740-745` and `336-352` from grep hits plus counting lines by eye. The `~` marks were honest, but `shutdown_rx.wait` at `pool.rs:321` was stated without a tilde and was effectively a guess. The exact starts (`156`, `576`, `740`, `336`, `319`) did come from grep.
+
+3. **Next time:** Use `grep -n` or `nl -ba` to get exact line numbers, and fall back to `grep` immediately when `rg` is missing. I would also try `git -C` or read `.git/HEAD` to verify the commit.
+
+4. **Confidence:** High on the call order and what each function does, because I read the code directly. Medium on the exact line numbers noted above, and unverified on the commit pin.

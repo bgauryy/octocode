@@ -89,7 +89,6 @@ fn validate_query(query: &AstTopologyQuery) -> Result<(), AstGraphError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod drift_tests {
     use super::*;
     use crate::policy::path::{PathPolicy, PathPolicyConfig};
@@ -1017,7 +1016,6 @@ mod drift_tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod dead_code_root_tests {
     use super::*;
     use crate::policy::path::{PathPolicy, PathPolicyConfig};

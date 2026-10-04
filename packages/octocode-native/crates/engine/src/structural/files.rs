@@ -995,7 +995,6 @@ fn collect_files(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn collect_files_filtered(
     root: &Path,
     overrides: Override,
@@ -1305,7 +1304,7 @@ pub fn rewrite_files(
 }
 
 #[cfg(all(test, feature = "embedded-ast-grep-rewrite"))]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::expect_used)]
 mod rewrite_coverage_tests {
     use super::*;
 

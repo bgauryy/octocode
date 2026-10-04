@@ -264,6 +264,9 @@ pub fn number_read_rows(tool: ToolId, structured: &mut Value) {
                     && number_file_row(data)
                     && let Some(map) = data.as_object_mut()
                 {
+                    if let Some(Value::String(content)) = map.get_mut("content") {
+                        *content = collapse_gap_runs(content);
+                    }
                     // The gutter states the first, last and every returned
                     // line, so the window fields repeat it.
                     for key in ["startLine", "endLine", "returnedLines"] {
@@ -284,6 +287,12 @@ pub fn number_read_rows(tool: ToolId, structured: &mut Value) {
                     {
                         let collapsed = collapse_gap_runs(content);
                         file["content"] = Value::String(collapsed);
+                        // As for localFetch: the gutter states the window.
+                        if let Some(map) = file.as_object_mut() {
+                            for key in ["startLine", "endLine", "returnedLines"] {
+                                map.remove(key);
+                            }
+                        }
                     }
                 }
             }
@@ -345,7 +354,7 @@ mod tests {
     /// returned lines round-trip exactly.
     #[test]
     fn single_line_windows_share_one_gap_marker_and_round_trip() {
-        let ranges = [(3, 3), (10, 10), (20, 20), (21, 23), (40, 40), (50, 50)];
+        let ranges = [(3, 3), (10, 10), (20, 23), (40, 40), (50, 50)];
         let content = "c\n... [lines 4-9 omitted] ...\nj\n... [lines 11-19 omitted] ...\nt\nu\nv\nw\n... [lines 24-39 omitted] ...\nN\n... [lines 41-49 omitted] ...\nX\n";
         let numbered = number_lines(content, &ranges).expect("numbered");
         let collapsed = collapse_gap_runs(&numbered);
@@ -384,6 +393,32 @@ mod tests {
         ));
     }
 
+    /// A localFetch grep map (single-line matchString windows) shares one
+    /// gap-run marker per run of gaps, and its numbers restore every line.
+    #[test]
+    fn local_fetch_single_line_windows_share_gap_markers_and_round_trip() {
+        let mut local = json!({"results":[{"index":0,"data":{
+            "path":"a.rs",
+            "content":"c\n... [lines 4-9 omitted] ...\nj\n... [lines 11-19 omitted] ...\nt\n",
+            "sourceLineRanges":[{"start":3,"end":3},{"start":10,"end":10},{"start":20,"end":20}],
+            "matchedLines":[3,10,20]}}]});
+        number_read_rows(ToolId::LocalFetch, &mut local);
+        let content = local["results"][0]["data"]["content"]
+            .as_str()
+            .expect("content");
+        assert_eq!(
+            content,
+            "3\tc\n... [2 gaps in lines 4-19 omitted] ...\n10\tj\n20\tt\n"
+        );
+        assert!(is_numbered(content));
+        let lines = content
+            .lines()
+            .filter_map(|record| record.split_once(SEPARATOR))
+            .map(|(number, _)| number.parse::<u64>().expect("number"))
+            .collect::<Vec<_>>();
+        assert_eq!(lines, [3, 10, 20]);
+    }
+
     #[test]
     fn numbers_local_and_github_rows_and_drops_redundant_anchors() {
         let mut local = json!({"results":[{"index":0,"data":{
@@ -409,12 +444,14 @@ mod tests {
             json!({"content":"7\tx\n... [lines 8-9 omitted] ...\n10\ty\n","totalLines":12})
         );
         let mut remote = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":[
-            {"path":"a.py","content":"x\n","sourceLineRanges":[{"start":3,"end":3}]},
+            {"path":"a.py","content":"x\n","sourceLineRanges":[{"start":3,"end":3}],
+             "startLine":3,"endLine":3,"returnedLines":1},
             {"path":"b.py","content":"def a\n","contentView":"symbols"}]}}]});
         number_read_rows(ToolId::GhGetFileContent, &mut remote);
         assert_eq!(
-            remote["results"][0]["data"]["files"][0]["content"],
-            "3\tx\n"
+            remote["results"][0]["data"]["files"][0],
+            json!({"path":"a.py","content":"3\tx\n"}),
+            "the gutter states the window"
         );
         assert_eq!(
             remote["results"][0]["data"]["files"][1]["content"], "def a\n",

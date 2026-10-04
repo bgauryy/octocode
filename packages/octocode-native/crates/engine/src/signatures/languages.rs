@@ -216,7 +216,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: CPP_BODY_QUERY,
             comment_style: "c",
         },
-
         #[cfg(feature = "tree-sitter-cuda")]
         LanguageEntry {
             name: "CUDA",
@@ -227,7 +226,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: CUDA_BODY_QUERY,
             comment_style: "c",
         },
-
         #[cfg(feature = "tree-sitter-c-sharp")]
         LanguageEntry {
             name: "C#",

@@ -196,8 +196,12 @@ const VERBOSE_CHECKS = {
     : 0),
   // Present inside a continuation (duplicates data the row already shows).
   inHint: (value, holder, ctx) => (ctx.inHint ? size(value) : 0),
-  // Present together with fields that already encode the same fact.
-  coexists: (value, holder, ctx, { with: others = [] } = {}) => (others.every(k => holder?.[k] != null) ? size(value) : 0),
+  // An object field whose value a sibling list already holds verbatim.
+  repeatsSibling: (value, holder, ctx, { field, sibling } = {}) => {
+    const repeated = value?.[field];
+    const list = holder?.[sibling];
+    return repeated != null && (Array.isArray(list) ? list : [list]).some(item => item === repeated) ? size(repeated) + field.length + 3 : 0;
+  },
   // A continuation field with a fixed value.
   equalsInHint: (value, holder, ctx, { equals } = {}) => (ctx.inHint && value === equals ? size(value) + 3 : 0),
   // An object that only echoes the row's input.
@@ -354,6 +358,9 @@ export function selfTest() {
   const quiet = verboseFields({ args: { queries: [{}] }, raw: { results: [{ data: { pagination: { hasMore: true, nextPage: 2 } } }], responsePagination: { hasMore: true } } }, rules);
   assert(Object.keys(quiet).length === 0, 'verbose: needed pagination (hasMore:true, no duplicate) not reported');
   assert(verboseFields({ args: { queries: [{ debug: true }] }, raw: { results: [{ data: { responsePagination: { hasMore: false } } }] } }, rules).debugRows === 1, 'verbose: debug:true rows skipped');
+  const partial = (providerLimit) => verboseFields({ args: { queries: [{}] }, raw: { results: [{ data: { isPartial: true, partialReasons: ['GitHub code search caps results at 1000'], providerLimit } }] } }, rules);
+  assert(Object.keys(partial({ maxResults: 1000 })).length === 0, 'verbose: isPartial + partialReasons + providerLimit{maxResults} carry different facts (not reported)');
+  assert(partial({ maxResults: 1000, reason: 'GitHub code search caps results at 1000' })['partial-reason-repeated']?.count === 1, 'verbose: providerLimit.reason repeating a partialReasons entry reported');
 
   // Byte gate.
   const base = (bytes, calls, cBytes = 1000, extra = {}) => ({ tasks: { T1: { kind: 'local', bytes, calls, cBytes, cCalls: 1, octoRecipe: 'r', shellRecipe: 's', evidence: { pairs: 10, files: 2 }, violations: 0, keyBytes: { 'data.files': bytes }, ...extra } } });

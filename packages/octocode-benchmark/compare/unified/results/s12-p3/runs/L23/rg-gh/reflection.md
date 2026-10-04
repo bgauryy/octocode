@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call, `grep -n "self\._chain(" django/db/models/query.py`, listed all 24 call sites at once. The third call, an awk script that tracks the current class and `def` and prints each match, mapped every line to its enclosing method in one pass. Together they gave the full answer in three calls.
+
+2. **Did not help:** The first call bundled `git rev-parse HEAD` with `rg`. `rg` isn't installed, and `git` failed with "could not open /dev/null", so I never verified the HEAD SHA against 4fab678a07. Every Bash call also printed "/dev/null: Operation not permitted" noise, which was harmless but distracting. I didn't use `gh api` to confirm the file contents at the pinned commit.
+
+3. **Next time:** I'd skip `rg` and start with `grep`. I'd try reading `.git/HEAD` directly, or use `gh api -X GET` against the pinned SHA, to confirm the commit. I'd also spot-check a couple of the awk-attributed methods with `sed -n` to make sure the attribution is right, for example line 736 and the `__getitem__` pair.
+
+4. **Confidence:** Medium-high. The grep is exhaustive for the literal `self._chain(` in that file, and the awk mapping is reliable for a flat class. It assumes the checkout is at the pinned commit, which I couldn't verify. I also didn't search other files, such as a subclass elsewhere, though the question concerns `QuerySet` itself.

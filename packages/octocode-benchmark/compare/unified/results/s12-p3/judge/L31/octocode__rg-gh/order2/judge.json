@@ -1,0 +1,183 @@
+{
+  "qid": "L31",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "8841fa7de1393d9e2c7c5bc8ae1226f5f46584ea2092d8bfba4d6680ff7ac43d",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "a5e6fc2aa69d645b83b8b4f672a5900647b6409596951f7d42861eae5f8639cb",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct added/dropped/unchanged lists. Cites the pinned commit's csproj:3 accurately and the 13.0.3 tag's csproj line 3. Mentions the LibraryFrameworks override. Notes it didn't check the NuGet package itself."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts correct, but the 13.0.3 list came from memory with no supporting evidence. It is honest about this. Only the pinned commit's list is cited."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct added/dropped/unchanged lists. Cites the pinned commit's csproj:3 accurately and the 13.0.3 tag's csproj line 3. Mentions the LibraryFrameworks override. Notes it didn't check the NuGet package itself."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts correct, but the 13.0.3 list came from memory with no supporting evidence. It is honest about this. Only the pinned commit's list is cited."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.0705924,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 6073,
+        "cache_read_input_tokens": 18222,
+        "output_tokens": 917,
+        "context_tokens": 24301,
+        "total_tokens": 25218,
+        "first_request_context": 7782,
+        "fixed_overhead_tokens": 23346,
+        "research_tokens": 1872,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 6073,
+          "cache_read_input_tokens": 18222,
+          "output_tokens": 23
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -894
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6073,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 8445
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 1
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.0705924,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6073,
+    "cache_read_input_tokens": 18222,
+    "output_tokens": 917,
+    "context_tokens": 24301,
+    "total_tokens": 25218,
+    "first_request_context": 7782,
+    "fixed_overhead_tokens": 23346,
+    "research_tokens": 1872,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 6073,
+      "cache_read_input_tokens": 18222,
+      "output_tokens": 23
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -894
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6073,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 8445
+  },
+  "timedOut": false
+}

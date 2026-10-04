@@ -1,0 +1,7 @@
+**1. Helped:** `ghGetFileContent` on `node_exporter.go` with `branch: "v1.8.2"` and `matchString` was the fastest step. It returned the exact flag definitions with line numbers and the commit SHA in one call. The second batched call (the `toolkitFlags` line plus the exporter-toolkit flag file) resolved the listen-address default in parallel.
+
+**2. Did not help:** The first `ghSearchCode` call returned `empty`. Code search only covers the default branch, and I gave it three flag-name keywords at once, so it was a wasted call. The `matchString` output also omitted some lines, which was harmless here.
+
+**3. Next time:** Skip code search and go straight to `ghGetFileContent` with `matchString`. I would also read exporter-toolkit's `go.mod` at the v1.8.2 tag to find the pinned toolkit version, then fetch `flag.go` at that version. I read it from the default branch, so that file's content is not pinned. I also never ran `ghSearchRepo` to confirm the repository. I relied on prior knowledge of `prometheus/node_exporter`.
+
+**4. Confidence:** High for the `/metrics` and `40` defaults, because I read them directly at the v1.8.2 tag. High for `:9100`, because the default is passed from node_exporter at line 179 of the tagged file. Medium for the toolkit flag description, since that file was unpinned.

@@ -1,0 +1,7 @@
+**1. Helped:** Two calls were enough. `ghStructure` on `httpx/_transports` at the pinned SHA listed the modules. `ghSearchCode` with the keyword `class` scoped to that path returned every class declaration with its line number and base class. That gave the module, the line and the sync/async split together. It also returned the full commit SHA, so I could confirm the pin resolved.
+
+**2. Did not help:** Nothing errored. The `class` search was a little noisy: it matched `issubclass` and a docstring line. It also only shows declaration lines, not bodies or exports. The hint to read `mock.py` was not needed, so I skipped it.
+
+**3. Next time:** I'd add one `ghGetFileContent` call on `httpx/_transports/__init__.py` and on `httpx/__init__.py` to check the re-exports. I'd also run a `matchString` read on `handle_request` and `handle_async_request` to verify that each class implements the method I claimed. I reported the lack of that check as uncertainty, but it was cheap to close. I also never opened `mock.py` to confirm the dual inheritance beyond the search snippet.
+
+**4. Confidence:** Medium-high. The classes, modules, lines and base classes come directly from fetched results at the pinned commit. The "works with Client or AsyncClient" mapping is inferred from the base classes, not from the method bodies or the client code.

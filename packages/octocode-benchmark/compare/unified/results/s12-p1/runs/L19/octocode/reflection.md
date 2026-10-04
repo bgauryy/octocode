@@ -1,0 +1,7 @@
+1. **Helped:** The `localSearch` for `ModuleDetection` under `tsc/` with `*.go` include and `_test.go` exclude was the key call. It returned the enum, the resolver `GetEmitModuleDetectionKind`, and `ast/parseoptions.go` in one result. Two `localFetch` calls then read the deciding code: the whole of `parseoptions.go` (149 lines) and `compileroptions.go` lines 240-253. Those covered the full logic.
+
+2. **Did not help:** My first `localSearch` guessed an `internal/` path. That was a wasted call and returned `pathNotFound`. The Go code actually lives under `tsc/internal/`. The `structureSearch` I ran next fixed it, but I could have run it first. Nothing in my toolset showed callers of `GetExternalModuleIndicatorOptions`, so I never saw where the parser invokes it.
+
+3. **Next time:** I would run `structureSearch` on the repo root before guessing paths. I would also use `lspSearch` to find references to `GetExternalModuleIndicatorOptions` and `SetExternalModuleIndicator`, to close the call-chain gap I flagged. I would add a quick check of `GetImpliedNodeFormatForEmitWorker`.
+
+4. **Confidence:** High for the decision logic, because I read the exact lines and cited them. Medium for completeness of the end-to-end pipeline, since I did not trace the callers.

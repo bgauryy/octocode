@@ -1,0 +1,357 @@
+{
+  "qid": "L03",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:16:48.660Z",
+  "promptSha256": "7b5cb6f1673cdc01471acbc346cbcbd44729895f98c218f0835b433bcdcda2c1",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 19338,
+  "status": "ok",
+  "answer": "**Short answer:** Django keeps on-commit callbacks in a per-connection list, `connection.run_on_commit`. Rolling back drops them. They run only after the outermost transaction has committed and autocommit is switched back on.\n\n**Entry point**\n- `transaction.on_commit(func, using=None, robust=False)` just calls `get_connection(using).on_commit(func, robust)` (`django/db/transaction.py:142-147`).\n\n**Storage** (`django/db/backends/base/base.py`)\n- `self.run_on_commit = []` is initialised in `__init__` at line 102. It holds tuples of `(set_of_savepoint_ids, func, robust)`.\n- `on_commit()` (lines 727-747) first raises `TypeError` if `func` isn't callable.\n- If `in_atomic_block` is true, it appends `(set(self.savepoint_ids), func, robust)` (line 732). The savepoint IDs active at registration are recorded with the callback.\n- If it is not in an atomic block and autocommit is off, it raises `TransactionManagementError` (lines 733-736).\n- If it is not in an atomic block and autocommit is on, it runs `func` immediately (lines 737-747). With `robust=True`, exceptions are caught and logged instead of raised.\n\n**Discarding**\n- `savepoint_rollback(sid)` rebuilds the list without any entry whose saved set contains `sid` (lines 416-420). This discards callbacks registered while that savepoint was active, which is what happens when an inner `atomic()` block fails.\n- `rollback()` sets `run_on_commit = []` (line 341). `close()` does the same (line 347), and so does `connect()` (line 261).\n- `Atomic.__exit__` calls `connection.savepoint_rollback(sid)` or `connection.rollback()` on its failure paths (`transaction.py:263, 296, 308`), so those reach the discard logic above.\n\n**Running**\n- A successful `commit()` sets `run_commit_hooks_on_set_autocommit_on = True` (line 330). It does not run the hooks itself.\n- `set_autocommit(True)` then checks `if autocommit and self.run_commit_hooks_on_set_autocommit_on` (line 490). It calls `run_and_clear_commit_hooks()` and resets the flag to `False` (lines 491-492).\n- For an outermost `atomic()`, `Atomic.__exit__` calls `connection.commit()` (`transaction.py:276`) and later `connection.set_autocommit(True)` (`transaction.py:320`). That second call is what fires the hooks.\n- `run_and_clear_commit_hooks()` (lines 749-767) first calls `validate_no_atomic_block()`. It then swaps the list for a fresh `[]` and pops callbacks in registration order (FIFO), ignoring the savepoint IDs.\n- A callback that fails with `robust=True` is logged via `logger.exception`, and the remaining callbacks still run. A failure with `robust=False` propagates and stops the loop.\n- Callbacks that were popped before the failure have already run. The ones still in the local list are lost, because `self.run_on_commit` was already reset.\n- A callback that registers another `on_commit` goes into the new list. Since the atomic block has exited, that call hits the \"run immediately\" branch.\n\n**Uncertainty:** I didn't read `Atomic.__exit__` line by line, so the call sites cited from `transaction.py` come from grep matches and not from reading the surrounding control flow.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 7300,
+    "cache_read_input_tokens": 26444,
+    "output_tokens": 1852,
+    "context_tokens": 33754,
+    "total_tokens": 35606,
+    "first_request_context": 4842,
+    "fixed_overhead_tokens": 24210,
+    "research_tokens": 11396,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 7300,
+      "cache_read_input_tokens": 26444,
+      "output_tokens": 839
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1013
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7300,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 26514.4,
+    "weighted_tokens_cold": 30099.7,
+    "tariff_cost_usd": 0.0530288,
+    "tariff_cost_usd_cold": 0.0601994,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 9189
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2953,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 332,
+      "cache_read_input_tokens": 4840,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 972,
+      "cache_read_input_tokens": 5172,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2257,
+      "cache_read_input_tokens": 6144,
+      "output_tokens": 4
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 786,
+      "cache_read_input_tokens": 8401,
+      "output_tokens": 786
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 7300,
+    "cache_read_input_tokens": 26444,
+    "output_tokens": 1852
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1852,
+      "cacheReadInputTokens": 26444,
+      "cacheCreationInputTokens": 7300,
+      "webSearchRequests": 0,
+      "costUSD": 0.0530288,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 58,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0530288,
+  "costVerified": true,
+  "duration_ms": 18741,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "Bash:invocation": 4
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python; rg -n \\\"run_on_commit|on_commit|run_commit_hooks_on_set_autocommit_on\\\" django/db | head -50\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python; grep -rnE \\\"run_on_commit|on_commit|run_commit_hooks_on_set_autocommit_on\\\" django/db\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db; sed -n 255,265p backends/base/base.py; sed -n 320,350p backends/base/base.py; sed -n 405,422p backends/base/base.py; sed -n 484,494p backends/base/base.py; sed -n 722,775p backends/base/base.py; grep -n \\\"run_and_clear_commit_hooks\\\\|run_on_commit\\\" transaction.py backends/base/*.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db; grep -n \\\"set_autocommit\\\\|connection.commit\\\\|connection.rollback\\\\|needs_rollback = \\\\|savepoint_rollback\\\\|run_commit_hooks\\\" transaction.py; sed -n 100,107p backends/base/base.py\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The `grep -rnE \"run_on_commit|on_commit|run_commit_hooks_on_set_autocommit_on\" django/db` call found every relevant line in one pass. The following `sed -n` call then printed the exact ranges in base.py (`on_commit`, `run_and_clear_commit_hooks`, `savepoint_rollback`, `set_autocommit`). Together they covered storage, discard and run.\n\n2. **Did not help:** My first call used `rg`, which isn't installed, so it failed and I had to redo it with grep. Every Bash call printed `/dev/null: Operation not permitted`, which was noise but harmless. I never opened `Atomic.__exit__` in transaction.py. My claims about lines 263, 276, 296, 308 and 320 come only from the third call, a grep for names, plus my own assumption about what each line does. I should have read lines 200-325 and didn't.\n\n3. **Next time:** Start with grep, since `rg` is missing. Use the Read tool instead of `sed` for the transaction.py exit path, and check what each cited call site actually does before describing it.\n\n4. **Confidence:** High for the storage, discard and run mechanics, because I read those lines directly. Medium for the `Atomic.__exit__` call-site claims, because I didn't read that code and had only grep matches. I did flag that in my answer.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 9474,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 453,
+      "context_tokens": 9476,
+      "total_tokens": 9929,
+      "first_request_context": 9476,
+      "fixed_overhead_tokens": 9476,
+      "research_tokens": 453,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9474,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -445
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 9474,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 21215,
+      "weighted_tokens_cold": 21215,
+      "tariff_cost_usd": 0.04243,
+      "tariff_cost_usd_cold": 0.04243,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 9476
+    },
+    "cost_usd": 0.042429999999999995,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9474,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 453,
+        "context_tokens": 9476,
+        "total_tokens": 9929,
+        "first_request_context": 9476,
+        "fixed_overhead_tokens": 9476,
+        "research_tokens": 453,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 9474,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -445
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9474,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 21215,
+        "weighted_tokens_cold": 21215,
+        "tariff_cost_usd": 0.04243,
+        "tariff_cost_usd_cold": 0.04243,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 9476
+      },
+      "cost_usd": 0.042429999999999995,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 9474,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 453,
+          "costUSD": 0.042429999999999995
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 1852,
+            "cacheReadInputTokens": 26444,
+            "cacheCreationInputTokens": 7300,
+            "webSearchRequests": 0,
+            "costUSD": 0.0530288,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 58,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0530288
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 12,
+            "outputTokens": 2305,
+            "thinkingTokens": 58,
+            "cacheReadInputTokens": 26444,
+            "cacheCreationInputTokens": 16774,
+            "webSearchRequests": 0,
+            "costUSD": 0.0954588,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0954588
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9474,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 453
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 9474,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

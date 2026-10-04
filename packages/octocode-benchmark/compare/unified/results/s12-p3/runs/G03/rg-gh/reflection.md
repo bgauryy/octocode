@@ -1,0 +1,7 @@
+1. **Helped:** My only tool call was one Bash command with two `gh api -X GET` calls. The first was `repos/nodejs/undici/pulls/5881` with a `--jq` filter for title, state, body and merge SHA. The second was `pulls/5881/files`, which returns each file's patch. The body gave the author's stated rationale. The patches showed the actual mechanism and the new tests, so one round trip was enough.
+
+2. **Did not help:** The shell printed `/bin/bash: /dev/null: Operation not permitted` three times. It did not stop the output, but it was unexpected noise. I did not use `rg` or `git`, so I never checked the code at the merge commit. My citations are to diff file names and hunks, not `path:line` at a pinned commit. I also did not fetch review comments or linked issues.
+
+3. **Next time:** I would add a second call to `gh api` for `pulls/5881/comments` and the linked issue. That would confirm whether the bug was reported separately. I would also fetch `lib/dispatcher/pool.js` at the merge SHA to give real line numbers.
+
+4. **Confidence:** Medium-high on the mechanism and the fix, since the diff and the PR description agree. Medium on the stated cause, because some of it is my inference from the old code comment and the diff.

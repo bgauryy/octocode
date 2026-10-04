@@ -1,0 +1,7 @@
+**1. Helped:** The second call, `ghGetFileContent` on `prometheus/client_golang` with `branch: "v1.20.0"`, `matchString: ["DefBuckets"]` and `contextLines: 6`, produced everything in one shot. It returned the declaration (line 265), the `Buckets` doc comment (387-397) and the guard at line 563. Pinning the tag gave me the right version, and the commit SHA in the response let me cite it.
+
+**2. Did not help:** The first call, `ghSearchCode` scoped to `histogram.go`, came back empty. Code search indexes the default branch only, so it could never answer a question about a tagged release. Its hint to run `ghStructure` was no use here. The matchString output omitted lines 272-386 and 400-557, so I couldn't check whether other code touches the defaults, such as constructor validation. I also did not verify the repo name with `ghSearchRepo`. I relied on prior knowledge, and the successful fetch only indirectly confirmed it.
+
+**3. Next time:** For a version-specific question I'd skip `ghSearchCode` and go straight to `ghGetFileContent` at the tag. I'd add a second matchString such as `upperBounds` to catch any other default handling.
+
+**4. Confidence:** High for the bucket values and the two exceptions, since I read the doc comment and the guard code directly. Medium-high for completeness, because of the unread line ranges.

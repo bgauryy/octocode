@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call, `gh api -X GET search/issues` with "unix socket scrape", returned both PRs (#18091 and #19399) in one query. The second Bash call fetched both PR bodies and the commit date for `ea954809ce` in a single loop. The #19399 body described the mix-up directly, so I didn't need to read any code.
+
+2. **Did not help:** Both calls printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless but noisy. I never fetched issue #12024, so "closed" rests on the PR body's "Fixes" line, not on the issue's own state. I did not use the compare API to confirm that both merges are ancestors of `ea954809ce`. I only compared dates (merges in August, commit on 2026-09-26). I also did not look at source, so I have no `path:line` evidence. I didn't search for other fix PRs either, and the search returned only two results.
+
+3. **Next time:** I would add `gh api repos/prometheus/prometheus/compare/<merge_sha>...ea954809ce` to check ancestry. I would also fetch issue #12024 and grep the source at the pinned commit for the per-socket client code.
+
+4. **Confidence:** Medium-high. The PR numbers, merge dates and mix-up description come straight from the PR text. The ancestry check and the issue's closed state are inferred, not verified.

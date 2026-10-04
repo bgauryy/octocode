@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call, `gh api .../pulls/13824/files` piped through jq with a filename filter, was the key step. It returned the patches for the validator, input, generate-schema and JSON-schema files in one shot. The first call (PR metadata plus file list) scoped the PR cheaply. The third call, `gh api .../issues/13704`, supplied the "before" behavior (the `lax-or-strict → function-after → dict` shape and `minLength` emission).
+
+2. **Did not help:** Every call printed `/bin/bash: /dev/null: Operation not permitted`. This is sandbox noise, but it made me unsure whether output was truncated. I never looked at the pre-PR source at the base SHA (6b819ee), only the removed diff lines. I also did not open `tests/types/test_counter.py`, the serializer, or the `counter_type` error definition. The `head -700` truncation in the second call may have hidden part of the output, and I did not check.
+
+3. **Next time:** I would fetch the base-commit `_generate_schema.py` with `gh api contents?ref=<base sha>` to confirm the old behavior and old error type. I would also pull the test patch for `tests/types/test_counter.py` and the `types.rs` patch, so claims about error types and JSON keywords rest on evidence rather than inference.
+
+4. **Confidence:** Medium. The new behavior is well supported by the diff. The "before" behavior and the `minProperties` output are inferred from the issue and the PR docs, and I never ran the code.

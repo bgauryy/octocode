@@ -1,0 +1,179 @@
+{
+  "qid": "L19",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "7e3d505e53664bf1b80b3f1de3e269f2fcb3dfa82aae05e98435c3e56f7f815c",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "6c283ad8b93ef68737abb4f2ca5049ac8de53b4fcc240fb4fbc6eb9628914fa8",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on effective-kind resolution, mode semantics, and indicator order; explicitly did not trace the fileloader/parser wiring (fact 2); IsExternalModule not named (only implied by 'non-nil indicator')."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers resolution, fileloader.go:422 wiring, parser.go:486 call, mode semantics, indicator order; extra contentmapper/transform.go:62/89 and init.go:199 verified correct. Predicate fact 5 only implied (non-nil indicator = module), declscompiler AffectsSourceFile omitted."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on effective-kind resolution, mode semantics, and indicator order; explicitly did not trace the fileloader/parser wiring (fact 2); IsExternalModule not named (only implied by 'non-nil indicator')."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers resolution, fileloader.go:422 wiring, parser.go:486 call, mode semantics, indicator order; extra contentmapper/transform.go:62/89 and init.go:199 verified correct. Predicate fact 5 only implied (non-nil indicator = module), declscompiler AffectsSourceFile omitted."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1289338,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 11590,
+        "cache_read_input_tokens": 22949,
+        "output_tokens": 1580,
+        "context_tokens": 34545,
+        "total_tokens": 36125,
+        "first_request_context": 10108,
+        "fixed_overhead_tokens": 30324,
+        "research_tokens": 5801,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 11590,
+          "cache_read_input_tokens": 22949,
+          "output_tokens": 29
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1551
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11590,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 13962
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 2
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.1289338,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11590,
+    "cache_read_input_tokens": 22949,
+    "output_tokens": 1580,
+    "context_tokens": 34545,
+    "total_tokens": 36125,
+    "first_request_context": 10108,
+    "fixed_overhead_tokens": 30324,
+    "research_tokens": 5801,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 11590,
+      "cache_read_input_tokens": 22949,
+      "output_tokens": 29
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1551
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11590,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 13962
+  },
+  "timedOut": false
+}

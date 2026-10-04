@@ -1,0 +1,356 @@
+{
+  "qid": "L31",
+  "worker": "octocode",
+  "started": "2026-10-03T20:34:16.441Z",
+  "promptSha256": "42d742a5277303b0202cb85ee88b1a716cac5dced519302c2903660b661c7128",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 7908,
+  "status": "ok",
+  "answer": "At commit 52fa3aef1f, Newtonsoft.Json builds for net10.0, net8.0, net6.0, net45, net40, net35, net20 and netstandard2.0. The list is on line 3 of `Src/Newtonsoft.Json/Newtonsoft.Json.csproj`: `net10.0;net8.0;net6.0;net45;net40;net35;net20;netstandard2.0`. That is the default, used when `LibraryFrameworks` isn't set.\n\n- **Added:** `net8.0` and `net10.0`.\n- **Dropped:** `netstandard1.0` and `netstandard1.3`.\n- **Unchanged:** `net6.0`, `net45`, `net40`, `net35`, `net20` and `netstandard2.0`.\n\nI didn't check the 13.0.3 target list against the package itself. I took it from memory as `net6.0`, `net45`, `net40`, `net35`, `net20`, `netstandard2.0`, `netstandard1.3` and `netstandard1.0`. The \"dropped\" and \"unchanged\" lists depend on that recollection. The commit's own list is confirmed from the csproj.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 4433,
+    "cache_read_input_tokens": 16909,
+    "output_tokens": 695,
+    "context_tokens": 21346,
+    "total_tokens": 22041,
+    "first_request_context": 9950,
+    "fixed_overhead_tokens": 19900,
+    "research_tokens": 2141,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 4433,
+      "cache_read_input_tokens": 16909,
+      "output_tokens": 30
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -665
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 4433,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 14035.9,
+    "weighted_tokens_cold": 27261.8,
+    "tariff_cost_usd": 0.0280718,
+    "tariff_cost_usd_cold": 0.0545236,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 11396
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2987,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1446,
+      "cache_read_input_tokens": 9948,
+      "output_tokens": 2
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 4433,
+    "cache_read_input_tokens": 16909,
+    "output_tokens": 695
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 695,
+      "cacheReadInputTokens": 16909,
+      "cacheCreationInputTokens": 4433,
+      "webSearchRequests": 0,
+      "costUSD": 0.0280718,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 142,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0280718,
+  "costVerified": true,
+  "duration_ms": 7190,
+  "num_turns": 2,
+  "toolCallCount": 1,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"TargetFramework\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/csharp/Src/Newtonsoft.Json/Newtonsoft.Json.csproj\",\"resultView\":\"content\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** My single `localSearch` for `TargetFramework` on `Src/Newtonsoft.Json/Newtonsoft.Json.csproj` found the answer at once. Scoping it to the one csproj gave line 3 with the full list, and the per-framework `PropertyGroup` conditions (lines 61-85) confirmed each entry.\n\n2. **Did not help:** I made no call for the 13.0.3 baseline, which was half the question. I wrote that list from memory and presented the added/dropped results with more weight than that warranted. I also never checked whether `LibraryFrameworks` is overridden in a `Directory.Build.props` or in CI, so the \"default\" list is only the csproj fallback. The `localSearch` output itself was clean.\n\n3. **Next time:** I would read the csproj at the `13.0.3` tag with `ghGetFileContent` (or the published nuspec). That would verify the diff, and I'd cite it. I would also run a `localSearch` for `LibraryFrameworks` across the repo, and batch both in one call.\n\n4. **Confidence:** High that the commit builds `net10.0;net8.0;net6.0;net45;net40;net35;net20;netstandard2.0`, since that is read directly from line 3. Medium for the added/dropped lists, because the 13.0.3 side rests on unverified recall. I did say so at the end of my answer.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5452,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 791,
+      "context_tokens": 5454,
+      "total_tokens": 6245,
+      "first_request_context": 5454,
+      "fixed_overhead_tokens": 5454,
+      "research_tokens": 791,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 5452,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 2
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -789
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 5452,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 14861,
+      "weighted_tokens_cold": 14861,
+      "tariff_cost_usd": 0.029722,
+      "tariff_cost_usd_cold": 0.029722,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 5454
+    },
+    "cost_usd": 0.029722000000000005,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 5452,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 791,
+        "context_tokens": 5454,
+        "total_tokens": 6245,
+        "first_request_context": 5454,
+        "fixed_overhead_tokens": 5454,
+        "research_tokens": 791,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 5452,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 2
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -789
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 5452,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 14861,
+        "weighted_tokens_cold": 14861,
+        "tariff_cost_usd": 0.029722,
+        "tariff_cost_usd_cold": 0.029722,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 5454
+      },
+      "cost_usd": 0.029722000000000005,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 5452,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 791,
+          "costUSD": 0.029722000000000005
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 4,
+            "outputTokens": 695,
+            "cacheReadInputTokens": 16909,
+            "cacheCreationInputTokens": 4433,
+            "webSearchRequests": 0,
+            "costUSD": 0.0280718,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 142,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0280718
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1486,
+            "thinkingTokens": 473,
+            "cacheReadInputTokens": 16909,
+            "cacheCreationInputTokens": 9885,
+            "webSearchRequests": 0,
+            "costUSD": 0.057793800000000006,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.057793800000000006
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 5452,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 791
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 5452,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:34:19.661Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:34:19.724Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 4
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

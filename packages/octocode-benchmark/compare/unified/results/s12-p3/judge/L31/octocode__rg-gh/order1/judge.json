@@ -1,0 +1,183 @@
+{
+  "qid": "L31",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "6bc6c5a196f52397ac712df27499aa8c963fbea623acd26a33b112e33117a5a2",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "d6f67eef20df366a7f8b881d2c5e216771df03c1d485f80b7829b58ec097fbce",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts correct, but the 13.0.3 list came from memory and is unverified (disclosed honestly). The pinned-commit csproj:3 citation is correct; the release side has no evidence."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct and complete. Cites csproj:3 at both the pinned commit and the 13.0.3 tag, notes the LibraryFrameworks override at line 4, and gives an appropriate caveat about the NuGet package versus the tag."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All facts correct, but the 13.0.3 list came from memory and is unverified (disclosed honestly). The pinned-commit csproj:3 citation is correct; the release side has no evidence."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct and complete. Cites csproj:3 at both the pinned commit and the 13.0.3 tag, notes the LibraryFrameworks override at line 4, and gives an appropriate caveat about the NuGet package versus the tag."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.0715698,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 6060,
+        "cache_read_input_tokens": 18229,
+        "output_tokens": 971,
+        "context_tokens": 24295,
+        "total_tokens": 25266,
+        "first_request_context": 7782,
+        "fixed_overhead_tokens": 23346,
+        "research_tokens": 1920,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 6060,
+          "cache_read_input_tokens": 18229,
+          "output_tokens": 26
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -945
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6060,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 8432
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 1
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.0715698,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6060,
+    "cache_read_input_tokens": 18229,
+    "output_tokens": 971,
+    "context_tokens": 24295,
+    "total_tokens": 25266,
+    "first_request_context": 7782,
+    "fixed_overhead_tokens": 23346,
+    "research_tokens": 1920,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 6060,
+      "cache_read_input_tokens": 18229,
+      "output_tokens": 26
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -945
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6060,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 8432
+  },
+  "timedOut": false
+}

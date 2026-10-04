@@ -1,0 +1,170 @@
+{
+  "qid": "G04",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 1,
+    "rg-gh": 1
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8.5,
+      "correctness": 4.5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        9,
+        8
+      ],
+      "wrongClaims": [
+        "click.option(\"--0-file\") now warns (exposed option with non-identifier derived name still raises TypeError; only unexposed warns)"
+      ]
+    },
+    "rg-gh": {
+      "quality": 7.5,
+      "correctness": 3.5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        8,
+        7
+      ],
+      "wrongClaims": [
+        "Muddled self-contradiction about current Foo_Bar behavior and claim upgrade guide example reads the other way (final statement correct)",
+        "click.option(\"--0-file\") warns (it raises TypeError when exposed)",
+        "Muddled explanation of current casing behavior, ending in 'ambiguous'"
+      ]
+    }
+  },
+  "preferred": [
+    "octocode",
+    "octocode"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2200378,
+  "judgeTokens": 65108,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 9158,
+        "cache_read_input_tokens": 32415,
+        "output_tokens": 2058,
+        "context_tokens": 41581,
+        "total_tokens": 43639,
+        "first_request_context": 9409,
+        "fixed_overhead_tokens": 37636,
+        "research_tokens": 6003,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 9158,
+          "cache_read_input_tokens": 32415,
+          "output_tokens": 67
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1991
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9158,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11530
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 2,
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.12093900000000002,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8091,
+        "cache_read_input_tokens": 11774,
+        "output_tokens": 1600,
+        "context_tokens": 19869,
+        "total_tokens": 21469,
+        "first_request_context": 9406,
+        "fixed_overhead_tokens": 18812,
+        "research_tokens": 2657,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8091,
+          "cache_read_input_tokens": 11774,
+          "output_tokens": 16
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1584
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8091,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 10463
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0990988,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

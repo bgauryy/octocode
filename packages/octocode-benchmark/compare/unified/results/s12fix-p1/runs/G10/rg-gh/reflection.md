@@ -1,0 +1,7 @@
+1. **Helped:** The first `gh api -X GET repos/tokio-rs/tokio/pulls/8156` call, combined with the `/files` listing, gave the PR body, merge status and changed-file list in one step. The PR body already named the two blocking Miri issues. The third call (the `/files` patches piped to `grep -nE '^===|^[+-].*(miri|Miri)'`) showed every added or removed Miri comment, which is where the reasons per test group came from.
+
+2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. The second call's `2>/dev/null` and the fourth call's `/tmp/p.txt` redirect were blocked, so I wasted two calls and had to rerun the patch query without redirects. The second call also returned nothing, which was easy to misread as "no matches". I only fetched diff hunks, not full files, so I couldn't map each ignore to a specific test name.
+
+3. **Next time:** I'd skip redirects entirely and pipe straight to `grep` or `jq`. I'd also read the diff hunks with `fn` context so I could name the tests behind each ignore. I'd check the linked Miri issues #5047 and #5054 to confirm their current state.
+
+4. **Confidence:** Medium-high. The PR metadata and ignore reasons come from the actual diff. The table is grouped rather than exhaustive, and I didn't see untouched files or earlier ignores.

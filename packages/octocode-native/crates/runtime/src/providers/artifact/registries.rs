@@ -410,6 +410,34 @@ pub(crate) async fn go(
         };
         artifact.package_path = is_package.then_some(returned);
         artifact.source_ref = go_source_ref(&artifact);
+        // A vanity module path (`go.opentelemetry.io/otel`) does not name its
+        // repository directory or tag; the module proxy records the commit
+        // the version was built from, and the directory inside the repo.
+        if artifact.source_ref.is_none()
+            && let (Some(module), Some(version)) =
+                (artifact.module_path.clone(), artifact.version.clone())
+        {
+            let info = parse_url(&format!(
+                "https://proxy.golang.org/{}/@v/{}.info",
+                go_proxy_escape(&module),
+                super::util::encode_component(&version)
+            ))?;
+            // The proxy is a lead source only: its failure leaves the lookup.
+            if let Some(origin) = client
+                .json(ArtifactType::Go, info, true, None)
+                .await
+                .ok()
+                .flatten()
+                .as_ref()
+                .and_then(|info| info.get("Origin"))
+            {
+                artifact.source_ref = commit_sha(origin.get("Hash"));
+                if artifact.repository_directory.is_none() {
+                    artifact.repository_directory =
+                        string(origin.get("Subdir")).filter(|dir| !dir.is_empty());
+                }
+            }
+        }
         return Ok(single(artifact));
     }
     let url = endpoint(
@@ -456,6 +484,22 @@ pub(crate) async fn go(
         terminal_limit: None,
         registry: None,
     })
+}
+
+/// A module path in the module proxy's case encoding: each upper-case letter
+/// becomes `!` plus its lower-case form; segments are URL-encoded.
+fn go_proxy_escape(module: &str) -> String {
+    let folded = module
+        .chars()
+        .flat_map(|c| {
+            if c.is_ascii_uppercase() {
+                vec!['!', c.to_ascii_lowercase()]
+            } else {
+                vec![c]
+            }
+        })
+        .collect::<String>();
+    coordinate_path(&folded)
 }
 
 /// The pkg.go.dev `version` of a Go lookup: `None` for the latest release
@@ -1267,6 +1311,49 @@ mod tests {
             .await
             .expect_err("range");
         assert_eq!(range.code, "unsupported_capability");
+    }
+
+    /// A vanity module path names neither its repository directory nor its
+    /// tag: the release commit and directory come from the module proxy.
+    #[tokio::test]
+    async fn go_vanity_modules_take_the_release_commit_from_the_proxy() {
+        let http = RouteHttp::new(vec![
+            (
+                "/v1/module/go.opentelemetry.io/otel/sdk?version=v1.30.0",
+                json!({"path":"go.opentelemetry.io/otel/sdk","version":"v1.30.0",
+                    "repoUrl":"https://github.com/open-telemetry/opentelemetry-go"}),
+            ),
+            (
+                "/go.opentelemetry.io/otel/sdk/@v/v1.30.0.info",
+                json!({"Version":"v1.30.0","Origin":{"VCS":"git",
+                    "URL":"https://github.com/open-telemetry/opentelemetry-go","Subdir":"sdk",
+                    "Hash":"ed4fc757583a88b4da51b1fe1c3f0703ac27a487","Ref":"refs/tags/sdk/v1.30.0"}}),
+            ),
+        ]);
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+            cache_revision: 0,
+            cache_enabled: false,
+        };
+        let query = artifact_query(
+            json!({"type":"go","packageName":"go.opentelemetry.io/otel/sdk","version":"v1.30.0"}),
+            None,
+        );
+        let page = go(&query, &ArtifactProviderState::default(), &client)
+            .await
+            .expect("vanity");
+        let item = &page.artifacts[0];
+        assert_eq!(
+            item.source_ref.as_deref(),
+            Some("ed4fc757583a88b4da51b1fe1c3f0703ac27a487")
+        );
+        assert_eq!(item.repository_directory.as_deref(), Some("sdk"));
+        assert_eq!(
+            go_proxy_escape("github.com/BurntSushi/toml"),
+            "github.com/!burnt!sushi/toml"
+        );
     }
 
     #[tokio::test]

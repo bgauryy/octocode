@@ -11,15 +11,17 @@
 //! Arrays: MCP hosts send list fields JSON-encoded (`include:"[\"*.go\"]"`)
 //! or as a bare scalar (`keywords:"term"`). Where every schema that can hold
 //! the value is an array (a `null` alternative is neutral), a string that
-//! parses as a JSON array becomes that array, and a scalar every array
-//! alternative's items accept becomes a one-element array. Any string,
-//! untyped, or other alternative vetoes the repair.
+//! parses as a JSON array (curly double quotes read as `"`) becomes that
+//! array, and a scalar every array alternative's items accept becomes a
+//! one-element array. Any string, untyped, or other alternative vetoes the
+//! repair.
 //!
 //! Line ranges: where items carry the canonical `a-b` line-range pattern,
 //! `" 140-150"`, `"140 - 150"` and `"70,130"` become `"140-150"`/`"70-130"`,
-//! and a pair of bare line numbers (`["248","325"]`, `[248,325]`, or one pair
-//! per item: `[["248","325"]]`) becomes the one range holding both. Every
-//! requested line stays in the read.
+//! a bare line `"190"` becomes `"190-190"`, and a pair of bare line numbers
+//! (`["248","325"]`, `[248,325]`, or one pair per item: `[["248","325"]]`)
+//! becomes the one range holding both. Every requested line stays in the
+//! read.
 //!
 //! Closed string sets: where every alternative is a string `enum`/`const`, a
 //! value that names exactly one member up to case, `-`/`_`/space, or a plural
@@ -195,6 +197,10 @@ fn array_form(schemas: &[Typed<'_>], value: &Value) -> Option<Value> {
         if let Ok(parsed @ Value::Array(_)) = serde_json::from_str::<Value>(text) {
             return Some(parsed);
         }
+        if let Ok(parsed @ Value::Array(_)) = serde_json::from_str::<Value>(&straight_quotes(text))
+        {
+            return Some(parsed);
+        }
         // A malformed encoded list is not one literal item; leave it for the
         // validator to report. Glob classes such as `[ab]*.ts` still wrap.
         if looks_like_json_array(text) {
@@ -213,12 +219,30 @@ fn array_form(schemas: &[Typed<'_>], value: &Value) -> Option<Value> {
 }
 
 /// `["…`, `[{…` or `[[…`: the text is an attempted JSON array, not a literal.
+/// A curly double quote counts as `"`.
 pub(super) fn looks_like_json_array(text: &str) -> bool {
     let mut chars = text.trim_start().chars();
     chars.next() == Some('[')
         && chars
             .find(|c| !c.is_whitespace())
-            .is_some_and(|c| matches!(c, '"' | '{' | '['))
+            .is_some_and(|c| matches!(c, '"' | '{' | '[') || CURLY_DOUBLE_QUOTES.contains(&c))
+}
+
+/// Double quotes rich-text hosts substitute for `"`.
+const CURLY_DOUBLE_QUOTES: [char; 5] = ['\u{201c}', '\u{201d}', '\u{201e}', '\u{201f}', '\u{2033}'];
+
+/// `text` with every curly double quote replaced by `"`: the JSON a
+/// rich-text host meant when it typographically quoted an encoded list.
+fn straight_quotes(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if CURLY_DOUBLE_QUOTES.contains(&c) {
+                '"'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// Every alternative that can hold the value is an array; `null` is neutral.
@@ -414,10 +438,14 @@ fn near_miss<'a>(members: &[&'a str], text: &str) -> Option<&'a str> {
     )
 }
 
-/// `a-b` or `a,b` with optional spaces around either number, as `a-b`;
-/// `None` for any other text (left for the validator to report).
+/// `a-b` or `a,b` with optional spaces around either number, as `a-b`, and a
+/// bare line `a` as the one-line range `a-a`; `None` for any other text (left
+/// for the validator to report).
 fn line_range(text: &str) -> Option<String> {
-    let (start, end) = text.split_once(['-', ','])?;
+    let Some((start, end)) = text.split_once(['-', ',']) else {
+        let line = line_number(&Value::String(text.to_owned()))?;
+        return Some(format!("{line}-{line}"));
+    };
     let start = line_number(&Value::String(start.to_owned()))?;
     let end = line_number(&Value::String(end.to_owned()))?;
     Some(format!("{start}-{end}"))
@@ -522,6 +550,19 @@ mod tests {
         );
         assert_eq!(coerced(&strings, json!(r#" [ "a" ] "#)), json!(["a"]));
         assert_eq!(coerced(&strings, json!("[]")), json!([]));
+        // Curly quotes from a rich-text host delimit the items.
+        assert_eq!(
+            coerced(
+                &strings,
+                json!("[\u{201c}*.go\u{201d}, \u{201c}*.rs\u{201d}]")
+            ),
+            json!(["*.go", "*.rs"])
+        );
+        // A malformed curly encoding is not one literal item.
+        assert_eq!(
+            coerced(&strings, json!("[\u{201c}*.go\u{201d}")),
+            json!("[\u{201c}*.go\u{201d}")
+        );
         let integers =
             json!({"anyOf":[{"type":"array","items":{"type":"integer"}},{"type":"null"}]});
         assert_eq!(coerced(&integers, json!(r#"["3",4]"#)), json!([3, 4]));
@@ -568,6 +609,14 @@ mod tests {
             (json!([[1, 2], ["5", 9]]), json!(["1-2", "5-9"])),
             (json!([[3, 4], "10,20"]), json!(["3-4", "10-20"])),
             (json!("[[248,325]]"), json!(["248-325"])),
+            (
+                json!(["1084", "1084-1140"]),
+                json!(["1084-1084", "1084-1140"]),
+            ),
+            (json!(["190", "236-310"]), json!(["190-190", "236-310"])),
+            (json!(["190"]), json!(["190-190"])),
+            (json!("190"), json!(["190-190"])),
+            (json!("[\u{201c}63-120\u{201d}]"), json!(["63-120"])),
         ] {
             assert_eq!(coerced(&ranges, input.clone()), expected, "{input}");
         }

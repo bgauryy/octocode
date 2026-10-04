@@ -1,0 +1,376 @@
+{
+  "qid": "G10",
+  "worker": "octocode",
+  "started": "2026-10-03T20:01:01.664Z",
+  "promptSha256": "079f95190a44cd6fb5d2516e75fd9f404cb6812688b1cb3b8802fd9f29ad9ca2",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 17858,
+  "status": "ok",
+  "answer": "**Summary:** PR #8156 was merged on 2026-05-26 into `master`. It removes most of the `#[cfg_attr(miri, ignore)] // No socket in miri` markers from TCP-related tests, because Miri now supports TCP sockets. I read the patches for about 25 of the 37 changed files. I did not read the `tcp_*` test patches, which are on page 2 of the file list. Treat those as unreviewed.\n\n**What it changes** (PR body and patches at head `c5d51ae`)\n- **Un-ignores TCP tests.** It removes the \"No `socket` in miri\" ignores or `cfg(not(miri))` gates from these files:\n  - `io_copy_bidirectional.rs`, `io_driver.rs`, `io_driver_drop.rs`, `net_bind_resource.rs`, `no_rt.rs`\n  - the TCP cases in `net_panic.rs`\n  - the socket tests in `rt_common.rs`, `rt_handle_block_on.rs` and `rt_threaded.rs`\n  - `rt_common.rs` also loses its file-level `#![cfg(not(miri))]`.\n- **Un-ignores `resolve_dns`.** It also drops the \"No `getaddrinfo`\" ignore on `resolve_dns` in `net_lookup_host.rs`.\n- **Doctests.** The `if cfg!(miri) { return Ok(()); }` guards are removed from the `TcpListener`, `TcpSocket` and `TcpStream` doctests.\n- **Slow tests.** The PR body says tests that were too slow under Miri got smaller buffers or fewer iterations if they mattered. The rest were ignored with `// Too slow on miri`. Examples are `spawn_many_from_block_on` and `spawn_many_from_task` in `rt_common.rs`, and several tests in `rt_threaded.rs`.\n- **Housekeeping.** It bumps the pinned `rust_miri_nightly` from `nightly-2026-04-27` to `nightly-2026-05-20` in `ci.yml`. It also rewrites the remaining ignore comments to give accurate reasons, and fixes a stale link comment in `io/util/mod.rs`.\n\n**Networking tests that still don't run under Miri, and why**\n- **Host I/O events are only processed when switching into the scheduler** (https://github.com/rust-lang/miri/issues/5047). This affects `blocking_one_side_does_not_block_other` in `io_copy_bidirectional.rs` and two tests in `rt_common.rs` (around lines 1158 and 1172).\n- **`readv` can leak memory** (https://github.com/rust-lang/miri/pull/5054). The PR body names this as a blocker. I did not see which test it affects, because that is probably in the `tcp_*` files I didn't read.\n- **UDP sockets are unsupported.** `tokio-util/tests/udp.rs`, `udp_socket_from_std_panic_caller` in `net_panic.rs`, and UDP tests in `rt_common.rs` and `rt_handle_block_on.rs` stay ignored, as do the UDP doctests.\n- **Unix domain sockets are unsupported.** This covers the `UnixListener`, `UnixStream` and `UnixDatagram` tests and doctests, including the Unix cases in `net_panic.rs` and `rt_handle_block_on.rs`.\n- **TCP quickack option unsupported.** `net_quickack.rs` stays `cfg(not(miri))`.\n- **FIFOs.** `fifo_resilient_reader` in `net_unix_pipe.rs` stays ignored because Miri has no `mkfifo`.\n- **Leaked threads.** Three `rt_common.rs` tests are ignored because \"Miri detects leaked threads (see #7010)\". They are not strictly networking tests.\n\nThe PR body says follow-up PRs will re-enable the I/O-event and `readv` tests once those Miri fixes land in a nightly.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 15920,
+    "cache_read_input_tokens": 36850,
+    "output_tokens": 1877,
+    "context_tokens": 52776,
+    "total_tokens": 54653,
+    "first_request_context": 9814,
+    "fixed_overhead_tokens": 29442,
+    "research_tokens": 25211,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 15920,
+      "cache_read_input_tokens": 36850,
+      "output_tokens": 48
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1829
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 15920,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 44916,
+    "weighted_tokens_cold": 58141.9,
+    "tariff_cost_usd": 0.089832,
+    "tariff_cost_usd_cold": 0.1162838,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 22883
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2851,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 10265,
+      "cache_read_input_tokens": 9812,
+      "output_tokens": 8
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2804,
+      "cache_read_input_tokens": 20077,
+      "output_tokens": 8
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 15920,
+    "cache_read_input_tokens": 36850,
+    "output_tokens": 1877
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1877,
+      "cacheReadInputTokens": 36850,
+      "cacheCreationInputTokens": 15920,
+      "webSearchRequests": 0,
+      "costUSD": 0.089832,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 86,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.089832,
+  "costVerified": true,
+  "duration_ms": 17159,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "mcp__octocode__ghGetHistoryItem": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 1,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"tokio-rs\",\"repo\":\"tokio\",\"operation\":\"pullRequest\",\"number\":8156,\"include\":[\"body\",\"patches\"]}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"tokio-rs\",\"repo\":\"tokio\",\"operation\":\"pullRequest\",\"number\":8156,\"matchString\":\"cfg_attr(miri, ignore)\",\"files\":[\"tokio/tests/rt_common.rs\",\"tokio/tests/rt_threaded.rs\",\"tokio/tests/tcp_socket.rs\",\"tokio/tests/tcp_echo.rs\",\"tokio/tests/tcp_peek.rs\",\"tokio/tests/tcp_split.rs\",\"tokio/tests/tcp_into_split.rs\",\"tokio/tests/rt_handle_block_on.rs\",\"tokio/tests/tcp_shutdown.rs\",\"tokio/tests/tcp_accept.rs\",\"tokio/tests/tcp_connect.rs\",\"tokio/tests/tcp_into_std.rs\"]}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `ghGetHistoryItem` call (operation pullRequest, include body and patches) did most of the work. It returned the PR body, with the author's list of blocking Miri issues, plus most patches. The second call, with `matchString: \"cfg_attr(miri, ignore)\"` and a `files` filter on the rt_* files, gave compact diffs. They showed the exact ignore reasons, including #5047, \"Too slow\", and #7010.\n\n2. **Did not help:** The first response was truncated by pagination: 37 files across 2 pages, and `rt_common.rs` was cut off. I never fetched page 2 or the `tcp_*` test patches, even though my second call listed them in `files`. They returned nothing, probably because they were on page 2. I also never opened the Miri PR/issue links or the post-merge test files, so I could not say which test the `readv` leak affects. My answer said this, but it is a real gap. The multi-file output also elided hunks with \"...\", which made some per-test attributions less certain.\n\n3. **Next time:** Call `ghGetHistoryItem` with `filePage: 2` right away. Then run `ghSearchCode` or a content read at `mergeCommitSha` for `cfg_attr(miri, ignore)` in `tokio/tests`, to get a verified list of what is still ignored.\n\n4. **Confidence:** Medium. The summary of changes and the stated reasons are well supported. The completeness of the \"still ignored\" list is not, because I skipped page 2 and did not check the merged tree.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 17858,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 508,
+      "context_tokens": 17860,
+      "total_tokens": 18368,
+      "first_request_context": 17860,
+      "fixed_overhead_tokens": 17860,
+      "research_tokens": 508,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 17858,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -507
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 17858,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 38258,
+      "weighted_tokens_cold": 38258,
+      "tariff_cost_usd": 0.076516,
+      "tariff_cost_usd_cold": 0.076516,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 17860
+    },
+    "cost_usd": 0.076516,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 17858,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 508,
+        "context_tokens": 17860,
+        "total_tokens": 18368,
+        "first_request_context": 17860,
+        "fixed_overhead_tokens": 17860,
+        "research_tokens": 508,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 17858,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 1
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -507
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 17858,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 38258,
+        "weighted_tokens_cold": 38258,
+        "tariff_cost_usd": 0.076516,
+        "tariff_cost_usd_cold": 0.076516,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 17860
+      },
+      "cost_usd": 0.076516,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 17858,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 508,
+          "costUSD": 0.076516
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1877,
+            "cacheReadInputTokens": 36850,
+            "cacheCreationInputTokens": 15920,
+            "webSearchRequests": 0,
+            "costUSD": 0.089832,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 86,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.089832
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2385,
+            "thinkingTokens": 86,
+            "cacheReadInputTokens": 36850,
+            "cacheCreationInputTokens": 33778,
+            "webSearchRequests": 0,
+            "costUSD": 0.166348,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.166348
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 17858,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 508
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 17858,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "ghGetHistoryItem",
+      "startedAt": "2026-10-03T20:01:04.368Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:05.109Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghGetHistoryItem",
+      "startedAt": "2026-10-03T20:01:08.479Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:09.111Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 5
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call fetched `setup.py`, `adapters.py` and `__version__.py` at `ref=v2.32.3` through `gh api` with the raw Accept header, then filtered them with `cat -n | grep`. It gave exact line numbers for `python_requires`, the extras and the adapter constants in one step. The second call (`sed -n '60,75p;98,128p'` on `setup.py`) filled in `install_requires` and the classifiers. The `git/ref/tags/v2.32.3` lookup gave the tag object SHA.
+
+2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. It was harmless but noisy. My grep filter hid the `install_requires` list, which forced a second call. I never downloaded the PyPI sdist or wheel, so I can't say the published metadata matches the tag. I cited the classifier lines as `~100-117` without reading exact numbers, which was sloppy. The SHA I gave is an annotated tag object, not the commit. I did not resolve it.
+
+3. **Next time:** I'd fetch each file once and print the needed ranges with `cat -n`. I'd resolve the tag to its commit SHA. I'd also check the PyPI JSON API (`pypi.org/pypi/requests/2.32.3/json`) if it were reachable, to confirm `requires_dist` and `requires_python`.
+
+4. **Confidence:** High on the dependencies, extras, Python floor and adapter defaults, since I read them directly at the tag. Medium on the claim that PyPI metadata matches, and on the approximate classifier line range.

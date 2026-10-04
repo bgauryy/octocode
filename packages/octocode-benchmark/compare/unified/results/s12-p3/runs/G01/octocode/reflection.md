@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetHistoryItem` call (body, files, patches) gave the PR description, file list, and the `applications.py` diff. The batched `ghGetFileContent` call at the merge SHA was the most useful: `_runtime.py` in full, plus `matchString` hits for `pyproject.toml` and `_asgi.py`. That answered the env-var and startup-failure questions directly. The `routing.py` patch from the second `ghGetHistoryItem` call showed where the spans and route hooks were added.
+
+2. **Did not help:** Patches were truncated mid-file (`background.py` was cut off). The second `ghGetHistoryItem` call returned only the first 4k characters of `_asgi.py`, and I never fetched the continuation. The `matchString` reads of `_asgi.py` left large omitted gaps, so I never saw `finish()`, the metrics code, or the exclude handling. I never opened `_api.py`, `__init__.py`, or any test, so `_operation`'s no-op cost and how `_legacy_otel` is used are unverified. I said so in the answer, but those gaps could have been closed.
+
+3. **Next time:** I'd read `_api.py` and the full `_asgi.py` with `ghGetFileContent` at the merge SHA. I'd also use `matchString` on `_legacy_otel` and `_operation`, and skim the test names for intended behavior.
+
+4. **Confidence:** Medium. The behavior I described is backed by code I actually read. The risk and performance assessment is partly inference, since I didn't read the rest of `_asgi.py` or `_api.py`.

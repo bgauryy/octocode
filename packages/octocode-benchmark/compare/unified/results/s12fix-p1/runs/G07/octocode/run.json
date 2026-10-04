@@ -1,0 +1,390 @@
+{
+  "qid": "G07",
+  "worker": "octocode",
+  "started": "2026-10-03T22:10:38.747Z",
+  "promptSha256": "7980e5bafdf3f4070530b8546063133e9dfdcb19bdb06cf67213ea23662ae2d7",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 18958,
+  "status": "ok",
+  "answer": "**Short answer:** `Starlette.build_middleware_stack()` builds the stack lazily and wraps the router in a fixed order of middleware. Exceptions are then caught at up to three layers. `wrap_app_handling_exceptions` runs per route and inside `ExceptionMiddleware`, and `ServerErrorMiddleware` is the outermost catch-all.\n\nTwo caveats on citations. The `ghSearchCode` call that found the `routing.py` call sites reported a different commit (`6beaa2e39d33…`, the default branch) from the pinned `63c5760d8a`. I didn't read `routing.py` at the pinned commit.\n\n## Stack assembly (`starlette/applications.py`)\n\n- **When it's built:** `__call__` sets `scope[\"app\"]`. If `self.middleware_stack is None`, it calls `build_middleware_stack()` once, then calls the stack (`applications.py:92-96`).\n- **Handler split:** `build_middleware_stack` loops over `self.exception_handlers` (lines 68-72). Handlers keyed `500` or `Exception` become `error_handler`, which goes to `ServerErrorMiddleware`. All other handlers go to `ExceptionMiddleware`.\n- **Order:** the list is built outermost first (lines 74-78):\n  1. `ServerErrorMiddleware(handler=error_handler, debug=debug)`.\n  2. `RequestBodyLimitMiddleware`, only if `max_body_size` is not `None`.\n  3. `self.user_middleware`.\n  4. `ExceptionMiddleware(handlers=exception_handlers, debug=debug)`.\n- **Wrapping:** `app = self.router`, then `for cls, args, kwargs in reversed(middleware): app = cls(app, *args, **kwargs)` (lines 80-83). Each middleware wraps the next one, so the first in the list ends up outermost.\n- **`add_middleware`:** it does `user_middleware.insert(0, …)`, so the most recently added middleware is outermost among the user middleware (line 107). It raises `RuntimeError` if the stack is already built (lines 105-106).\n\n## How exceptions reach handlers\n\n1. **`ExceptionMiddleware`** (`starlette/middleware/exceptions.py`):\n   - Non-http/websocket scopes pass straight through (lines 48-50).\n   - Its `__init__` registers default handlers for `HTTPException` and `WebSocketException` (lines 28-31).\n   - It then calls `add_exception_handler` for each user handler. Integer keys go to `_status_handlers`; class keys go to `_exception_handlers` (lines 36-45).\n   - Per request it stores both dicts in `scope[\"starlette.exception_handlers\"]` (lines 52-55). It builds a `Request` or `WebSocket` as `conn` and runs `wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)` (lines 57-63).\n\n2. **`wrap_app_handling_exceptions`** (`starlette/_exception_handler.py:23-65`):\n   - It reads the handler dicts from `conn.scope[\"starlette.exception_handlers\"]`, falling back to empty dicts on `KeyError` (lines 26-29).\n   - It wraps `send` to track whether `http.response.start` was sent (lines 34-39).\n   - On `except Exception`:\n     - For an `HTTPException`, it first tries `status_handlers.get(exc.status_code)` (lines 46-47).\n     - Otherwise it uses `_lookup_exception_handler`, which walks `type(exc).__mro__` and returns the first class with a registered handler (lines 16-20, 49-50).\n     - If no handler is found, it re-raises (lines 52-53).\n     - If the response has already started, it raises `RuntimeError(\"Caught handled exception, but response already started.\")` (lines 55-56).\n     - Otherwise it calls the handler. Async handlers are awaited; sync handlers go through `run_in_threadpool` (lines 58-61). If the handler returns a response, it is sent (lines 62-63).\n\n3. **The router wraps individual routes too.** `starlette/routing.py` calls `wrap_app_handling_exceptions(app, request)` at line 65 and `wrap_app_handling_exceptions(app, session)` at line 84. These read the same scope key. As a result, handlers can fire at the route level, inside the router.\n\n4. **`ServerErrorMiddleware`** (`starlette/middleware/errors.py:127-186`):\n   - It handles only `http` scopes (lines 150-152).\n   - It catches any exception that is still unhandled (line 165).\n   - It then builds the response in one of three ways (lines 167-178):\n     - If `debug` is set, it returns a traceback response.\n     - If no handler is installed, it uses the default `error_response`.\n     - Otherwise it calls the user's 500/`Exception` handler.\n   - It sends that response only if the response hasn't started (lines 180-181).\n   - It always re-raises the exception afterwards, so servers can log it and test clients can surface it (lines 183-186).\n\n## Uncertainty\nI didn't read `routing.py` at the pinned commit, so the exact context around lines 65 and 84 is unverified. I also didn't read the middle of `errors.py`, which holds `debug_response` and `error_response`.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 10849,
+    "cache_read_input_tokens": 32068,
+    "output_tokens": 2311,
+    "context_tokens": 42923,
+    "total_tokens": 45234,
+    "first_request_context": 9803,
+    "fixed_overhead_tokens": 29409,
+    "research_tokens": 15825,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 10849,
+      "cache_read_input_tokens": 32068,
+      "output_tokens": 850
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1461
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10849,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 36465.8,
+    "weighted_tokens_cold": 49693.600000000006,
+    "tariff_cost_usd": 0.0729316,
+    "tariff_cost_usd_cold": 0.09938720000000001,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 17813
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2839,
+      "cache_read_input_tokens": 6962,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 5504,
+      "cache_read_input_tokens": 9801,
+      "output_tokens": 3
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2506,
+      "cache_read_input_tokens": 15305,
+      "output_tokens": 819
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 10849,
+    "cache_read_input_tokens": 32068,
+    "output_tokens": 2311
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 2311,
+      "cacheReadInputTokens": 32068,
+      "cacheCreationInputTokens": 10849,
+      "webSearchRequests": 0,
+      "costUSD": 0.07293160000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 42,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.07293160000000001,
+  "costVerified": true,
+  "duration_ms": 18208,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__ghGetFileContent": 2,
+    "mcp__octocode__ghSearchCode": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 2,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/applications.py\",\"branch\":\"63c5760d8a\",\"matchString\":\"def build_middleware_stack\",\"contextLines\":45},{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/middleware/exceptions.py\",\"branch\":\"63c5760d8a\",\"fullContent\":true},{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/_exception_handler.py\",\"branch\":\"63c5760d8a\",\"fullContent\":true}]}"
+    },
+    {
+      "name": "mcp__octocode__ghSearchCode",
+      "input": "{\"queries\":[{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"keywords\":[\"wrap_app_handling_exceptions\"]}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/middleware/errors.py\",\"branch\":\"63c5760d8a\",\"matchString\":\"async def __call__\",\"contextLines\":45}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first batched `ghGetFileContent` call (three rows, branch `63c5760d8a`) did most of the work. `matchString: \"def build_middleware_stack\"` with context lines returned the assembly code, and full reads of `middleware/exceptions.py` and `_exception_handler.py` covered the handler path. It also returned the pinned full SHA. The `matchString` read of `errors.py` was cheap and gave the `ServerErrorMiddleware` flow.\n\n2. **Did not help:** `ghSearchCode` for `wrap_app_handling_exceptions` searched the default branch and reported `6beaa2e39d33…`, not the pinned commit. I only got the `routing.py` call-site lines (65, 84) from it. I never read `routing.py` at the pinned commit, so I couldn't verify the route-level wrapping there. The `errors.py` read started at line 104 and skipped `debug_response` and `error_response`. The search tool couldn't be pinned to a commit.\n\n3. **Next time:** I'd read `routing.py` at the pinned ref with `matchString: \"wrap_app_handling_exceptions\"` in the first batch. I'd also skip `ghSearchCode` when exact-commit evidence matters.\n\n4. **Confidence:** High for stack assembly and the `ExceptionMiddleware`, `wrap_app_handling_exceptions` and `ServerErrorMiddleware` logic, since I read those at the pinned commit. Medium for the route-level wrapping claim, which rests on default-branch search output. I flagged that in the answer.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 13244,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 528,
+      "context_tokens": 13246,
+      "total_tokens": 13774,
+      "first_request_context": 13246,
+      "fixed_overhead_tokens": 13246,
+      "research_tokens": 528,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 13244,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -527
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 13244,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 29130,
+      "weighted_tokens_cold": 29130,
+      "tariff_cost_usd": 0.05826,
+      "tariff_cost_usd_cold": 0.05826,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 13246
+    },
+    "cost_usd": 0.058260000000000006,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 13244,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 528,
+        "context_tokens": 13246,
+        "total_tokens": 13774,
+        "first_request_context": 13246,
+        "fixed_overhead_tokens": 13246,
+        "research_tokens": 528,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 13244,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 1
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -527
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 13244,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 29130,
+        "weighted_tokens_cold": 29130,
+        "tariff_cost_usd": 0.05826,
+        "tariff_cost_usd_cold": 0.05826,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 13246
+      },
+      "cost_usd": 0.058260000000000006,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 13244,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 528,
+          "costUSD": 0.058260000000000006
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 2311,
+            "cacheReadInputTokens": 32068,
+            "cacheCreationInputTokens": 10849,
+            "webSearchRequests": 0,
+            "costUSD": 0.07293160000000001,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 42,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.07293160000000001
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2839,
+            "thinkingTokens": 42,
+            "cacheReadInputTokens": 32068,
+            "cacheCreationInputTokens": 24093,
+            "webSearchRequests": 0,
+            "costUSD": 0.13119160000000002,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.13119160000000002
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 13244,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 528
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 13244,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T22:10:41.614Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T22:10:42.222Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghSearchCode",
+      "startedAt": "2026-10-03T22:10:44.085Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T22:10:45.230Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T22:10:45.235Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T22:10:45.471Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

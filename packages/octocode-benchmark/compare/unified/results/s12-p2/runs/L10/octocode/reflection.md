@@ -1,0 +1,7 @@
+1. **Helped:** My first call, `localSearch` with the regex `func extrapolatedRate|func funcRate|func funcIncrease|func instantValue` under `promql/`. It returned the file, the line numbers and the `funcRate`/`funcIncrease` wrappers in one shot. The single `localFetch` of `functions.go` lines 425-640 then covered the whole algorithm, so I needed only two calls in total.
+
+2. **Did not help:** No errors and no repeated calls. I never fetched `histogramRate`, `extendedRate` or `extendedHistogramRate`, so the histogram, anchored and smoothed paths are unverified. I also did not use `lspSearch` or `astSearch` to confirm there are no other `rate`/`increase` code paths. The range-vector evaluation in `engine.go` that supplies `vals` and `enh.Ts` was left unread.
+
+3. **Next time:** In one batched call, I would also fetch `histogramRate` and `extendedRate`, and the call sites in `engine.go` that populate `enh.StartTimestamps`. I would also check the docs or tests to confirm the described behavior.
+
+4. **Confidence:** High for the float-counter algorithm, since every claim is tied to lines I read. Medium for the histogram and start-timestamp details, because I read the surrounding code but not the helper functions.

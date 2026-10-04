@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghGetFileContent` call used `matchString: "def resolve_redirects"` and returned the whole loop, `get_redirect_target`, `should_strip_auth` and the start of the loop body in one read. The second call, with `ranges: ["286-420"]` and the full commit SHA, filled in `rebuild_auth`, `rebuild_proxies` and `rebuild_method`. Two calls were enough, and every claim in my answer came from lines I actually saw.
+
+2. **Did not help:** In the first call I asked for `contextLines: 130`, which was clamped to 100. The match was line 186, so the window started before it, at line 86, and was cut off at line 286. That wasted output on `merge_setting` and forced the second call. I passed the short SHA `611c6162cb` as `branch` and it resolved. I did not verify that other tools accept short SHAs. I never read `Session.send`, `Response.is_redirect` or `rewind_body`, so how redirects are triggered is unverified. My answer says so.
+
+3. **Next time:** I'd use `ranges` of about 186-395 in a single call. That would cover everything in one read. I'd also add one batched query for `Session.send` and `is_redirect` to close the gaps.
+
+4. **Confidence:** High for the redirect loop and the per-hop changes, because I read the source directly at the pinned commit. Medium for how the loop is invoked, since I didn't read `Session.send`.

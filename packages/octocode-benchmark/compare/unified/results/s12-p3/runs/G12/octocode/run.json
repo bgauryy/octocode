@@ -1,0 +1,391 @@
+{
+  "qid": "G12",
+  "worker": "octocode",
+  "started": "2026-10-03T20:31:13.745Z",
+  "promptSha256": "70773fd095c67b94f5484106fe7f1f87425bc0306c39cd1a03406423edceea45",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 15240,
+  "status": "ok",
+  "answer": "The security schemes all share `SecurityBase`, defined in `fastapi/security/base.py`. The `__init__.py` and the file list below are read at 4b3949cd9e. The per-module class lists and line numbers come from a code search of the default branch (5f9fc5c), so I haven't confirmed them at the pinned commit.\n\n**Modules in `fastapi/security/` at 4b3949cd9e**\n- The directory holds `__init__.py`, `api_key.py`, `base.py`, `http.py`, `oauth2.py`, `open_id_connect_url.py` and `utils.py`.\n- `__init__.py:1-15` re-exports the public names from `api_key`, `http`, `oauth2` and `open_id_connect_url` using `X as X` imports.\n- It does not export `SecurityBase`, `APIKeyBase`, `HTTPBase` or anything from `utils.py`.\n\n**Classes per module (default-branch line numbers)**\n- **`base.py`**: `SecurityBase` (line 4).\n- **`api_key.py`**:\n  - `APIKeyBase(SecurityBase)` (line 11).\n  - `APIKeyQuery`, `APIKeyHeader` and `APIKeyCookie` (lines 55, 147, 235), all subclasses of `APIKeyBase`.\n- **`http.py`**:\n  - `HTTPBasicCredentials(BaseModel)` (line 16) and `HTTPAuthorizationCredentials(BaseModel)` (line 29). These are pydantic models, not security schemes.\n  - `HTTPBase(SecurityBase)` (line 69).\n  - `HTTPBasic`, `HTTPBearer` and `HTTPDigest` (lines 105, 222, 319), all subclasses of `HTTPBase`.\n- **`oauth2.py`**:\n  - `OAuth2PasswordRequestForm` (line 14) and `OAuth2PasswordRequestFormStrict`, a subclass of the former (line 162). Both are plain form-dependency classes.\n  - `OAuth2(SecurityBase)` (line 330).\n  - `OAuth2PasswordBearer` and `OAuth2AuthorizationCodeBearer` (lines 433, 547), both subclasses of `OAuth2`.\n  - `SecurityScopes` (line 653), a plain helper class.\n- **`open_id_connect_url.py`**: `OpenIdConnect(SecurityBase)` (line 11).\n- **`utils.py`**: the search found no classes in it. I didn't read the file, so I'm assuming it holds only helper functions.\n\n**Inheritance**\n- `SecurityBase` is the common base. `APIKeyBase`, `HTTPBase`, `OAuth2` and `OpenIdConnect` each subclass it directly, and the concrete schemes inherit from those.\n- The credential models, the password request forms and `SecurityScopes` are not schemes, so they don't inherit from it.\n\n**Uncertainty**\n- I didn't read the bodies of the module files at 4b3949cd9e. If the repo changed between that commit and 5f9fc5c, the line numbers or class list could differ.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 5406,
+    "cache_read_input_tokens": 26895,
+    "output_tokens": 1580,
+    "context_tokens": 32307,
+    "total_tokens": 33887,
+    "first_request_context": 9828,
+    "fixed_overhead_tokens": 29484,
+    "research_tokens": 4403,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 5406,
+      "cache_read_input_tokens": 26895,
+      "output_tokens": 67
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1513
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 5406,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 21407.5,
+    "weighted_tokens_cold": 34633.4,
+    "tariff_cost_usd": 0.042815,
+    "tariff_cost_usd_cold": 0.0692668,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 12369
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2865,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 28
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 282,
+      "cache_read_input_tokens": 9826,
+      "output_tokens": 30
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2259,
+      "cache_read_input_tokens": 10108,
+      "output_tokens": 9
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 5406,
+    "cache_read_input_tokens": 26895,
+    "output_tokens": 1580
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1580,
+      "cacheReadInputTokens": 26895,
+      "cacheCreationInputTokens": 5406,
+      "webSearchRequests": 0,
+      "costUSD": 0.042815000000000006,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 65,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.042815000000000006,
+  "costVerified": true,
+  "duration_ms": 14540,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__ghStructure": 1,
+    "mcp__octocode__ghSearchCode": 1,
+    "mcp__octocode__ghGetFileContent": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghStructure",
+      "input": "{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"fastapi/security\",\"branch\":\"4b3949cd9e\"}"
+    },
+    {
+      "name": "mcp__octocode__ghSearchCode",
+      "input": "{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"fastapi/security\",\"keywords\":\"class\"}"
+    },
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"fastapi/security/__init__.py\",\"branch\":\"4b3949cd9e\",\"fullContent\":true}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** `ghStructure` on `fastapi/security` with `branch: 4b3949cd9e` gave the exact file list at the pinned commit, and it returned the full SHA. `ghGetFileContent` on `__init__.py` with the same branch gave the public re-exports. `ghSearchCode` for \"class\" returned every class declaration with line numbers across all modules in one call, which was the fastest route to the inheritance map.\n\n**2. Did not help:** `ghSearchCode` has no ref parameter, so it searched the default branch. It reported commitSha 5f9fc5c, not 4b3949cd9e. My per-module class lists and line numbers are therefore not verified at the pinned commit, and I said so in the answer. The \"class\" keyword also matched docstring and comment lines, which added noise. I never opened `utils.py`, so my claim that it holds only helper functions is an assumption.\n\n**3. Next time:** After the search, I would run `ghGetFileContent` at `branch: 4b3949cd9e` on `base.py`, `api_key.py` and `http.py`, using `matchString: \"^class \"`. I would also read `utils.py`. That would confirm the lines at the pinned commit, and it is a small number of extra calls.\n\n**4. Confidence:** Medium-high. The module list and the exports are verified at the pinned commit. The class hierarchy and line numbers are very likely the same, but I did not confirm them at that commit.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7104,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 478,
+      "context_tokens": 7106,
+      "total_tokens": 7584,
+      "first_request_context": 7106,
+      "fixed_overhead_tokens": 7106,
+      "research_tokens": 478,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7104,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -470
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 7104,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 16600,
+      "weighted_tokens_cold": 16600,
+      "tariff_cost_usd": 0.0332,
+      "tariff_cost_usd_cold": 0.0332,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 7106
+    },
+    "cost_usd": 0.03319999999999999,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7104,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 478,
+        "context_tokens": 7106,
+        "total_tokens": 7584,
+        "first_request_context": 7106,
+        "fixed_overhead_tokens": 7106,
+        "research_tokens": 478,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 7104,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -470
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7104,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 16600,
+        "weighted_tokens_cold": 16600,
+        "tariff_cost_usd": 0.0332,
+        "tariff_cost_usd_cold": 0.0332,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 7106
+      },
+      "cost_usd": 0.03319999999999999,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 7104,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 478,
+          "costUSD": 0.03319999999999999
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1580,
+            "cacheReadInputTokens": 26895,
+            "cacheCreationInputTokens": 5406,
+            "webSearchRequests": 0,
+            "costUSD": 0.042815000000000006,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 65,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.042815000000000006
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2058,
+            "thinkingTokens": 65,
+            "cacheReadInputTokens": 26895,
+            "cacheCreationInputTokens": 12510,
+            "webSearchRequests": 0,
+            "costUSD": 0.076015,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.076015
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7104,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 478
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 7104,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "ghStructure",
+      "startedAt": "2026-10-03T20:31:16.547Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:31:17.109Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghSearchCode",
+      "startedAt": "2026-10-03T20:31:19.393Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:31:20.450Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T20:31:20.454Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:31:20.678Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

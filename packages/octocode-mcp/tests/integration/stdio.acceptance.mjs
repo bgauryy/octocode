@@ -603,12 +603,15 @@ try {
         let pages = 0;
         for (;;) {
           assert.ok(++pages < 100);
+          // The last page has nothing left to page: it carries no responsePagination.
           const pagination = current.structuredContent.responsePagination;
-          assert.equal(pagination.snapshot, before.snapshot);
-          assert.notEqual(pagination.restart, true);
+          if (pagination) {
+            assert.equal(pagination.snapshot, before.snapshot);
+            assert.notEqual(pagination.restart, true);
+          } else assert.ok(pages > 1, 'the first page lost its responsePagination');
           rendered += current.content.filter(block => block.type === 'text')
             .map(block => block.text.replace(/^# Response page[^\n]*\n/, '')).join('');
-          if (!pagination.next) break;
+          if (!pagination?.next) break;
           current = await invoke(pagination.next.tool, pagination.next.query);
         }
         assert.ok(pages > 1);

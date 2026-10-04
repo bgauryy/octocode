@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call, a single `grep -n` across `convert.py`, `base.py` and `structured.py` for `parse_docstring`, `_infer_arg_descriptions` and `description`, mapped the whole call chain at once. The `sed -n` range reads that followed were cheap and exact. Reading `_parse_google_docstring` in `utils/function_calling.py` gave the parsing rules directly.
+
+2. **Did not help:** The first call failed because `rg` isn't installed, so I repeated it with `grep`. Every Bash call printed `/dev/null: Operation not permitted`, which is noise. `git rev-parse HEAD` failed for the same reason, so I never confirmed the checkout was at 67ee6cb63d. The `_create_subset_model` read was truncated: I only saw grep matches, not the v1/v2 dispatch. A few line numbers in my answer are marked "~" because I read them from partial `sed` ranges.
+
+3. **Next time:** I'd use `grep -n` from the start and read the full `_create_subset_model` in `utils/pydantic.py` instead of inferring. I'd also try to verify the commit another way, for example by reading `.git/HEAD` directly.
+
+4. **Confidence:** Medium-high. The flow is read directly from source, but the commit pin is unverified and some line numbers are approximate.

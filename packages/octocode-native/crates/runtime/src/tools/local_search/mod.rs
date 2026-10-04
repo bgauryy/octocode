@@ -125,8 +125,8 @@ mod tests {
         );
     }
 
-    /// contextLines above the maximum clamps (as file reads do) and says so,
-    /// instead of failing the call.
+    /// contextLines above the maximum clamps (as file reads do) and says so in a
+    /// warning (text hints show only on empty rows) instead of failing the call.
     #[test]
     fn context_lines_above_the_maximum_clamp_with_a_note() {
         let (root, policy, security) = context_fixture();
@@ -146,7 +146,7 @@ mod tests {
             "{body}"
         );
         assert!(
-            body["hints"].as_array().is_some_and(|hints| hints
+            body["warnings"].as_array().is_some_and(|warnings| warnings
                 .iter()
                 .any(|hint| hint == "contextLines 500 clamped to 100.")),
             "{body}"
@@ -2573,11 +2573,13 @@ mod tests {
             &files,
             ls_query(serde_json::json!({"searchText": ".unwrap()"}), None),
         );
-        let hint = body["hints"][0].as_str().expect("trap hint");
+        // A row with hits keeps no prose hint: the trap is a warning there.
+        let warning = body["warnings"][0].as_str().expect("trap warning");
         assert!(
-            hint.contains("empty group") && hint.contains("hints.searchLiteral"),
+            warning.contains("empty group") && warning.contains("hints.searchLiteral"),
             "{body}"
         );
+        assert!(warning.len() <= 120, "one concise line: {warning}");
         let lead = &body["next"]["searchLiteral"];
         assert_eq!(lead["tool"], "localSearch", "{body}");
         assert_eq!(lead["query"]["regex"], "literal", "{body}");
@@ -2595,7 +2597,7 @@ mod tests {
                 body["next"].get("searchLiteral").is_none(),
                 "{quiet}: {body}"
             );
-            assert!(body.get("hints").is_none(), "{quiet}: {body}");
+            assert!(body.get("warnings").is_none(), "{quiet}: {body}");
         }
     }
 
@@ -2632,11 +2634,15 @@ mod tests {
         let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
             .expect("search");
         assert!(result.files.is_empty());
-        let hints = result.hints.join(" ");
+        // The probe's finding is the row's first hint (rows keep one).
+        let hint = &result.hints[0];
         assert!(
-            hints.contains("2 file(s) under ignored or hidden paths match"),
-            "{hints}"
+            hint.starts_with(
+                "2 file(s) in ignored or hidden paths match; run hints.includeIgnored"
+            ),
+            "{hint}"
         );
+        assert!(hint.len() <= 120, "{hint}");
         let next = result.next.as_ref().expect("lead");
         let lead = &next["includeIgnored"];
         assert_eq!(lead["query"]["noIgnore"], true, "{lead}");
@@ -2683,5 +2689,68 @@ mod tests {
             body["next"]["nextMatchPage"]["query"]["matchPage"], 2,
             "{body}"
         );
+    }
+
+    /// An absolute-path search walked through continuations that name the
+    /// root relative to the workspace (as the response envelope spells them)
+    /// reaches every row exactly once: the snapshot and page cuts bind the
+    /// canonical root, not its spelling.
+    #[test]
+    fn a_workspace_relative_replay_of_an_absolute_search_walks_every_page_once() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let canonical = fs::canonicalize(root.path()).expect("canonical");
+        let body = (1..=400)
+            .map(|n| format!("function f{n}() {{ return {n}; }}\n"))
+            .collect::<String>();
+        fs::write(canonical.join("checker.ts"), &body).expect("fixture");
+        fs::write(canonical.join("other.ts"), "function other() {}\n").expect("fixture");
+        let (policy, security) = policy_for(&canonical);
+        for (path, relative) in [
+            (canonical.join("checker.ts"), "checker.ts"),
+            (canonical.clone(), "."),
+        ] {
+            let mut request = ls_query(
+                serde_json::json!({"path": path.to_string_lossy().into_owned(), "searchText": "function ", "maxMatchesPerFile": 100}),
+                None,
+            );
+            let mut seen = std::collections::BTreeSet::new();
+            let mut pages = 0;
+            loop {
+                pages += 1;
+                assert!(pages < 50, "walk does not end");
+                let result = execute_local_search(
+                    &request,
+                    &policy,
+                    &security,
+                    &NeverCancel,
+                    None,
+                    Some(20_000),
+                )
+                .unwrap_or_else(|error| panic!("page {pages} of {relative}: {error:?}"));
+                for file in &result.files {
+                    for row in file.matches.iter().flatten() {
+                        assert!(
+                            seen.insert((file.path.clone(), row.line)),
+                            "{}:{} twice",
+                            file.path,
+                            row.line
+                        );
+                    }
+                }
+                let Some(next) = result.next.as_ref().and_then(|next| {
+                    next.get("nextMatchPage")
+                        .or_else(|| next.get("nextPage"))
+                        .cloned()
+                }) else {
+                    break;
+                };
+                let mut query = next["query"].clone();
+                query["path"] = serde_json::json!(relative);
+                request = serde_json::from_value(query).expect("continuation query");
+            }
+            assert!(pages > 1, "{relative}: expected several pages");
+            let expected = if relative == "." { 401 } else { 400 };
+            assert_eq!(seen.len(), expected, "{relative}");
+        }
     }
 }

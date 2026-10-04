@@ -1,0 +1,183 @@
+{
+  "qid": "L16",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "c4ab78675ef657bbfb47cc2ab41daaab7e03a0d14a622da20b8066b5ed07001b",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "aab9a0f8276c4ba0ef84fc0f654119f75b6df756aaded13f77bfd8d145fb28d9",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Worked example: maximumSize(100) with concurrencyLevel(16) gives 4 segments — the loop actually yields 8 (stops at 8 since 8*20=160>100)"
+      ],
+      "notes": "Covers default 4, MAX_SEGMENTS clamp, segment loop with x20 cap, shift/mask, exact remainder split, per-segment eviction (briefly), segmentFor routing. Fact 4 detail is thin (no early return, oversize-newest, RemovalCause.SIZE). Misses fact 5 (getMaximumWeight returns 0 under zero expiry). Arithmetic error in its example."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on default, clamp, loop, shift/mask, remainder split summing to maxWeight, evictsBySize, per-segment evictEntries with oversize-newest and RemovalCause.SIZE, routing, plus initTable extra. Is upfront that it did not verify getMaximumWeight's 0 return (fact 5), so fact 5 is not covered. Also doesn't explicitly say getMaximumWeight returns maximumSize when no weigher."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Worked example: maximumSize(100) with concurrencyLevel(16) gives 4 segments — the loop actually yields 8 (stops at 8 since 8*20=160>100)"
+      ],
+      "notes": "Covers default 4, MAX_SEGMENTS clamp, segment loop with x20 cap, shift/mask, exact remainder split, per-segment eviction (briefly), segmentFor routing. Fact 4 detail is thin (no early return, oversize-newest, RemovalCause.SIZE). Misses fact 5 (getMaximumWeight returns 0 under zero expiry). Arithmetic error in its example."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate on default, clamp, loop, shift/mask, remainder split summing to maxWeight, evictsBySize, per-segment evictEntries with oversize-newest and RemovalCause.SIZE, routing, plus initTable extra. Is upfront that it did not verify getMaximumWeight's 0 return (fact 5), so fact 5 is not covered. Also doesn't explicitly say getMaximumWeight returns maximumSize when no weigher."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.10874119999999998,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 9087,
+        "cache_read_input_tokens": 23706,
+        "output_tokens": 1564,
+        "context_tokens": 32799,
+        "total_tokens": 34363,
+        "first_request_context": 10413,
+        "fixed_overhead_tokens": 31239,
+        "research_tokens": 3124,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 9087,
+          "cache_read_input_tokens": 23706,
+          "output_tokens": 32
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1532
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9087,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11459
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 1
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.10874119999999998,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9087,
+    "cache_read_input_tokens": 23706,
+    "output_tokens": 1564,
+    "context_tokens": 32799,
+    "total_tokens": 34363,
+    "first_request_context": 10413,
+    "fixed_overhead_tokens": 31239,
+    "research_tokens": 3124,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 9087,
+      "cache_read_input_tokens": 23706,
+      "output_tokens": 32
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1532
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9087,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 11459
+  },
+  "timedOut": false
+}

@@ -1,0 +1,7 @@
+1. **Helped:** My single `localSearch` for `TargetFramework` on `Src/Newtonsoft.Json/Newtonsoft.Json.csproj` found the answer at once. Scoping it to the one csproj gave line 3 with the full list, and the per-framework `PropertyGroup` conditions (lines 61-85) confirmed each entry.
+
+2. **Did not help:** I made no call for the 13.0.3 baseline, which was half the question. I wrote that list from memory and presented the added/dropped results with more weight than that warranted. I also never checked whether `LibraryFrameworks` is overridden in a `Directory.Build.props` or in CI, so the "default" list is only the csproj fallback. The `localSearch` output itself was clean.
+
+3. **Next time:** I would read the csproj at the `13.0.3` tag with `ghGetFileContent` (or the published nuspec). That would verify the diff, and I'd cite it. I would also run a `localSearch` for `LibraryFrameworks` across the repo, and batch both in one call.
+
+4. **Confidence:** High that the commit builds `net10.0;net8.0;net6.0;net45;net40;net35;net20;netstandard2.0`, since that is read directly from line 3. Medium for the added/dropped lists, because the 13.0.3 side rests on unverified recall. I did say so at the end of my answer.

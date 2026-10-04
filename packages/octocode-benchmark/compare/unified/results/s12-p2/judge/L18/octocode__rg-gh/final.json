@@ -1,0 +1,166 @@
+{
+  "qid": "L18",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 8,
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        8,
+        8
+      ],
+      "wrongClaims": [
+        "Slight overstatement: 'first inserts rejected values' / containers inserted at start regardless of start-callback verdict",
+        "Overview says rejected values are first inserted and then removed; rejected scalars are never inserted (handle_value returns early). Only placeholders and kept containers are inserted and later removed."
+      ]
+    },
+    "rg-gh": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "rg-gh",
+    "rg-gh"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.2536232,
+  "judgeTokens": 50651,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 11328,
+        "cache_read_input_tokens": 12249,
+        "output_tokens": 1513,
+        "context_tokens": 23581,
+        "total_tokens": 25094,
+        "first_request_context": 9881,
+        "fixed_overhead_tokens": 19762,
+        "research_tokens": 5332,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 11328,
+          "cache_read_input_tokens": 12249,
+          "output_tokens": 7
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1506
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11328,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 13700
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1233498,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 11493,
+        "cache_read_input_tokens": 12267,
+        "output_tokens": 1793,
+        "context_tokens": 23764,
+        "total_tokens": 25557,
+        "first_request_context": 9899,
+        "fixed_overhead_tokens": 19798,
+        "research_tokens": 5759,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 11493,
+          "cache_read_input_tokens": 12267,
+          "output_tokens": 15
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1778
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11493,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 13865
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Read": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1302734,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+1. **Helped:** `ghStructure` on `fastapi/security` with branch 4b3949cd9e gave the exact module list and pinned commit SHA in one call. `ghGetFileContent` on `__init__.py` (fullContent) gave the re-export list with line numbers. `ghSearchCode` with keyword `class` over the directory returned every class declaration with its base in one call, which is what made inheritance answerable quickly.
+
+2. **Did not help:** `ghSearchCode` ignores the branch/ref and ran against 5f9fc5c, not 4b3949cd9e. I noticed and disclosed this, but it means my per-module class list and inheritance claims are not verified at the pinned commit. I didn't read `utils.py`, so my statement that it holds only helper functions is inference from absence in search results, not evidence. The search's `class` keyword also matched docstring lines, which added noise.
+
+3. **Next time:** After the search, I'd batch `ghGetFileContent` reads of `base.py`, `api_key.py`, `http.py`, `oauth2.py`, `open_id_connect_url.py` and `utils.py` at the pinned branch (or `ghSearchCode`-then-verify with `matchString` for `^class `). That would give pinned line numbers and close the `utils.py` gap. The calls were independent, so one batch would have sufficed.
+
+4. **Confidence:** Medium-high. Module list and `__init__.py` exports are verified at the pinned commit. Class and base-class details are very likely right, since the structure rarely changes, but they were read from a different commit and I gave no line numbers for them.

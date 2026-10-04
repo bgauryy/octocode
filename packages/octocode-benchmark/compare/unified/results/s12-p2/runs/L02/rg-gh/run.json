@@ -1,0 +1,351 @@
+{
+  "qid": "L02",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:16:26.483Z",
+  "promptSha256": "ba79d991590f035b3f8248cf9edf977222a4d1aeada76dd6cbfce57866ea2518",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 17587,
+  "status": "ok",
+  "answer": "**Answer:** The check is `Model._prepare_related_fields_for_save()` in `django/db/models/base.py:1276`. `save()` calls it at `base.py:864` with `operation_name=\"save\"`. If a cached related object has no primary key, it raises `ValueError`. I read the code in the local checkout. I didn't run `git rev-parse` to confirm it is at 4fab678a07, because the sandbox blocked it.\n\n**How it works**\n- **Which fields:** it loops over `self._meta.concrete_fields`, skipping any field not in the optional `fields` argument (`base.py:1281-1283`).\n- **Only assigned relations:** it acts only when `field.is_relation and field.is_cached(self)` (`base.py:1286`). If no related instance was ever assigned, so only the raw `_id` value is set, nothing is checked. The related object is then read with `getattr(self, field.name)`, and falsy values are skipped (`base.py:1287-1289`).\n- **The test:** `if not obj._is_pk_set():` (`base.py:1295`). If true, it does three things:\n  - For a reverse side that isn't a multi-valued relation (`not field.remote_field.multiple`, e.g. `OneToOneField`), it removes the cached value from the related instance (`base.py:1297-1298`).\n  - It raises `ValueError(\"save() prohibited to prevent data loss due to unsaved related object '<field>'.\")` (`base.py:1299-1302`).\n- **Manually assigned PKs pass.** The comment at `base.py:1290-1294` says an unsaved object that has a pk set (manually, or auto-generated like a `UUIDField`) is allowed. In that case the database raises `IntegrityError` if there is a problem.\n- **If the related object was saved after assignment:**\n  - If the FK attname value is empty (or an `Expression`), the code calls `setattr(self, field.name, obj)` to copy the new pk across (`base.py:1303-1307`).\n  - If the related object's target-field value differs from the FK value on `self`, it clears the cached relation (`base.py:1309-1313`).\n- **GenericForeignKey:** the same check runs over `self._meta.private_fields` for fields with `fk_field` (`base.py:1315-1330`). It raises the same kind of `ValueError`, using an f-string.\n\n**Other callers:** the same method runs in `QuerySet.bulk_create` (`django/db/models/query.py:794`, `operation_name=\"bulk_create\"`). It also runs at `query.py:1042`, where I didn't read the surrounding code to see which operation that is.\n\n**Uncertainty:** I didn't check the pinned commit SHA. I also didn't trace the `save()` code at `base.py:864` beyond the call itself.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 5056,
+    "cache_read_input_tokens": 17366,
+    "output_tokens": 1277,
+    "context_tokens": 22430,
+    "total_tokens": 23707,
+    "first_request_context": 4833,
+    "fixed_overhead_tokens": 19332,
+    "research_tokens": 4375,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 5056,
+      "cache_read_input_tokens": 17366,
+      "output_tokens": 810
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -467
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 5056,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 18241.6,
+    "weighted_tokens_cold": 21826.899999999998,
+    "tariff_cost_usd": 0.0364832,
+    "tariff_cost_usd_cold": 0.04365379999999999,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 6945
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2944,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 275,
+      "cache_read_input_tokens": 4831,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 436,
+      "cache_read_input_tokens": 5106,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1401,
+      "cache_read_input_tokens": 5542,
+      "output_tokens": 762
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 5056,
+    "cache_read_input_tokens": 17366,
+    "output_tokens": 1277
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1277,
+      "cacheReadInputTokens": 17366,
+      "cacheCreationInputTokens": 5056,
+      "webSearchRequests": 0,
+      "costUSD": 0.0364832,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0364832,
+  "costVerified": true,
+  "duration_ms": 16987,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "Bash:invocation": 3
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python; git rev-parse HEAD 2>&1 | head -1; rg -n \\\"unsaved|save\\\\(\\\\) prohibited\\\" django/db/models/base.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python; grep -n \\\"unsaved\\\\|prohibited\\\" django/db/models/base.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python; sed -n 1275,1345p django/db/models/base.py; grep -n \\\"_prepare_related_fields_for_save\\\" -r django | head\"}"
+    }
+  ],
+  "toolErrorCount": 1,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [
+    {
+      "tool_use_id": "toolu_014NwAUg9y2hyTVrYh6FaarK",
+      "text": "Exit code 127\n/bin/bash: /dev/null: Operation not permitted\n/bin/bash: /dev/null: Operation not permitted\n/bin/bash: /dev/null: Operation not permitted\nfatal: could not open '/dev/null' for reading and writing: Operation not permitted\n/bin/bash: rg: command not found"
+    }
+  ],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "**1. Helped:**\n- The second Bash call was `grep -n \"unsaved\\|prohibited\" django/db/models/base.py`. It found the error message at lines 1301 and 1328 right away.\n- The third call combined `sed -n 1275,1345p base.py` with `grep -rn \"_prepare_related_fields_for_save\" django`. It showed the whole function and all of its callers in one step.\n\n**2. Did not help:**\n- The first call failed. `rg` isn't installed, even though the prompt lists it, and `git rev-parse HEAD` failed with \"/dev/null: Operation not permitted\". Every later call also printed that `/dev/null` noise.\n- I never confirmed the checkout is at 4fab678a07.\n- `sed` printed no line numbers. Apart from the grep-confirmed 1301 and 1328-1329, the line numbers I cited (1295, 1297-1298, 1303-1307, 1309-1313, 1315-1330) were counted by hand from line 1276. I stated them as exact without saying so.\n- I never read `base.py:864` or `query.py:1042`.\n\n**3. Next time:** use `grep -n` or `sed -n` with `cat -n` so line numbers are printed. Confirm the SHA by reading `.git/HEAD`, since `git` fails here. Look at the two callers I skipped.\n\n**4. Confidence:** high on the mechanism and the function's location, because I read the code and grep confirmed the location. Medium on most of the sub-line citations, because I counted them by hand and may be off by one or two.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7028,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 843,
+      "context_tokens": 7030,
+      "total_tokens": 7873,
+      "first_request_context": 7030,
+      "fixed_overhead_tokens": 7030,
+      "research_tokens": 843,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7028,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -840
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 7028,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 18273,
+      "weighted_tokens_cold": 18273,
+      "tariff_cost_usd": 0.036546,
+      "tariff_cost_usd_cold": 0.036546,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 7030
+    },
+    "cost_usd": 0.036546,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7028,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 843,
+        "context_tokens": 7030,
+        "total_tokens": 7873,
+        "first_request_context": 7030,
+        "fixed_overhead_tokens": 7030,
+        "research_tokens": 843,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 7028,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -840
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7028,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 18273,
+        "weighted_tokens_cold": 18273,
+        "tariff_cost_usd": 0.036546,
+        "tariff_cost_usd_cold": 0.036546,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 7030
+      },
+      "cost_usd": 0.036546,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 7028,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 843,
+          "costUSD": 0.036546
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 1277,
+            "cacheReadInputTokens": 17366,
+            "cacheCreationInputTokens": 5056,
+            "webSearchRequests": 0,
+            "costUSD": 0.0364832,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0364832
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 2120,
+            "thinkingTokens": 329,
+            "cacheReadInputTokens": 17366,
+            "cacheCreationInputTokens": 12084,
+            "webSearchRequests": 0,
+            "costUSD": 0.0730292,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0730292
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7028,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 843
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 7028,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

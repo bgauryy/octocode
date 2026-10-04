@@ -1,0 +1,186 @@
+{
+  "qid": "L14",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "fc025c4863ad3dc500889f1eda8fc4fd29069570cd80564e56c80c48c1954bf5",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "2001faf2e8730465f18c3dbf0502fb3f4371df13c9af46584971370522459637",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout with precise line ranges; omits throttle relationship."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Content correct, but several line citations are off by 2-6 lines (options at 10416-10420 vs 10418-10423, leadingEdge 10431 vs 10436, remainingWait 10439 vs 10445, cancel/flush ~3 off); acknowledged as approximate. Omits throttle."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout with precise line ranges; omits throttle relationship."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6-partial"
+      ],
+      "wrong_claims": [],
+      "notes": "Content correct, but several line citations are off by 2-6 lines (options at 10416-10420 vs 10418-10423, leadingEdge 10431 vs 10436, remainingWait 10439 vs 10445, cancel/flush ~3 off); acknowledged as approximate. Omits throttle."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.095845,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8706,
+        "cache_read_input_tokens": 11505,
+        "output_tokens": 1194,
+        "context_tokens": 20215,
+        "total_tokens": 21409,
+        "first_request_context": 9137,
+        "fixed_overhead_tokens": 18274,
+        "research_tokens": 3135,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8706,
+          "cache_read_input_tokens": 11505,
+          "output_tokens": 13
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1181
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8706,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11078
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.095845,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8706,
+    "cache_read_input_tokens": 11505,
+    "output_tokens": 1194,
+    "context_tokens": 20215,
+    "total_tokens": 21409,
+    "first_request_context": 9137,
+    "fixed_overhead_tokens": 18274,
+    "research_tokens": 3135,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 8706,
+      "cache_read_input_tokens": 11505,
+      "output_tokens": 13
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1181
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8706,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 11078
+  },
+  "timedOut": false
+}

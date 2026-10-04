@@ -1,0 +1,193 @@
+{
+  "qid": "L21",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "140c92e07a4a30c7b9736c21fdcc351007343a2dbd95f6bc5de8f637e4202d79",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "594657003ba4b0ca8c3f2c7ef7ee319ab870bc778da21ad12cf550b6054ed59d",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Claims there are five begin_shutdown functions; there are four"
+      ],
+      "notes": "Accurate chain and per-layer behavior; omits Drop caller and variant selection (builder.sharded_blocking_queue). Citations accurate."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Names the impl types LockedInner/ShardedInner; the locked impl is on LockedImpl (verified at pool.rs:588) and LockedInner is the mutex-guarded struct; sharded one presumably ShardedImpl (not verified)",
+        "shutdown_rx.wait cited at pool.rs:321 (actually 324)"
+      ],
+      "notes": "Correct count of four, mentions Drop caller; accurate behaviors; omits variant selection. Minor type-name and line errors."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Claims there are five begin_shutdown functions; there are four"
+      ],
+      "notes": "Accurate chain and per-layer behavior; omits Drop caller and variant selection (builder.sharded_blocking_queue). Citations accurate."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Names the impl types LockedInner/ShardedInner; the locked impl is on LockedImpl (verified at pool.rs:588) and LockedInner is the mutex-guarded struct; sharded one presumably ShardedImpl (not verified)",
+        "shutdown_rx.wait cited at pool.rs:321 (actually 324)"
+      ],
+      "notes": "Correct count of four, mentions Drop caller; accurate behaviors; omits variant selection. Minor type-name and line errors."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.19680980000000003,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 6,
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 16337,
+        "cache_read_input_tokens": 66029,
+        "output_tokens": 2643,
+        "context_tokens": 82378,
+        "total_tokens": 85021,
+        "first_request_context": 9524,
+        "fixed_overhead_tokens": 57144,
+        "research_tokens": 27877,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 12,
+          "cache_creation_input_tokens": 16337,
+          "cache_read_input_tokens": 66029,
+          "output_tokens": 61
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2582
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 16337,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 18709
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 6,
+      "toolCounts": {
+        "Bash:invocation": 3,
+        "Read": 3
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.19680980000000003,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 7,
+  "tokens": {
+    "requests": 6,
+    "input_tokens": 12,
+    "cache_creation_input_tokens": 16337,
+    "cache_read_input_tokens": 66029,
+    "output_tokens": 2643,
+    "context_tokens": 82378,
+    "total_tokens": 85021,
+    "first_request_context": 9524,
+    "fixed_overhead_tokens": 57144,
+    "research_tokens": 27877,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 16337,
+      "cache_read_input_tokens": 66029,
+      "output_tokens": 61
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2582
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 16337,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 18709
+  },
+  "timedOut": false
+}

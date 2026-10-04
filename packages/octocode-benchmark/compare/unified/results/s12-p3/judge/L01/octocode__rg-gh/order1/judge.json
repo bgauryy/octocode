@@ -1,0 +1,184 @@
+{
+  "qid": "L01",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "0f1a87b5158004d29da90337a9a19536ed72587bcc9741e9f396ab243ed3dfa0",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "687c21e15cff2689bd49d66b08f52af94625e55d30dfcb113cde4932a474636a",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4-partial",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate with exact line citations. Leaves out the APPEND_SLASH default, the no_append_slash decorator name and the PREPEND_WWW path in process_request."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1-hedged",
+        "2",
+        "3",
+        "4-partial",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. States the default is True with an honest hedge, and adds the PREPEND_WWW interaction in process_request. Some line numbers are off by one, which is within tolerance. Does not name the no_append_slash decorator."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4-partial",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate with exact line citations. Leaves out the APPEND_SLASH default, the no_append_slash decorator name and the PREPEND_WWW path in process_request."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1-hedged",
+        "2",
+        "3",
+        "4-partial",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. States the default is True with an honest hedge, and adds the PREPEND_WWW interaction in process_request. Some line numbers are off by one, which is within tolerance. Does not name the no_append_slash decorator."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.09883059999999999,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8521,
+        "cache_read_input_tokens": 11233,
+        "output_tokens": 1420,
+        "context_tokens": 19758,
+        "total_tokens": 21178,
+        "first_request_context": 8865,
+        "fixed_overhead_tokens": 17730,
+        "research_tokens": 3448,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8521,
+          "cache_read_input_tokens": 11233,
+          "output_tokens": 5
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1415
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8521,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 10893
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Read": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.09883059999999999,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8521,
+    "cache_read_input_tokens": 11233,
+    "output_tokens": 1420,
+    "context_tokens": 19758,
+    "total_tokens": 21178,
+    "first_request_context": 8865,
+    "fixed_overhead_tokens": 17730,
+    "research_tokens": 3448,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 8521,
+      "cache_read_input_tokens": 11233,
+      "output_tokens": 5
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1415
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8521,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 10893
+  },
+  "timedOut": false
+}

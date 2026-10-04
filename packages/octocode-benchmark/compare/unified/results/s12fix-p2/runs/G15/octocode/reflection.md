@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghSearchHistory` call, which batched two PR keyword searches ("sharded"+"blocking" and "shard"+"blocking queue"). It surfaced #8337, #7757, #8057 and #8135 in one round trip. The second call, `ghGetHistoryItem` with `include:["body"]` on #8057 and #8337, gave the decisive evidence. #8057's body explained the revert and the reason for opt-in, and #8337's body named the builder method and env var.
+
+2. **Did not help:** The search results were noisy, with unrelated PRs (#6114, #1625). I did not read #8337's diff or files, so I never confirmed the `Builder::enable_sharded_blocking_queue` name or env var in code. I never checked whether `facc6fc47e` contains the merge commit `8b13642a1f`, and I never read #8056 or #8067. My claim that #7757 shipped in 1.52.0 rested only on #8045's title, not its contents.
+
+3. **Next time:** I would add `include:["files"]` for #8337. I would also use `ghGetFileContent` at `facc6fc47e` to verify the method and env var directly. I would confirm commit ancestry, and read #8056 for the actual hang cause.
+
+4. **Confidence:** Medium-high. The PR number and revert history are well supported by PR bodies. The code-level details and the 1.52.0 shipping claim are unverified, and my answer flagged the first of those.

@@ -1,0 +1,7 @@
+**1. Helped:** The second batch's `ghSearchCode` (keywords "Transport", path `httpx/_transports`) was the best call. One response gave class declarations, base classes and `__all__` across every file. `ghStructure` on `httpx/_transports` at the pinned SHA gave the file list cheaply. The `matchString: "class "` reads gave exact line numbers. The full `mock.py` read (43 lines) confirmed the sync/async behavior.
+
+**2. Did not help:** My first `ghSearchCode` ("class Transport") returned empty, because the class names don't start with "Transport", so it was wasted. The `matchString` reads were noisy: they showed only the class lines and gap markers, so they added little beyond the search output. The `__init__.py` result was truncated mid-list, so I never saw the full `__all__`, and I did not read the client code that consumes transports. My sync/async claims rest on base classes and docstrings only.
+
+**3. Next time:** Skip the failed literal search. Run the "Transport" search first, then fetch `__init__.py` in full. I would also read `_client.py` for the `transport=` handling and its type annotations.
+
+**4. Confidence:** High for the module and class mapping, since I saw the declarations at the pinned commit. Medium-high for the Client compatibility, because I inferred it from base classes and docstrings rather than the client code.

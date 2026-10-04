@@ -1,0 +1,7 @@
+**1. Helped:** The `localSearch` for `stack` in `lodash.js` was the fastest step. One call returned every `stack.get`/`set`/`delete` site, which located `equalArrays`, `equalByTag` and `equalObjects`. The single `localFetch` with three line ranges then gave the deciding lines without reading the whole file.
+
+**2. Did not help:** The `stack` search was noisy: about 90 matches, including doc comments and the unrelated `baseClone` and `baseMerge` uses. `localFetch` omitted two spans (5767-5825 and 5843-5880), so I never saw the `mapTag`/`setTag` case labels. I also never opened `baseIsEqualDeep` (3338-3380) or the `Stack` implementation (2321-2418). I took those details from search-match lines only.
+
+**3. Next time:** I would fetch `baseIsEqualDeep` and the Stack methods, and the tag labels above `5826`, in the same `localFetch` call. I would also confirm the checkout's commit, since I relied on the prompt saying it was pinned to `2b5e6f7`.
+
+**4. Confidence:** High for the array and object cycle logic, because I read those lines directly. Medium for the Map/Set claim, since the case labels were not visible. My statement that I "read only the lines cited" slightly overstated it. For `baseIsEqualDeep` and the Stack, the citations came from search matches, not from reading the code.

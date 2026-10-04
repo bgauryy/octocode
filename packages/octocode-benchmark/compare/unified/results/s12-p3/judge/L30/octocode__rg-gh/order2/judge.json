@@ -1,0 +1,187 @@
+{
+  "qid": "L30",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "2f75894c968ab2fc73f72d599c59fdf1d393527dcb556c5f2242f8947c72f443",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "cbbb01a267d7c188f09d761c9b340f17f1cc9870d7b43d40f5b56d4bc1699bd7",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Lists channel_from_list under 'Test-only additions' though it is a non-test helper (minor)"
+      ],
+      "notes": "All three spots correctly located and the PR changes described accurately. Omits the 32-bit / 2^32-messages reachability detail. Line citations verified."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All three spots and the PR changes are accurate. Includes the 32-bit reachability detail. Correctly separates the shared channel_from_list from the test-only channel_from_index. Extra 'already wrapping' spots (block.rs 140/298/329, list.rs 300/313/334) verified correct."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Lists channel_from_list under 'Test-only additions' though it is a non-test helper (minor)"
+      ],
+      "notes": "All three spots correctly located and the PR changes described accurately. Omits the 32-bit / 2^32-messages reachability detail. Line citations verified."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "All three spots and the PR changes are accurate. Includes the 32-bit reachability detail. Correctly separates the shared channel_from_list from the test-only channel_from_index. Extra 'already wrapping' spots (block.rs 140/298/329, list.rs 300/313/334) verified correct."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.137104,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 12614,
+        "cache_read_input_tokens": 30200,
+        "output_tokens": 1506,
+        "context_tokens": 42822,
+        "total_tokens": 44328,
+        "first_request_context": 8988,
+        "fixed_overhead_tokens": 35952,
+        "research_tokens": 8376,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 12614,
+          "cache_read_input_tokens": 30200,
+          "output_tokens": 54
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1452
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 12614,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 14986
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 4,
+      "toolCounts": {
+        "Bash:invocation": 2,
+        "Read": 2
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.137104,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 5,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 12614,
+    "cache_read_input_tokens": 30200,
+    "output_tokens": 1506,
+    "context_tokens": 42822,
+    "total_tokens": 44328,
+    "first_request_context": 8988,
+    "fixed_overhead_tokens": 35952,
+    "research_tokens": 8376,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 12614,
+      "cache_read_input_tokens": 30200,
+      "output_tokens": 54
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1452
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 12614,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 14986
+  },
+  "timedOut": false
+}

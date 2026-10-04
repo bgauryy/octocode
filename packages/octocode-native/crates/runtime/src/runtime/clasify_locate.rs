@@ -575,29 +575,6 @@ pub(super) fn with_row_reads(mut best: Value, reads: &[LocateRead]) -> Value {
     best
 }
 
-/// Window probability at which an open walk offers its read first.
-const READ_FIRST_P: f64 = 0.95;
-/// Existence a read-first window also needs.
-const READ_FIRST_EXISTS: f64 = 0.9;
-
-/// The tip for an open walk whose first locate question already has a
-/// window this strong: read it first, since it usually answers. Its read is
-/// the query's `hints.read`; the walk stays in `next.clasify`, so later
-/// pages are still reachable.
-pub(super) fn read_first_hint(best: &Value, locate_ids: &[&str]) -> Option<String> {
-    let row = best.get(locate_ids.first()?)?.as_array()?.first()?;
-    let p = row.get("probability").and_then(Value::as_f64)?;
-    let exists = row.get("exists").and_then(Value::as_f64)?;
-    if p < READ_FIRST_P || exists < READ_FIRST_EXISTS || row.pointer("/next/read").is_none() {
-        return None;
-    }
-    Some(format!(
-        "Lines {}-{} scored p={p:.2}: run hints.read first; follow next.clasify only to screen the rest of the file.",
-        row.get("startLine")?,
-        row.get("endLine")?
-    ))
-}
-
 /// A located page's `next.read` points at its top window. It stays only for
 /// an answering page (`exists` ≥ 0.5) whose read `best` does not already
 /// carry: a non-answer is not a read to run (its window stays in `matches`,

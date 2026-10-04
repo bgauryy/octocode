@@ -1,0 +1,178 @@
+{
+  "qid": "G08",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "90883b7642627ba466f95f1e016a6739fb245db167d0762a8f2187f4abd84a9f",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "a96c52ee5a15a2bbae7c311380b1796e500d0f99c73fcd78f675c98f5d38b852",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause and fix. Cites PR #18838 but not the merge SHA. Covers the has-trap contrast (fact 3) only briefly, without its mechanism. No line citations for the code before the fix."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. Gives the merge SHA a72dc8e and the PR title, both verified. Minor imprecisions: the old get(s) path also required an existing source, and UNINITIALIZED does not only mean deleted. Covers fact 3 only briefly."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate root cause and fix. Cites PR #18838 but not the merge SHA. Covers the has-trap contrast (fact 3) only briefly, without its mechanism. No line citations for the code before the fix."
+    },
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate. Gives the merge SHA a72dc8e and the PR title, both verified. Minor imprecisions: the old get(s) path also required an existing source, and UNINITIALIZED does not only mean deleted. Covers fact 3 only briefly."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.0795766,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 6636,
+        "cache_read_input_tokens": 11063,
+        "output_tokens": 1213,
+        "context_tokens": 17703,
+        "total_tokens": 18916,
+        "first_request_context": 8695,
+        "fixed_overhead_tokens": 17390,
+        "research_tokens": 1526,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 6636,
+          "cache_read_input_tokens": 11063,
+          "output_tokens": 16
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1197
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6636,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 9008
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0795766,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 6636,
+    "cache_read_input_tokens": 11063,
+    "output_tokens": 1213,
+    "context_tokens": 17703,
+    "total_tokens": 18916,
+    "first_request_context": 8695,
+    "fixed_overhead_tokens": 17390,
+    "research_tokens": 1526,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 6636,
+      "cache_read_input_tokens": 11063,
+      "output_tokens": 16
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1197
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6636,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 9008
+  },
+  "timedOut": false
+}

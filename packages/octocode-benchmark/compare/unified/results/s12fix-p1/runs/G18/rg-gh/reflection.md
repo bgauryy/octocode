@@ -1,0 +1,7 @@
+**1. Helped:** `gh api -X GET repos/nodejs/undici/git/ref/tags/v6.21.0` gave the commit SHA directly. The second call fetched `package.json` at the tag via the contents API and grepped `engines`, which confirmed `>=18.17` with line numbers. Piping `client.js` through `base64 -d | grep -n` then located the defaults at lines 229–239. That grep was narrowed by a pattern from the first, noisier timeout grep.
+
+**2. Did not help:** The first `npm view` failed with an EPERM cwd error from `cd /tmp`. The retry got a 403 from the registry, so `gitHead` and the published `engines` were never verified. Every Bash call printed `/dev/null: Operation not permitted`, which is noise. The first timeout grep returned validation code rather than defaults. The `sed -n 205,225p` call showed nothing relevant, so I wasted it.
+
+**3. Next time:** I'd skip npm entirely, since the registry is blocked. I'd grep `client.js` for the default values in one call. I'd also check whether the tag is annotated, and look for a release commit or publish workflow run that could corroborate the SHA.
+
+**4. Confidence:** High for the engines range and timeout values, because I read them from source at the tag. Medium for "published from this commit", because it rests on the tag rather than the registry's `gitHead`. I flagged that in my answer.

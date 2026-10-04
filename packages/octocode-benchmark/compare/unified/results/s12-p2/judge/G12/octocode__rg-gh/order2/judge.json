@@ -1,0 +1,182 @@
+{
+  "qid": "G12",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "cd318acca9657e6ec456bc832eefa7858f3f7f237364545380f2c2d8942ff29c",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "0e37f6976cee63a93a4bb2efc9581bd93fc3ff7adb78beb633a5641383442603",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate class/line listing matching reference; utils.py content not read but imported function named; honest uncertainty."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Says __init__ re-exports 14 names; it re-exports 15 (and Y lists 15)"
+      ],
+      "notes": "Structure correct but class lists sourced from a different commit, few line numbers; utils.py function not identified."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate class/line listing matching reference; utils.py content not read but imported function named; honest uncertainty."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Says __init__ re-exports 14 names; it re-exports 15 (and Y lists 15)"
+      ],
+      "notes": "Structure correct but class lists sourced from a different commit, few line numbers; utils.py function not identified."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.0854654,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8333,
+        "cache_read_input_tokens": 12327,
+        "output_tokens": 816,
+        "context_tokens": 20664,
+        "total_tokens": 21480,
+        "first_request_context": 9959,
+        "fixed_overhead_tokens": 19918,
+        "research_tokens": 1562,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8333,
+          "cache_read_input_tokens": 12327,
+          "output_tokens": 11
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -805
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8333,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 10705
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Bash:invocation": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0854654,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8333,
+    "cache_read_input_tokens": 12327,
+    "output_tokens": 816,
+    "context_tokens": 20664,
+    "total_tokens": 21480,
+    "first_request_context": 9959,
+    "fixed_overhead_tokens": 19918,
+    "research_tokens": 1562,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 8333,
+      "cache_read_input_tokens": 12327,
+      "output_tokens": 11
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -805
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8333,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 10705
+  },
+  "timedOut": false
+}

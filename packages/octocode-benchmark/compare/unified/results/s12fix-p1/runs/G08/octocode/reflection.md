@@ -1,0 +1,7 @@
+1. **Helped:** Two calls did the work. `ghGetHistoryItem` on issue #18837 returned the report and the `closedBy` link to PR #18838, and its `readFixPr` hint gave the exact next query. The second `ghGetHistoryItem` on PR #18838 with `include: ["patches","body"]` returned the diff for `proxy.js` and the maintainer's explanation in one response, so no file reads were needed.
+
+2. **Did not help:** Nothing errored and I made no wasted calls. The patch for `proxy.js` ended mid-hunk, after `configurable: true,`, so I never saw the full returned descriptor. I also never read the `has` trap, so my statement that it creates the dependency rests on the PR body and the `this.has?.(...)` call in the diff. The sources are plausible but not the trap's code.
+
+3. **Next time:** I would follow the `readAtMerge` hint with `ghGetFileContent` on `proxy.js` at the merge commit. That would confirm the `has` trap and show the complete fixed trap. I would also check whether the PR's test run covered both DOM and hydration modes, rather than repeating the PR description's claim.
+
+4. **Confidence:** Medium-high. The issue, PR link and diff all agree on the root cause and fix. The remaining doubt is the unread `has` trap and the truncated hunk.

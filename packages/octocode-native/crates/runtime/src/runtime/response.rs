@@ -1166,8 +1166,10 @@ pub fn envelope_in(
     value
 }
 
-/// Query fields that name a local file or directory in a continuation.
-const CONTINUATION_PATH_FIELDS: [&str; 3] = ["path", "uri", "workspaceRoot"];
+/// Query fields that name a local file or directory in a continuation and
+/// resolve against the workspace root. lspSearch `uri`/`workspaceRoot` stay
+/// absolute: a `uri` is also a file URI, and callers check it as a file.
+const CONTINUATION_PATH_FIELDS: [&str; 1] = ["path"];
 
 /// Spell every absolute local path inside a continuation query (`{tool,
 /// query}` under `next`, `hints`, or a row) relative to the workspace root,
@@ -1273,9 +1275,9 @@ fn relativize_listing_dirs(value: &mut Value) {
 /// astTopology fields (`file`, entrypoints, diagnostics) are relative to the
 /// scanned directory (a file root's parent), which groups every row. Like
 /// the other local tools, `base` is the workspace root and the row `path`
-/// names that directory relative to it (`.` for the root itself), so `base`
-/// + `path` + `file` resolves each file. A directory outside the workspace
-/// becomes `base` itself, with `path` `.`.
+/// names that directory relative to it (`.` for the root itself), so `base`,
+/// `path` and `file` joined resolve each file. A directory outside the
+/// workspace becomes `base` itself, with `path` `.`.
 fn anchor_topology(value: &mut Value, root: &Path, workspace: Option<&str>) {
     let Some(dir) = (if root.is_dir() {
         Some(root)
@@ -2040,11 +2042,9 @@ mod tests {
             outside.as_str(),
             "{value}"
         );
-        assert_eq!(data["hints"]["refs"]["query"]["uri"], "src/a.rs", "{value}");
-        assert_eq!(
-            data["hints"]["refs"]["query"]["workspaceRoot"], ".",
-            "{value}"
-        );
+        let refs = &data["hints"]["refs"]["query"];
+        assert_eq!(refs["uri"], format!("{root}/src/a.rs").as_str(), "{value}");
+        assert_eq!(refs["workspaceRoot"], root.as_str(), "{value}");
         assert_resolvable(&ws, &value, "src");
     }
 

@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` (regex on `expireIfNeeded|getCommand|getGenericCommand`, restricted to `db.c` and `t_string.c`) located every relevant line in one call. The batched `localFetch` with line ranges then gave `getGenericCommand`, `lookupKey` and the whole `expireIfNeeded` body together. That was nearly the full answer after two calls. The `localFetch` with `matchString` on `deleteExpiredKeyAndPropagate` and the 343-420 range read confirmed the miss stats and the `lookupKeyReadOrReply` wrapper.
+
+2. **Did not help:** One batched `localFetch` row failed with `invalidInput`. I combined `ranges` with `matchString` in the same query, which the tool rejects. The `matchString` fetch returned only lines 2873-2923, which cut off before `deleteKeyAndPropagate`'s start and `propagateDeletion`. So I couldn't confirm DEL versus UNLINK, and I said so in the answer. The large omitted-lines gap in the first fetch was harmless but wasteful.
+
+3. **Next time:** Use either `ranges` or `matchString` per query, not both. Read `deleteKeyAndPropagate` and `propagateDeletion` fully, with a wider `contextLines`, to close the DEL/UNLINK gap. I might also check the lazyfree config path.
+
+4. **Confidence:** High on the core behavior (null reply, master deletes the key, replica doesn't, miss counted), since I read every cited line directly. Medium on the propagation details, which I only partly read.

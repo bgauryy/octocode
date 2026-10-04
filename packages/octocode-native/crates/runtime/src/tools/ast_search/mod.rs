@@ -314,11 +314,18 @@ mod tests {
         .expect("syntax tree");
         assert_eq!(syntax["operation"], "syntaxTree");
         assert!(syntax.get("treeKind").is_none(), "{syntax}");
-        // Line/column locate nodes; byte offsets are debug-only.
+        // Line/column locate nodes; byte offsets are verbose (the verbose
+        // stage drops them unless the row asked for `debug`).
         let root_node = &syntax["nodes"][0];
         assert!(root_node.get("startLine").is_some(), "{root_node}");
-        assert!(root_node.get("startByte").is_none(), "{root_node}");
-        assert!(root_node.get("endByte").is_none(), "{root_node}");
+        for offset in ["startByte", "endByte"] {
+            assert!(
+                crate::tools::id::ToolId::AstSearch
+                    .verbose_paths()
+                    .contains(&format!("results[].data.nodes[].{offset}").as_str()),
+                "{offset}"
+            );
+        }
         let debug = execute_row(
             json!({
                 "operation":"syntaxTree","mainGoal": "test", "reasoning":"test","debug":true,

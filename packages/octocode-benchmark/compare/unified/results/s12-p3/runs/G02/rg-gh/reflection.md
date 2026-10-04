@@ -1,0 +1,7 @@
+1. **Helped:** The first `gh api pulls/13824` call plus `/files` gave me the merge status, SHA and file list in one step. The second call, which filtered `/files` patches through jq, gave me the actual diffs (`validators/counter.rs`, `input_python.rs`, `_generate_schema.py`, `json_schema.py`, docs). That covered most of the answer. Issue #13704 gave the motivation.
+
+2. **Did not help:** Every Bash call printed "/dev/null: Operation not permitted" noise. My `2>/dev/null` redirects added to it. In the third call, I filtered for `tests/types/test_counter`, `input_json` and `input_string`, but the output showed none of those patches. I probably lost them to the `head -330` cut or the sandbox noise, and I never re-checked. I also never read `_mapping_schema` or the base commit, so the "before" behavior is inferred only from removed diff lines. I never ran a test.
+
+3. **Next time:** I would fetch the base file with `gh api contents?ref=<base sha>` to verify the old path. I would request the `input_json`/`input_string` patches and the tests separately, without `head`. I would also drop the `2>/dev/null` redirects, since the sandbox blocks `/dev/null`.
+
+4. **Confidence:** Medium-high for the after-behavior in Python input, because I read the code. Medium for the before-comparison, since it rests on inference. Low for JSON and string input, which I did not read.

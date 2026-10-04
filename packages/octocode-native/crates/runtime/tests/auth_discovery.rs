@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 #![cfg(unix)]
 mod support;
 use base64::{Engine as _, engine::general_purpose::STANDARD};

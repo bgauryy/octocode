@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` was a regex over the `runtime/task` directory for function names (`try_read_output`, `store_output`, `wake_join`, `set_join_waker`). It mapped the whole flow across `core.rs`, `harness.rs`, `raw.rs`, `state.rs` and `join.rs` in one call. The batched `localFetch` with line ranges, plus a `matchString` on `fn poll`, then pulled the deciding code from three files in one round trip.
+
+2. **Did not help:** The `localFetch` ranges returned "lines omitted" gaps, so I needed a second `localSearch` on `harness.rs` and a second `localFetch` to see `poll_future`, `can_read_output` and `join.rs:342-352`. The `fn poll` match in `join.rs` was cut off before the call to `try_read_output`. I never opened `state.rs` or `mod.rs`. The "rule N" comments and the exact bit transitions are therefore taken from comments, not verified. I also did not read `raw.rs`, so the vtable hop is inferred from the comments in `join.rs`.
+
+3. **Next time:** I'd request narrower, contiguous ranges up front (for example `harness.rs:420-465`) and add one `localFetch` of `mod.rs` for the synchronization rules. That would avoid the follow-up reads.
+
+4. **Confidence:** High on the overall flow. Each step was read directly at the pinned checkout with line numbers. Medium on the synchronization-rule details, since I did not read `state.rs` or `mod.rs`.

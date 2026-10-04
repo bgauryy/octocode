@@ -1,0 +1,7 @@
+1. **Helped:** The first successful `grep -n` across `convert.py`, `base.py`, `structured.py` and `simple.py` mapped the whole call chain in one shot. The batched `sed -n` read of `base.py` 120-370, `structured.py` 240-300 and `convert.py` 300-345 covered most of the logic. The `grep -rn "def _parse_google_docstring"` call located the parser, and a final `sed` read of `function_calling.py` finished it.
+
+2. **Did not help:** My first command used `rg`, which isn't installed, so it failed. Every call also printed `/dev/null: Operation not permitted`. That was harmless noise, but it made `git rev-parse HEAD` fail outright. I therefore never confirmed the checkout was at the pinned commit 67ee6cb, and my answer did not say so. That was an omission. I also quoted several line numbers with `~` because I never ran numbered reads of those exact spots, and I never read `_MIN_DOCSTRING_BLOCKS`. One `grep -n "def _parse_google_docstring" -A55` was redundant with a later `sed`.
+
+3. **Next time:** Use `grep` from the start. Check the commit by reading `.git/HEAD` directly, or say plainly that it is unverified. Use `grep -n` or `sed -n` with `cat -n`-style output for every line number I cite. Read the constants I reference.
+
+4. **Confidence:** Medium-high on the described flow, since I read the code directly. Medium on exact line numbers and on the pinned commit, which are unverified.

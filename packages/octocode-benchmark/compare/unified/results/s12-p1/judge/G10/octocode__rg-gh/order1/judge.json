@@ -1,0 +1,184 @@
+{
+  "qid": "G10",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "4a1909e305c369a9b4534e12db41c7d755ce4c9f225cad5e83e5e8f5c293be1a",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "25ebe2bac47dae7582fd18af3fd86c8090db91e60325a3937410fcd794bb261d",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate but explicitly skipped the tcp_* patches, so it misses the TCP still-ignored reasons (SO_LINGER, bind-before-connect, TCP_NODELAY, TOS/TClass, socket options), the test the readv leak affects, and the tcp_echo iteration change. Fact 1 is only partly covered, since most tcp_* files are not listed. The resolve_dns claim was verified."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "36 files changed (actually 37)",
+        "net_lookup_host listed among TCP tests (it is the DNS/getaddrinfo test)"
+      ],
+      "notes": "Covers all key facts with correct reasons and issue numbers. The uds_cred getsockopt claim was verified. No line numbers, but file and issue citations support the claims."
+    },
+    "preferred": "Y",
+    "reference_issues": "The reference omits that net_lookup_host's resolve_dns (no getaddrinfo) and io_driver, io_driver_drop, net_bind_resource, no_rt and rt_handle_block_on are also enabled; this is minor."
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 5,
+      "completeness": 1,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate but explicitly skipped the tcp_* patches, so it misses the TCP still-ignored reasons (SO_LINGER, bind-before-connect, TCP_NODELAY, TOS/TClass, socket options), the test the readv leak affects, and the tcp_echo iteration change. Fact 1 is only partly covered, since most tcp_* files are not listed. The resolve_dns claim was verified."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "36 files changed (actually 37)",
+        "net_lookup_host listed among TCP tests (it is the DNS/getaddrinfo test)"
+      ],
+      "notes": "Covers all key facts with correct reasons and issue numbers. The uds_cred getsockopt claim was verified. No line numbers, but file and issue citations support the claims."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "The reference omits that net_lookup_host's resolve_dns (no getaddrinfo) and io_driver, io_driver_drop, net_bind_resource, no_rt and rt_handle_block_on are also enabled; this is minor.",
+  "cost_usd": 0.12547160000000002,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 10454,
+        "cache_read_input_tokens": 23778,
+        "output_tokens": 1853,
+        "context_tokens": 34238,
+        "total_tokens": 36091,
+        "first_request_context": 10218,
+        "fixed_overhead_tokens": 30654,
+        "research_tokens": 5437,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 10454,
+          "cache_read_input_tokens": 23778,
+          "output_tokens": 25
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1828
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10454,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 12826
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.12547160000000002,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 10454,
+    "cache_read_input_tokens": 23778,
+    "output_tokens": 1853,
+    "context_tokens": 34238,
+    "total_tokens": 36091,
+    "first_request_context": 10218,
+    "fixed_overhead_tokens": 30654,
+    "research_tokens": 5437,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 10454,
+      "cache_read_input_tokens": 23778,
+      "output_tokens": 25
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1828
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10454,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 12826
+  },
+  "timedOut": false
+}

@@ -1,0 +1,7 @@
+1. **Helped:** The `grep -n` on `config/config.go` found the field type `model.ValidationScheme` and the validation switch at lines 1002-1008. The same call also showed the pin `prometheus/common v0.71.0` in `go.mod`. The `gh api` call on `model/metric.go?ref=v0.71.0` with the raw Accept header returned the full enum, `Set`, and the validators in one shot. A `sed` on that output then gave exact line ranges.
+
+2. **Did not help:** `rg` was not installed, so my first `rg` calls were wasted. `git log` failed because `/dev/null` was blocked, which printed the same error noise on every call. I therefore never confirmed that HEAD is ea954809. I also did not check `go.sum` or `replace` directives, and I did not read `isValidLegacyRune` or `MetricNameRE`. I got the dependency source from GitHub, because no local module cache or vendor directory existed.
+
+3. **Next time:** I would use `grep` from the start. I would read `.git/HEAD` directly to confirm the commit. I would check `go.sum` and `replace`. I would fetch the `isValidLegacyRune` definition so the legacy metric-name rule is stated exactly instead of by reference.
+
+4. **Confidence:** Medium-high. The type, version, accepted values, and label-name rules were each read directly. Two gaps remain: the commit identity was unverified, and the legacy metric-name character set is cited but not spelled out. I flagged both in the answer.

@@ -1,0 +1,7 @@
+1. **Helped:** The single `grep -n` over `LocalCache.java` and `CacheBuilder.java` found every relevant symbol (`segmentShift`, `maxSegmentWeight`, `MAX_SEGMENTS`) in one call. The follow-up `sed -n 246,325p LocalCache.java` showed the whole constructor, including the segment-count loop and its explanatory comment.
+
+2. **Did not help:** My first call used `rg`, which isn't installed, so I had to redo the search with `grep`. Every Bash call printed `/dev/null: Operation not permitted` noise, though the results were fine. I never ran `git rev-parse HEAD` or `git log` in the checkout, so I did not confirm it is at 4d41665af1. I took that on trust from the task description. Some cited line numbers (`:255`, `:276-278`, `:319-323`) come from counting offsets in the `sed` output. The `sed` output had no line numbers, so I never saw those numbers directly.
+
+3. **Next time:** Use `grep -n` or `nl` from the start, and check the commit once. I would also read `Segment`'s eviction path (`evictEntries`, around `:2658-2672`) in more detail instead of only grepping it. I never compared the `android/` copy of `LocalCache.java`.
+
+4. **Confidence:** High on the mechanics, since I read the constructor code directly. Medium on a few exact line numbers and on the pinned commit.

@@ -1,0 +1,7 @@
+1. **Helped:** The first `gh api` call on `pulls/8156` and `pulls/8156/files` gave the title, merge SHA, PR body and the full patch in one shot. The PR body named the two open Miri issues. The second Bash call, a grep over the persisted output, was the fastest way to the per-file diff summary and every miri-related line.
+
+2. **Did not help:** The first call's output was too large, so it was persisted to a file and I only saw a 2KB preview. Every Bash call printed `/dev/null: Operation not permitted`. My grep showed only the changed miri lines and no surrounding code. That is why I could not tell which individual tests carry each ignore, and I attributed some ignores to files by inference. I never looked at the repo at the merge commit, so I did not confirm which skips remain after the merge.
+
+3. **Next time:** I would grep with context (`-B3`) so each miri comment is shown with its test name. Then I would use `gh api repos/tokio-rs/tokio/git/trees` or `contents?ref=32312ae` with `rg` to list the ignores that remain. I would also open rust-lang/miri#5047 and #5054 to check their current status.
+
+4. **Confidence:** Medium. The PR facts and the stated reasons are well supported by the diff. The list of remaining skipped tests is incomplete, and some per-file attributions are inferred.

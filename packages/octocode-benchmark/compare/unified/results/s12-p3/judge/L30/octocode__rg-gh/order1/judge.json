@@ -1,0 +1,191 @@
+{
+  "qid": "L30",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "505f111c5c92fa69d9d148defdba81f1e3edae259eff03f5279b9d108ef54620",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "554f8337c300ee4c5be9ab4f307224a2139540be9bd3af6d8e89e56e2a424bc3",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Groups list::channel_from_index and chan::channel_from_list under 'tests only' though they are not cfg(test)-gated (minor)"
+      ],
+      "notes": "All three spots correctly located and the PR changes described accurately. Extra wrapping-safe line citations verified. Doesn't name the tokio-1.51.x branch or the merge SHA."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Labels channel_from_list and list::channel_from_index as test-only additions (minor)"
+      ],
+      "notes": "Accurate on all three spots. Names the tokio-1.51.x target branch and clearly explains the reclaim_blocks failure. Honest uncertainty about which branch the commit is on. No merge SHA."
+    },
+    "preferred": "tie",
+    "reference_issues": "Reference omits the wraparound_unbounded test that the PR also adds; otherwise accurate."
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Groups list::channel_from_index and chan::channel_from_list under 'tests only' though they are not cfg(test)-gated (minor)"
+      ],
+      "notes": "All three spots correctly located and the PR changes described accurately. Extra wrapping-safe line citations verified. Doesn't name the tokio-1.51.x branch or the merge SHA."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "Labels channel_from_list and list::channel_from_index as test-only additions (minor)"
+      ],
+      "notes": "Accurate on all three spots. Names the tokio-1.51.x target branch and clearly explains the reclaim_blocks failure. Honest uncertainty about which branch the commit is on. No merge SHA."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "Reference omits the wraparound_unbounded test that the PR also adds; otherwise accurate.",
+  "cost_usd": 0.1907962,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 6,
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 16387,
+        "cache_read_input_tokens": 59161,
+        "output_tokens": 2391,
+        "context_tokens": 75560,
+        "total_tokens": 77951,
+        "first_request_context": 8988,
+        "fixed_overhead_tokens": 53928,
+        "research_tokens": 24023,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 12,
+          "cache_creation_input_tokens": 16387,
+          "cache_read_input_tokens": 59161,
+          "output_tokens": 50
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2341
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 16387,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 18759
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 6,
+      "toolCounts": {
+        "Bash:invocation": 3,
+        "Read": 3
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.1907962,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 7,
+  "tokens": {
+    "requests": 6,
+    "input_tokens": 12,
+    "cache_creation_input_tokens": 16387,
+    "cache_read_input_tokens": 59161,
+    "output_tokens": 2391,
+    "context_tokens": 75560,
+    "total_tokens": 77951,
+    "first_request_context": 8988,
+    "fixed_overhead_tokens": 53928,
+    "research_tokens": 24023,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 16387,
+      "cache_read_input_tokens": 59161,
+      "output_tokens": 50
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2341
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 16387,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 18759
+  },
+  "timedOut": false
+}

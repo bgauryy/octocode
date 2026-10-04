@@ -1,0 +1,7 @@
+**1. Helped:** The first `ghSearchCode` for the literal `_transport_for_url` was the fastest step. It returned the pinned commit SHA and the definition and call-site lines in one call. The `ghGetFileContent` calls with `ranges` ("660,720", "755,780") and the one with `matchString: "def _get_proxy_map"` and `contextLines` gave the exact deciding code, including the `_mounts` construction and `_get_proxy_map`. The `startLine`/`endLine` read of lines 1000–1012 confirmed the call site.
+
+**2. Did not help:** My range request skipped lines 721–754, so I needed a second read. That read used `matchString: "def _init_proxy_transport"`, which also matched the async client and returned a large omitted region. Some of the output was redundant, and the omitted-lines markers made it hard to trust what I had seen. I never read `get_environment_proxies()` or `URLPattern.matches`/ordering. The tools could have fetched them but I stopped early.
+
+**3. Next time:** I would fetch one contiguous range (about 685–770) and then one `ghSearchCode` for `get_environment_proxies` and `URLPattern`. That would let me state the precedence rules instead of leaving them open.
+
+**4. Confidence:** High for the main flow (the mounts lookup in `_transport_for_url`, with fallback to the direct transport). Medium for the env-proxy and `no_proxy` details and pattern precedence, which I flagged as unread in the answer.

@@ -1,0 +1,7 @@
+1. **Helped:** My one Bash call did nearly all the work. `gh api -X GET search/issues` with `repo:tokio-rs/tokio sharded blocking queue spawn_blocking` returned the whole story in one pass: #7757 (merged), #8056 (regression), #8057 (revert), #8337 (opt-in), #8067 (re-land, open). The `--jq` filter kept the output compact and included state and merge date.
+
+2. **Did not help:** The same call also fetched the commit message for facc6fc47e, which told me little. Bash printed "/dev/null: Operation not permitted" three times. It was harmless, but it could hide real errors. I made no second call, so nothing was checked beyond search metadata.
+
+3. **Next time:** I would make a few more calls before answering: `gh api repos/tokio-rs/tokio/pulls/8337` for the body and merge commit, and `compare` against facc6fc47e to confirm #8337 is an ancestor. I'd also fetch the source file at the pinned commit to get the flag name and a `path:line` citation. I'd read the bodies of #8056/#8057 for the revert reason.
+
+4. **Confidence:** Medium. The PR numbers, dates and states are directly observed, and the story fits together. But the ancestry, the flag name and the revert reasoning are unverified. I did say so in my answer.

@@ -267,10 +267,12 @@ for (const r of Object.values(pinned)) {
     });
     check(`PR #${prNumber}: patches equal git diff of the squash commit`, prPatchOk);
   }
-  // Commit search: HEAD is listed (or superseded by newer upstream commits), rows resolve.
-  const list = rowData(await call('ghSearchHistory', { operation: 'commit', owner: r.owner, repo: r.repo, pageSize: 20 }));
+  // Commit search: bounded at the pinned HEAD's commit time, HEAD is listed
+  // however far upstream has moved since; rows resolve.
+  const pinnedAt = git(r.dir, 'log', '-1', '--format=%cI', 'HEAD').trim();
+  const list = rowData(await call('ghSearchHistory', { operation: 'commit', owner: r.owner, repo: r.repo, until: pinnedAt, pageSize: 20 }));
   const shas = collect(list, o => typeof o.sha === 'string').map(o => o.sha);
-  check('commit search: the pinned HEAD appears in recent history', shas.includes(r.sha), `${shas.length} shas; head ${r.sha.slice(0, 8)}`);
+  check('commit search: the pinned HEAD appears in history up to its commit time', shas.includes(r.sha), `${shas.length} shas until ${pinnedAt}; head ${r.sha.slice(0, 8)}`);
   const touched = rowData(await call('ghSearchHistory', { operation: 'commit', owner: r.owner, repo: r.repo, path: 'tokio/src/signal/registry.rs', pageSize: 3 }));
   let pathOk = 0, pathRows = collect(touched, o => typeof o.sha === 'string').slice(0, 3);
   for (const row of pathRows) {

@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghSearchHistory` call, two parallel PR queries with keywords "sharded"/"blocking" and "shard"/"blocking queue", surfaced #8337, #8135, #7757 and #8057 at once, so the whole story was in one response. The second call, `ghGetHistoryItem` on #8057 and #8337 with `include: ["body"]`, supplied the evidence: the revert rationale, the hang in #8056, and the opt-in flag and env var.
+
+2. **Did not help:** Search results included unrelated noise (#6114, #1625, #8045). I never fetched #7757's own body or the #8056 issue, so the hang description rests on #8057's summary. I also never confirmed that commit `facc6fc47e` contains #8337. I inferred that from the merge date, when I could have checked with a `ghSearchHistory` commit lookup or a file read at that ref. I also didn't read the #8337 diff to confirm the flag name in code. No errors occurred.
+
+3. **Next time:** Add a third call, `ghGetHistoryItem` on #8056 and #7757, plus a `ghGetFileContent` read at `facc6fc47e` for the builder flag. That would settle the commit-containment question directly.
+
+4. **Confidence:** High on the PR identification and revert story, since both come from PR bodies I read. Medium on the claim that the commit contains #8337, and on the 1.52.0 release link, both inferred from dates.

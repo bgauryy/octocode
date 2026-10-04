@@ -1,0 +1,390 @@
+{
+  "qid": "L10",
+  "worker": "octocode",
+  "started": "2026-10-03T20:03:00.953Z",
+  "promptSha256": "bae053cbd28a5c7d818445b6cf4350186075c7e6fb66e9c2f037bdba2efa66d4",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 13488,
+  "status": "ok",
+  "answer": "`rate()` and `increase()` are thin wrappers around one shared function, `extrapolatedRate`. `rate` is `increase` divided by the range length in seconds. All lines below are in `promql/functions.go` at ea954809ce.\n\n**Entry points**\n- `funcRate` calls `extrapolatedRate(..., isCounter=true, isRate=true)` (`:811-813`).\n- `funcIncrease` calls it with `isCounter=true, isRate=false` (`:816-818`).\n- `funcDelta` calls it with `false, false` (`:806-808`).\n\n**Computation for float counters** (`extrapolatedRate`, `:452-633`)\n1. **Raw increase.** It starts from the last sample minus the first sample, `resultFloat = last.F - first.F` (`:512`).\n2. **Counter resets.** It walks the samples pairwise. Whenever `currPoint.F < prevPoint.F`, it adds `prevPoint.F` to the result (`:521-534`). The same correction applies when a start-timestamp reset is detected via `isStartTimestampReset`. If start timestamps overlap, it adds a warning annotation (`:524-530`).\n3. **Boundary distances and threshold.**\n   - `durationToStart` is the first sample time minus `rangeStart`, and `durationToEnd` is `rangeEnd` minus the last sample time (`:541-542`). `rangeStart` and `rangeEnd` account for the offset (`:474-475`).\n   - The average gap between samples is `sampledInterval / (n-1)`, and the extrapolation threshold is that average × 1.1 (`:544-549`).\n4. **Extrapolation.**\n   - If `durationToStart >= threshold`, it is cut to half the average gap (`:588-590`). The same rule applies to `durationToEnd` (`:615-617`).\n   - For counters, the start extrapolation is also capped at the zero point, `sampledInterval * (first.F / resultFloat)`, so the counter is never extrapolated below zero (`:591-612`). This only applies when `resultFloat > 0` and `first.F >= 0` (`:599-602`).\n5. **Scaling.** `factor = (sampledInterval + durationToStart + durationToEnd) / sampledInterval` (`:619-622`).\n   - For `rate`, it also divides by `ms.Range.Seconds()` (`:623-625`). This is the length of the selector's range, not the sampled interval.\n   - The result is `resultFloat *= factor` (`:626-627`).\n\n**Other cases**\n- **Histograms.** Native histograms go through the same flow. `histogramRate` computes the increase (`:500`), and the result is scaled with `resultHistogram.Mul(factor)` (`:629`). The zero-point cap uses the histogram `Count`. A window with both floats and histograms is dropped with a mixed-type warning (`:484-486`).\n- **Start timestamps.**\n  - If the first sample's start timestamp lies inside the range and before the first sample, the code assumes a zero-valued sample at that start timestamp (`:551-571`). It sets `durationToStart = 0`, adds the first sample's value to the result, and uses `lastT - sts[0]` as the sampled interval.\n  - With a valid start timestamp, a single sample can still produce a result. Without one, a single sample returns nothing (`:572-574`), and fewer than two samples generally produces no output.\n- **Anchored or smoothed selectors.** These are handled by `extendedRate` or `extendedHistogramRate` instead (`:455-466`). I did not read those two functions.\n\nI did not read `histogramRate` (`:640`) or the start-timestamp helper functions.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9696,
+    "cache_read_input_tokens": 27386,
+    "output_tokens": 1652,
+    "context_tokens": 37088,
+    "total_tokens": 38740,
+    "first_request_context": 9885,
+    "fixed_overhead_tokens": 29655,
+    "research_tokens": 9085,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 9696,
+      "cache_read_input_tokens": 27386,
+      "output_tokens": 875
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -777
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9696,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 30396.6,
+    "weighted_tokens_cold": 43622.5,
+    "tariff_cost_usd": 0.0607932,
+    "tariff_cost_usd_cold": 0.087245,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 16659
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2922,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 659,
+      "cache_read_input_tokens": 9883,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 6115,
+      "cache_read_input_tokens": 10542,
+      "output_tokens": 827
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 9696,
+    "cache_read_input_tokens": 27386,
+    "output_tokens": 1652
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1652,
+      "cacheReadInputTokens": 27386,
+      "cacheCreationInputTokens": 9696,
+      "webSearchRequests": 0,
+      "costUSD": 0.0607932,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0607932,
+  "costVerified": true,
+  "duration_ms": 12691,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 1,
+    "mcp__octocode__localFetch": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"func extrapolatedRate|func funcRate|func funcIncrease|func instantValue\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql\"}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql/functions.go\",\"startLine\":440,\"endLine\":640}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/go/promql/functions.go\",\"startLine\":805,\"endLine\":825}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `localSearch` was the fastest step. One regex alternation (`func extrapolatedRate|func funcRate|func funcIncrease|func instantValue`) returned all four declarations with line numbers in a single call. The two parallel `localFetch` line-range reads then covered everything: lines 440-640 for the full body and 805-825 for the wrappers. The numbered output let me cite `path:line` directly.\n\n2. **Did not help:** Nothing failed, and I made no redundant calls. Limits:\n   - I didn't read `extendedRate`, `extendedHistogramRate`, `histogramRate`, `isStartTimestampReset` or `checkStartTimeOverlap`, so I only described those paths from their call sites.\n   - I didn't check how `rangeStart` and `rangeEnd` or the sample window are built in the engine (`engine.go`). That boundary behavior is inferred from `extrapolatedRate` alone.\n   - I didn't check commit history or tests.\n\n3. **Next time:** Do the same search and read, then add one more `localFetch` of `extendedRate` and one of the start-timestamp helpers. That would close the gaps. I'd also look at the engine's matrix-selector range handling to confirm range exclusivity.\n\n4. **Confidence:** High for the core algorithm (reset handling, 1.1× threshold, zero-point cap, factor, division by range seconds), because I read that code directly. Medium for the start-timestamp and histogram details, because I read only the main function's use of the helpers and not the helpers themselves.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 11570,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 520,
+      "context_tokens": 11572,
+      "total_tokens": 12092,
+      "first_request_context": 11572,
+      "fixed_overhead_tokens": 11572,
+      "research_tokens": 520,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 11570,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -519
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 11570,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 25742,
+      "weighted_tokens_cold": 25742,
+      "tariff_cost_usd": 0.051484,
+      "tariff_cost_usd_cold": 0.051484,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 11572
+    },
+    "cost_usd": 0.051483999999999995,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 11570,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 520,
+        "context_tokens": 11572,
+        "total_tokens": 12092,
+        "first_request_context": 11572,
+        "fixed_overhead_tokens": 11572,
+        "research_tokens": 520,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 11570,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 1
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -519
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11570,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 25742,
+        "weighted_tokens_cold": 25742,
+        "tariff_cost_usd": 0.051484,
+        "tariff_cost_usd_cold": 0.051484,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 11572
+      },
+      "cost_usd": 0.051483999999999995,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 11570,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 520,
+          "costUSD": 0.051483999999999995
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1652,
+            "cacheReadInputTokens": 27386,
+            "cacheCreationInputTokens": 9696,
+            "webSearchRequests": 0,
+            "costUSD": 0.0607932,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0607932
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2172,
+            "thinkingTokens": 0,
+            "cacheReadInputTokens": 27386,
+            "cacheCreationInputTokens": 21266,
+            "webSearchRequests": 0,
+            "costUSD": 0.1122772,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1122772
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 11570,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 520
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 11570,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:03:03.604Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:03:03.671Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T20:03:05.189Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:03:05.206Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T20:03:05.648Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:03:05.658Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

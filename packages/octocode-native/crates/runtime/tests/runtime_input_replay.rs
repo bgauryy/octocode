@@ -21,7 +21,7 @@ fn source() -> String {
 #[tokio::test]
 async fn rejected_benchmark_range_spellings_now_read() {
     let rows: Vec<Value> = serde_json::from_str(FIXTURE).unwrap();
-    assert_eq!(rows.len(), 11);
+    assert_eq!(rows.len(), 14);
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     for (index, row) in rows.iter().enumerate() {

@@ -1,0 +1,7 @@
+**1. Helped:** `ghStructure` on `httpx/_transports` at the short SHA listed the six modules in one call, and the SHA resolved to the full commit. The second `ghSearchCode` for "Transport" scoped to `httpx/_transports` was the key step. Its line snippets showed each class declaration, its base class, `__all__`, and the docstring examples that use `Client` or `AsyncClient`.
+
+**2. Did not help:** The first `ghSearchCode` for "class Transport" over all of `httpx` returned only `TransportError` in `_exceptions.py`. It was a wasted call because the literal was too narrow. I never called `ghGetFileContent`, so everything rests on search snippets rather than full reads.
+
+**3. Next time:** I would run the scoped search first. I would then use `ghGetFileContent` with `matchString` on `mock.py` to confirm both `handle_request` and `handle_async_request` exist. I would also check `httpx/__init__.py` for the top-level exports and `_client.py` for how each client type checks its transport. Those were the gaps I flagged as unverified.
+
+**4. Confidence:** Medium-high on the table, because the file paths, class names, line numbers and base classes were all seen directly in tool output. Client compatibility is inferred from the base classes, and `MockTransport` supporting both rests on its dual inheritance alone. I disclosed both limits in the answer.

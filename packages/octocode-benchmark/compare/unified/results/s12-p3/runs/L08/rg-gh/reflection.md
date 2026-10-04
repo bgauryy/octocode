@@ -1,0 +1,7 @@
+1. **Helped:** The `grep -rn -i "sampleLimit" scrape --include=*.go --exclude=*_test.go` call found every relevant site in one pass. The two `sed -n` range reads then gave the wrapper, the error handling and the config wiring with exact line numbers. Both calls were in Bash.
+
+2. **Did not help:** My first call used `rg`, which isn't installed (exit 127), so I had to redo the search with grep. Every Bash call printed `/dev/null: Operation not permitted`. The same sandbox restriction made `git log -1` fail, so I never verified that the checkout is `ea954809ce`; I said so in the answer. I also didn't read the code after `scrape/scrape.go:2060`, so I couldn't say whether the batch is rolled back or committed on a limit error. I flagged that as uncertain.
+
+3. **Next time:** I'd check for `rg` before using it, and use grep from the start. I'd read `.git/HEAD` or `packed-refs` directly to confirm the commit. I'd also read a bit further past the limit-error handling to settle the rollback question.
+
+4. **Confidence:** High for the enforcement mechanism, because I read the line-numbered source for config, wrapper, counting and error handling. Medium for the pinned commit, which is unverified. Low for what happens to the batch afterward, which I didn't check.

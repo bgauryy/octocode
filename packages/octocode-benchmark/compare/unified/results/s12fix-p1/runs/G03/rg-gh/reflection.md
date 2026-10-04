@@ -1,0 +1,7 @@
+**Helped:** One Bash call did nearly all the work: `gh api -X GET repos/nodejs/undici/pulls/5881` for the PR body, plus `.../pulls/5881/files` for the per-file patches. The body gave the author's description of the bug, and the patches showed the mechanism: `kRetireClient`, `kRetiring`, `closeClients()`, and the `connectionError` handlers. The included test file confirmed the intended behaviors.
+
+**Did not help:** The call printed three `/bin/bash: /dev/null: Operation not permitted` errors. They were harmless, since the JSON still came back. I made no second call, so I never checked commit history, linked issues, or review comments. I also didn't look at the local checkout, so I gave no `path:line` citations and said so in the answer.
+
+**Next time:** I'd make a second `gh api` call for the PR's linked issue and review comments, to confirm the root cause in the maintainers' words. I'd also fetch `lib/dispatcher/pool-base.js` at the merge SHA to get real line numbers.
+
+**Confidence:** Medium-high. The mechanism comes straight from the diff. My explanation of why the bug happened (the removed client wasn't closed or tracked, so `destroy()` skipped it) is an inference from the diff and the PR body, not something maintainers confirmed. I didn't run the tests.

@@ -1,0 +1,7 @@
+1. **Helped:** One `localSearch` for `ResolveJsonModule` with `include: ["*.go"]` and the detailed view returned the getter, every production call site and the showconfig entry. A `localFetch` of `compileroptions.go` lines 268-290 then confirmed the default logic. `structureSearch` on the repo root showed that the Go code lives under `tsc/`.
+
+2. **Did not help:** My first `localSearch` failed with `pathNotFound` because I guessed `<repo>/internal` instead of `tsc/internal`. The detailed search output was noisy, with long test-file snippets from `tscbuild_test.go`. I never used `lspSearch` to get true references to `GetResolveJsonModule`. The text search can't tell callers of the getter from mentions of the option field. I also never searched the test baselines, so my "baselines likely change" line is a guess.
+
+3. **Next time:** I'd run `structureSearch` first and then use `lspSearch` references on `GetResolveJsonModule` for exact callers. I would also use `GetEmitModuleKind` and `GetModuleResolutionKind` references to cover indirect effects. I'd exclude test files from the search, then search them separately for baseline impact.
+
+4. **Confidence:** Medium-high for the list of direct callers, because I saw each line. Medium for completeness, since I used a text search only and did not look at the JS compiler. Low for the test-impact claim.

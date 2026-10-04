@@ -216,27 +216,60 @@ export function lspLocations(entry, index = 0) {
  * shape) pass through. `extra` (e.g. a directory outline's file path) is
  * merged into each row.
  */
-const OUTLINE_ROW = /^( *)(\d+)(?:-(\d+))? (\S+) (.+?)( \+)?(?: as (\S+))?( doc(?:@(\d+))?)?(?: from@(\d+))?(?: col (\d+))?(?: \(in (.+?)(?:@(\d+))?\))?$/;
+/**
+ * astSearch symbols outline rows into one declaration each. A row is
+ * "<indent><ranges> <kind> <label>[; <ranges> <label>]…": consecutive
+ * childless same-kind siblings share a row (later items inherit the kind),
+ * and adjacent blocks with the same kind and label share one item whose
+ * ranges are comma-joined ("109-891,893-901 impl X"). Each range is one
+ * declaration; nested rows (two spaces per level) name their parent.
+ */
+const OUTLINE_RANGES = /^(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*) /;
+const OUTLINE_LABEL = /^(.+?)( \+)?(?: as (\S+))?( doc(?:@(\d+))?)?(?: from@(\d+))?(?: col (\d+))?(?: \(in (.+?)(?:@(\d+))?\))?$/;
 export function outlineRows(rows = [], extra = {}) {
   const stack = [];
-  return (rows ?? []).map(row => {
-    if (typeof row !== 'string') return { ...extra, ...row };
-    const m = OUTLINE_ROW.exec(row);
-    if (!m) return { ...extra, raw: row };
-    const [, indent, line, end, kind, name, exported, as, doc, docAt, from, col, parent, parentLine] = m;
-    const out = { ...extra, name, kind, line: +line };
-    if (end) out.endLine = +end;
-    if (exported) out.exported = true;
-    if (as) out.exportedAs = as.split(',');
-    if (doc) out.docStartLine = docAt ? +docAt : out.line - 1;
-    if (from) out.startLine = +from;
-    if (col) out.character = +col;
-    if (parent) { out.parent = parent; if (parentLine) out.parentLine = +parentLine; }
+  return (rows ?? []).flatMap(row => {
+    if (typeof row !== 'string') return [{ ...extra, ...row }];
+    const indent = /^ */.exec(row)[0];
     const depth = indent.length / 2;
-    const holder = depth > 0 ? stack[depth - 1] : undefined;
-    if (holder) { out.parent = holder.name; out.parentLine = holder.line; out.parentKind = holder.kind; }
+    const holders = depth > 0 ? stack[depth - 1] : undefined;
+    let kind;
+    const out = [];
+    for (const [index, item] of row.slice(indent.length).split('; ').entries()) {
+      const ranges = OUTLINE_RANGES.exec(item);
+      if (!ranges) return [{ ...extra, raw: row }];
+      let rest = item.slice(ranges[0].length);
+      if (index === 0) {
+        const space = rest.indexOf(' ');
+        if (space < 0) return [{ ...extra, raw: row }];
+        kind = rest.slice(0, space);
+        rest = rest.slice(space + 1);
+      }
+      const m = OUTLINE_LABEL.exec(rest);
+      if (!m) return [{ ...extra, raw: row }];
+      const [, name, exported, as, doc, docAt, from, col, parent, parentLine] = m;
+      for (const range of ranges[1].split(',')) {
+        const [line, end] = range.split('-').map(Number);
+        const decl = { ...extra, name, kind, line };
+        if (end !== undefined) decl.endLine = end;
+        if (exported) decl.exported = true;
+        if (as) decl.exportedAs = as.split(',');
+        if (doc) decl.docStartLine = docAt ? +docAt : line - 1;
+        if (from) decl.startLine = +from;
+        if (col) decl.character = +col;
+        if (parent) { decl.parent = parent; if (parentLine) decl.parentLine = +parentLine; }
+        if (holders?.length) {
+          // A merged parent lists several blocks: the one whose range holds this line.
+          const holder = holders.find(h => h.line <= line && line <= (h.endLine ?? h.line)) ?? holders.at(-1);
+          decl.parent = holder.name; decl.parentLine = holder.line; decl.parentKind = holder.kind;
+        }
+        out.push(decl);
+      }
+    }
+    // Only the last item of a grouped row can hold children (grouped items are childless).
+    const last = out.at(-1);
     stack.length = depth;
-    stack[depth] = out;
+    stack[depth] = out.filter(d => d.name === last.name && d.kind === last.kind);
     return out;
   });
 }

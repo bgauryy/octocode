@@ -1,0 +1,357 @@
+{
+  "qid": "L20",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:30:45.954Z",
+  "promptSha256": "675015fe22b2f6a1b16991b71847184eb8663a76e414b46b09799f9bc5c39da9",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 19775,
+  "status": "ok",
+  "answer": "**Answer:** In the Go compiler, the default is computed in one place, `CompilerOptions.GetResolveJsonModule()` at `tsc/internal/core/compileroptions.go:270-280`. A change there would affect every caller of that getter, which are module resolution, checker diagnostics, file discovery and loading, `--showConfig`, and language-service completions.\n\n**The current logic** (`compileroptions.go:270-280`):\n- An explicit `ResolveJsonModule` value wins (`:271-272`).\n- Otherwise it returns true when `GetEmitModuleKind()` is `Node20` or `NodeNext` (`:275-277`).\n- Otherwise it returns true when `GetModuleResolutionKind()` is `Bundler` (`:279`).\n- A TODO at `:274` says Node16/Node18 are to be added in 6.0.\n\nThe field is `ResolveJsonModule Tristate` (`compileroptions.go:94`). It is set from user config at `tsoptions/parsinghelpers.go:472`, and the option is declared at `tsoptions/declscompiler.go:969`.\n\n**Direct callers of `GetResolveJsonModule()`:**\n- **Module resolution:**\n  - `module/resolver.go:118` includes JSON extensions in resolution, except for type reference directives.\n  - `module/util.go:141` is `needResolveJsonModule`, which chooses the diagnostic message when a JSON import can't be resolved (it is used at `:174`).\n- **Checker:** `checker/checker.go:15666` reports the missing-`resolveJsonModule` error for imports of `.json` files.\n- **Supported extensions:** `tsoptions/tsconfigparsing.go:2050-2051` has `GetSupportedExtensionsWithJsonIfResolveJsonModule`, which adds `.json` to the supported extensions. It feeds several places:\n  - tsconfig `include` expansion, in `ReadDirectory` at `tsconfigparsing.go:1961-1971`;\n  - `compiler/program.go:249`;\n  - `compiler/fileloader.go:159`, `:177` and `:681`, where the loader matches files against the extension groups;\n  - `ls/string_completions.go:1069`, for path completions.\n- **`--showConfig`:** `tsoptions/showconfig.go:47` computes the displayed value with `GetResolveJsonModule`. Its declared dependencies are `ModuleResolution`, `Module` and `Target`. If the new default depends on other options, that list would need updating.\n\n**Related but not default-dependent:**\n- `project/project.go:218` hardcodes `ResolveJsonModule: core.TSTrue` in the language-service project's inferred options. Changing the default would not touch it.\n- The tests I saw that reference the option are `fourslash/tests/completionsPathsJsonModuleWithoutResolveJsonModule_test.go` and `execute/tsctests/tscbuild_test.go`. Other tests or baselines, such as `--showConfig` output, may also change. I did not search for those.\n\n**Uncertainty:** I searched only non-test `.go` files for `ResolveJsonModule`. I did not search for string-based uses of `\"resolveJsonModule\"` or check the testdata baselines. I also did not verify that `GetEmitModuleKind` and `GetModuleResolutionKind` have no other side effects.",
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 6529,
+    "cache_read_input_tokens": 25822,
+    "output_tokens": 1836,
+    "context_tokens": 32361,
+    "total_tokens": 34197,
+    "first_request_context": 4863,
+    "fixed_overhead_tokens": 24315,
+    "research_tokens": 9882,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 6529,
+      "cache_read_input_tokens": 25822,
+      "output_tokens": 883
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -953
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6529,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 24830.2,
+    "weighted_tokens_cold": 28415.5,
+    "tariff_cost_usd": 0.0496604,
+    "tariff_cost_usd_cold": 0.056831,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 8418
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2974,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 529,
+      "cache_read_input_tokens": 4861,
+      "output_tokens": 3
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 612,
+      "cache_read_input_tokens": 5390,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1680,
+      "cache_read_input_tokens": 6002,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 734,
+      "cache_read_input_tokens": 7682,
+      "output_tokens": 831
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 6529,
+    "cache_read_input_tokens": 25822,
+    "output_tokens": 1836
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 10,
+      "outputTokens": 1836,
+      "cacheReadInputTokens": 25822,
+      "cacheCreationInputTokens": 6529,
+      "webSearchRequests": 0,
+      "costUSD": 0.04966040000000001,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 30,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.04966040000000001,
+  "costVerified": true,
+  "duration_ms": 19220,
+  "num_turns": 5,
+  "toolCallCount": 4,
+  "toolCounts": {
+    "Bash:invocation": 4
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript; git log -1 --format=%H; ls; ls _packages 2>/dev/null; rg -il \\\"resolveJsonModule\\\" --glob '!tests/**' --glob '!src/**' . | head -30; ls | grep -i -E \\\"go|native\\\"\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript; cat go.work; ls packages tsc; grep -rIl \\\"ResolveJsonModule\\\" . --include=*.go 2>&1 | head -50\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript/tsc/internal; grep -rn \\\"ResolveJsonModule\\\\|GetResolveJsonModule\\\" --include=*.go . | grep -v _test | grep -v \\\"^./diagnostics\\\"; grep -n \\\"func (options \\\\*CompilerOptions) GetEmitModuleKind\\\\b\\\" -A3 core/compileroptions.go | head\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/typescript/tsc/internal; sed -n 266,285p core/compileroptions.go; grep -n \\\"GetResolveJsonModule\\\\|ResolveJsonModule\\\" -r project/project.go compiler/program.go | head; grep -rn \\\"resolveJsonModule\\\\|ResolveJsonModule\\\" tsoptions/declscompiler.go | head\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The second Bash call, `grep -rIl \"ResolveJsonModule\" . --include=*.go`, found every Go file touching the option at once. The third call, `grep -rn \"ResolveJsonModule\\|GetResolveJsonModule\" ... | grep -v _test`, then gave exact callers with line numbers. The `sed -n 266,285p` on `compileroptions.go` showed the default logic directly.\n\n2. **Did not help:** `rg` was not installed, so the first call's search produced nothing and I wasted that call. Every Bash call printed `/dev/null: Operation not permitted`. The noise was harmless but cluttered the output. The first call's `git log -1` failed for the same reason, so I never confirmed the checkout was at commit 4f5ddae224. I also never searched testdata or baselines for `--showConfig` output, and I did not read the bodies of `GetEmitModuleKind` or `GetModuleResolutionKind`.\n\n3. **Next time:** Use `grep` from the start, since `rg` is missing. Run a case-insensitive search that also covers string uses of `\"resolveJsonModule\"`. Check testdata for baselines. Read the two getter functions the default depends on.\n\n4. **Confidence:** High on the code locations and callers, because I saw them directly. Medium on completeness, since the test and baseline impact is unchecked, and the commit pin is unverified.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8692,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 467,
+      "context_tokens": 8694,
+      "total_tokens": 9161,
+      "first_request_context": 8694,
+      "fixed_overhead_tokens": 8694,
+      "research_tokens": 467,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8692,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -459
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 8692,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 19721,
+      "weighted_tokens_cold": 19721,
+      "tariff_cost_usd": 0.039442,
+      "tariff_cost_usd_cold": 0.039442,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 8694
+    },
+    "cost_usd": 0.03944199999999999,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8692,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 467,
+        "context_tokens": 8694,
+        "total_tokens": 9161,
+        "first_request_context": 8694,
+        "fixed_overhead_tokens": 8694,
+        "research_tokens": 467,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 8692,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -459
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8692,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 19721,
+        "weighted_tokens_cold": 19721,
+        "tariff_cost_usd": 0.039442,
+        "tariff_cost_usd_cold": 0.039442,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 8694
+      },
+      "cost_usd": 0.03944199999999999,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 8692,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 467,
+          "costUSD": 0.03944199999999999
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 1836,
+            "cacheReadInputTokens": 25822,
+            "cacheCreationInputTokens": 6529,
+            "webSearchRequests": 0,
+            "costUSD": 0.04966040000000001,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 30,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.04966040000000001
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 12,
+            "outputTokens": 2303,
+            "thinkingTokens": 30,
+            "cacheReadInputTokens": 25822,
+            "cacheCreationInputTokens": 15221,
+            "webSearchRequests": 0,
+            "costUSD": 0.0891024,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0891024
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8692,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 467
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 8692,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

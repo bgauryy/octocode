@@ -1,0 +1,7 @@
+**1. Helped:** Two `gh api -X GET` calls did almost all the work. The first fetched issue #18837 and its `/timeline`. The timeline's `cross-referenced` and `referenced` events surfaced PR #18838 and commit `a72dc8e` immediately. The second call fetched `pulls/18838` plus `/files`, which returned the PR body (the author's explanation) and the full patch for `proxy.js`.
+
+**2. Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless noise, but it hints at a sandbox quirk. I did not read the source at the merge commit, so I gave no `path:line` citations, only hunk context. The patch output ended mid-statement in the synthetic descriptor, and I did not follow up. I did not fetch the file with `gh api repos/.../contents/...?ref=a72dc8e`, and I did not check the issue comments for maintainer discussion.
+
+**3. Next time:** After finding the PR, I would fetch `proxy.js` at the merge SHA to get exact line numbers and the complete trap. I would also skim the PR and issue comments to confirm the maintainers' stated root cause.
+
+**4. Confidence:** Medium-high. The causal chain is well supported: the issue repro, the PR body, and the diff all agree, and the PR is linked to the issue. The weaker spots are the missing line citations, the cut-off patch tail, and my claim that the `in` operator is reactive because of the `has` trap. That claim comes from the PR description and the `this.has?.()` call, not from reading the `has` trap itself.

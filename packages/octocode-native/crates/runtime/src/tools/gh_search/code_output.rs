@@ -202,7 +202,7 @@ pub(super) fn read_top_match(value: &Value) -> Option<Value> {
 /// Line hits for the top files of a repo-scoped `match:"file"` page, read at
 /// the requested `branch` or the default-branch HEAD.
 pub(super) struct Resolution {
-    sha: String,
+    pub(super) sha: String,
     reference: Option<String>,
     hits: Vec<super::lines::FileHits>,
 }
@@ -269,6 +269,99 @@ pub(super) async fn resolve_lines<
         reference: reference.map(str::to_owned),
         hits,
     }))
+}
+
+/// A search pinned to a ref other than the default-branch head: its files
+/// come from the default-branch index, so files only at the ref are missing
+/// and unresolved rows show default-branch text. Warn with the index commit
+/// and lead first to the ref's own listing. `resolved_sha` is the ref's
+/// commit when the hit lines were read at it.
+pub(super) async fn disclose_index_ref<
+    R: CredentialResolver,
+    C: crate::providers::github::ConditionalCache,
+>(
+    provider: &crate::providers::github::GitHubProvider<R, C>,
+    value: &mut Value,
+    query: &GhSearchCodeQuery,
+    resolved_sha: Option<String>,
+    context: &RequestContext,
+) -> Result<(), ProviderError> {
+    let (Some(reference), Some(repo)) = (requested_ref(query), query.repo.as_deref()) else {
+        return Ok(());
+    };
+    let owner = query.owner.as_str();
+    let head = commit_or_none(provider, owner, repo, None, context).await?;
+    let at_ref = match resolved_sha {
+        Some(sha) => Some(sha),
+        None => commit_or_none(provider, owner, repo, Some(reference), context).await?,
+    };
+    if head.is_some() && head == at_ref {
+        return Ok(());
+    }
+    let index = head.as_deref().map_or_else(String::new, |sha| {
+        format!(" at {}", &sha[..sha.len().min(7)])
+    });
+    let lines = if resolved_sha_shown(value) {
+        format!("; only `lines` were read at {reference}")
+    } else {
+        String::new()
+    };
+    let warning = format!(
+        "Results come from the default-branch index{index}, not {reference}{lines}. Files only at {reference} are missing: hints.viewRepo lists it."
+    );
+    match value.get_mut("warnings").and_then(Value::as_array_mut) {
+        Some(warnings) => warnings.push(json!(warning)),
+        None => value["warnings"] = json!([warning]),
+    }
+    let mut listing = json!({
+        "owner": owner,
+        "repo": repo.as_str(),
+        "path": query.path.as_deref().map_or("", |path| path.as_str()),
+        "branch": at_ref.as_deref().unwrap_or(reference),
+    });
+    if let Some(object) = listing.as_object_mut() {
+        crate::contracts::stamp_schema_defaults(
+            ToolId::GhStructure,
+            None,
+            object,
+            &["page", "pageSize", "match", "sort"],
+        );
+    }
+    let lead = json!({
+        "tool": ToolId::GhStructure.as_str(),
+        "why": "List the requested ref; the code index covers only the default branch.",
+        "query": listing,
+    });
+    if !value.get("next").is_some_and(Value::is_object) {
+        value["next"] = json!({});
+    }
+    if let Some(next) = value.get_mut("next").and_then(Value::as_object_mut) {
+        next.shift_insert(0, "viewRepo".to_owned(), lead);
+    }
+    Ok(())
+}
+
+/// The commit `reference` (`None`: the default-branch head) names, or
+/// `None` when it does not resolve; only cancellation fails.
+async fn commit_or_none<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<R, C>,
+    owner: &str,
+    repo: &str,
+    reference: Option<&str>,
+    context: &RequestContext,
+) -> Result<Option<String>, ProviderError> {
+    match super::lines::resolve_commit(provider, owner, repo, reference, context).await {
+        Ok(sha) => Ok(Some(sha)),
+        Err(error) if error.kind == ProviderErrorKind::Cancelled => Err(error),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Some row lists `lines` read at the resolved commit.
+fn resolved_sha_shown(value: &Value) -> bool {
+    value["files"]
+        .as_array()
+        .is_some_and(|files| files.iter().any(|row| row.get("lines").is_some()))
 }
 
 /// Reads a shaped page carries: the top hit's line range, and one read of

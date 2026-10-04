@@ -1,0 +1,9 @@
+**Root cause:** The state proxy's `getOwnPropertyDescriptor` trap, which `Object.hasOwn(proxy, prop)` calls, never subscribed to a per-property dependency for a property that doesn't exist yet. The `has` trap, used by `prop in proxy`, does create that dependency. The old `getOwnPropertyDescriptor` only called `get(s)` when a source already existed and the descriptor had a `value`. For a missing property it read `source?.v` directly, which doesn't track anything. So adding or deleting `y` never invalidated `{Object.hasOwn(s, 'y')}` (issue #18837, opened by Rich-Harris).
+
+**Fix:** PR #18838, merged 2026-09-18, with the issue closed by it. It changes `packages/svelte/src/internal/client/proxy.js`, in the `getOwnPropertyDescriptor` trap (around line 204 in the patch):
+- It now starts with `this.has?.(target, prop);`. This reuses the `has` trap, which creates the per-property source and tracks it. The PR description says the source creation follows the same eligibility rules as `has`, so inherited properties keep their existing behaviour.
+- It looks up `sources.get(prop)` and, if a source exists, reads it with `get(s)`, which tracks it. If the value is `UNINITIALIZED` (the property was deleted or never set), it returns `undefined`. Otherwise it fills in `descriptor.value`, or returns a synthetic `{enumerable: true, configurable: true, ...}` descriptor when there is no real descriptor.
+
+The PR also adds a changeset, `.changeset/reactive-has-own.md`, and a regression test in `tests/runtime-runes/samples/object-has-own-reactive/`. The test checks that `Object.hasOwn(state,'y')` goes false → true → false when `y` is added and then deleted.
+
+**Uncertainty:** I read the patch and PR description, not the full merged `proxy.js`. The patch hunk was truncated after `configurable: true,`, so I didn't see the rest of the returned descriptor.

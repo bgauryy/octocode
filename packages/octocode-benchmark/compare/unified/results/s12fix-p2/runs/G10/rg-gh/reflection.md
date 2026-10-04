@@ -1,0 +1,7 @@
+1. **Helped:** The first Bash call, `gh api -X GET repos/tokio-rs/tokio/pulls/8156` plus `/files --paginate` through jq, gave the PR metadata, body and every patch in one shot. The second call, a grep over the persisted output for `=== ` headers and miri lines, turned 43KB into a scannable per-file summary of what was removed and added.
+
+2. **Did not help:** Every Bash call printed "/dev/null: Operation not permitted" noise. The first output was too large and got truncated to a file, which forced the second call. I never opened the repo at the merge commit, so I have no real `path:line` citations. I cited patch contents instead and said so. I also did not read the PR's discussion or review comments.
+
+3. **Next time:** I would fetch only the diff lines that contain "miri", and also read the PR comments. I would use `gh api repos/tokio-rs/tokio/contents/...?ref=32312ae0` to check the final state of the remaining ignores, and look up miri#5047 and #5054 to see whether they are resolved.
+
+4. **Confidence:** Medium-high on what the PR changes and on the reasons given for each ignore, since those come directly from the diff. Medium on completeness of the "still ignored" list, because files the PR didn't touch were not checked.

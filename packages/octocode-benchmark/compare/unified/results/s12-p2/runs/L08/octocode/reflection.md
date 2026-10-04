@@ -1,0 +1,7 @@
+1. **Helped:** The single `localSearch` for `sampleLimit|errSampleLimit|ErrSampleLimit` under `scrape/` (excluding tests) found everything in one call: the config copy, `appenderWithLimits`, `checkAddError`, and the `errSampleLimit` definition in `target.go`. The `localFetch` of `target.go` 365-415 then showed the `limitAppender` logic, including the staleness-marker bypass.
+
+2. **Did not help:** The multi-range `localFetch` on `scrape.go` printed "lines omitted" placeholders between ranges. That was fine for what I asked, but I never read lines 2066-2158, which is where the scrape's commit or rollback handling probably sits. I flagged this gap in the answer instead of reading it, which was a weakness. I also never read the v2 path (`scrape_append_v2.go`), only grep hits. The tools had no commit-pin check, so I assumed the local checkout was at `ea954809ce`.
+
+3. **Next time:** I would add a third range to the `localFetch` covering 2066-2158 so I could say what happens to the batch on a limit error. I would also fetch `scrape_append_v2.go` 37-60 to check the v2 `limitAppender` equivalent.
+
+4. **Confidence:** High for the enforcement mechanism, because I read the exact code. Medium for the claim that the scrape fails as a whole and for how the batch is finalised, since those lines were unread.

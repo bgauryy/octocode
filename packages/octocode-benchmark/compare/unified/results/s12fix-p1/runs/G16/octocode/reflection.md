@@ -1,0 +1,7 @@
+1. **Helped:** The first `ghSearchHistory` call, with two batched keyword queries ("unix socket scrape" and "unix socket"), surfaced both #18091 and #19399 immediately. The second call, `ghGetHistoryItem` for the PR bodies of #18091 and #19399, gave the issue number (#12024) and the mix-up explanation directly. Batching kept the whole thing to three calls.
+
+2. **Did not help:** The second search query was mostly noise: Docker Swarm, renovate bumps and a 2015 Graphite PR. The third call, `ghGetHistoryItem` on commit `ea954809ce`, only confirmed the commit's date (2026-09-26). It did not tell me whether the two PRs are ancestors of that commit. I inferred inclusion from merge dates and said so. The tools gave me no direct ancestry check. I also did not read #19399's diff or the code at that commit, so the mix-up explanation rests on the PR description alone. #18091's body has the doubled "Fixes Fixes #12024", which I reported as written.
+
+3. **Next time:** I would run just the first query. I would also fetch #19399's files with `include: ["files"]`, or read the code at `ea954809ce`. That would confirm the per-socket client is really present there. I would check whether #12024's close state can be read directly.
+
+4. **Confidence:** High on the PR numbers, issue and mix-up description, since they come straight from PR metadata. Medium-high on "as of ea954809ce", because that rests on date reasoning rather than verified ancestry.

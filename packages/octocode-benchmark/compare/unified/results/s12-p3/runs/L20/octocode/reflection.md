@@ -1,0 +1,7 @@
+**1. Helped:** The `localSearch` for `ResolveJsonModule` (include `*.go`, exclude tests, `resultView: content`) was the key call. It returned every non-test caller with line numbers in one shot, so I didn't need per-file reads. The `localFetch` of `compileroptions.go` lines 268-280 then showed the default logic itself.
+
+**2. Did not help:** The first `localSearch` (`resultView: files`) was redundant, since the second call superseded it. The `structureSearch` at depth 0 told me nothing I used. I never opened the callers, so I only know where each one sits, not what it does. I ran no `lspSearch` references, which would have confirmed there are no callers I missed, such as ones reached through wrappers or differently named helpers. I also never read the tests or searched for baselines.
+
+**3. Next time:** I'd skip the orientation calls and run the content search first. I'd then fetch the caller sites at checker.go:15666, resolver.go:118 and util.go:140-174, and run `lspSearch` references on `GetResolveJsonModule` to check coverage. I'd also search baselines or submodule test data for `resolveJsonModule`, since I never did.
+
+**4. Confidence:** Medium-high. The default logic and the list of callers are directly evidenced by the search output and the fetched lines. The description of what each caller does is inferred from names and a few lines of context, not from reading the code. Test impact is unverified, and I said so in the answer.

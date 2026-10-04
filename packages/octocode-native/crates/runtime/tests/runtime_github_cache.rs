@@ -1,5 +1,5 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used)]
 
 mod support;
 

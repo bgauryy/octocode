@@ -1284,7 +1284,8 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     assert_eq!(pages.len(), 5, "{query}");
     for page in pages {
         assert_eq!(page["hints"]["read"]["tool"], "localFetch", "{page}");
-        assert_eq!(page["hints"]["read"]["confidence"], "exact", "{page}");
+        // An exact replay states no confidence.
+        assert!(page["hints"]["read"].get("confidence").is_none(), "{page}");
         // Workspace-relative, like every local tool's rows.
         assert!(
             page["source"]["path"]
@@ -2563,7 +2564,7 @@ async fn unified_and_nested_matrices_reach_the_provider_identically() {
             // carries the read of exactly the judged lines.
             json!({"resourceId":"src","path":"trace.txt","totalLines":1,
                 "pages":[{"lines":[1,1],"answers":{"present":0.8,"kind":"runtime"},
-                    "hints":{"read":{"tool":"localFetch","confidence":"exact","query":{
+                    "hints":{"read":{"tool":"localFetch","query":{
                         "path":"trace.txt","startLine":1,"endLine":1,
                         "mainGoal":"Decide whether the trace states the fact.",
                         "reasoning":"The next read depends on it."}}}}]}),
@@ -3321,8 +3322,9 @@ async fn replay_every_continuation(
     walk
 }
 
-/// A located window with p ≥ 0.95 on a walk that is still open is offered as
-/// a read first; the walk stays in `next.clasify`. Every clasify
+/// A located window on a walk that is still open is offered as `hints.read`
+/// ahead of the walk, which stays in `next.clasify`; no prose repeats it.
+/// Every clasify
 /// continuation kind (the walk, the top read, row and page reads, the
 /// literal search, chunk-page verification reads) runs exactly as emitted,
 /// with and without the caller's brief.
@@ -3378,12 +3380,8 @@ async fn every_clasify_continuation_kind_replays_verbatim() {
                     query["next"]["clasify"].is_object(),
                     "the walk is open: {query}"
                 );
-                let tip = query["hints"]["text"][0].as_str().unwrap_or_default();
-                assert!(
-                    tip.contains("p=0.99") && tip.contains("hints.read"),
-                    "{query}"
-                );
-                assert!(tip.contains("next.clasify"), "{tip}");
+                let tips = query["hints"]["text"].to_string();
+                assert!(!tips.contains("hints.read"), "no read-first prose: {query}");
                 if !debug {
                     assert_eq!(query["hints"]["read"]["tool"], "localFetch", "{query}");
                 }

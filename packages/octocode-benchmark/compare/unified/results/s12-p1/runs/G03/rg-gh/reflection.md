@@ -1,0 +1,7 @@
+1. **Helped:** One Bash call did nearly all the work. It chained `gh api -X GET repos/nodejs/undici/pulls/5881` (title, body, merge SHA) with `.../pulls/5881/files` (the per-file patches). The PR body gave the motivation. The patches showed the mechanism, including the code comments that explain why `kRemoveClient` wasn't used before.
+
+2. **Did not help:** Each shell invocation printed `/dev/null: Operation not permitted`. This was sandbox noise and didn't affect the output. I never opened the merged source tree, so every line reference is to the diff and not to a pinned commit. I also couldn't run the tests. I did not trace `kOnDrain` in `pool-base.js`, so the claim that the drain listener keeps pulling queued requests rests on the PR's own comments.
+
+3. **Next time:** I would add a second call, `gh api` on `contents/lib/dispatcher/pool-base.js?ref=<merge sha>`. That would let me cite exact post-merge line numbers and confirm the drain path. I would also check the PR's linked issue, if any, and the review comments for the reproduction details.
+
+4. **Confidence:** High on what the bug is and how the fix works, because the PR description and the diff agree. Medium on the claim about the drain listener, since I took it from code comments without checking the code path myself.

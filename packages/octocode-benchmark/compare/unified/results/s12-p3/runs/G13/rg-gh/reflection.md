@@ -1,0 +1,7 @@
+1. **Helped:** The first `gh api -X GET repos/prometheus/node_exporter/contents/node_exporter.go?ref=v1.8.2 --jq .content | base64 -d | grep -n ...` gave the metrics path (`/metrics`) and max requests (`40`) with line numbers in one call. Pinning `ref=v1.8.2` kept the evidence tied to the release tag.
+
+2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless noise, but it made me wonder whether the output was complete. My first grep missed the listen address, because the flag is registered through the exporter-toolkit helper rather than as a literal `web.listen-address` string. That forced a second call. I never fetched exporter-toolkit's source, so the claim that the helper registers `--web.listen-address` rests on prior knowledge. I did not check which repository is the official one beyond assuming `prometheus/node_exporter`. I did not verify that the v1.8.2 tag exists, though the `ref=v1.8.2` content fetch succeeded.
+
+3. **Next time:** I would grep for `kingpinflag|listen` from the start. I would also fetch the exporter-toolkit `kingpinflag` file at the version pinned in v1.8.2's `go.mod`, to confirm the flag name directly.
+
+4. **Confidence:** High for the path and max requests, because I read the lines directly. Medium-high for `:9100`, because the default is visible in the source and the README but the flag name is inferred.

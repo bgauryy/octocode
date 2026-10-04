@@ -1,0 +1,7 @@
+1. **Helped:** The first `localSearch` was a regex alternation (`parse_docstring|def _create_subset_model|...`) restricted to `tools/*.py` and `function_calling.py`. It located `base.py`, `structured.py` and `convert.py` in one call. The `localFetch` range reads on `base.py:95-360` and `structured.py:236-300` then gave the main logic cheaply. Batching three reads in one call saved turns.
+
+2. **Did not help:** I searched for `def _parse_google_docstring` in `base.py` and got nothing, because it lives in `utils/function_calling.py`. I then re-ran the same search over the whole package, which was a wasted call. The `_create_subset_model` search with `contextLines: 40` returned a large, noisy dump with embedded line-number prefixes. I also did not read the top of the `tool` decorator, so I could not say where `tool_description` is set. No errors occurred.
+
+3. **Next time:** I would import-trace instead of guessing file locations. That means one `localSearch` for the helper names across the package, or `lspSearch` to find definitions. I would use `localFetch` with `matchString` rather than large context windows. I would also read the decorator body, which should take one more fetch.
+
+4. **Confidence:** High on the schema, docstring-parsing and description-selection flow, because I read every cited line directly. Medium-high on the claim about the `parse_docstring=True` description path, since it depends on what the decorator passes as `description`. I did not execute any code.

@@ -27,6 +27,6 @@ Then write, adjust, research more, or cancel, as the reply says.
 ## Verify
 
 1. Mode checks: agent-docs and ADR per `references/modes.md`; style-pass changes each trace to a named rule.
-2. API or tool docs: trace input schema → adapter arguments → result and evidence fields → executable `next` continuation. Check valid and invalid examples, separate static types from runtime validation, and label reliability claims measured or unmeasured. For multi-tool changes, compare shared fields and run a composition case not used while drafting.
+2. API or tool docs: trace input schema → adapter arguments → result and evidence fields → `next` pages (run verbatim to the end) and optional `hints` leads. Check valid and invalid examples, separate static types from runtime validation, and label reliability claims measured or unmeasured. For multi-tool changes, compare shared fields and run a composition case not used while drafting.
 
 Next: wording rules or a review → `references/style-pass.md`.

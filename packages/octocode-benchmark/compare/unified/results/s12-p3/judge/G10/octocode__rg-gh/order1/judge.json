@@ -1,0 +1,182 @@
+{
+  "qid": "G10",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "1d135c2a8e84f56c8df5b83bb9650d6db2b99e042e2c6872f578c860e8b81a6a",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "c1c1e6ad87643929f07107a47b5525a67d141a23fe6534cb5d1d8602674d77a8",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate overall. Misses the tcp_socket keepalive/reuseaddr/reuseport/buffer-size option ignores. Lists rt_common/rt_threaded under 'ignores removed', which is only partly true. File names cited but no line numbers."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Its list of enabled TCP tests leaves out most tcp_* files and lists io_copy_bidirectional, where only some tests were enabled"
+      ],
+      "notes": "Good detail on UDP/UDS exclusions. Misses TClass/TOS, the socket-option ignores, the readv leak location and the tcp_echo iteration change. Fact 2 is only partly covered. Honest about what it didn't check."
+    },
+    "preferred": "X",
+    "reference_issues": "Minor: the readv leak is linked as miri pull/5054 in the code, not an issue. Otherwise accurate."
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate overall. Misses the tcp_socket keepalive/reuseaddr/reuseport/buffer-size option ignores. Lists rt_common/rt_threaded under 'ignores removed', which is only partly true. File names cited but no line numbers."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [
+        "Its list of enabled TCP tests leaves out most tcp_* files and lists io_copy_bidirectional, where only some tests were enabled"
+      ],
+      "notes": "Good detail on UDP/UDS exclusions. Misses TClass/TOS, the socket-option ignores, the readv leak location and the tcp_echo iteration change. Fact 2 is only partly covered. Honest about what it didn't check."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "Minor: the readv leak is linked as miri pull/5054 in the code, not an issue. Otherwise accurate.",
+  "cost_usd": 0.20999600000000002,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 5,
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 18501,
+        "cache_read_input_tokens": 54140,
+        "output_tokens": 2556,
+        "context_tokens": 72651,
+        "total_tokens": 75207,
+        "first_request_context": 10319,
+        "fixed_overhead_tokens": 51595,
+        "research_tokens": 23612,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 18501,
+          "cache_read_input_tokens": 54140,
+          "output_tokens": 49
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2507
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 18501,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 20873
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 4,
+      "toolCounts": {
+        "Bash:invocation": 4
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.20999600000000002,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 5,
+  "tokens": {
+    "requests": 5,
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 18501,
+    "cache_read_input_tokens": 54140,
+    "output_tokens": 2556,
+    "context_tokens": 72651,
+    "total_tokens": 75207,
+    "first_request_context": 10319,
+    "fixed_overhead_tokens": 51595,
+    "research_tokens": 23612,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 10,
+      "cache_creation_input_tokens": 18501,
+      "cache_read_input_tokens": 54140,
+      "output_tokens": 49
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2507
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 18501,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 20873
+  },
+  "timedOut": false
+}

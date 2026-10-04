@@ -1,0 +1,177 @@
+{
+  "qid": "L23",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "9d57c000f7a46cfd7c3e620fc05c6e740767c9b0d4fa8aa081a354fd67c4c707",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "ae989f058e118e7facb8b177df05fa2a40dc5c052706cf0d9b002e2f0408df24",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2"
+      ],
+      "wrong_claims": [
+        "Speculates __or__/__xor__ likely get their clone via __and__ or self.query (they call query._chain() on another queryset), though hedged"
+      ],
+      "notes": "All 23 methods listed with correct call lines; 24 call sites count correct; get handled as direct conditional. Doesn't cover _chain definition or explicitly identify near misses."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1 (partial: line 2288)",
+        "2"
+      ],
+      "wrong_claims": [
+        "States 31 lines in 26 methods; its own table shows 23 methods and 24 call lines"
+      ],
+      "notes": "Method list and lines are correct and complete; gives _chain definition line. Headline count is wrong. No near-miss discussion."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "2"
+      ],
+      "wrong_claims": [
+        "Speculates __or__/__xor__ likely get their clone via __and__ or self.query (they call query._chain() on another queryset), though hedged"
+      ],
+      "notes": "All 23 methods listed with correct call lines; 24 call sites count correct; get handled as direct conditional. Doesn't cover _chain definition or explicitly identify near misses."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1 (partial: line 2288)",
+        "2"
+      ],
+      "wrong_claims": [
+        "States 31 lines in 26 methods; its own table shows 23 methods and 24 call lines"
+      ],
+      "notes": "Method list and lines are correct and complete; gives _chain definition line. Headline count is wrong. No near-miss discussion."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.08805879999999999,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 6798,
+        "cache_read_input_tokens": 19054,
+        "output_tokens": 1492,
+        "context_tokens": 25858,
+        "total_tokens": 27350,
+        "first_request_context": 8147,
+        "fixed_overhead_tokens": 24441,
+        "research_tokens": 2909,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 6798,
+          "cache_read_input_tokens": 19054,
+          "output_tokens": 32
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1460
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6798,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 9170
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 1
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.08805879999999999,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6798,
+    "cache_read_input_tokens": 19054,
+    "output_tokens": 1492,
+    "context_tokens": 25858,
+    "total_tokens": 27350,
+    "first_request_context": 8147,
+    "fixed_overhead_tokens": 24441,
+    "research_tokens": 2909,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 6798,
+      "cache_read_input_tokens": 19054,
+      "output_tokens": 32
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1460
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6798,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 9170
+  },
+  "timedOut": false
+}

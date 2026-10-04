@@ -1,0 +1,7 @@
+**1. Helped:** Two calls did the work. `localSearch` for `function debounce` returned the definition at line 10403 and a `localFetch` hint. A single `localFetch` of lines 10403-10526 then returned the whole implementation with line numbers, so every citation comes from bytes I saw.
+
+**2. Did not help:** Nothing was wasted or repeated, and neither call errored. The `localSearch` output carried a binary-skipped warning (png/gif) that didn't matter here. I didn't need `clasify`, `lspSearch` or the GitHub tools, so I can't judge them. I also never checked the pinned commit independently. I relied on the task statement that the checkout was at 2b5e6f7399 and there was no git tool to confirm it.
+
+**3. Next time:** I'd do the same, but I'd also search the tests, for example for `maxWait` in `test/test.js`, to back the behavioral claims with expected outcomes. I stated that I read only the source and didn't run it or check the tests, but a short test lookup would have made the answer stronger.
+
+**4. Confidence:** High for the mechanics (`shouldInvoke`, `remainingWait`, leading/trailing edges, the `maxWait` clamp). I read the code directly, and the line numbers come straight from the fetch. Medium-high on the description of `maxWait` forcing an invocation in a tight loop: it follows from the code, but I didn't verify it by running anything.

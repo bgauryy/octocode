@@ -1,0 +1,187 @@
+{
+  "qid": "L09",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "d6cd35afc2132bc9c2437cc2567e91154906d926ddbb4539aefb24946a857bb0",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "41539e828acf13558d0d3a5e7bad869d6adca2735ef949706225974e159a9e77",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; includes forced-error path (1546-1547) and V2 equivalent. Omits Manager.DisableEndOfRunStalenessMarkers and the err==nil condition on updateStaleMarkers call, minor."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and precise; notes err==nil condition, iterDone(false) on empty body, sample_limit non-caching bonus, and manager.go:559 caller. Citations verified."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout; includes forced-error path (1546-1547) and V2 equivalent. Omits Manager.DisableEndOfRunStalenessMarkers and the err==nil condition on updateStaleMarkers call, minor."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate and precise; notes err==nil condition, iterDone(false) on empty body, sample_limit non-caching bonus, and manager.go:559 caller. Citations verified."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1299038,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 10737,
+        "cache_read_input_tokens": 35079,
+        "output_tokens": 1848,
+        "context_tokens": 45824,
+        "total_tokens": 47672,
+        "first_request_context": 10021,
+        "fixed_overhead_tokens": 40084,
+        "research_tokens": 7588,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 10737,
+          "cache_read_input_tokens": 35079,
+          "output_tokens": 33
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1815
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10737,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 13109
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 6,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 5
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.1299038,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 7,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 10737,
+    "cache_read_input_tokens": 35079,
+    "output_tokens": 1848,
+    "context_tokens": 45824,
+    "total_tokens": 47672,
+    "first_request_context": 10021,
+    "fixed_overhead_tokens": 40084,
+    "research_tokens": 7588,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 10737,
+      "cache_read_input_tokens": 35079,
+      "output_tokens": 33
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1815
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10737,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 13109
+  },
+  "timedOut": false
+}

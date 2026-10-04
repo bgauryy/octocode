@@ -1,0 +1,197 @@
+{
+  "qid": "L24",
+  "pairKey": "octocode__rg-gh",
+  "label": "order1",
+  "subjectSha": "145daf6c6b1cca234d8b53990c238f8e4fe363b1fb1a92056f0d07165cb8b763",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "a26655f39915d3997c23b314c66eaac072d9ca1cdaa97ffa430a70e5b89d59e6",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 3,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 7,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ],
+      "wrong_claims": [
+        "Attributes the goroutines at manager.go:434 to (*Manager).reload instead of (*Manager).ApplyConfig (hedged), so it lists reload twice and never names ApplyConfig"
+      ],
+      "notes": "Accurate per-goroutine descriptions and citations. Correctly adds the errgroup goroutines in Manager.Stop, which the reference omits. Function misattribution for the ApplyConfig goroutine."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ],
+      "wrong_claims": [
+        "Opening says 'Five functions' before correcting itself to six (cosmetic)"
+      ],
+      "notes": "All six functions and seven go statements are correctly attributed with accurate lines. Hedges on the sp.reload part of ApplyConfig. Misses the errgroup goroutines in Manager.Stop."
+    },
+    "preferred": "Y",
+    "reference_issues": "The reference omits (*Manager).Stop (manager.go:346-353), which starts goroutines via errgroup.Group.Go to stop pools in parallel, limited to GOMAXPROCS. 'Exactly six functions' holds only for literal go statements."
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 3,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 7,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ],
+      "wrong_claims": [
+        "Attributes the goroutines at manager.go:434 to (*Manager).reload instead of (*Manager).ApplyConfig (hedged), so it lists reload twice and never names ApplyConfig"
+      ],
+      "notes": "Accurate per-goroutine descriptions and citations. Correctly adds the errgroup goroutines in Manager.Stop, which the reference omits. Function misattribution for the ApplyConfig goroutine."
+    },
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ],
+      "wrong_claims": [
+        "Opening says 'Five functions' before correcting itself to six (cosmetic)"
+      ],
+      "notes": "All six functions and seven go statements are correctly attributed with accurate lines. Hedges on the sp.reload part of ApplyConfig. Misses the errgroup goroutines in Manager.Stop."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "The reference omits (*Manager).Stop (manager.go:346-353), which starts goroutines via errgroup.Group.Go to stop pools in parallel, limited to GOMAXPROCS. 'Exactly six functions' holds only for literal go statements.",
+  "cost_usd": 0.1013296,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 7898,
+        "cache_read_input_tokens": 21208,
+        "output_tokens": 1694,
+        "context_tokens": 29112,
+        "total_tokens": 30806,
+        "first_request_context": 9297,
+        "fixed_overhead_tokens": 27891,
+        "research_tokens": 2915,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 7898,
+          "cache_read_input_tokens": 21208,
+          "output_tokens": 31
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1663
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7898,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 10270
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 1
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.1013296,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7898,
+    "cache_read_input_tokens": 21208,
+    "output_tokens": 1694,
+    "context_tokens": 29112,
+    "total_tokens": 30806,
+    "first_request_context": 9297,
+    "fixed_overhead_tokens": 27891,
+    "research_tokens": 2915,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 7898,
+      "cache_read_input_tokens": 21208,
+      "output_tokens": 31
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1663
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7898,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 10270
+  },
+  "timedOut": false
+}

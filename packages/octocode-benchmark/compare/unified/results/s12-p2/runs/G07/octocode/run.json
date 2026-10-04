@@ -1,0 +1,386 @@
+{
+  "qid": "G07",
+  "worker": "octocode",
+  "started": "2026-10-03T20:15:32.892Z",
+  "promptSha256": "7980e5bafdf3f4070530b8546063133e9dfdcb19bdb06cf67213ea23662ae2d7",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 18896,
+  "status": "ok",
+  "answer": "**Short answer:** `Starlette.build_middleware_stack` builds the stack lazily on the first call. The order is `ServerErrorMiddleware`, then any body-limit middleware, then user middleware, then `ExceptionMiddleware`, then the router. Exceptions propagate outward through that stack. `ExceptionMiddleware` handles the ones that have registered handlers, and `ServerErrorMiddleware` handles the rest as 500s.\n\n## Stack assembly (`starlette/applications.py`)\n\n- **Lazy build:** `__call__` sets `scope[\"app\"] = self`. If `self.middleware_stack is None`, it calls `build_middleware_stack()` and then calls the result (`applications.py:92-96`).\n- **Handler split:** `build_middleware_stack` loops over `self.exception_handlers`. A handler keyed `500` or `Exception` becomes `error_handler`. All other handlers go into `exception_handlers` (`:68-72`).\n- **Middleware list, outermost first (`:74-78`):**\n  1. `ServerErrorMiddleware(handler=error_handler, debug=debug)`.\n  2. `RequestBodyLimitMiddleware`, only if `max_body_size` is set.\n  3. `self.user_middleware`.\n  4. `ExceptionMiddleware(handlers=exception_handlers, debug=debug)`.\n- **Wrapping:** it starts with `app = self.router` and iterates `reversed(middleware)`, setting `app = cls(app, *args, **kwargs)` (`:80-83`). The first list entry therefore ends up outermost.\n- **User middleware order:** `add_middleware` inserts at index 0 (`:107`), so the most recently added middleware is the outermost of the user middleware. It raises `RuntimeError` if the stack has already been built (`:105-106`).\n\n## How exceptions reach handlers\n\n1. **Registration:** `ExceptionMiddleware.__init__` registers the defaults `HTTPException` → `http_exception` and `WebSocketException` → `websocket_exception`. It then adds the user handlers through `add_exception_handler`. Integer keys go into `_status_handlers` and class keys go into `_exception_handlers` (`middleware/exceptions.py:28-45`).\n2. **Per-request setup:** `ExceptionMiddleware.__call__` passes non-http/websocket scopes straight through. For http and websocket scopes it stores both handler dicts in `scope[\"starlette.exception_handlers\"]`. It builds a `Request` or `WebSocket` and runs `wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)` (`exceptions.py:47-63`).\n3. **Catching and lookup:** `wrapped_app` in `_exception_handler.py:31-63` wraps `send` to track whether `http.response.start` has gone out. It runs the inner app in a `try`, and on `except Exception` it looks for a handler:\n   - For an `HTTPException`, it first checks `status_handlers.get(exc.status_code)` (`:46-47`).\n   - Otherwise it calls `_lookup_exception_handler`, which walks `type(exc).__mro__` and returns the first class with a registered handler (`:16-20`, `:49-50`).\n   - If no handler is found, it re-raises with `raise exc` (`:52-53`).\n   - If a handler is found but the response has already started, it raises `RuntimeError(\"Caught handled exception, but response already started.\")` (`:55-56`).\n   - Otherwise it awaits an async handler, or runs a sync one with `run_in_threadpool`, and sends the returned response if it isn't `None` (`:58-63`).\n4. **Unhandled exceptions:** An exception with no handler propagates up through the user middleware to `ServerErrorMiddleware` (`middleware/errors.py:149-186`).\n   - It only acts on `http` scopes.\n   - On an exception it builds a response in one of three ways: a debug traceback response if `debug` is set, the default `error_response` if no handler is installed, or the custom 500/`Exception` handler.\n   - It sends that response only if the response hasn't already started (`:180-181`).\n   - It then always re-raises (`:186`), so the server can log the error and test clients can see it.\n\n**Where the wrapper is reused:** `wrap_app_handling_exceptions` falls back to empty handlers if the scope key is missing (`_exception_handler.py:26-29`). That fallback implies it is also called from elsewhere, but I didn't open the routing code to confirm, so I haven't verified those call sites.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 10478,
+    "cache_read_input_tokens": 31145,
+    "output_tokens": 2008,
+    "context_tokens": 41629,
+    "total_tokens": 43637,
+    "first_request_context": 9802,
+    "fixed_overhead_tokens": 29406,
+    "research_tokens": 14231,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 10478,
+      "cache_read_input_tokens": 31145,
+      "output_tokens": 861
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1147
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10478,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 34116.5,
+    "weighted_tokens_cold": 47342.4,
+    "tariff_cost_usd": 0.068233,
+    "tariff_cost_usd_cold": 0.0946848,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 17441
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2839,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 4584,
+      "cache_read_input_tokens": 9800,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3055,
+      "cache_read_input_tokens": 14384,
+      "output_tokens": 797
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 10478,
+    "cache_read_input_tokens": 31145,
+    "output_tokens": 2008
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 2008,
+      "cacheReadInputTokens": 31145,
+      "cacheCreationInputTokens": 10478,
+      "webSearchRequests": 0,
+      "costUSD": 0.068233,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.068233,
+  "costVerified": true,
+  "duration_ms": 18190,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "mcp__octocode__ghGetFileContent": 2
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 2,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/applications.py\",\"branch\":\"63c5760d8a\",\"matchString\":\"def build_middleware_stack\",\"contextLines\":40},{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/middleware/exceptions.py\",\"branch\":\"63c5760d8a\",\"fullContent\":true},{\"owner\":\"Kludex\",\"repo\":\"starlette/\",\"path\":\"starlette/_exception_handler.py\",\"branch\":\"63c5760d8a\",\"fullContent\":true}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/_exception_handler.py\",\"branch\":\"63c5760d8a\",\"fullContent\":true},{\"owner\":\"Kludex\",\"repo\":\"starlette/\",\"path\":\"x\"},{\"owner\":\"Kludex\",\"repo\":\"starlette\",\"path\":\"starlette/middleware/errors.py\",\"branch\":\"63c5760d8a\",\"matchString\":\"async def __call__\",\"contextLines\":40}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 2,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** The first `ghGetFileContent` batch did most of the work. A `matchString` read of `build_middleware_stack` in `applications.py` and a full read of `middleware/exceptions.py` gave the stack order and handler registration. The second batch added the full `_exception_handler.py`, which covers handler lookup, and a `matchString` read of `ServerErrorMiddleware.__call__`. Passing the short SHA `63c5760d8a` as `branch` resolved to the full commit, shown in `shared.commitSha`.\n\n**2. Did not help:** I typed the repo as `starlette/` in two calls, the `_exception_handler.py` read in the first batch and a junk probe with path `x` in the second. Both returned 404. The first was a typo, and the second was a pointless call I should not have made. I also read only part of `errors.py` (a `matchString` window), so I never saw its imports or `error_response`/`debug_response`.\n\n**3. Next time:** I would batch all four files correctly in one call. To close the gap I flagged, I would run a `ghSearchCode` for `wrap_app_handling_exceptions` to confirm its other callers in the routing code. I did not do that, so the answer states it as unverified.\n\n**4. Confidence:** High for the stack order, handler lookup and 500 behavior, because I read each of those lines directly at the pinned commit. The one claim I could not verify is the other call sites of `wrap_app_handling_exceptions`, which I flagged as unverified.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 12660,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 672,
+      "context_tokens": 12662,
+      "total_tokens": 13334,
+      "first_request_context": 12662,
+      "fixed_overhead_tokens": 12662,
+      "research_tokens": 672,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12660,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 5
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -667
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 12660,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 28682,
+      "weighted_tokens_cold": 28682,
+      "tariff_cost_usd": 0.057364,
+      "tariff_cost_usd_cold": 0.057364,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 12662
+    },
+    "cost_usd": 0.05736400000000001,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12660,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 672,
+        "context_tokens": 12662,
+        "total_tokens": 13334,
+        "first_request_context": 12662,
+        "fixed_overhead_tokens": 12662,
+        "research_tokens": 672,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 12660,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 5
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -667
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 12660,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 28682,
+        "weighted_tokens_cold": 28682,
+        "tariff_cost_usd": 0.057364,
+        "tariff_cost_usd_cold": 0.057364,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 12662
+      },
+      "cost_usd": 0.05736400000000001,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 12660,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 672,
+          "costUSD": 0.05736400000000001
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 2008,
+            "cacheReadInputTokens": 31145,
+            "cacheCreationInputTokens": 10478,
+            "webSearchRequests": 0,
+            "costUSD": 0.068233,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.068233
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 2680,
+            "thinkingTokens": 175,
+            "cacheReadInputTokens": 31145,
+            "cacheCreationInputTokens": 23138,
+            "webSearchRequests": 0,
+            "costUSD": 0.12559700000000001,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.12559700000000001
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12660,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 672
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 12660,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T20:15:36.709Z",
+      "rowErrors": [
+        {
+          "path": ".results.2",
+          "errorCode": "notFound"
+        }
+      ],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:15:37.372Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T20:15:40.006Z",
+      "rowErrors": [
+        {
+          "path": ".results.1",
+          "errorCode": "notFound"
+        }
+      ],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:15:40.619Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 5
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 2,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

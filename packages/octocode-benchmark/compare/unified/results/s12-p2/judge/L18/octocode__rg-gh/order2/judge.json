@@ -1,0 +1,186 @@
+{
+  "qid": "L18",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "8ff0ba62f21b0ec3c7a008de831d9f6c2c3d344ff166ecd713194a2af0658374",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "262daf3d47c2a58b34dbf9fa43af01bf7b79fb9cc9a5c6bb81dcb05c688a6f13",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. Fact 4 (rejecting at the start event means the container is never created) is only partly covered via the nullptr on ref_stack and children being skipped. The statement about children of a rejected container only holds for start-event rejection. Citations verified."
+    },
+    "Y": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Overview says rejected values are first inserted and then removed; rejected scalars are never inserted (handle_value returns early). Only placeholders and kept containers are inserted and later removed."
+      ],
+      "notes": "Mechanism otherwise correct, including the duplicate-key restore and null for a rejected root. Entry point has no parser.hpp citation. Fact 4 only partly covered."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. Fact 4 (rejecting at the start event means the container is never created) is only partly covered via the nullptr on ref_stack and children being skipped. The statement about children of a rejected container only holds for start-event rejection. Citations verified."
+    },
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [
+        "Overview says rejected values are first inserted and then removed; rejected scalars are never inserted (handle_value returns early). Only placeholders and kept containers are inserted and later removed."
+      ],
+      "notes": "Mechanism otherwise correct, including the duplicate-key restore and null for a rejected root. Entry point has no parser.hpp citation. Fact 4 only partly covered."
+    }
+  },
+  "preferredWorker": "rg-gh",
+  "reference_issues": "none",
+  "cost_usd": 0.1302734,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 11493,
+        "cache_read_input_tokens": 12267,
+        "output_tokens": 1793,
+        "context_tokens": 23764,
+        "total_tokens": 25557,
+        "first_request_context": 9899,
+        "fixed_overhead_tokens": 19798,
+        "research_tokens": 5759,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 11493,
+          "cache_read_input_tokens": 12267,
+          "output_tokens": 15
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1778
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11493,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 13865
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Read": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1302734,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 11493,
+    "cache_read_input_tokens": 12267,
+    "output_tokens": 1793,
+    "context_tokens": 23764,
+    "total_tokens": 25557,
+    "first_request_context": 9899,
+    "fixed_overhead_tokens": 19798,
+    "research_tokens": 5759,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 11493,
+      "cache_read_input_tokens": 12267,
+      "output_tokens": 15
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1778
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11493,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 13865
+  },
+  "timedOut": false
+}

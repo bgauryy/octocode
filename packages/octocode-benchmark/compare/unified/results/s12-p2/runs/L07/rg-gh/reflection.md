@@ -1,0 +1,7 @@
+1. **Helped:** The second Bash call, a `grep -rnE "isRedirectError|getURLFromRedirectError|getRedirectStatusCodeFromError" server`, listed every server-side consumer in one pass. The third call then printed line ranges from `app-render.tsx`, `module.ts`, `action-handler.ts`, `make-get-server-inserted-html.tsx` and `redirect-error.ts` together. The first call's `cat redirect.ts | head -90` gave the thrower side.
+
+2. **Did not help:** `rg` was not installed, so the first call's grep half failed and I redid it with `grep`. Every Bash call printed `/dev/null: Operation not permitted`, which was harmless but noisy. The `cat redirect.ts | head -90` cut off before the end of `getRedirectStatusCodeFromError`. I never opened `createRedirectRenderResult`, so the fetch-action path is unverified. I also never checked that the 4375-4415 and 9825-9846 blocks sit in the functions I implied.
+
+3. **Next time:** Use `grep -n` from the start, and run `sed -n` with exact ranges instead of `head`. I would also open `createRedirectRenderResult`. Line numbers marked `~` should have been pinned with `grep -n` first.
+
+4. **Confidence:** Medium-high. The throw, detect and set-header chain is directly observed. The `~` line numbers and the fetch-action header details are less certain.

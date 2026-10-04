@@ -280,12 +280,13 @@ pub fn execute_local_search(
     // Pages are cut from serialized sizes so a default-layout page, with
     // the row around it, fits one response window.
     let streamed = streamed_layout(query);
+    // Sized by the canonical root, not its spelling: a continuation names the
+    // same root relative to the workspace and must cut the same pages.
+    let mut sized = normalized_query(query, streamed);
+    sized["path"] = json!(validated.canonical.to_string_lossy());
     let page_budget = crate::tools::stream_page::page_chars(
         response_window,
-        crate::tools::stream_page::reserve_chars(
-            &normalized_query(query, streamed),
-            ROW_QUERY_COPIES,
-        ),
+        crate::tools::stream_page::reserve_chars(&sized, ROW_QUERY_COPIES),
     );
     let result_identity = fingerprint(
         query,
@@ -917,22 +918,27 @@ pub fn execute_local_search(
     } else {
         vec![]
     };
+    // A warning, like the file reads' clamp: text hints show on empty rows only.
     if let Some(requested) = query.context_lines_clamped_from() {
-        hints.push(format!(
+        warnings.push(format!(
             "contextLines {requested} clamped to {MAX_CONTEXT_LINES}."
         ));
     }
     // Leads go in after the status is settled: they are optional follow-ups
     // and never stand in for a page.
+    // Rows carry one prose hint, and only when empty or failed; a regex
+    // trap on a row with hits is a warning about what those hits mean.
     if regex == LocalSearchQueryRegex::Rust
         && let Some(reason) = regex_trap(&query.search_text)
     {
-        hints.insert(
-            0,
-            format!(
-                "searchText is a regex: {reason}. hints.searchLiteral searches the literal text."
-            ),
+        let text = format!(
+            "searchText is a regex: {reason}. Use hints.searchLiteral for the literal text."
         );
+        if empty {
+            hints.insert(0, text);
+        } else {
+            warnings.push(text);
+        }
         if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
             map.insert("searchLiteral".into(), literal_lead(query));
         }
@@ -943,7 +949,7 @@ pub fn execute_local_search(
         && let Some(options) = probe_options
         && let Some(found) = ignored_probe(options, query, paths, cancel)
     {
-        hints.push(found.hint);
+        hints.insert(0, found.hint);
         if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
             map.insert("includeIgnored".into(), found.lead);
         }
@@ -1486,10 +1492,8 @@ pub(super) fn regex_trap(pattern: &str) -> Option<String> {
     match (empty_group, dot_group) {
         (false, false) => None,
         (true, false) => Some("`()` is an empty group".into()),
-        (false, true) => Some("an unescaped `.` matches any character".into()),
-        (true, true) => {
-            Some("`()` is an empty group and an unescaped `.` matches any character".into())
-        }
+        (false, true) => Some("`.` matches any character".into()),
+        (true, true) => Some("`()` is an empty group, `.` any character".into()),
     }
 }
 
@@ -1507,8 +1511,6 @@ fn literal_lead(query: &LocalSearchQuery) -> Value {
 
 /// Wall-clock bound of the ignored/hidden re-walk behind an empty result.
 const IGNORED_PROBE_MS: u64 = 400;
-/// Matching files named in the ignored/hidden hint.
-const IGNORED_PROBE_EXAMPLES: usize = 2;
 
 /// An empty result's matches among ignored or hidden entries.
 struct IgnoredMatches {
@@ -1550,13 +1552,6 @@ fn ignored_probe(
         .cap_reason
         .as_deref()
         .is_some_and(|reason| !reason.is_empty());
-    let examples = found
-        .files
-        .iter()
-        .take(IGNORED_PROBE_EXAMPLES)
-        .map(|file| paths.redact(&file.path))
-        .collect::<Vec<_>>()
-        .join(", ");
     let count = found.files.len();
     let mut flags = Vec::new();
     let mut lead = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
@@ -1573,7 +1568,7 @@ fn ignored_probe(
     }
     Some(IgnoredMatches {
         hint: format!(
-            "{}{count} file(s) under ignored or hidden paths match ({examples}); hints.includeIgnored adds {}.",
+            "{}{count} file(s) in ignored or hidden paths match; run hints.includeIgnored ({}).",
             if cut { "At least " } else { "" },
             flags.join(", ")
         ),

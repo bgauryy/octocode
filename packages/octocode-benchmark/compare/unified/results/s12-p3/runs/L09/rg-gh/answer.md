@@ -1,0 +1,17 @@
+Prometheus marks a series stale by appending a sample whose value is the special `value.StaleNaN` NaN. It does this in two cases: the series is missing from a scrape, or the target's scrape loop ends. All paths below are in `scrape/scrape.go`. I did not confirm the HEAD SHA, because `git` failed in the sandbox. I also did not read the scrape-loop shutdown caller (`Stop`) beyond the lines cited.
+
+**1. A series disappears from a scrape (or the scrape fails)**
+- **Tracking:** `scrapeCache` keeps two maps, `seriesCur` and `seriesPrev` (`scrape.go:1019-1021`). While appending a scrape, every series that was added successfully is recorded with `cache.trackStaleness` (`:1163-1165`). The calls are at `:1965` for already-cached series and at `:1986` for new ones. Series with explicit timestamps are skipped unless `trackTimestampsStaleness` is set (`:1984`, `:1964`). Series that were dropped by limits or errors are never tracked, so they never get a stale marker (`:1978-1981`).
+- **Detection:** `forEachStale` (`:1167-1175`) finds every series in `seriesPrev` that is not in `seriesCur`. That means it was present in the previous scrape and absent from this one.
+- **Writing the marker:** `updateStaleMarkers` (`:1753-1770`) calls `app.Append(ref, lset, defTime, math.Float64frombits(value.StaleNaN))` for each of those series. It ignores out-of-order and duplicate-timestamp errors, which are expected when a target goes away and comes back with a new scrape loop.
+- **Rotation:** `iterDone` (`:1058` onward) swaps `seriesPrev` and `seriesCur` and clears the new `seriesCur` (`:1101-1103`).
+- **Failed scrapes:** A failed scrape is treated as an empty scrape. `scrapeAndReport` calls `append` with an empty body. This happens when the scrape or append fails (`:1611-1628`) and when there is a forced error (`:1544-1550`). In `append`, an empty body goes straight to `updateStaleMarkers` followed by `iterDone(false)` (`:1779-1784`), so every series from the previous scrape is marked stale.
+
+**2. A target stops being scraped (the scrape loop ends)**
+- **Trigger:** In the deferred function of `scrapeLoop.run` (`:1407-1422`), `endOfRunStaleness` runs unless `disabledEndOfRunStalenessMarkers` is set or the parent context is cancelled. A cancelled context is read as the server shutting down.
+- **Timing:** `endOfRunStaleness` (`:1662-1727`) does nothing if no scrape ever happened (`:1670-1673`). Otherwise it waits for one ticker tick, which becomes `staleTime`. It then waits a second tick and an extra `interval/10`, in case the target is recreated. It checks again that markers are still enabled (`:1699`).
+- **Writing the markers:**
+  - It calls `app.append([]byte{}, "", staleTime)`. That empty scrape produces `StaleNaN` for all series from the last scrape (`:1720`).
+  - It then calls `reportStale` (`:1725`). That writes `StaleNaN` for the synthetic report series: `up`, `scrape_duration_seconds`, `scrape_samples_scraped`, `scrape_samples_post_metric_relabeling` and `scrape_series_added`. It also writes the optional extra report series (`:2330-2357` for the function, plus the remaining metrics it appends).
+- **Recreated targets:** If the target was recreated and has already written newer samples, the stale markers are out of order and get ignored (`:1705-1707`).
+- **Disabling:** `disableEndOfRunStalenessMarkers` (`:1735-1737`) sets the flag that skips this step.

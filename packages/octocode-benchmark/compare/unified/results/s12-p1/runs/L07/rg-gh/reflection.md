@@ -1,0 +1,7 @@
+1. **Helped:** The `grep -rnE "isRedirectError|getURLFromRedirectError|getRedirectStatusCodeFromError" server` call found every consumer in one pass. The targeted `sed -n` reads of `app-render.tsx`, `module.ts`, `action-handler.ts` and `make-get-server-inserted-html.tsx` then gave the actual catch logic. `cat redirect.ts` showed the digest encoding directly.
+
+2. **Did not help:** `rg` isn't installed, so my first call partly failed and I had to redo the search with grep. Every call printed `/dev/null: Operation not permitted`, which was noise. I never printed line numbers for the `cat`, `head` and `sed` reads. Only the grep hits (e.g. `app-render.tsx:4386`, `:9833`) had real numbers.
+
+3. **Next time:** I'd use `grep -n` or `nl -ba` on every read. I'd also trace `createRedirectRenderResult` to confirm the `x-action-redirect` header.
+
+4. **Confidence:** Medium-high on the mechanism, because I saw the code for each path. Lower on the exact line ranges. I estimated many of them from `sed` offsets rather than seeing them, including `redirect.ts:36-43`, `:61-66` and `:77-102`, and the ranges in `module.ts`, `action-handler.ts`, `make-get-server-inserted-html.tsx` and `redirect-error.ts`. Treat those as approximate. My final answer didn't say so.

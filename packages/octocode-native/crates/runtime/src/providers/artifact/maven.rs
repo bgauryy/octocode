@@ -17,7 +17,6 @@ mod patterns {
         ($name:ident, $src:expr) => {
             pub(super) fn $name() -> &'static Regex {
                 static RE: LazyLock<Regex> = LazyLock::new(|| {
-                    #[allow(clippy::expect_used)]
                     Regex::new($src).expect(concat!("static maven pattern: ", stringify!($name)))
                 });
                 &RE

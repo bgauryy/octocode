@@ -1,0 +1,5 @@
+The official host-metrics exporter is **node_exporter**, hosted at https://github.com/prometheus/node_exporter. At the v1.8.2 tag (commit `f1e0e8360aa60b6cb5e5cc1560bed348fc2c1895`) its defaults are:
+
+- **Listen address:** `:9100`. `node_exporter.go:179` calls `kingpinflag.AddFlags(kingpin.CommandLine, ":9100")`. That registers the `--web.listen-address` flag with `:9100` as its default. The flag is defined in exporter-toolkit's `web/kingpinflag/flag.go:40-43`. I read that file from the exporter-toolkit repo's current default branch, not from the version v1.8.2 pins, so the flag definition itself is unpinned. The `:9100` default is passed in by node_exporter at line 179.
+- **Metrics path:** `/metrics`. This is the default of `--web.telemetry-path` at `node_exporter.go:160-163`.
+- **Max parallel scrape requests:** `40`. This is the default of `--web.max-requests` at `node_exporter.go:168-171`. Setting it to 0 disables the limit.

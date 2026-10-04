@@ -1,0 +1,397 @@
+{
+  "qid": "G01",
+  "worker": "octocode",
+  "started": "2026-10-03T20:24:51.907Z",
+  "promptSha256": "26c3af8d4abd78157db4bb2644f84b65dc7945c392c8bef57e9070f42b09c806",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 32561,
+  "status": "ok",
+  "answer": "**PR #16403 is merged (2026-09-29, merge commit `4b3949cd`). It is a large change: 36 files, and FastAPI core now emits OpenTelemetry data by default.**\n\nI read the PR metadata, the `routing.py` patch, and `_runtime.py` and `pyproject.toml` at the merge commit. I read only parts of `_asgi.py`, and I did not read `_api.py` or `fastapi/background.py` (its patch was cut off). The 21 test files and the other `docs/` files were not opened. I did not run any of the code.\n\n## Runtime behavior changes\n\n1. **A new `telemetry=` argument on `FastAPI()`.**\n   - It takes a `TelemetryConfig` dict. The defaults are `tracing`, `metrics`, `logs`, `operation_spans` and `auto_configure` all `True`, plus `exclude=None` and `tracer_provider`, `meter_provider` and `logger_provider` all `None` (`fastapi/applications.py`).\n   - The `NativeTelemetry` object is created in `FastAPI.__init__`.\n\n2. **`FastAPI.__call__` is rewritten (`applications.py`).**\n   - Lifespan scopes are routed through `fastapi.telemetry._runtime.lifespan`.\n   - HTTP and WebSocket scopes go through `NativeTelemetry` only if telemetry is enabled and `\"fastapi.telemetry\"` is not already in the scope.\n   - Otherwise it falls through to `super().__call__`.\n\n3. **Telemetry is enabled automatically only when a provider is configured.** `enabled()` is true if tracing is on and either an explicit provider is passed or the global tracer provider is not \"unconfigured\" (`_asgi.py:172-184`). The metrics and logs branches are in the omitted lines 185–271, so I did not read them. The docs say \"FastAPI provides OpenTelemetry support by default\".\n\n4. **What a request does when telemetry is on (`_asgi.py`).**\n   - It extracts the parent trace context from the request headers and starts a server span.\n   - It records metrics: a duration histogram and an active-requests up/down counter.\n   - It attaches the per-request data to the OTel context.\n   - It sets `scope[\"fastapi.telemetry\"]` and removes it in a `finally` block.\n\n5. **New middleware in the stack.** `ExceptionTelemetryMiddleware` is inserted right after `ServerErrorMiddleware` (`applications.py`, `build_middleware_stack`). It logs unhandled exceptions as OTel logs, including the stack trace.\n\n6. **Extra spans in `routing.py`.**\n   - HTTP requests get spans named `dependencies`, `endpoint` and `serialization`.\n   - WebSocket handlers get `dependencies` and `endpoint`.\n   - Sync endpoints now run through `_run_sync_endpoint` in the threadpool instead of calling `dependant.call` directly.\n   - `BackgroundTasks.__call__` is overridden so each task gets a span (from the docs and the `background.py` diff header).\n\n7. **Route and validation hooks.**\n   - `_route_selected(...)` is called at many points in routing: included routers, mounts, the redirect-slash path, and low-priority and frontend routes. It supplies `http.route`.\n   - `_validation_failed(...)` is called when request validation fails. The docs say it logs a warning with the route and error count, without the input.\n   - `telemetry_data.request`, `.body`, `.values` and `.errors` are stored for third-party integrations to read.\n\n8. **Environment-based export, at lifespan startup (`_runtime.py`).**\n   - `_configure_from_environment` runs on `lifespan.startup` and adds OTLP exporters when `OTEL_EXPORTER_OTLP_*ENDPOINT` is set.\n   - It is skipped if `OTEL_SDK_DISABLED=true` or `auto_configure` is `False`.\n   - It can create and set the global `TracerProvider`, `MeterProvider` or `LoggerProvider`.\n   - It flushes owned components when shutdown or startup failure is sent, and registers an `atexit` shutdown.\n\n9. **Dependencies.**\n   - `opentelemetry-api>=1.44.0` is now a hard dependency (`pyproject.toml:50`).\n   - The SDK and the OTLP HTTP exporter are in the new `opentelemetry` extra and in `standard`, `standard-no-fastapi-cloud-cli` and `all` (`pyproject.toml:61-67, 87-88, 107-108`).\n   - The test dependencies add `opentelemetry-instrumentation-fastapi`, `logfire` and `sentry-sdk` (`pyproject.toml:172-174`).\n\n## What a reviewer should watch for\n\n- **Startup can now fail because of environment variables.**\n  - `_export_endpoint` raises `FastAPIError` for `OTEL_*_EXPORTER` values other than `otlp` or `none`.\n  - It also raises for any protocol other than `http/protobuf`, and for endpoints that are not absolute http(s) URLs.\n  - Those errors are turned into `lifespan.startup.failed`. A service that sets standard OTel env vars for another setup, such as gRPC, could fail to start after upgrading, unless it also sets `auto_configure=False`.\n  - Missing SDK packages raise too (`_runtime.py:128-131`).\n\n- **Global side effects and possible double export.**\n  - FastAPI may install global providers and attach exporters to existing ones.\n  - The code explicitly does not deduplicate against other components' exporters (`_runtime.py:86-93`). Using it alongside `opentelemetry-instrumentation-fastapi`, Logfire or Sentry could duplicate data.\n  - There is a `_legacy_otel` check for contrib's middleware, but I did not read how its result is used.\n\n- **Sensitive data.**\n  - Exception logs include the message and stack trace, and these are emitted even when the trace is not sampled (docs).\n  - `url.query` is recorded, and only a short allowlist of parameters is redacted (`_SENSITIVE_QUERY_PARAMETERS` in `_asgi.py`). That list covers AWS, Google and `sig` signatures, but not generic tokens or API keys.\n  - `logs` is on by default.\n\n- **Performance on the hot path.**\n  - Every operation now uses a `with _operation(...)` wrapper.\n  - Sync endpoints go through an extra wrapper.\n  - Background tasks are wrapped too.\n  - I did not check whether these are cheap when telemetry is disabled or the tracer is a no-op. The `NativeTelemetry` shortcut covers this at the whole-app level, but `_operation` itself needs checking.\n\n- **Routing churn.** `_route_selected` calls were added at roughly seven sites in `routing.py`. The redirect branch re-walks `_IncludedRouter._match`, and the risks are wrong or missing `http.route` values, or extra matching work.\n\n- **Core code now depends on `opentelemetry-api` at import time.** The new modules import `opentelemetry` directly (`_asgi.py:17-22`). This is why the dependency is a hard one.\n\n- **Known limitations the docs state.**\n  - Mounted sub-applications don't get independent telemetry configuration.\n  - Metrics cover HTTP only, not WebSocket.\n  - Background task spans end after the response span.\n\n- **Process notes.**\n  - The PR body says it was written with AI help and manually reviewed.\n  - A comment dated 2026-09-29 says Sentry and Logfire confirmed it doesn't block them.\n  - The PR author expects to refactor these internals soon.\n\n## Not verified\n\nI did not read the files below. I also did not read the omitted regions of `_asgi.py` (lines 31–144, 185–271, 297–321 and 348–430), so `finish()`, metric and attribute naming, and the exclude handling are unchecked.\n\n- `fastapi/telemetry/_api.py`\n- `fastapi/telemetry/__init__.py`\n- the rest of `fastapi/background.py`\n- the 21 test files",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 26310,
+    "cache_read_input_tokens": 59707,
+    "output_tokens": 3421,
+    "context_tokens": 86025,
+    "total_tokens": 89446,
+    "first_request_context": 9818,
+    "fixed_overhead_tokens": 39272,
+    "research_tokens": 50174,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 26310,
+      "cache_read_input_tokens": 59707,
+      "output_tokens": 872
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2549
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 26310,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 75703.7,
+    "weighted_tokens_cold": 88929.59999999999,
+    "tariff_cost_usd": 0.1514074,
+    "tariff_cost_usd_cold": 0.1778592,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 33273
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2855,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 32
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8196,
+      "cache_read_input_tokens": 9816,
+      "output_tokens": 47
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 6906,
+      "cache_read_input_tokens": 18012,
+      "output_tokens": 5
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8353,
+      "cache_read_input_tokens": 24918,
+      "output_tokens": 788
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 26310,
+    "cache_read_input_tokens": 59707,
+    "output_tokens": 3421
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 3421,
+      "cacheReadInputTokens": 59707,
+      "cacheCreationInputTokens": 26310,
+      "webSearchRequests": 0,
+      "costUSD": 0.1514074,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 41,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.1514074,
+  "costVerified": true,
+  "duration_ms": 31797,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "mcp__octocode__ghGetHistoryItem": 2,
+    "mcp__octocode__ghGetFileContent": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 2,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"operation\":\"pullRequest\",\"number\":16403,\"include\":[\"body\",\"files\",\"patches\"]}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetHistoryItem",
+      "input": "{\"queries\":[{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"operation\":\"pullRequest\",\"number\":16403,\"files\":[\"fastapi/telemetry/_asgi.py\",\"fastapi/telemetry/_runtime.py\",\"fastapi/routing.py\",\"pyproject.toml\"],\"include\":[\"patches\"]}]}"
+    },
+    {
+      "name": "mcp__octocode__ghGetFileContent",
+      "input": "{\"queries\":[{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"fastapi/telemetry/_runtime.py\",\"branch\":\"4b3949cd9e5932f76217131fceabc74145c3db24\",\"fullContent\":true},{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"pyproject.toml\",\"branch\":\"4b3949cd9e5932f76217131fceabc74145c3db24\",\"matchString\":[\"opentelemetry\"],\"contextLines\":2},{\"owner\":\"fastapi\",\"repo\":\"fastapi\",\"path\":\"fastapi/telemetry/_asgi.py\",\"branch\":\"4b3949cd9e5932f76217131fceabc74145c3db24\",\"matchString\":[\"class NativeTelemetry\",\"def enabled\",\"auto_configure\",\"OTEL_\"],\"contextLines\":12}]}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first `ghGetHistoryItem` call (body, files, patches) gave the PR description, file list, and the `applications.py` diff. The batched `ghGetFileContent` call at the merge SHA was the most useful: `_runtime.py` in full, plus `matchString` hits for `pyproject.toml` and `_asgi.py`. That answered the env-var and startup-failure questions directly. The `routing.py` patch from the second `ghGetHistoryItem` call showed where the spans and route hooks were added.\n\n2. **Did not help:** Patches were truncated mid-file (`background.py` was cut off). The second `ghGetHistoryItem` call returned only the first 4k characters of `_asgi.py`, and I never fetched the continuation. The `matchString` reads of `_asgi.py` left large omitted gaps, so I never saw `finish()`, the metrics code, or the exclude handling. I never opened `_api.py`, `__init__.py`, or any test, so `_operation`'s no-op cost and how `_legacy_otel` is used are unverified. I said so in the answer, but those gaps could have been closed.\n\n3. **Next time:** I'd read `_api.py` and the full `_asgi.py` with `ghGetFileContent` at the merge SHA. I'd also use `matchString` on `_legacy_otel` and `_operation`, and skim the test names for intended behavior.\n\n4. **Confidence:** Medium. The behavior I described is backed by code I actually read. The risk and performance assessment is partly inference, since I didn't read the rest of `_asgi.py` or `_api.py`.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 29661,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 540,
+      "context_tokens": 29663,
+      "total_tokens": 30203,
+      "first_request_context": 29663,
+      "fixed_overhead_tokens": 29663,
+      "research_tokens": 540,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 29661,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -532
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 29661,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 62024,
+      "weighted_tokens_cold": 62024,
+      "tariff_cost_usd": 0.124048,
+      "tariff_cost_usd_cold": 0.124048,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 29663
+    },
+    "cost_usd": 0.12404800000000002,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 29661,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 540,
+        "context_tokens": 29663,
+        "total_tokens": 30203,
+        "first_request_context": 29663,
+        "fixed_overhead_tokens": 29663,
+        "research_tokens": 540,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 29661,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -532
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 29661,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 62024,
+        "weighted_tokens_cold": 62024,
+        "tariff_cost_usd": 0.124048,
+        "tariff_cost_usd_cold": 0.124048,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 29663
+      },
+      "cost_usd": 0.12404800000000002,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 29661,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 540,
+          "costUSD": 0.12404800000000002
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 3421,
+            "cacheReadInputTokens": 59707,
+            "cacheCreationInputTokens": 26310,
+            "webSearchRequests": 0,
+            "costUSD": 0.1514074,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 41,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1514074
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 3961,
+            "thinkingTokens": 41,
+            "cacheReadInputTokens": 59707,
+            "cacheCreationInputTokens": 55971,
+            "webSearchRequests": 0,
+            "costUSD": 0.2754554,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.2754554
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 29661,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 540
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 29661,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "ghGetHistoryItem",
+      "startedAt": "2026-10-03T20:24:54.622Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:24:55.314Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "ghGetHistoryItem",
+      "startedAt": "2026-10-03T20:24:57.599Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:24:58.283Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "ghGetFileContent",
+      "startedAt": "2026-10-03T20:25:02.599Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:25:02.876Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 6
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

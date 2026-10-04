@@ -19,6 +19,7 @@ mod github_output;
 mod lifecycle;
 mod maintenance;
 pub mod numbered;
+mod page_warnings;
 pub mod render;
 pub mod response;
 mod response_stage;

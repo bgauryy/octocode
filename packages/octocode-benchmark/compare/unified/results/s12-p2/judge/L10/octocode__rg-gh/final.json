@@ -1,0 +1,165 @@
+{
+  "qid": "L10",
+  "pairKey": "octocode__rg-gh",
+  "workers": [
+    "octocode",
+    "rg-gh"
+  ],
+  "valid": true,
+  "costVerified": true,
+  "model": "claude-opus-5-5",
+  "judgments": 2,
+  "graderErrors": 0,
+  "tiebreak": false,
+  "orderSpread": {
+    "octocode": 0,
+    "rg-gh": 0
+  },
+  "scores": {
+    "octocode": {
+      "quality": 10,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "perJudgment": [
+        10,
+        10
+      ],
+      "wrongClaims": []
+    },
+    "rg-gh": {
+      "quality": 9,
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 1,
+      "perJudgment": [
+        9,
+        9
+      ],
+      "wrongClaims": []
+    }
+  },
+  "preferred": [
+    "octocode",
+    "octocode"
+  ],
+  "referenceIssues": [],
+  "judgeCost": 0.3553106,
+  "judgeTokens": 152003,
+  "judgeAttempts": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 5,
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 16618,
+        "cache_read_input_tokens": 62796,
+        "output_tokens": 2266,
+        "context_tokens": 79424,
+        "total_tokens": 81690,
+        "first_request_context": 9866,
+        "fixed_overhead_tokens": 49330,
+        "research_tokens": 32360,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 16618,
+          "cache_read_input_tokens": 62796,
+          "output_tokens": 56
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2210
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 16618,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 18990
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 6,
+      "toolCounts": {
+        "Read": 4,
+        "Bash:invocation": 2
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.19086319999999998,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    },
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 5,
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 14343,
+        "cache_read_input_tokens": 54017,
+        "output_tokens": 1943,
+        "context_tokens": 68370,
+        "total_tokens": 70313,
+        "first_request_context": 9860,
+        "fixed_overhead_tokens": 49300,
+        "research_tokens": 21013,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 14343,
+          "cache_read_input_tokens": 54017,
+          "output_tokens": 52
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1891
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 14343,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 16715
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 5,
+      "toolCounts": {
+        "Read": 3,
+        "Bash:invocation": 2
+      },
+      "toolErrors": 2,
+      "cost_usd": 0.1644474,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ]
+}

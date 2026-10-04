@@ -2498,3 +2498,41 @@ fn capped_declaration_content_numbers_lines_but_not_the_marker() {
         "{content}"
     );
 }
+
+/// The anchor file and workspace root are named by their canonical paths
+/// before any snapshot is computed, so a continuation that spells them
+/// relative to the workspace (as the response envelope does) replays the
+/// same snapshot as the absolute first page.
+#[test]
+fn relative_and_absolute_anchors_share_one_query_identity() {
+    let root = tempfile::tempdir().expect("fixture");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    std::fs::create_dir_all(root.join("src")).expect("dir");
+    std::fs::write(root.join("src/a.ts"), "export const a = 1;\n").expect("file");
+    let paths = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+        workspace_root: Some(root.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let base = |uri: String, workspace: &str| serde_json::json!({"operation":"documentSymbols","mainGoal":"t","reasoning":"t","uri":uri,"workspaceRoot":workspace,"page":2,"pageSize":1});
+    let mut absolute = base(
+        root.join("src/a.ts").to_string_lossy().into_owned(),
+        &root.to_string_lossy(),
+    );
+    let mut relative = base("src/a.ts".into(), ".");
+    let mut uri = base(format!("file://{}", root.join("src/a.ts").display()), ".");
+    for query in [&mut absolute, &mut relative, &mut uri] {
+        canonicalize_query_paths(query, &paths);
+    }
+    assert_eq!(absolute, relative);
+    assert_eq!(absolute, uri);
+    let items = [serde_json::json!({"name":"a"})];
+    let snapshot = |value: &serde_json::Value| {
+        semantic_snapshot(
+            &serde_json::from_value(value.clone()).expect("query"),
+            "documentSymbols",
+            &items,
+        )
+    };
+    assert_eq!(snapshot(&absolute), snapshot(&relative));
+}

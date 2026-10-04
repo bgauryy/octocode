@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 
 mod support;
 

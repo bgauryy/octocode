@@ -1,0 +1,183 @@
+{
+  "qid": "G05",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "54ee1e14f6b59baf1067fe432abc6e5a57a33cc79489313dc0ec59d4b60a155a",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "168c4ba37c03ffb4687f697fd1c764991338529ae38398692dbd6c9d88ac0de4",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. Misses REDIRECT_STATI, the default value of 30, and the proxies-before-auth ordering. Several line citations are off by 1-5 lines or use wide ranges, but they are still usable."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, and line citations match the source exactly. Does not mention the default redirect limit value or constant, REDIRECT_STATI, or the proxies-before-auth ordering. Names r._next explicitly and covers how Session.send collects the history."
+    },
+    "preferred": "Y",
+    "reference_issues": "none (rebuild_proxies/rebuild_auth calls are at 272-273, within tolerance)"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout. Misses REDIRECT_STATI, the default value of 30, and the proxies-before-auth ordering. Several line citations are off by 1-5 lines or use wide ranges, but they are still usable."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate, and line citations match the source exactly. Does not mention the default redirect limit value or constant, REDIRECT_STATI, or the proxies-before-auth ordering. Names r._next explicitly and covers how Session.send collects the history."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none (rebuild_proxies/rebuild_auth calls are at 272-273, within tolerance)",
+  "cost_usd": 0.1525586,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 11824,
+        "cache_read_input_tokens": 23813,
+        "output_tokens": 2659,
+        "context_tokens": 35643,
+        "total_tokens": 38302,
+        "first_request_context": 10101,
+        "fixed_overhead_tokens": 30303,
+        "research_tokens": 7999,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 11824,
+          "cache_read_input_tokens": 23813,
+          "output_tokens": 50
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -2609
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 11824,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 14196
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1525586,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11824,
+    "cache_read_input_tokens": 23813,
+    "output_tokens": 2659,
+    "context_tokens": 35643,
+    "total_tokens": 38302,
+    "first_request_context": 10101,
+    "fixed_overhead_tokens": 30303,
+    "research_tokens": 7999,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 11824,
+      "cache_read_input_tokens": 23813,
+      "output_tokens": 50
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2609
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11824,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 14196
+  },
+  "timedOut": false
+}

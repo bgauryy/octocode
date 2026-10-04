@@ -1,5 +1,5 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used)]
 //! GitHub tools keep the requested scope and filters, and say when evidence
 //! is bounded or a provider path fell back.
 

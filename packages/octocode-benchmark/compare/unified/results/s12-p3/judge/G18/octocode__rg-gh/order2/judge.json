@@ -1,0 +1,178 @@
+{
+  "qid": "G18",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "5fe9fb3585b53202a39823ffaa2cf38d5bf54395e01fe9351426591b57e5c43c",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "6b85eb4e7b07ca2b8cae4f7394b0183f410ef918d58eff6e26f8140547d7cb7b",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Every fact is correct, and the line citations match the reference. X says plainly that the commit comes from the git tag and was not checked against the registry's gitHead."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Every fact is correct. The extra commit details are verified: the author is Matteo Collina, the date is 2024-11-13, the parent is 11e31a4f, and only package.json changed. Y also mentions the npm metadata SHA."
+    },
+    "preferred": "tie",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Every fact is correct, and the line citations match the reference. X says plainly that the commit comes from the git tag and was not checked against the registry's gitHead."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Every fact is correct. The extra commit details are verified: the author is Matteo Collina, the date is 2024-11-13, the parent is 11e31a4f, and only package.json changed. Y also mentions the npm metadata SHA."
+    }
+  },
+  "preferredWorker": "tie",
+  "reference_issues": "none",
+  "cost_usd": 0.0661162,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 6274,
+        "cache_read_input_tokens": 10341,
+        "output_tokens": 692,
+        "context_tokens": 16619,
+        "total_tokens": 17311,
+        "first_request_context": 7973,
+        "fixed_overhead_tokens": 15946,
+        "research_tokens": 1365,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 6274,
+          "cache_read_input_tokens": 10341,
+          "output_tokens": 381
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -311
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6274,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 8646
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.0661162,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 6274,
+    "cache_read_input_tokens": 10341,
+    "output_tokens": 692,
+    "context_tokens": 16619,
+    "total_tokens": 17311,
+    "first_request_context": 7973,
+    "fixed_overhead_tokens": 15946,
+    "research_tokens": 1365,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 6274,
+      "cache_read_input_tokens": 10341,
+      "output_tokens": 381
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -311
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6274,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 8646
+  },
+  "timedOut": false
+}

@@ -452,7 +452,6 @@ enum Attempt {
     },
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn attempt(
     client: &reqwest::Client,
     request: &Value,

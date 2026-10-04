@@ -1,4 +1,4 @@
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used)]
 
 use octocode_engine::graph::{
     CodeGraphBuilder, FileGraphNode, reachable_files, shortest_file_path,

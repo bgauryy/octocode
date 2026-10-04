@@ -1,0 +1,180 @@
+{
+  "qid": "G15",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "d343c8bd87a53db5eaad3c3184c0f51dad16cd0c1317365f3eb48c3aeec8a3cf",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "568008c8ded075469e2af904dec1f066b186492a50eb57bdd8b4c55b915c4075",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "#8067 described as a PR that was never merged; it is an open tracking issue"
+      ],
+      "notes": "Correct identification of #8337, #7757, #8057 and the hang issue #8056. No SHAs, no gating details, no #8135."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct PRs with merge SHAs and dates, and covers the #8135 refactor. Doesn't explain why the revert happened (hang, no off switch) or how the opt-in is gated; says these are unverified. No file:line citations."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "#8067 described as a PR that was never merged; it is an open tracking issue"
+      ],
+      "notes": "Correct identification of #8337, #7757, #8057 and the hang issue #8056. No SHAs, no gating details, no #8135."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "wrong_claims": [],
+      "notes": "Correct PRs with merge SHAs and dates, and covers the #8135 refactor. Doesn't explain why the revert happened (hang, no off switch) or how the opt-in is gated; says these are unverified. No file:line citations."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.0913806,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 4,
+        "input_tokens": 8,
+        "cache_creation_input_tokens": 6896,
+        "cache_read_input_tokens": 28503,
+        "output_tokens": 1524,
+        "context_tokens": 35407,
+        "total_tokens": 36931,
+        "first_request_context": 8389,
+        "fixed_overhead_tokens": 33556,
+        "research_tokens": 3375,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 8,
+          "cache_creation_input_tokens": 6896,
+          "cache_read_input_tokens": 28503,
+          "output_tokens": 33
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1491
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6896,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 9268
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 3
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.0913806,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 6896,
+    "cache_read_input_tokens": 28503,
+    "output_tokens": 1524,
+    "context_tokens": 35407,
+    "total_tokens": 36931,
+    "first_request_context": 8389,
+    "fixed_overhead_tokens": 33556,
+    "research_tokens": 3375,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 6896,
+      "cache_read_input_tokens": 28503,
+      "output_tokens": 33
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1491
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6896,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 9268
+  },
+  "timedOut": false
+}

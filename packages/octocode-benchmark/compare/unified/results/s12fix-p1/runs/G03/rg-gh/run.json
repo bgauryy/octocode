@@ -1,0 +1,341 @@
+{
+  "qid": "G03",
+  "worker": "rg-gh",
+  "started": "2026-10-03T22:09:41.516Z",
+  "promptSha256": "13bcdbb19ad0193a1fb23c8928cdaa2e489ac2f407f1854ba1cc51e064647153",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 12910,
+  "status": "ok",
+  "answer": "**The bug:** a client that a pool had removed from rotation could still pull queued requests, and `pool.destroy()` couldn't reach it. The PR description (jasnell) reports it after a failed connect: the pool showed zero connections while a socket was open. `pool.destroy()` neither aborted the request nor closed the socket. The same thing happened to clients evicted by `clientTtl`.\n\n**Why it happened**, from the diff in `lib/dispatcher/pool.js` and `round-robin-pool.js`:\n- On `connectionError`, both pools only spliced the client out of `kClients`. The old comment in `pool.js` says it deliberately avoided `kRemoveClient` because \"the client cannot be closed in this state\".\n- The removed client was never closed, so its drain listener kept pulling requests from the pool queue.\n- The pool no longer tracked that client, so `destroy()` and `close()` skipped it.\n\n**How the fix works:**\n- **`lib/dispatcher/pool-base.js`:**\n  - It adds `kRetireClient` and a `kRetiring` map. The map holds clients removed from `kClients` that haven't finished closing, each mapped to a promise that settles when it does.\n  - `kRetireClient` splices the client out of `kClients`, records it in `kRetiring`, and calls `client.close(cb)`. It uses the callback form because factory-made dispatchers may not return a promise. When the callback fires, the client is deleted from `kRetiring` and its promise resolves.\n  - `kRemoveClient` now delegates to `kRetireClient`.\n  - `kDestroy` also destroys everything in `kRetiring`.\n  - A new `closeClients()` helper replaces three duplicated blocks. It closes live clients and also awaits the retiring promises, so `pool.close()` waits for evicted clients to finish.\n- **`pool.js` and `round-robin-pool.js`:** the `connectionError` handlers now call `kRetireClient(target)` instead of just splicing. A retired client no longer drains the pool queue, so if `kQueued > 0` they call `kDrainQueue(origin, targets.slice(1))`. This hands the queued requests to another client, possibly a new one. `round-robin-pool.js` previously had no such call, so it now imports `kDrainQueue`.\n- **Tests:** the new `test/pool-retired-clients.js` covers both `Pool` and `RoundRobinPool`. It checks that:\n  - queued requests go to a new client after a connect failure;\n  - `destroy()` aborts queued and in-flight requests with `UND_ERR_DESTROYED`;\n  - `close()` waits for a client evicted by `clientTtl`.\n\n**Uncertainty:** I read only the PR body and diff via the API. I did not check the checkout or run the tests. The merge commit SHA is `da911f087c62952640fdacccf4e759b295ad300c`. I didn't cite line numbers because I only saw diff hunks, not the file at the pinned commit.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10123,
+    "cache_read_input_tokens": 6648,
+    "output_tokens": 1156,
+    "context_tokens": 16775,
+    "total_tokens": 17931,
+    "first_request_context": 4763,
+    "fixed_overhead_tokens": 9526,
+    "research_tokens": 8405,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 10123,
+      "cache_read_input_tokens": 6648,
+      "output_tokens": 750
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -406
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10123,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 26694.8,
+    "weighted_tokens_cold": 30280.1,
+    "tariff_cost_usd": 0.053389599999999995,
+    "tariff_cost_usd_cold": 0.060560199999999995,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 12012
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2874,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7249,
+      "cache_read_input_tokens": 4761,
+      "output_tokens": 734
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10123,
+    "cache_read_input_tokens": 6648,
+    "output_tokens": 1156
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1156,
+      "cacheReadInputTokens": 6648,
+      "cacheCreationInputTokens": 10123,
+      "webSearchRequests": 0,
+      "costUSD": 0.053389599999999995,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.053389599999999995,
+  "costVerified": true,
+  "duration_ms": 12315,
+  "num_turns": 2,
+  "toolCallCount": 1,
+  "toolCounts": {
+    "Bash:invocation": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"gh api -X GET repos/nodejs/undici/pulls/5881 --jq '{title,state,merge_commit_sha,body,user:.user.login}'; gh api -X GET repos/nodejs/undici/pulls/5881/files --jq '.[]|\\\"FILE \\\\(.filename)\\\\n\\\\(.patch)\\\"'\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "**Helped:** One Bash call did nearly all the work: `gh api -X GET repos/nodejs/undici/pulls/5881` for the PR body, plus `.../pulls/5881/files` for the per-file patches. The body gave the author's description of the bug, and the patches showed the mechanism: `kRetireClient`, `kRetiring`, `closeClients()`, and the `connectionError` handlers. The included test file confirmed the intended behaviors.\n\n**Did not help:** The call printed three `/bin/bash: /dev/null: Operation not permitted` errors. They were harmless, since the JSON still came back. I made no second call, so I never checked commit history, linked issues, or review comments. I also didn't look at the local checkout, so I gave no `path:line` citations and said so in the answer.\n\n**Next time:** I'd make a second `gh api` call for the PR's linked issue and review comments, to confirm the root cause in the maintainers' words. I'd also fetch `lib/dispatcher/pool-base.js` at the merge SHA to get real line numbers.\n\n**Confidence:** Medium-high. The mechanism comes straight from the diff. My explanation of why the bug happened (the removed client wasn't closed or tracked, so `destroy()` skipped it) is an inference from the diff and the PR body, not something maintainers confirmed. I didn't run the tests.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 12078,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 718,
+      "context_tokens": 12080,
+      "total_tokens": 12798,
+      "first_request_context": 12080,
+      "fixed_overhead_tokens": 12080,
+      "research_tokens": 718,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12078,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 2
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -716
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 12078,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 27748,
+      "weighted_tokens_cold": 27748,
+      "tariff_cost_usd": 0.055496,
+      "tariff_cost_usd_cold": 0.055496,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 12080
+    },
+    "cost_usd": 0.055496000000000004,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12078,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 718,
+        "context_tokens": 12080,
+        "total_tokens": 12798,
+        "first_request_context": 12080,
+        "fixed_overhead_tokens": 12080,
+        "research_tokens": 718,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 12078,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 2
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -716
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 12078,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 27748,
+        "weighted_tokens_cold": 27748,
+        "tariff_cost_usd": 0.055496,
+        "tariff_cost_usd_cold": 0.055496,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 12080
+      },
+      "cost_usd": 0.055496000000000004,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 12078,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 718,
+          "costUSD": 0.055496000000000004
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 4,
+            "outputTokens": 1156,
+            "cacheReadInputTokens": 6648,
+            "cacheCreationInputTokens": 10123,
+            "webSearchRequests": 0,
+            "costUSD": 0.053389599999999995,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.053389599999999995
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1874,
+            "thinkingTokens": 264,
+            "cacheReadInputTokens": 6648,
+            "cacheCreationInputTokens": 22201,
+            "webSearchRequests": 0,
+            "costUSD": 0.1088856,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1088856
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 12078,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 718
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 12078,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 2,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 2,
+    "githubCompletedResponses": 2,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {
+      "200": 2
+    },
+    "githubAttempts": [
+      {
+        "method": "GET",
+        "startedAt": "2026-10-03T22:09:45.307Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-03T22:09:45.835Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-03T22:09:45.866Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-03T22:09:46.185Z"
+      }
+    ],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

@@ -365,7 +365,6 @@ fn cache_hit(
 /// Check out into a stage, verify it, and publish it. `branch` is `None` for
 /// a default-branch clone: git resolves the remote HEAD and the branch it
 /// checked out names the cache entry (and the default-branch alias).
-#[allow(clippy::too_many_arguments)]
 fn fresh_clone(
     query: &GhCloneRepoQuery,
     context: &CloneContext<'_>,

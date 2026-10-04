@@ -1,0 +1,7 @@
+1. **Helped:** `ghGetFileContent` on `node_exporter.go` with `branch: "v1.8.2"` and `matchString` was the most useful call. It returned the pinned-tag lines for `/metrics` (161-163) and `40` (169-171) in one read. The later `ghGetFileContent` with `matchString: ["toolkitFlags","9100"]` gave line 179, which sets `:9100` through `kingpinflag.AddFlags`.
+
+2. **Did not help:** The first `ghSearchCode` batch was wasted. It matched only test files, and the `web.max-requests` query came back empty. `ghSearchCode` searches the default branch, not the tag, so it can't verify v1.8.2 anyway. The exporter-toolkit search returned default-branch results (commit 6e7cf44), not the version v1.8.2 pins. Its second query, scoped to `path: node_exporter.go`, came back empty. `matchString` reads elided some lines ("line 165 omitted"), which was slightly noisy.
+
+3. **Next time:** I'd go straight to `ghGetFileContent` on the tag with several `matchString` values, including `9100`, and skip the code search. To fully close the `:9100` question I'd also read exporter-toolkit's `flag.go` at its pinned version, via go.mod.
+
+4. **Confidence:** High for `/metrics` and `40`, since I read them at the tag. High for `:9100`, because line 179 passes it as the default, though I did not read the toolkit's flag code at the pinned version.

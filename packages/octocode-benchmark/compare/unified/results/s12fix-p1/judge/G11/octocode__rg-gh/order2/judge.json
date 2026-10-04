@@ -1,0 +1,182 @@
+{
+  "qid": "G11",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "150b51e7c333bc218047f40afb6ec1aabaca59fa22794e889523c6e9a66fd13e",
+  "model": "claude-opus-5-5",
+  "X": "octocode",
+  "Y": "rg-gh",
+  "attempts": 1,
+  "promptSha256": "545b8c4e1ed8dcd09bc12875a58c0d85389fdd25fc5b5fe4a75a82c611e8b459",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "'Three of the five work with only one client type' — actually four do"
+      ],
+      "notes": "Table fully correct with accurate line numbers; covers module layout and helper classes; omits re-exports (fact 4), acknowledged as unchecked."
+    },
+    "Y": {
+      "correctness": 3,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "'Two work with both clients' — only MockTransport works with both; contradicts own table"
+      ],
+      "notes": "Table correct, handler line citations verified (wsgi.py:91, mock.py:19/29). Intro sentence misstates the sync/async split, which is the core of the question. No re-export coverage."
+    },
+    "preferred": "X",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "octocode": {
+      "correctness": 4,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "'Three of the five work with only one client type' — actually four do"
+      ],
+      "notes": "Table fully correct with accurate line numbers; covers module layout and helper classes; omits re-exports (fact 4), acknowledged as unchecked."
+    },
+    "rg-gh": {
+      "correctness": 3,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 7,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3"
+      ],
+      "wrong_claims": [
+        "'Two work with both clients' — only MockTransport works with both; contradicts own table"
+      ],
+      "notes": "Table correct, handler line citations verified (wsgi.py:91, mock.py:19/29). Intro sentence misstates the sync/async split, which is the core of the question. No re-export coverage."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.098464,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 8675,
+        "cache_read_input_tokens": 10640,
+        "output_tokens": 1346,
+        "context_tokens": 19319,
+        "total_tokens": 20665,
+        "first_request_context": 8272,
+        "fixed_overhead_tokens": 16544,
+        "research_tokens": 4121,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 8675,
+          "cache_read_input_tokens": 10640,
+          "output_tokens": 16
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1330
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8675,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 11047
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 2,
+      "toolCounts": {
+        "Bash:invocation": 2
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.098464,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 3,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 8675,
+    "cache_read_input_tokens": 10640,
+    "output_tokens": 1346,
+    "context_tokens": 19319,
+    "total_tokens": 20665,
+    "first_request_context": 8272,
+    "fixed_overhead_tokens": 16544,
+    "research_tokens": 4121,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 8675,
+      "cache_read_input_tokens": 10640,
+      "output_tokens": 16
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1330
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8675,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 11047
+  },
+  "timedOut": false
+}

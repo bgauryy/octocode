@@ -134,5 +134,32 @@
    ]
   },
   "rejectedWith": "queries.0.ranges.0: Invalid input: expected string, received array"
+ },
+ {
+  "input": {
+   "path": "python/django/db/models/base.py",
+   "ranges": [
+    "1084",
+    "1084-1140"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "path": "langchain/libs/core/langchain_core/tools/structured.py",
+   "ranges": [
+    "190",
+    "236-310"
+   ]
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
+ },
+ {
+  "input": {
+   "path": "python/django/middleware/common.py",
+   "ranges": "[“63-120”]"
+  },
+  "rejectedWith": "queries.0.ranges.0: Use \"start-end\", e.g. \"95-105\"."
  }
 ]

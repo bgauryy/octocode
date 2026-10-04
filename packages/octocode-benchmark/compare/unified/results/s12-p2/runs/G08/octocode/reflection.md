@@ -1,0 +1,7 @@
+**1. Helped:** `ghGetHistoryItem` on issue #18837 was the fastest step. It returned the issue body and the `closedBy` link to PR #18838, and its `readFixPr` hint gave the exact next query. `ghGetHistoryItem` on PR #18838 with `include: ["patches","body"]` then returned the diff and the author's explanation in one call.
+
+**2. Did not help:** nothing errored, and there were only two calls. The PR patch for `proxy.js` was truncated mid-hunk at `configurable: true,`, so I never saw the end of the synthetic descriptor. I did not follow the `readAtMerge` hint, so I never read `proxy.js` itself.
+
+**3. Next time:** I would run `ghGetFileContent` on `proxy.js` with `matchString` on the `has` trap, at the merge commit and its parent. That would confirm the claim that `has` creates the per-property source and show the pre-fix `getOwnPropertyDescriptor`. I would also get exact line numbers instead of hunk offsets.
+
+**4. Confidence:** High on what the issue was and which PR fixed it, since the issue, PR body and diff agree. Medium on the root-cause mechanism. It rests on the PR description and diff, not on code I read in the file. The test results in the PR body are the author's claims, and I did not verify them.

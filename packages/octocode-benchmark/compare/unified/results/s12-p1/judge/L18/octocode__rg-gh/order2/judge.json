@@ -1,0 +1,186 @@
+{
+  "qid": "L18",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "4961b8c2d4094261d20be2bf090b0e17727c0d652a0da456c3d528814f08f3b4",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "84a19676f09be95a4170ac85d14b98d8e5cd1aa87820824dddc1a2eb6c015b87",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "6",
+        "1(partial)",
+        "5(partial)"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate mechanism with correct line citations (verified 650-809). Fact 1 only stated in prose without the parser.hpp selection lines or the no-callback json_sax_dom_parser path. Duplicate-key stash only touched via remove_discarded_value."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers handler selection with citations, key placeholder, value/container rejection and cleanup (pop_back at 800, remove_discarded_value at 699/807), start-event rejection with nullptr, duplicate-key restore at 659/775/982, top-level fixup. Stash details are not fully covered, but the core restore behavior is correct."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 5,
+      "completeness": 2,
+      "evidence": 2,
+      "quality": 9,
+      "key_facts_covered": [
+        "2",
+        "3",
+        "4",
+        "6",
+        "1(partial)",
+        "5(partial)"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate mechanism with correct line citations (verified 650-809). Fact 1 only stated in prose without the parser.hpp selection lines or the no-callback json_sax_dom_parser path. Duplicate-key stash only touched via remove_discarded_value."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "wrong_claims": [],
+      "notes": "Covers handler selection with citations, key placeholder, value/container rejection and cleanup (pop_back at 800, remove_discarded_value at 699/807), start-event rejection with nullptr, duplicate-key restore at 659/775/982, top-level fixup. Stash details are not fully covered, but the core restore behavior is correct."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.1105392,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 2,
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 10362,
+        "cache_read_input_tokens": 12436,
+        "output_tokens": 1257,
+        "context_tokens": 22802,
+        "total_tokens": 24059,
+        "first_request_context": 10068,
+        "fixed_overhead_tokens": 20136,
+        "research_tokens": 3923,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 4,
+          "cache_creation_input_tokens": 10362,
+          "cache_read_input_tokens": 12436,
+          "output_tokens": 12
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1245
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10362,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 12734
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 1,
+      "toolCounts": {
+        "Read": 1
+      },
+      "toolErrors": 0,
+      "cost_usd": 0.1105392,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 2,
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 10362,
+    "cache_read_input_tokens": 12436,
+    "output_tokens": 1257,
+    "context_tokens": 22802,
+    "total_tokens": 24059,
+    "first_request_context": 10068,
+    "fixed_overhead_tokens": 20136,
+    "research_tokens": 3923,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 10362,
+      "cache_read_input_tokens": 12436,
+      "output_tokens": 12
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1245
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 10362,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 12734
+  },
+  "timedOut": false
+}

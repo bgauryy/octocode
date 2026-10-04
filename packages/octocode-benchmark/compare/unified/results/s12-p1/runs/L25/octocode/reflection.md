@@ -1,0 +1,7 @@
+**1. Helped:** The `localSearch` for "stack" on `lodash.js` listed every `Stack` use with line numbers, which pointed straight at `equalArrays`, `equalObjects` and `equalByTag`. The `localFetch` with ranges `5706-5770` and `5878-5930` then gave me the deciding lines for the cycle check.
+
+**2. Did not help:** "stack" was too broad a search term. It also returned `baseClone`, `baseMerge` and unrelated comments, so I had to skim. My fetch ranges skipped `equalByTag` (5771–5877) and `baseIsEqualDeep` (3338–3380). I cited the `equalByTag` stack logic (5830–5839) and `baseIsEqualDeep` setup (3359–3380) from search-match snippets alone, not from reading the code. I did not confirm that the checkout was at 2b5e6f7399. I trusted the prompt.
+
+**3. Next time:** I would search for `stack.get(` or `Check that cyclic values`, which is narrower. I would fetch `equalByTag` 5820–5842 and `baseIsEqualDeep` 3338–3382 in the same `localFetch` call. I would also check the commit, if a tool can.
+
+**4. Confidence:** High for the arrays and objects mechanism, because I read those lines directly. Medium for the Map/Set and `baseIsEqualDeep` details, which rest on snippets. My "different partner returns false" example was inferred from the code and never executed.

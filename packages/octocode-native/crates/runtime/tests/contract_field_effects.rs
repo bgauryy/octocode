@@ -1,5 +1,5 @@
 // Integration test crate — malformed audit fixtures should fail loudly.
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

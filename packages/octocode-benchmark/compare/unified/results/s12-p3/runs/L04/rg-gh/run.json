@@ -1,0 +1,368 @@
+{
+  "qid": "L04",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:27:24.901Z",
+  "promptSha256": "f4cee42b52338a0873fa6e71eaf9101319f6f13f49dc303f96b8491bb825ed2f",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 24868,
+  "status": "ok",
+  "answer": "With `parse_docstring=True`, the tool's argument schema and its description both come from the Google-style docstring. The `@tool` decorator passes the flag to `StructuredTool.from_function`, which calls `create_schema_from_function`. The description is then taken from the generated schema model's `__doc__`.\n\nI couldn't run `git rev-parse` (sandbox error), so I didn't confirm the checkout is at 67ee6cb63d. Line numbers below are from the local checkout as it stands.\n\n**Flow** (paths under `libs/core/langchain_core/`)\n\n1. **The decorator.** `tools/convert.py:~315-327` calls `StructuredTool.from_function(...)` with `parse_docstring` and `error_on_invalid_docstring`. This happens when `infer_schema` is true or an `args_schema` is given. If `description=` is passed to `@tool`, it is forwarded as-is.\n\n2. **Building the schema.** `tools/structured.py:~257-264` calls `create_schema_from_function` only if `args_schema is None and infer_schema`. It passes `filter_args=_filter_schema_args(source_function)`.\n\n3. **Base model from the signature.** `tools/base.py:~263-296` (`create_schema_from_function`) runs `inspect.signature`. It wraps the function with pydantic `validate_arguments` (or the v1 variant if the annotations are pydantic v1) to get `validated.model`.\n\n4. **Which arguments are kept.** `tools/base.py:~296-342` decides which arguments to drop:\n   - `self` and `cls` are dropped for methods.\n   - The default `FILTERED_ARGS` are dropped.\n   - Injected args are dropped unless `include_injected` is set.\n   - The placeholder `args`, `kwargs` and `v__duplicate_kwargs` fields are dropped.\n\n5. **Docstring and annotation descriptions.** `tools/base.py:343-346` calls `_infer_arg_descriptions`. It is defined at `tools/base.py:170-201` and works as follows:\n   - It reads the type hints with `get_type_hints(fn, include_extras=True)`.\n   - With `parse_docstring`, it calls `_parse_python_function_docstring` (`base.py:126-150`). That takes `inspect.getdoc(fn)` and hands it to `_parse_google_docstring`.\n   - Without `parse_docstring`, the description is just `inspect.getdoc(fn) or \"\"` and the arg descriptions are empty.\n   - With `parse_docstring`, `_validate_docstring_args_against_annotations` (`base.py:153-167`) raises `ValueError` if the docstring documents an arg that isn't in the signature.\n   - For any arg the docstring didn't describe, it falls back to `_get_annotation_description` (`base.py:105-123`). That reads a string or `FieldInfo.description` from `Annotated[...]` metadata.\n\n6. **The docstring parser.** `utils/function_calling.py:735-815` (`_parse_google_docstring`):\n   - It splits the docstring on `\"\\n\\n\"` into blocks.\n   - The function description is every block before `Args:`. Blocks starting with `Returns:` or `Example:` are skipped. The kept blocks are joined with spaces and stripped (~771-782).\n   - The `Args:` block is parsed line by line (~789-815). A `name: desc` line starts a new arg. A name written as `name (type)` has the type part dropped. Lines indented deeper than the first arg line are appended to the previous arg's description.\n   - With `error_on_invalid_docstring`, it raises `ValueError(\"Found invalid Google-Style docstring.\")`. That happens if there is no docstring, if there are fewer than `_MIN_DOCSTRING_BLOCKS` blocks, or if no `Args:` block follows the first block. The args `run_manager`, `callbacks`, `runtime` and `return` are exempt from that check (~756-767).\n\n7. **The final model.** `tools/base.py:~362-368` calls `_create_subset_model(model_name, inferred_model, valid_properties, descriptions=arg_descriptions, fn_description=description)`. In `utils/pydantic.py`:\n   - Each field's description is set from `descriptions` (~225 for v1, ~247 for v2).\n   - `rtn.__doc__ = textwrap.dedent(fn_description or model.__doc__ or \"\")` (~230 and ~276).\n\n**Tool description**\n\nIn `StructuredTool.from_function` (`tools/structured.py:~267-297`):\n\n- If `description` is None and `parse_docstring` is true, the raw `__doc__` is not used (`structured.py:268`).\n- `description_` then falls back to `args_schema.__doc__` (`structured.py:270-272`). That is the parsed summary, with the `Args:` section removed.\n- A pydantic boilerplate docstring (\"A base class for creating Pydantic models\") becomes `\"\"` (`structured.py:274-277`).\n- If the result is still None, it raises `ValueError(\"Function must have a docstring if description not provided.\")` (`structured.py:288-290`).\n- The result is dedented and stripped only when no explicit `description` was given (`structured.py:291-293`).\n\n**Precedence:** the explicit `description` argument wins, then the parsed docstring summary, then the `args_schema` description (`convert.py:126-131`).\n\n**Not verified:** I didn't run the code. I also didn't read the `_create_subset_model` dispatch in `utils/pydantic.py` (~289-310) in full, so which branch handles v1 versus v2 is inferred from the line pairs at ~225 and ~247.",
+  "tokens": {
+    "requests": 6,
+    "input_tokens": 12,
+    "cache_creation_input_tokens": 12255,
+    "cache_read_input_tokens": 44624,
+    "output_tokens": 2962,
+    "context_tokens": 56891,
+    "total_tokens": 59853,
+    "first_request_context": 4868,
+    "fixed_overhead_tokens": 29208,
+    "research_tokens": 30645,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 12,
+      "cache_creation_input_tokens": 12255,
+      "cache_read_input_tokens": 44624,
+      "output_tokens": 77
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -2885
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 12255,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 43794.4,
+    "weighted_tokens_cold": 47379.700000000004,
+    "tariff_cost_usd": 0.08758880000000001,
+    "tariff_cost_usd_cold": 0.09475940000000001,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 14144
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2979,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 407,
+      "cache_read_input_tokens": 4866,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2998,
+      "cache_read_input_tokens": 5273,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3173,
+      "cache_read_input_tokens": 8271,
+      "output_tokens": 10
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1439,
+      "cache_read_input_tokens": 11444,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1259,
+      "cache_read_input_tokens": 12883,
+      "output_tokens": 3
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 12,
+    "cache_creation_input_tokens": 12255,
+    "cache_read_input_tokens": 44624,
+    "output_tokens": 2962
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 12,
+      "outputTokens": 2962,
+      "cacheReadInputTokens": 44624,
+      "cacheCreationInputTokens": 12255,
+      "webSearchRequests": 0,
+      "costUSD": 0.0875888,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 181,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0875888,
+  "costVerified": true,
+  "duration_ms": 24269,
+  "num_turns": 6,
+  "toolCallCount": 5,
+  "toolCounts": {
+    "Bash:invocation": 5
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core/tools; rg -n \\\"parse_docstring|def create_schema_from_function|def _infer_arg_descriptions|def _parse_python_function_docstring|def _get_filtered_args|def _function_annotations_are_pydantic_v1|description\\\" convert.py base.py | head -80\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core/tools; git rev-parse HEAD; grep -n \\\"parse_docstring\\\\|def create_schema_from_function\\\\|def _infer_arg_descriptions\\\\|def _parse_python_function_docstring\\\\|def _get_filtered_args\\\\|def _function_annotations\\\\|description\\\" convert.py base.py structured.py | head -120\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core/tools; sed -n 126,170p base.py; sed -n 185,202p base.py; sed -n 296,375p base.py; sed -n 245,305p structured.py; sed -n 310,345p convert.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core; sed -n 286,296p tools/base.py; grep -n \\\"def _parse_google_docstring\\\" -A48 utils/function_calling.py; grep -n \\\"def _create_subset_model\\\\b\\\" -A30 runnables/utils.py utils/pydantic.py | grep -n \\\"fn_description\\\\|descriptions\\\" \"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/langchain/libs/core/langchain_core; sed -n 783,815p utils/function_calling.py; sed -n 255,262p utils/pydantic.py; grep -n \\\"fn_description\\\\|descriptions\\\" utils/pydantic.py\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The second Bash call, a single `grep -n` across `convert.py`, `base.py` and `structured.py` for `parse_docstring`, `_infer_arg_descriptions` and `description`, mapped the whole call chain at once. The `sed -n` range reads that followed were cheap and exact. Reading `_parse_google_docstring` in `utils/function_calling.py` gave the parsing rules directly.\n\n2. **Did not help:** The first call failed because `rg` isn't installed, so I repeated it with `grep`. Every Bash call printed `/dev/null: Operation not permitted`, which is noise. `git rev-parse HEAD` failed for the same reason, so I never confirmed the checkout was at 67ee6cb63d. The `_create_subset_model` read was truncated: I only saw grep matches, not the v1/v2 dispatch. A few line numbers in my answer are marked \"~\" because I read them from partial `sed` ranges.\n\n3. **Next time:** I'd use `grep -n` from the start and read the full `_create_subset_model` in `utils/pydantic.py` instead of inferring. I'd also try to verify the commit another way, for example by reading `.git/HEAD` directly.\n\n4. **Confidence:** Medium-high. The flow is read directly from source, but the commit pin is unverified and some line numbers are approximate.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 15162,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 454,
+      "context_tokens": 15164,
+      "total_tokens": 15618,
+      "first_request_context": 15164,
+      "fixed_overhead_tokens": 15164,
+      "research_tokens": 454,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 15162,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -453
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 15162,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 32596,
+      "weighted_tokens_cold": 32596,
+      "tariff_cost_usd": 0.065192,
+      "tariff_cost_usd_cold": 0.065192,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 15164
+    },
+    "cost_usd": 0.065192,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 15162,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 454,
+        "context_tokens": 15164,
+        "total_tokens": 15618,
+        "first_request_context": 15164,
+        "fixed_overhead_tokens": 15164,
+        "research_tokens": 454,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 15162,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 1
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -453
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 15162,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 32596,
+        "weighted_tokens_cold": 32596,
+        "tariff_cost_usd": 0.065192,
+        "tariff_cost_usd_cold": 0.065192,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 15164
+      },
+      "cost_usd": 0.065192,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 15162,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 454,
+          "costUSD": 0.065192
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 12,
+            "outputTokens": 2962,
+            "cacheReadInputTokens": 44624,
+            "cacheCreationInputTokens": 12255,
+            "webSearchRequests": 0,
+            "costUSD": 0.0875888,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 181,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0875888
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 14,
+            "outputTokens": 3416,
+            "thinkingTokens": 181,
+            "cacheReadInputTokens": 44624,
+            "cacheCreationInputTokens": 27417,
+            "webSearchRequests": 0,
+            "costUSD": 0.1527808,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.1527808
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 15162,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 454
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 15162,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

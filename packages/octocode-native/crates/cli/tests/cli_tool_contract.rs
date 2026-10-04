@@ -19,7 +19,11 @@ fn every_tool_loads_its_contract_slice_in_a_fresh_process() {
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
-        for parse_error in ["trailing characters", "EOF while parsing", "expected value at"] {
+        for parse_error in [
+            "trailing characters",
+            "EOF while parsing",
+            "expected value at",
+        ] {
             assert!(!stdout.contains(parse_error), "{}: {stdout}", tool.as_str());
         }
     }

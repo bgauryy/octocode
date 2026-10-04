@@ -1,0 +1,470 @@
+{
+  "qid": "L03",
+  "worker": "octocode",
+  "started": "2026-10-03T20:01:27.456Z",
+  "promptSha256": "7b5cb6f1673cdc01471acbc346cbcbd44729895f98c218f0835b433bcdcda2c1",
+  "workerDocSha256": "57d9991a329899702f90821635a6c828d6c7da9a8717e1677602a651507472b5",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 23539,
+  "status": "ok",
+  "answer": "Callbacks are stored as tuples on the connection, dropped on savepoint rollback, connection close or a rollback, and run once the outermost transaction has committed and autocommit is switched back on. All paths below are under `django/`.\n\n**Storing**\n- `transaction.on_commit(func, using=None, robust=False)` (`db/transaction.py:142-147`) calls `get_connection(using).on_commit(func, robust)`.\n- `BaseDatabaseWrapper.on_commit` (`db/backends/base/base.py:727`) first raises `TypeError` if `func` isn't callable.\n- Inside an atomic block (`in_atomic_block`), it appends `(set(self.savepoint_ids), func, robust)` to `self.run_on_commit` (`base.py:730-732`). The list is initialised at `base.py:102`.\n- Outside a transaction in autocommit mode, it runs `func` immediately (`base.py:737-747`). With `robust=True`, exceptions are caught and logged.\n- In manual transaction management (not in an atomic block, autocommit off), it raises `TransactionManagementError` (`base.py:733-736`).\n\n**Discarding**\n- `savepoint_rollback(sid)` rebuilds the list without any entry whose savepoint set contains `sid` (`base.py:415-420`). Only callbacks registered while that savepoint was active are removed.\n- `rollback()` sets `self.run_on_commit = []` (`base.py:341`). `close()` does the same (`base.py:347`). So does `connect()` (`base.py:261`).\n- `Atomic.__exit__` calls `connection.rollback()` or `savepoint_rollback` on failure (`db/transaction.py:263,279,296,308`). Those lines are only grep hits, and I did not read the surrounding code.\n\n**Running**\n- A successful `commit()` sets `run_commit_hooks_on_set_autocommit_on = True` (`base.py:330`). The flag is initialised to `False` at `base.py:106`.\n- When the outermost `Atomic.__exit__` calls `connection.set_autocommit(True)` (`db/transaction.py:320`), `set_autocommit` sees the flag (`base.py:490-492`). It then calls `run_and_clear_commit_hooks()` and resets the flag to `False`.\n- `run_and_clear_commit_hooks` (`base.py:749-766`) first calls `validate_no_atomic_block()`. It then swaps `self.run_on_commit` for a fresh list and pops callbacks from the old one in registration order. A callback that registers another `on_commit` therefore runs it immediately, since the transaction has already ended and the connection is in autocommit mode. If `robust` is true, an exception is logged and the remaining callbacks still run. Otherwise the exception propagates and the rest of the swapped-out list is lost.\n\n**Uncertainty:** I did not read `Atomic.__enter__`/`__exit__` in full (`db/transaction.py:~229-320`). The link from the outermost exit to `commit()` and then `set_autocommit(True)` is inferred from the grep hits at lines 276 and 320.",
+  "tokens": {
+    "requests": 7,
+    "input_tokens": 14,
+    "cache_creation_input_tokens": 9209,
+    "cache_read_input_tokens": 84313,
+    "output_tokens": 2270,
+    "context_tokens": 93536,
+    "total_tokens": 95806,
+    "first_request_context": 9879,
+    "fixed_overhead_tokens": 69153,
+    "research_tokens": 26653,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 14,
+      "cache_creation_input_tokens": 9209,
+      "cache_read_input_tokens": 84313,
+      "output_tokens": 1082
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1188
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 9209,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 38213.3,
+    "weighted_tokens_cold": 51439.200000000004,
+    "tariff_cost_usd": 0.07642660000000001,
+    "tariff_cost_usd_cold": 0.10287840000000001,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 16172
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2916,
+      "cache_read_input_tokens": 6961,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 826,
+      "cache_read_input_tokens": 9877,
+      "output_tokens": 31
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2522,
+      "cache_read_input_tokens": 10703,
+      "output_tokens": 59
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 456,
+      "cache_read_input_tokens": 13225,
+      "output_tokens": 24
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 917,
+      "cache_read_input_tokens": 13681,
+      "output_tokens": 61
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 670,
+      "cache_read_input_tokens": 14598,
+      "output_tokens": 64
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 902,
+      "cache_read_input_tokens": 15268,
+      "output_tokens": 819
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 14,
+    "cache_creation_input_tokens": 9209,
+    "cache_read_input_tokens": 84313,
+    "output_tokens": 2270
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 14,
+      "outputTokens": 2270,
+      "cacheReadInputTokens": 84313,
+      "cacheCreationInputTokens": 9209,
+      "webSearchRequests": 0,
+      "costUSD": 0.07642659999999998,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.07642659999999998,
+  "costVerified": true,
+  "duration_ms": 22810,
+  "num_turns": 8,
+  "toolCallCount": 7,
+  "toolCounts": {
+    "mcp__octocode__localSearch": 6,
+    "mcp__octocode__localFetch": 1
+  },
+  "counters": {
+    "clasify calls": 0,
+    "matchString queries": 0,
+    "lspSearch calls": 0,
+    "astSearch calls": 0
+  },
+  "toolCalls": [
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"run_on_commit\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django\",\"include\":[\"*.py\"]}"
+    },
+    {
+      "name": "mcp__octocode__localFetch",
+      "input": "{\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/backends/base/base.py\",\"ranges\":[\"255-265\",\"336-350\",\"405-425\",\"715-775\"]}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"def on_commit\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/transaction.py\",\"contextLines\":4}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"run_and_clear_commit_hooks|run_on_commit = \\\\[\\\\]|connection.on_commit|get_connection\\\\(using\\\\).on_commit\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db\",\"include\":[\"transaction.py\"],\"contextLines\":3}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"run_and_clear_commit_hooks\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django\",\"contextLines\":6}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"run_commit_hooks_on_set_autocommit_on\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db\",\"include\":[\"*.py\"],\"contextLines\":2}"
+    },
+    {
+      "name": "mcp__octocode__localSearch",
+      "input": "{\"searchText\":\"set_autocommit\\\\(|connection.commit\\\\(\\\\)|savepoint_rollback|savepoint_commit|connection.rollback\\\\(\\\\)|run_on_commit\",\"path\":\"/Users/bgaryy/code/octocode/octocode-local-testing/repos/python/django/db/transaction.py\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "mcp__octocode__artifactSearch",
+      "mcp__octocode__astSearch",
+      "mcp__octocode__clasify",
+      "mcp__octocode__ghGetFileContent",
+      "mcp__octocode__ghGetHistoryItem",
+      "mcp__octocode__ghSearchCode",
+      "mcp__octocode__ghSearchHistory",
+      "mcp__octocode__ghSearchRepo",
+      "mcp__octocode__ghStructure",
+      "mcp__octocode__localFetch",
+      "mcp__octocode__localSearch",
+      "mcp__octocode__lspSearch",
+      "mcp__octocode__structureSearch"
+    ],
+    "mcpServers": [
+      {
+        "name": "octocode",
+        "status": "connected"
+      }
+    ]
+  },
+  "reflection": {
+    "text": "**1. Helped:** The first `localSearch` for `run_on_commit` across `django/` gave every touch point in `base.py` in one call. The multi-range `localFetch` on `base.py` then returned `on_commit`, `savepoint_rollback` and `run_and_clear_commit_hooks` with line numbers. Searching `run_commit_hooks_on_set_autocommit_on` showed the commit-to-autocommit trigger.\n\n**2. Did not help:** My regex `localSearch` on `transaction.py` (`run_and_clear_commit_hooks|...|connection.on_commit`) matched only the `get_connection(using).on_commit` line, so it was mostly wasted. `localFetch` with multiple ranges omitted large spans, including `commit()` around line 330 and the `Atomic` body. I never opened those directly. The last `localSearch` on `transaction.py` returned only line numbers with no context.\n\n**3. Next time:** I would run one `localFetch` on `db/transaction.py` lines ~220-325 to read `Atomic.__enter__` and `__exit__` in full. I would also fetch `base.py` around lines 320-335 to confirm `commit()` sets the flag. I'd use fewer, wider reads instead of several narrow greps.\n\n**4. Confidence:** Medium-high. Storage, savepoint-rollback discard, and `run_and_clear_commit_hooks` are read directly from source. The outermost-exit sequence (`commit()` then `set_autocommit(True)`) is inferred from grep line numbers, which I flagged in the answer.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 10895,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 672,
+      "context_tokens": 10897,
+      "total_tokens": 11569,
+      "first_request_context": 10897,
+      "fixed_overhead_tokens": 10897,
+      "research_tokens": 672,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 10895,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -669
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 10895,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 25152,
+      "weighted_tokens_cold": 25152,
+      "tariff_cost_usd": 0.050304,
+      "tariff_cost_usd_cold": 0.050304,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 10897
+    },
+    "cost_usd": 0.05030399999999999,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 10895,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 672,
+        "context_tokens": 10897,
+        "total_tokens": 11569,
+        "first_request_context": 10897,
+        "fixed_overhead_tokens": 10897,
+        "research_tokens": 672,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 10895,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -669
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 10895,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 25152,
+        "weighted_tokens_cold": 25152,
+        "tariff_cost_usd": 0.050304,
+        "tariff_cost_usd_cold": 0.050304,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 10897
+      },
+      "cost_usd": 0.05030399999999999,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 10895,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 672,
+          "costUSD": 0.05030399999999999
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 14,
+            "outputTokens": 2270,
+            "cacheReadInputTokens": 84313,
+            "cacheCreationInputTokens": 9209,
+            "webSearchRequests": 0,
+            "costUSD": 0.07642659999999998,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.07642659999999998
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 16,
+            "outputTokens": 2942,
+            "thinkingTokens": 145,
+            "cacheReadInputTokens": 84313,
+            "cacheCreationInputTokens": 20104,
+            "webSearchRequests": 0,
+            "costUSD": 0.12673059999999997,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.12673059999999997
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 10895,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 672
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 10895,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [
+    {
+      "requestId": "native-1",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:01:30.350Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:30.497Z"
+    },
+    {
+      "requestId": "native-2",
+      "tool": "localFetch",
+      "startedAt": "2026-10-03T20:01:32.674Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:32.686Z"
+    },
+    {
+      "requestId": "native-3",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:01:33.114Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:33.130Z"
+    },
+    {
+      "requestId": "native-4",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:01:35.866Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:35.891Z"
+    },
+    {
+      "requestId": "native-5",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:01:38.111Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:38.312Z"
+    },
+    {
+      "requestId": "native-6",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:01:40.656Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:40.684Z"
+    },
+    {
+      "requestId": "native-7",
+      "tool": "localSearch",
+      "startedAt": "2026-10-03T20:01:43.284Z",
+      "rowErrors": [],
+      "transportError": false,
+      "isError": false,
+      "completedAt": "2026-10-03T20:01:43.337Z"
+    }
+  ],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 10
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

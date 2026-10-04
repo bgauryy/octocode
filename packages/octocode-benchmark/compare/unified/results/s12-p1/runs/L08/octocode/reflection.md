@@ -1,0 +1,7 @@
+**Helped:** A single `localSearch` call was enough. I searched `errSampleLimit|sampleLimit|SampleLimit` under `scrape/`, excluded `*_test.go`, and asked for the detailed view. It returned the whole chain with line context: config wiring, `appenderWithLimits`, the `limitAppender` checks in `target.go`, `checkAddError`, and the metric. Excluding tests kept the output on-topic, and the context lines let me cite without extra reads.
+
+**Did not help:** The output was noisy. The alternation pattern pulled in metrics registration and unregistration, the `scrape_sample_limit` report series, and the config-hash zeroing at `scrape.go:2417`. Most of the V1/V2 duplication was also repeated. I made no `localFetch` reads, so everything rests on snippets. That left gaps: I never read the deferred error handler at `scrape.go:1829`, and I never confirmed that the whole scrape's samples are rolled back. I flagged that in the answer rather than guessing. I also didn't check the config definition or validation of `sample_limit`.
+
+**Next time:** I would run the same search, then do one `localFetch` on `scrape.go` around lines 1829-1850 and 2055-2070 to verify the rollback. I would also read `target.go:380-415` for the complete `limitAppender`.
+
+**Confidence:** High on the enforcement mechanism, since the cited lines were seen directly. Medium on what happens to the scrape's samples after the error, since I did not read that code.

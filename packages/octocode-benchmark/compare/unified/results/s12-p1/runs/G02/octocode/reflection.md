@@ -1,0 +1,7 @@
+**1. Helped:** The first `ghGetHistoryItem` call (operation pullRequest, include body/files/patches) gave the PR body, merge state and most core patches in one go. That covered the Rust `lax_counter`/`strict_counter`, the error type, and `core_schema.py`. The second call, filtered to `_generate_schema.py`, `_validators.py`, `_known_annotated_metadata.py`, `counter.rs` and the tests, showed the before/after lines directly. Reading the removed `-` lines was the only way I had to describe "before".
+
+**2. Did not help:** Both calls were paginated and flagged `isPartial`, so I never saw page 2 of changed files, the serializer files in full, or the end of the test file. The first call spent output on docs and unrelated patches. I made no call to read the old `_mapping_schema` at the parent commit, so the "before" behavior stayed inferred. I noted this as uncertainty in my answer.
+
+**3. Next time:** I would batch targeted `ghGetFileContent` reads at the parent commit for `_mapping_schema` and the old Counter handling. I would also use `ghGetHistoryItem` with `files` filters from the start to skip the docs noise.
+
+**4. Confidence:** Medium-high on the "after" behavior, because it is grounded in the patches I read. Medium on the "before" comparison, because it rests on removed lines and not on the old implementation itself.

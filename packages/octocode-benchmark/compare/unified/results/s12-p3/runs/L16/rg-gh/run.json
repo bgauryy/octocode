@@ -1,0 +1,346 @@
+{
+  "qid": "L16",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:29:53.919Z",
+  "promptSha256": "a40f8935e01224ede96e8c3e596483a428b32e84873ffff83c6fc7b891ddfe80",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 18048,
+  "status": "ok",
+  "answer": "`maximumSize` and `concurrencyLevel` together decide how many segments `LocalCache` has and how much capacity each segment gets. All line numbers below are in `guava/src/com/google/common/cache/` at the pinned commit. Some shell calls printed `/dev/null: Operation not permitted`, but the file output was intact.\n\n**1. Builder inputs**\n- `concurrencyLevel` defaults to 4 (`CacheBuilder.java:199`, `:473-474`). It must be positive (`:468`).\n- `maximumSize(n)` stores `maximumSize` (`CacheBuilder.java:508`). With no weigher, `getMaximumWeight()` returns that value as the max weight (`:603-607`).\n- The Javadoc says that when `concurrencyLevel` is greater than 1, each segment's limit is roughly `maximumSize / concurrencyLevel` (`:481-483`).\n\n**2. Segment count (`LocalCache.java:250-295`)**\n- `concurrencyLevel` is capped at `MAX_SEGMENTS = 1 << 16` (`:150`, `:250`).\n- The cache doubles `segmentCount` from 1 while `segmentCount < concurrencyLevel`. If the cache evicts by size, it also requires `segmentCount * 20 <= maxWeight` (`:285-291`).\n- So the segment count is a power of two that reaches at least `concurrencyLevel`, and a small `maximumSize` reduces it. Each segment keeps at least about 20 units of weight. For example, `maximumSize(10)` gives a single segment.\n- `segmentShift = 32 - log2(segmentCount)` and `segmentMask = segmentCount - 1` (`:292-293`). A key's segment is `segments[(hash >>> segmentShift) & segmentMask]` (`:1768`).\n- The `segments` array is allocated with `segmentCount` entries (`:295`).\n\n**3. Per-segment sizing**\n- The initial capacity is split across segments and rounded up to a power of two, `segmentSize` (`:297-305`).\n- When `evictsBySize()` is true (`maxWeight >= 0`, `:326-327`), each segment gets its own `maxSegmentWeight` (`:307-317`). It starts at `maxWeight / segmentCount + 1`, and the `+1` is dropped for segments with index `>= maxWeight % segmentCount`. The per-segment limits therefore sum exactly to `maxWeight`.\n- Without a size limit, segments get `UNSET_INT` (`:320-321`).\n- If there is no custom weigher, the initial capacity is also capped at `maxWeight` (`:276-277`).\n\n**4. Effect on eviction**\n- Eviction is per segment, not global. `Segment.evictEntries` evicts while the segment's `totalWeight > maxSegmentWeight` (`:2672`). An entry heavier than `maxSegmentWeight` is evicted right away (`:2666`).\n- As a result, the whole cache can hold fewer entries than `maximumSize` when keys are unevenly spread across segments. `concurrencyLevel(1)` gives the most deterministic eviction, which the `CacheBuilder` Javadoc also notes (`CacheBuilder.java:452`).\n\nI didn't read the `Segment.evictEntries` body beyond lines 2658-2672.",
+  "tokens": {
+    "requests": 4,
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 6880,
+    "cache_read_input_tokens": 20353,
+    "output_tokens": 1831,
+    "context_tokens": 27241,
+    "total_tokens": 29072,
+    "first_request_context": 4859,
+    "fixed_overhead_tokens": 19436,
+    "research_tokens": 9636,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 8,
+      "cache_creation_input_tokens": 6880,
+      "cache_read_input_tokens": 20353,
+      "output_tokens": 902
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -929
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6880,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 24958.3,
+    "weighted_tokens_cold": 28543.6,
+    "tariff_cost_usd": 0.0499166,
+    "tariff_cost_usd_cold": 0.0570872,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 8769
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2970,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 639,
+      "cache_read_input_tokens": 4857,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2617,
+      "cache_read_input_tokens": 5496,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 654,
+      "cache_read_input_tokens": 8113,
+      "output_tokens": 853
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 6880,
+    "cache_read_input_tokens": 20353,
+    "output_tokens": 1831
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 8,
+      "outputTokens": 1831,
+      "cacheReadInputTokens": 20353,
+      "cacheCreationInputTokens": 6880,
+      "webSearchRequests": 0,
+      "costUSD": 0.0499166,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0499166,
+  "costVerified": true,
+  "duration_ms": 17471,
+  "num_turns": 4,
+  "toolCallCount": 3,
+  "toolCounts": {
+    "Bash:invocation": 3
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/java; f=$(find . -path '*common/cache/LocalCache.java' | head -3); echo $f; for x in $f; do rg -n \\\"segmentShift|segmentMask|segmentCount|maxSegmentWeight|evictsBySize\\\\(\\\\)|concurrencyLevel|MAX_SEGMENTS|this.maxWeight|initialCapacity|segmentCapacity|segmentSize\\\" $x | head -80; done; rg -n \\\"DEFAULT_CONCURRENCY_LEVEL|getConcurrencyLevel|maximumSize\\\\b\\\" $(find . -path '*common/cache/CacheBuilder.java' | head -1) | head -30\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache; grep -nE \\\"segmentShift|segmentMask|maxSegmentWeight|evictsBySize\\\\(\\\\)|MAX_SEGMENTS|maxWeight|segmentCapacity|segmentSize|segmentCount|concurrencyLevel\\\" LocalCache.java | head -70; grep -nE \\\"DEFAULT_CONCURRENCY_LEVEL|getConcurrencyLevel|maximumSize|concurrencyLevel\\\" CacheBuilder.java | head -30\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/java/guava/src/com/google/common/cache; sed -n 305,324p LocalCache.java; grep -n \\\"getMaximumWeight\\\" -A8 CacheBuilder.java | head -16\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The second Bash call ran `grep -nE` on `LocalCache.java` and `CacheBuilder.java` for segment and concurrency terms. It returned nearly every needed line at once: constructor lines 250-321 and the builder defaults. The third call (`sed -n 305,324p`, plus `grep getMaximumWeight`) filled in the per-segment weight split and how `maximumSize` becomes max weight.\n\n2. **Did not help:** The first call used `rg`, which isn't installed. It failed four times and wasted a call. The initial `find` also returned the GWT and android copies of `LocalCache.java`, so I had to pick the main `guava/src` one. Every Bash call printed `/dev/null: Operation not permitted`. The output was fine, but it's noise. I did not use `gh` or check git history, so I never confirmed the checkout was at the pinned SHA.\n\n3. **Next time:** Use `grep -n` from the start, and go straight to `guava/src/com/google/common/cache/`. I'd also read the `Segment.evictEntries` body (around lines 2658-2680) instead of relying on grep hits. I'd run `git rev-parse HEAD` as well.\n\n4. **Confidence:** High on the segment-count and per-segment weight logic, since I read those lines directly. Medium on the eviction claims, because they rest only on grep hits at lines 2666 and 2672.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 9081,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 470,
+      "context_tokens": 9083,
+      "total_tokens": 9553,
+      "first_request_context": 9083,
+      "fixed_overhead_tokens": 9083,
+      "research_tokens": 470,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9081,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -462
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 9081,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 20514,
+      "weighted_tokens_cold": 20514,
+      "tariff_cost_usd": 0.041028,
+      "tariff_cost_usd_cold": 0.041028,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 9083
+    },
+    "cost_usd": 0.041028,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9081,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 470,
+        "context_tokens": 9083,
+        "total_tokens": 9553,
+        "first_request_context": 9083,
+        "fixed_overhead_tokens": 9083,
+        "research_tokens": 470,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 9081,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -462
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 9081,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 20514,
+        "weighted_tokens_cold": 20514,
+        "tariff_cost_usd": 0.041028,
+        "tariff_cost_usd_cold": 0.041028,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 9083
+      },
+      "cost_usd": 0.041028,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 9081,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 470,
+          "costUSD": 0.041028
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 1831,
+            "cacheReadInputTokens": 20353,
+            "cacheCreationInputTokens": 6880,
+            "webSearchRequests": 0,
+            "costUSD": 0.0499166,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0499166
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 10,
+            "outputTokens": 2301,
+            "thinkingTokens": 0,
+            "cacheReadInputTokens": 20353,
+            "cacheCreationInputTokens": 15961,
+            "webSearchRequests": 0,
+            "costUSD": 0.0909446,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0909446
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 9081,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 470
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 9081,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

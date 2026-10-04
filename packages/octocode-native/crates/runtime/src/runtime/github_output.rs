@@ -1,7 +1,6 @@
 //! Default projection shared by the GitHub tools (part of
 //! [`super::response::minimize_row`], so tool-internal reads such as clasify
-//! contexts keep the full rows): a continuation states its
-//! `confidence` only when it is a judgment (`high`/`medium`/`low`), a result
+//! contexts keep the full rows): a result
 //! page keeps only the pagination facts its `next.*` does not carry, and rows
 //! do not restate the caller's ref or path or count their own entries.
 //! `debug: true` keeps everything.
@@ -13,7 +12,6 @@ pub(super) fn compact(tool: ToolId, data: &mut Value, query: &Value) {
     if query.get("debug").and_then(Value::as_bool) == Some(true) {
         return;
     }
-    drop_exact_confidence(data);
     let Some(fields) = data.as_object_mut() else {
         return;
     };
@@ -24,61 +22,18 @@ pub(super) fn compact(tool: ToolId, data: &mut Value, query: &Value) {
     {
         fields.remove("path");
     }
-    // The resolved branch is next-call input when the caller named none.
-    if tool == ToolId::GhStructure {
-        if fields.get("resolvedBranch").is_some()
-            && fields.get("resolvedBranch") == query.get("branch")
-        {
-            fields.remove("resolvedBranch");
-        }
-    }
-}
-
-/// Removes `confidence: "exact"` from every continuation under a `next`
-/// key: an exact replay (a page cursor, a menu read of the same item) is the
-/// default meaning of a continuation without one. Continuation queries are
-/// caller input and stay untouched.
-fn drop_exact_confidence(value: &mut Value) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(drop_exact_confidence),
-        Value::Object(map) => {
-            for (key, child) in map.iter_mut() {
-                if key == "next" {
-                    for_each_continuation(child, &mut |call| {
-                        if call.get("confidence").and_then(Value::as_str) == Some("exact") {
-                            call.remove("confidence");
-                        }
-                    });
-                } else {
-                    drop_exact_confidence(child);
-                }
-            }
-        }
-        _ => {}
+    // The resolved branch is next-call input when the caller named none;
+    // it goes only when it repeats the requested branch.
+    if tool == ToolId::GhStructure
+        && fields.get("resolvedBranch").is_some()
+        && fields.get("resolvedBranch") == query.get("branch")
+    {
+        fields.remove("resolvedBranch");
     }
 }
 
 fn is_continuation(map: &Map<String, Value>) -> bool {
     map.get("tool").is_some_and(Value::is_string) && map.get("query").is_some_and(Value::is_object)
-}
-
-/// A `next` value is one continuation or a map of named continuations
-/// (nested data under a name, e.g. per-commit menus, is walked too).
-fn for_each_continuation(next: &mut Value, apply: &mut impl FnMut(&mut Map<String, Value>)) {
-    let Some(map) = next.as_object_mut() else {
-        return;
-    };
-    if is_continuation(map) {
-        apply(map);
-        return;
-    }
-    for child in map.values_mut() {
-        match child.as_object_mut() {
-            Some(call) if is_continuation(call) => apply(call),
-            Some(_) => for_each_continuation(child, apply),
-            None => {}
-        }
-    }
 }
 
 /// A search page's `pagination` keeps whether more exists and how many
@@ -117,32 +72,6 @@ fn slim_pagination(data: &mut Map<String, Value>) {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn exact_continuations_drop_confidence_and_judgments_keep_it() {
-        let mut data = json!({
-            "next": {
-                "nextPage": {"tool":"ghSearchCode","confidence":"exact","query":{"page":2,"confidence":"exact"}},
-                "readTopMatch": {"tool":"ghGetFileContent","confidence":"medium","query":{}}
-            },
-            "pullRequests": [{"next": {"getMergeCommit": {"tool":"ghGetHistoryItem","confidence":"exact","query":{}}}}],
-            "confidence": "exact"
-        });
-        compact(ToolId::GhSearchCode, &mut data, &json!({}));
-        assert!(
-            data["next"]["nextPage"].get("confidence").is_none(),
-            "{data}"
-        );
-        assert_eq!(data["next"]["nextPage"]["query"]["confidence"], "exact");
-        assert_eq!(data["next"]["readTopMatch"]["confidence"], "medium");
-        assert!(
-            data["pullRequests"][0]["next"]["getMergeCommit"]
-                .get("confidence")
-                .is_none()
-        );
-        // Tool data outside `next` is not a continuation.
-        assert_eq!(data["confidence"], "exact");
-    }
 
     #[test]
     fn pagination_keeps_what_next_does_not_carry() {

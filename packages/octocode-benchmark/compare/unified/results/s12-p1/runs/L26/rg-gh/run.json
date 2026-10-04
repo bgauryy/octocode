@@ -1,0 +1,335 @@
+{
+  "qid": "L26",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:07:46.682Z",
+  "promptSha256": "1c953d64fbe51175d2d616f7a0983cb9ea204fcf4ccdbe87ae859223e2680b33",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 14110,
+  "status": "ok",
+  "answer": "**Short answer:** `Model._save_table()` in `django/db/models/base.py` decides. If the primary key is set and no insert is forced, Django tries an UPDATE first. If that UPDATE matches no row, it falls back to an INSERT. The fallback is skipped when the caller forced the update or passed `update_fields`, in which case it raises `NotUpdated`.\n\nI read the file at the checkout path. `git rev-parse` failed in this sandbox, so I did not confirm that the checkout is at 4fab678a07.\n\n**How it decides (`_save_table`, lines 1075–1165)**\n- **Primary key:** if the pk isn't set and isn't a `DatabaseDefault`, Django calls `meta.pk.get_pk_value_on_save(self)` and sets the result (1103–1107). Then `pk_set = self._is_pk_set(meta)` (1108).\n- **Invalid combination:** `force_update` or `update_fields` with no pk raises `ValueError(\"Cannot force an update in save() with no primary key.\")` (1109–1110).\n- **Insert shortcut:** `force_insert` is switched on automatically when all of these hold (1113–1120):\n  - the call is not `raw`;\n  - neither `force_insert` nor `force_update` was passed;\n  - `self._state.adding` is true;\n  - every pk field has a Python default or a DB default.\n- **Update attempt:** the UPDATE runs only when `pk_set and not force_insert` (1123). The call is `self._do_update(...)` (1148).\n- **Insert path:** the INSERT block runs when `updated` is still `False` (1165). It optionally computes `_order` for `order_with_respect_to`, builds `insert_fields`, and calls `_do_insert` (1166–1204).\n\n**What `_do_update` does (1214–1252)**\n- **Normal case:** it filters `base_qs.filter(pk=pk_val)` and returns `filtered._update(values, returning_fields)`. An empty result means no row matched (1229, 1252).\n- **No fields to update:** if `values` is empty, it returns `[()]` when `update_fields is not None` or the row still exists. Otherwise it returns `[]` (1230–1238).\n- **`select_on_save`:** when the option is on and the update isn't forced, it first checks `filtered.exists()`. If the UPDATE then returns 0, it checks `exists()` again to tell a deleted row from a DB that reports 0 for a successful update (1239–1251).\n\n**When the UPDATE matches no row (1157–1164)**\n- `updated = bool(results)`. On success the returned values are assigned with `_assign_returned_values` (1157–1158).\n- If `force_update` was set, it raises `self.NotUpdated(\"Forced update did not affect any rows.\")` (1159–1160).\n- If `update_fields` was given, it raises `self.NotUpdated(\"Save with update_fields did not affect any rows.\")` (1161–1164).\n- Otherwise `updated` stays `False`, and the INSERT block at 1165 runs.\n\n`_save_table` returns `updated`, which is `True` if an UPDATE hit a row and `False` if an INSERT was done.\n\n**Uncertainty:** I did not read `save()`, `save_base()` or `_save_parents()`. They call `_save_table` once per table in the inheritance chain, but I didn't confirm that here.",
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6232,
+    "cache_read_input_tokens": 13348,
+    "output_tokens": 1382,
+    "context_tokens": 19586,
+    "total_tokens": 20968,
+    "first_request_context": 4875,
+    "fixed_overhead_tokens": 14625,
+    "research_tokens": 6343,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 6232,
+      "cache_read_input_tokens": 13348,
+      "output_tokens": 800
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -582
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6232,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 20714.8,
+    "weighted_tokens_cold": 24300.1,
+    "tariff_cost_usd": 0.0414296,
+    "tariff_cost_usd_cold": 0.048600199999999996,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 8121
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2986,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 16
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1715,
+      "cache_read_input_tokens": 4873,
+      "output_tokens": 5
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 1531,
+      "cache_read_input_tokens": 6588,
+      "output_tokens": 779
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 6232,
+    "cache_read_input_tokens": 13348,
+    "output_tokens": 1382
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1382,
+      "cacheReadInputTokens": 13348,
+      "cacheCreationInputTokens": 6232,
+      "webSearchRequests": 0,
+      "costUSD": 0.0414296,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 18,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0414296,
+  "costVerified": true,
+  "duration_ms": 13523,
+  "num_turns": 3,
+  "toolCallCount": 2,
+  "toolCounts": {
+    "Bash:invocation": 2
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python; git rev-parse HEAD; grep -n \\\"def _save_table\\\" -A95 django/db/models/base.py\"}"
+    },
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /Users/bgaryy/code/octocode/octocode-local-testing/repos/python; sed -n 1165,1215p django/db/models/base.py; grep -n \\\"def _do_update\\\" -A45 django/db/models/base.py\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** The first Bash call (`grep -n \"def _save_table\" -A95 django/db/models/base.py`) found the core function and its line numbers in one step. The second call (`sed -n 1165,1215p` plus `grep -n \"def _do_update\" -A45`) covered the rest of the INSERT path and `_do_update`. Two calls were enough because grep with `-A` returns numbered context.\n\n2. **Did not help:** `git rev-parse HEAD` failed with \"could not open /dev/null: Operation not permitted\". Every Bash call also printed that same `/dev/null` error. So I could not confirm the checkout was at 4fab678a07, and I said so in the answer. I did not try `gh api` to check the SHA, so that check was never done. I never opened `save()`, `save_base()` or `_save_parents()`, so the per-table inheritance claim is unverified.\n\n3. **Next time:** I would read `.git/HEAD` directly, or call `gh api -X GET repos/django/django/commits/4fab678a07`, to confirm the pin. I would also add a `grep -n \"_save_table(\" base.py` call to see the callers.\n\n4. **Confidence:** High for the UPDATE/INSERT logic and the cited line numbers, since I read them directly. Medium on the commit pin, because I couldn't verify it.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8390,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 442,
+      "context_tokens": 8392,
+      "total_tokens": 8834,
+      "first_request_context": 8392,
+      "fixed_overhead_tokens": 8392,
+      "research_tokens": 442,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8390,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 8
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -434
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 8390,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 18992,
+      "weighted_tokens_cold": 18992,
+      "tariff_cost_usd": 0.037984,
+      "tariff_cost_usd_cold": 0.037984,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 8392
+    },
+    "cost_usd": 0.037984000000000004,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8390,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 442,
+        "context_tokens": 8392,
+        "total_tokens": 8834,
+        "first_request_context": 8392,
+        "fixed_overhead_tokens": 8392,
+        "research_tokens": 442,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 8390,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 8
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -434
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8390,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 18992,
+        "weighted_tokens_cold": 18992,
+        "tariff_cost_usd": 0.037984,
+        "tariff_cost_usd_cold": 0.037984,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 8392
+      },
+      "cost_usd": 0.037984000000000004,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 8390,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 442,
+          "costUSD": 0.037984000000000004
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 1382,
+            "cacheReadInputTokens": 13348,
+            "cacheCreationInputTokens": 6232,
+            "webSearchRequests": 0,
+            "costUSD": 0.0414296,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 18,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0414296
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 8,
+            "outputTokens": 1824,
+            "thinkingTokens": 18,
+            "cacheReadInputTokens": 13348,
+            "cacheCreationInputTokens": 14622,
+            "webSearchRequests": 0,
+            "costUSD": 0.0794136,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0794136
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8390,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 442
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 8390,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 0,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 0,
+    "githubCompletedResponses": 0,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {},
+    "githubAttempts": [],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

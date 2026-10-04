@@ -1,0 +1,362 @@
+{
+  "qid": "G17",
+  "worker": "rg-gh",
+  "started": "2026-10-03T20:32:05.178Z",
+  "promptSha256": "b4aa3ab43020f29b757d5de457fd9bf3b4eacf178c569d56cc022875e10f10e6",
+  "workerDocSha256": "8f01747fb7c8a450273ae26f96d8e167dcee000e1ce2206e6e93097551f58e6c",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 13483,
+  "status": "ok",
+  "answer": "**Answer:** requests 2.32.3 requires Python >=3.8. It has four runtime dependencies and two optional extras. Its source is the `v2.32.3` tag of `psf/requests`. The HTTP adapter defaults to 10 pooled connections and no retries. All line numbers below are from `setup.py` and `src/requests/adapters.py` at that tag.\n\n**Python versions** (`setup.py`)\n- `python_requires=\">=3.8\"` (`setup.py:97`).\n- Classifiers list 3.8, 3.9, 3.10, 3.11 and 3.12, plus CPython and PyPy (`setup.py:108-117`).\n- The error message for unsupported versions says to pin `<2.32.0` on older Pythons (`setup.py:23`).\n\n**Runtime dependencies** (`install_requires`, `setup.py:61-65`)\n- `charset_normalizer>=2,<4`\n- `idna>=2.5,<4`\n- `urllib3>=1.21.1,<3`\n- `certifi>=2017.4.17`\n\n**Optional extras** (`extras_require`, `setup.py:125-126`)\n- `socks`: `PySocks>=1.5.6, !=1.5.7`\n- `use_chardet_on_py3`: `chardet>=3.0.2,<6`\n\n**Source for the release**\n- Repo `psf/requests`, tag `v2.32.3`. The tag object SHA is `61e2240f283f15780ac2d0e2cfefb0fd6fdab627`.\n- `src/requests/__version__.py:8` has `__version__ = \"2.32.3\"`.\n\n**HTTPAdapter defaults** (`src/requests/adapters.py`)\n- Module constants are `DEFAULT_POOLBLOCK = False`, `DEFAULT_POOLSIZE = 10`, `DEFAULT_RETRIES = 0` and `DEFAULT_POOL_TIMEOUT = None` (lines 71-74).\n- The constructor defaults are `pool_connections=10`, `pool_maxsize=10`, `max_retries=0` and `pool_block=False` (lines 204-207).\n- With the default `max_retries`, the adapter uses `Retry(0, read=False)`. Any other value goes through `Retry.from_int(max_retries)` (lines 209-212). So there are no retries by default, and read errors are not retried.\n\n**Uncertainty**\n- I read only `setup.py`, `adapters.py` and `__version__.py` at the tag. I did not check the PyPI metadata directly. The `pyproject.toml` hit in my output was only pytest config (`minversion`), and I did not inspect it further.",
+  "tokens": {
+    "requests": 2,
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 6363,
+    "cache_read_input_tokens": 6678,
+    "output_tokens": 1162,
+    "context_tokens": 13045,
+    "total_tokens": 14207,
+    "first_request_context": 4793,
+    "fixed_overhead_tokens": 9586,
+    "research_tokens": 4621,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 4,
+      "cache_creation_input_tokens": 6363,
+      "cache_read_input_tokens": 6678,
+      "output_tokens": 913
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -249
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 6363,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": 19207.8,
+    "weighted_tokens_cold": 22793.1,
+    "tariff_cost_usd": 0.0384156,
+    "tariff_cost_usd_cold": 0.0455862,
+    "tariff": "claude-sonnet-5-5@tri-20261002",
+    "weighted_reason": null,
+    "max_request_context": 8252
+  },
+  "perRequest": [
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 2904,
+      "cache_read_input_tokens": 1887,
+      "output_tokens": 17
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 3459,
+      "cache_read_input_tokens": 4791,
+      "output_tokens": 896
+    }
+  ],
+  "resultUsage": {
+    "input_tokens": 4,
+    "cache_creation_input_tokens": 6363,
+    "cache_read_input_tokens": 6678,
+    "output_tokens": 1162
+  },
+  "modelUsage": {
+    "claude-sonnet-5-5": {
+      "inputTokens": 4,
+      "outputTokens": 1162,
+      "cacheReadInputTokens": 6678,
+      "cacheCreationInputTokens": 6363,
+      "webSearchRequests": 0,
+      "costUSD": 0.0384156,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-sonnet-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "cost_usd": 0.0384156,
+  "costVerified": true,
+  "duration_ms": 12890,
+  "num_turns": 2,
+  "toolCallCount": 1,
+  "toolCounts": {
+    "Bash:invocation": 1
+  },
+  "counters": {},
+  "toolCalls": [
+    {
+      "name": "Bash",
+      "input": "{\"command\":\"cd /tmp; for f in pyproject.toml setup.py src/requests/adapters.py src/requests/__version__.py; do echo \\\"=== $f\\\"; gh api -X GET repos/psf/requests/contents/$f?ref=v2.32.3 --jq .content | base64 -d | cat -n | grep -nE \\\"python|requires|extras|install_requires|DEFAULT_|max_retries|Retry|pool|version|url|Programming Language|socks|use_chardet|\\\\\\\"[a-z_-]+[<>=!~]\\\" | head -80; done; gh api -X GET repos/psf/requests/git/ref/tags/v2.32.3 --jq .object\"}"
+    }
+  ],
+  "toolErrorCount": 0,
+  "rowErrorCount": 0,
+  "actualModels": [
+    "claude-sonnet-5-5"
+  ],
+  "providerCostIncluded": false,
+  "providerUsageStatus": "no classifier calls",
+  "toolErrors": [],
+  "permission_denials": [],
+  "isolation": {
+    "ok": true,
+    "problems": [],
+    "offeredTools": [
+      "Bash"
+    ],
+    "mcpServers": []
+  },
+  "reflection": {
+    "text": "1. **Helped:** My one Bash call did most of the work. It looped `gh api -X GET repos/psf/requests/contents/<file>?ref=v2.32.3` over `setup.py`, `adapters.py`, `__version__.py` and `pyproject.toml`, piped through `base64 -d | cat -n | grep`. Pinning the ref to the tag and numbering the lines gave citable `path:line` evidence. The same call also fetched `git/ref/tags/v2.32.3`.\n\n2. **Did not help:**\n   - The call printed `/bin/bash: /dev/null: Operation not permitted` three times. The output still looked complete, but I never found out which command caused it.\n   - My broad grep with `head -80` was noisy and cut off the `adapters.py` output.\n   - For `pyproject.toml` the grep showed only a `minversion` line, so I never read the file.\n   - The ref lookup returned the tag object SHA, not the underlying commit SHA. I never dereferenced it.\n   - I did not query PyPI metadata, which is what the question literally asked about.\n\n3. **Next time:**\n   - Fetch `pyproject.toml` in full.\n   - Dereference the tag to the commit with `git/tags/<sha>`.\n   - Use narrower greps, or `sed -n` for specific line ranges.\n   - Compare against the PyPI JSON API if I can reach it.\n\n4. **Confidence:**\n   - **High:** the Python requirement, dependencies, extras, adapter defaults and line numbers, since I saw them directly in the output.\n   - **Medium:** completeness. There could be metadata in `pyproject.toml` that I didn't read, and I haven't confirmed the PyPI wheel matches the tag.",
+    "tokens": {
+      "requests": 1,
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 8212,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 1023,
+      "context_tokens": 8214,
+      "total_tokens": 9237,
+      "first_request_context": 8214,
+      "fixed_overhead_tokens": 8214,
+      "research_tokens": 1023,
+      "verified": true,
+      "source": "result.usage",
+      "provisional_usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8212,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 3
+      },
+      "usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": -1020
+      },
+      "model_usage_gaps": {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 8212,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "overhead_research_estimated": true,
+      "weighted_tokens": 21541,
+      "weighted_tokens_cold": 21541,
+      "tariff_cost_usd": 0.043082,
+      "tariff_cost_usd_cold": 0.043082,
+      "tariff": "claude-sonnet-5-5@tri-20261002",
+      "weighted_reason": null,
+      "max_request_context": 8214
+    },
+    "cost_usd": 0.043082,
+    "costVerified": true,
+    "accounting": {
+      "tokens": {
+        "requests": 1,
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8212,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1023,
+        "context_tokens": 8214,
+        "total_tokens": 9237,
+        "first_request_context": 8214,
+        "fixed_overhead_tokens": 8214,
+        "research_tokens": 1023,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 2,
+          "cache_creation_input_tokens": 8212,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 3
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1020
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8212,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": 21541,
+        "weighted_tokens_cold": 21541,
+        "tariff_cost_usd": 0.043082,
+        "tariff_cost_usd_cold": 0.043082,
+        "tariff": "claude-sonnet-5-5@tri-20261002",
+        "weighted_reason": null,
+        "max_request_context": 8214
+      },
+      "cost_usd": 0.043082,
+      "costVerified": true,
+      "modelUsageDelta": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 2,
+          "cacheCreationInputTokens": 8212,
+          "cacheReadInputTokens": 0,
+          "outputTokens": 1023,
+          "costUSD": 0.043082
+        }
+      },
+      "verified": true,
+      "reasons": [],
+      "baseline": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 4,
+            "outputTokens": 1162,
+            "cacheReadInputTokens": 6678,
+            "cacheCreationInputTokens": 6363,
+            "webSearchRequests": 0,
+            "costUSD": 0.0384156,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "thinkingTokens": 0,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0384156
+      },
+      "reportedCumulative": {
+        "modelUsage": {
+          "claude-sonnet-5-5": {
+            "inputTokens": 6,
+            "outputTokens": 2185,
+            "thinkingTokens": 446,
+            "cacheReadInputTokens": 6678,
+            "cacheCreationInputTokens": 14575,
+            "webSearchRequests": 0,
+            "costUSD": 0.0814976,
+            "contextWindow": 1000000,
+            "maxOutputTokens": 128000,
+            "canonicalModel": "claude-sonnet-5-5",
+            "provider": "firstParty",
+            "costBasis": "list"
+          }
+        },
+        "cost_usd": 0.0814976
+      },
+      "resultUsage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 8212,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1023
+      },
+      "cacheCreation": {
+        "ephemeral_1h_input_tokens": 8212,
+        "ephemeral_5m_input_tokens": 0
+      }
+    },
+    "toolCallsAttempted": 0,
+    "valid": true
+  },
+  "classificationProvider": null,
+  "nativeCalls": [],
+  "gatewayTraffic": {
+    "modelConnects": [
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com",
+      "api.anthropic.com"
+    ],
+    "rejectedConnects": 0,
+    "githubGetRequests": 5,
+    "githubRejectedWrites": 0,
+    "githubForwardedAttempts": 5,
+    "githubCompletedResponses": 5,
+    "githubUpstreamFailures": 0,
+    "githubResponseStatuses": {
+      "200": 5
+    },
+    "githubAttempts": [
+      {
+        "method": "GET",
+        "startedAt": "2026-10-03T20:32:09.771Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-03T20:32:10.019Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-03T20:32:10.067Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-03T20:32:10.299Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-03T20:32:10.339Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-03T20:32:10.736Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-03T20:32:10.785Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-03T20:32:10.997Z"
+      },
+      {
+        "method": "GET",
+        "startedAt": "2026-10-03T20:32:11.040Z",
+        "status": 200,
+        "outcome": "response",
+        "completedAt": "2026-10-03T20:32:11.289Z"
+      }
+    ],
+    "mcpRequests": 0
+  },
+  "nativeGithubUsage": null,
+  "networkAccounting": {
+    "scope": "isolated session including tools-disabled reflection",
+    "gateway": "forwarded REST GET/HEAD HTTP attempts; response statuses/failures retained",
+    "nativeGithub": "unknown; native aggregate absent",
+    "model": "CONNECT tunnels, not physical model HTTP requests"
+  },
+  "nativeRowErrorCount": 0,
+  "classificationAccounting": {
+    "observed": null,
+    "groupedToolCalls": 0,
+    "failedToolOrRows": false,
+    "reportedSuccessfulUsageComplete": false,
+    "allProviderAttemptsVerified": false,
+    "cost_usd": null,
+    "reason": "Native aggregate reports successful provider usage; failed billed attempts and provider tariff are not independently available. Cached tool calls and grouped questions do not equal provider requests."
+  },
+  "valid": true
+}

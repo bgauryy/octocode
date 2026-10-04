@@ -1,0 +1,7 @@
+1. **Helped:** Two calls to `ghGetHistoryItem` did nearly all the work. The first, on issue #13786, gave the full report and listed the closing PRs (#13825 merged, #13794 closed). It also returned a `readFixPr` hint that named the next call exactly. The second, on PR #13825 with `include: ["body","patches"]`, returned the diffs for `_config.py` and the tests, which was enough for both the root cause and the fix.
+
+2. **Did not help:** The PR patch output was partial (`isPartial: true`), and I never fetched the remainder. I did not read `tests/test_model_signature.py` in full, and I said so in the answer. The diffs were trimmed with "..." in places, which made some hunks harder to read. I did not read the merged code at `mergeCommitSha`, so I cited the patch, not the final file lines. I also did not look at PR #13794 to see why it was closed.
+
+3. **Next time:** I would follow `next.continuePatch` to finish the truncated patch. I would also read `_config.py` at the merge commit with `ghGetFileContent` to get real line numbers, and check #13794 for the maintainers' reasoning.
+
+4. **Confidence:** High on root cause and fix, because the issue text and the PR diff agree and I read both directly. Medium-high on completeness, because of the truncated patch and the missing line numbers.

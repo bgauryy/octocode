@@ -398,7 +398,6 @@ impl PathFilter {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn traverse<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
     provider: &GitHubProvider<R, C>,
     owner: &str,
@@ -760,7 +759,6 @@ fn relative(path: &str, root: &str) -> String {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn fetch_metadata<R: CredentialResolver>(
     transport: &GitHubTransport<R>,
     owner: &str,
@@ -885,7 +883,6 @@ fn fatal_metadata_error(error: &ProviderError) -> bool {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn add_metadata_page(
     value: &mut Value,
     kind: &str,
@@ -949,7 +946,6 @@ struct MaterializeResume {
     reason: &'static str,
 }
 
-#[allow(clippy::too_many_arguments)]
 fn attach_continuations(
     value: &mut Value,
     query: &GhStructureQuery,
@@ -1105,7 +1101,6 @@ struct MaterializeOutcome {
     warnings: Vec<String>,
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
     provider: &GitHubProvider<R, C>,
     owner: &str,

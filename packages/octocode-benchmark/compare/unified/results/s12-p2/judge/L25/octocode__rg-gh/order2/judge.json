@@ -1,0 +1,189 @@
+{
+  "qid": "L25",
+  "pairKey": "octocode__rg-gh",
+  "label": "order2",
+  "subjectSha": "55755cfe18a7ea200c0cbfd85f9e86ef47d37a8bf881df6d97f6d53649af5fef",
+  "model": "claude-opus-5-5",
+  "X": "rg-gh",
+  "Y": "octocode",
+  "attempts": 1,
+  "promptSha256": "0af79f5e1350cd4109b11cb9fa5362eb760062bee32eecab35c770849826a8b2",
+  "ok": true,
+  "verdict": {
+    "X": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "equalArrays said to remove only the `other` entry (~5766); it deletes both array and other at 5763-5764",
+        "equalObjects delete cited at 5916-5917; actual 5923-5924"
+      ],
+      "notes": "Core mechanism and equality rule correct; minor inaccuracies in delete details and citations. Does not explicitly trace isEqual->baseIsEqual."
+    },
+    "Y": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout with precise line citations; adds correct note that the stack tracks only the current path. Does not explicitly trace isEqual->baseIsEqual, but the stack creation in baseIsEqualDeep is covered."
+    },
+    "preferred": "Y",
+    "reference_issues": "none"
+  },
+  "byWorker": {
+    "rg-gh": {
+      "correctness": 4,
+      "completeness": 3,
+      "evidence": 1,
+      "quality": 8,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [
+        "equalArrays said to remove only the `other` entry (~5766); it deletes both array and other at 5763-5764",
+        "equalObjects delete cited at 5916-5917; actual 5923-5924"
+      ],
+      "notes": "Core mechanism and equality rule correct; minor inaccuracies in delete details and citations. Does not explicitly trace isEqual->baseIsEqual."
+    },
+    "octocode": {
+      "correctness": 5,
+      "completeness": 3,
+      "evidence": 2,
+      "quality": 10,
+      "key_facts_covered": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "wrong_claims": [],
+      "notes": "Accurate throughout with precise line citations; adds correct note that the stack tracks only the current path. Does not explicitly trace isEqual->baseIsEqual, but the stack creation in baseIsEqualDeep is covered."
+    }
+  },
+  "preferredWorker": "octocode",
+  "reference_issues": "none",
+  "cost_usd": 0.0940312,
+  "costVerified": true,
+  "attemptUsage": [
+    {
+      "attempt": 1,
+      "tokens": {
+        "requests": 3,
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 7728,
+        "cache_read_input_tokens": 20716,
+        "output_tokens": 1402,
+        "context_tokens": 28450,
+        "total_tokens": 29852,
+        "first_request_context": 9021,
+        "fixed_overhead_tokens": 27063,
+        "research_tokens": 2789,
+        "verified": true,
+        "source": "result.usage",
+        "provisional_usage": {
+          "input_tokens": 6,
+          "cache_creation_input_tokens": 7728,
+          "cache_read_input_tokens": 20716,
+          "output_tokens": 27
+        },
+        "usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": -1375
+        },
+        "model_usage_gaps": {
+          "input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 0
+        },
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 7728,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "overhead_research_estimated": true,
+        "weighted_tokens": null,
+        "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+        "max_request_context": 10100
+      },
+      "actualModels": [
+        "claude-opus-5-5"
+      ],
+      "toolCalls": 3,
+      "toolCounts": {
+        "Bash:invocation": 1,
+        "Read": 2
+      },
+      "toolErrors": 1,
+      "cost_usd": 0.0940312,
+      "costVerified": true,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false
+    }
+  ],
+  "num_turns": 4,
+  "tokens": {
+    "requests": 3,
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 7728,
+    "cache_read_input_tokens": 20716,
+    "output_tokens": 1402,
+    "context_tokens": 28450,
+    "total_tokens": 29852,
+    "first_request_context": 9021,
+    "fixed_overhead_tokens": 27063,
+    "research_tokens": 2789,
+    "verified": true,
+    "source": "result.usage",
+    "provisional_usage": {
+      "input_tokens": 6,
+      "cache_creation_input_tokens": 7728,
+      "cache_read_input_tokens": 20716,
+      "output_tokens": 27
+    },
+    "usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": -1375
+    },
+    "model_usage_gaps": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0
+    },
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7728,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "overhead_research_estimated": true,
+    "weighted_tokens": null,
+    "weighted_reason": "model claude-opus-5-5 not in frozen tariff claude-sonnet-5-5@tri-20261002",
+    "max_request_context": 10100
+  },
+  "timedOut": false
+}

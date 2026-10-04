@@ -1,0 +1,7 @@
+**1. Helped:** I made only two rounds of calls, each parallel. The first was `localSearch` for `arlastitems|ARLASTITEMS` in `src/`, which gave me `t_array.c:1802`, and `ghGetHistoryItem` on issue #15874, whose body already quoted the buggy line. The second was `localFetch` on `src/t_array.c` lines 1790-1890, which gave me the function body, and `ghGetHistoryItem` on PR #15875 with `include: ["patches"]` and a `files` filter. Its patch showed the fix directly.
+
+**2. Did not help:** `localSearch` also returned `commands.def` noise and truncated values. The PR patch was elided with "..." context lines, so I couldn't see the fixed file whole. I did not follow the `readAtMerge` hint, which would have read the file at the merge commit. I did not run anything to confirm the behavior. The repro comes from the issue text.
+
+**3. Next time:** I would read the fixed file with `ghGetFileContent` at the merge SHA to cite exact post-fix line numbers. I would also check the PR's test changes, which I never looked at, to see what behavior the tests lock in.
+
+**4. Confidence:** High on the location and cause, since I read the buggy lines locally and the issue matches them. Medium-high on the fix description, since it rests on a trimmed patch. I did not verify the post-fix line numbers.

@@ -1,0 +1,7 @@
+1. **Helped:** One batched `ghSearchHistory` call with three rows (merged PRs for "sharded"/"blocking", an unfiltered PR search for "shard"/"blocking queue", and a commit search) answered almost everything. The PR search showed #8337, #8135, #7757 and the revert #8057 together with titles and merge dates. The commit search confirmed the SHAs.
+
+2. **Did not help:** I made only that one call, so nothing was repeated. The weakness is what I skipped. I never ran `ghGetHistoryItem` on #8337 or #8057, so I didn't read the PR bodies or diffs. I also never confirmed that `facc6fc47e` contains #8337. I never checked whether #7757 shipped in 1.52.0. The search output also had no commit-ancestry check, so I could not verify the pinned commit from it.
+
+3. **Next time:** I would add `ghGetHistoryItem` on #8337 (body and files) and #8057 (body) in the same batch. That would confirm the opt-in's gating and the stated reason for the revert. I would also read the commit `facc6fc47e` itself to check its position relative to #8337.
+
+4. **Confidence:** High that #8337 added the opt-in and that #7757 was merged and then reverted by #8057, since titles, dates and SHAs agree across results. Medium on the details. I inferred that the revert was for a regression from its title only. My assumption that the pinned commit includes #8337 is unconfirmed.

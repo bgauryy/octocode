@@ -1,0 +1,7 @@
+**1. Helped:** The single `localSearch` on `batch_semaphore.rs` with the regex `tracing::trace!|trace!\(|tracing::` and `contextLines: 3` was the fastest step. It listed every tracing site in the file, so I could pick line 561 by its position inside `assign_permits`. The `localFetch` of lines 525-600 then showed the CAS before the event and the `return next == 0` after it. The `localFetch` of lines 290-334 showed the caller doing `queue.last()` followed by `pop_back()`.
+
+**2. Did not help:** The `localFetch` of lines 325-420 was mostly wasted. I wanted `add_permits_locked` but started too late, so I got `forget_permits` and the top of `poll_acquire`, and then needed the 290-334 fetch. The regex also matched span-creation sites, which added noise. I never called `ghGetHistoryItem` on issue #8541, so I did not confirm the issue's own description or any fix PR. I also never read the `Acquire` drop path.
+
+**3. Next time:** I would fetch issue #8541 first to anchor the claim. I would use `lspSearch` references on `assign_permits` to find the caller directly. I would also read the `Acquire` `Drop` impl to verify the ownership and unlinking story instead of inferring it.
+
+**4. Confidence:** High on the event location (`:561`) and the ordering of CAS, event, then unlink (`:556`, `:561`, `:327`). Medium on the use-after-free mechanism, because the owner-side step is inferred and not read.
