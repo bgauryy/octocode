@@ -1,7 +1,0 @@
-1. **Helped:** Fetching files with `gh api -X GET repos/Kludex/starlette/contents/<path>?ref=63c5760d8a --jq .content | base64 -d | grep -n ""`. It pinned the exact commit and gave real line numbers. The three files I needed were `applications.py`, `middleware/exceptions.py` and `_exception_handler.py`, and they covered most of the question. The `errors.py` fetch (lines 140-260) and the `grep -n wrap_app_handling_exceptions` on `routing.py` filled in the outer layer and the route-level call sites.
-
-2. **Did not help:** The first call's local `ls` was wasted. The directory listing failed, and the sandbox printed `/dev/null: Operation not permitted` on every command. Nothing in the listing was about starlette, and I never confirmed a local checkout existed. I also fetched `errors.py` by line range blind, which worked but was a guess. I never fetched `middleware/__init__.py`, so how `Middleware` unpacks into `cls, args, kwargs` stayed an assumption, and I did not read `Router` internals beyond two grep hits.
-
-3. **Next time:** Skip the local scan and go straight to `gh api`. Fetch `middleware/__init__.py` in the same batch and run one `grep -n` per file. Redirect stderr to avoid the `/dev/null` noise.
-
-4. **Confidence:** High on the stack order and the handler lookup, because I read the code directly with line numbers. Medium on `Middleware` unpacking and the exact route-level behavior, since those were not read in full.

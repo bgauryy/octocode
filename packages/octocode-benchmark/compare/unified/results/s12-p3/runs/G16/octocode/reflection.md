@@ -1,7 +1,0 @@
-**1. Helped:** The two parallel `ghSearchHistory` calls ("unix socket scrape" and "unix domain socket") surfaced both PRs, #18091 and #19399, in one round. Two `ghGetHistoryItem` calls with `include:["body"]` then gave the "Fixes #12024" line and the mix-up explanation directly. The whole task took four calls.
-
-**2. Did not help:** Nothing errored. The second search added only unrelated open PRs (#19874, #16351). The #19399 body was returned minified and carried leftover PR-template text, which was noisy but readable. The tools could not tell me whether commit ea954809ce contains these merges. I did not try the commit-ancestry check, so that stayed unverified.
-
-**3. Next time:** I would confirm that ea954809ce includes both merge commits (c5fa89db, 05f9eb8b), for example with `ghSearchHistory` on commits or a file read pinned at that ref. I would also open issue #12024 to confirm it is the right issue and that it closed. Finally, I would read the #19399 diff, or the relevant code at `scrape/`, to verify the per-socket client caching claim instead of relying on the PR description.
-
-**4. Confidence:** High on the PR numbers, the issue number and the mix-up, because the PR bodies state them explicitly. Medium on "as of ea954809ce", since I assumed the merge dates fell before that commit without checking.

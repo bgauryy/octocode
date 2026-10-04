@@ -1,7 +1,0 @@
-1. **Helped:** The `grep -rn "merge_content" . --include=*.py --include=*.md` call found every definition, caller, export and test in one pass. The `sed -n` call then showed the definition, both variadic call sites and the test together. That was enough for the answer.
-
-2. **Did not help:** The first call used `rg`, which isn't installed even though the brief listed it, so it was wasted. Every shell call also printed `/bin/bash: /dev/null: Operation not permitted`, which is noise. I never confirmed that the checkout was at 67ee6cb (no `git rev-parse HEAD`), so the pinned-commit line numbers are assumed. I also searched only `libs/core`.
-
-3. **Next time:** I would check `which rg` first or default to `grep`, and run `git rev-parse HEAD` once. I would grep the whole monorepo for external callers, and use `grep -n` or `nl` for any line I cite.
-
-4. **Confidence:** Medium-high on the substance: the two variadic call sites at `base.py:453` and `ai.py:665`, and the two-argument callers, came straight from the grep output. One citation is likely wrong. I wrote "loop starts at line 380", but counting the printed lines puts the `for` near 383, and I didn't verify it. The unchecked commit and the missing search outside core are the remaining gaps.

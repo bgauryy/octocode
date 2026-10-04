@@ -1,7 +1,0 @@
-1. **Helped:** The first `ghGetHistoryItem` call (body plus files) gave the PR's scope, merge SHA and file stats in one shot. The second call (patches for the core files) showed the routing, application and background changes as diffs. The full `ghGetFileContent` reads of `_runtime.py` and `_asgi.py` at the merge SHA supplied the line-numbered evidence for the auto-configure and legacy-guard claims.
-
-2. **Did not help:** The bundled third query (the `pyproject.toml` matchString) was cut off by response pagination in both reads, so I never saw the dependency diff. I then went on to the answer without retrying it. My `_asgi.py` read was also truncated at line 437 of 446, and I did not fetch the remainder. I never opened `_api.py`, the tests or the docs. The patch call was `isPartial` (pagination), so the `_asgi.py`/`_runtime.py` diffs were cut off; I switched to full-file reads instead. Batching three large reads together was a poor choice given the 20k-character response cap.
-
-3. **Next time:** Query `pyproject.toml` on its own with its patch, since the hard-versus-optional dependency question matters most for a reviewer. Read `_api.py` too. Fetch the tail of `_asgi.py`.
-
-4. **Confidence:** Medium. The behavior descriptions rest on code I read directly. The dependency and packaging point is flagged as unverified, and `_api.py` and the tests were unread.

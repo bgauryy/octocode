@@ -1,7 +1,0 @@
-1. **Helped:** `artifactSearch` (pypi, requests 2.32.3) confirmed `requiresPython >=3.8`, the publish date and the repo URL in one call. `ghGetFileContent` on `adapters.py` with `matchString` and `branch: v2.32.3` returned the exact constants and `__init__` lines. It also returned the pinned `commitSha`. The `matchString` read of `setup.py` gave `install_requires`, `extras_require` and `python_requires` with line numbers.
-
-2. **Did not help:** My `pyproject.toml` read was wasted, since it only holds isort and pytest config. I should have gone to `setup.py` first. `artifactSearch` reported only "dependencies: 4" and not the names. `matchString` output omitted some lines, including the 3.8–3.10 classifiers. I never searched for where `DEFAULT_POOL_TIMEOUT` is used.
-
-3. **Next time:** I'd batch `setup.py` and `adapters.py` in the first call. I'd add a `matchString` for "Programming Language :: Python" so the classifiers aren't truncated. I'd also run one `ghSearchCode` or `matchString` for `DEFAULT_POOL_TIMEOUT`.
-
-4. **Confidence:** High on the dependencies, extras, `python_requires` and adapter defaults, since I read them at the `v2.32.3` tag. Medium on the version classifiers and the pool-timeout usage, which I did not see. I also did not compare against the published wheel metadata, only `setup.py`.

@@ -1,7 +1,0 @@
-1. **Helped:** The third `localSearch` call, run with `resultView: "files"` and no path guess, gave me the list of Go files that mention `ModuleDetection`. It also showed that the Go code lives under `tsc/internal`, not `internal`. The batched `localSearch` on `parseoptions.go` and `compileroptions.go` then gave me the line anchors. One batched `localFetch` of both line ranges returned all the decision logic, which was enough to answer.
-
-2. **Did not help:** The first `localSearch` failed validation because I passed `include`, `exclude` and `excludeDir` as strings when the tool wants arrays. The second call failed because I guessed the path `typescript/internal`. That was two wasted calls. `localFetch` returned file-relative content, so I could only confirm some line numbers from the earlier search anchors. Lines around 40 and after 125 I estimated, and I said so in the answer. I never read the call sites of `GetExternalModuleIndicatorOptions` or the JSX-tag walker `walkTreeForJSXTags`.
-
-3. **Next time:** I would start with a `structureSearch` tree or a files-only `localSearch` to get the layout. I would pass the array parameters correctly. I would add a `localSearch` for `GetExternalModuleIndicatorOptions` to see its callers. I would also fetch a wider range so every cited line is one I actually saw.
-
-4. **Confidence:** High for the core logic, because I read those lines directly. Medium-high for completeness, because I skipped the call sites.

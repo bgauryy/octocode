@@ -312,8 +312,8 @@ fn dropped_key_hint(
     None
 }
 
-/// Config paths that include or exclude tools by name (`tools.enabled` /
-/// `tools.disabled`), from the config contract.
+/// Config paths that include or exclude tools (`tools.enabled` /
+/// `tools.disabled` / `tools.family`), from the config contract.
 fn tool_list_config_paths() -> String {
     octocode_native::config::CONFIG_FIELDS
         .iter()
@@ -346,8 +346,11 @@ fn compact_tool_catalog(
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
                     let mut availability = json!({ "enabled": enabled });
-                    let tool_list_excluded =
-                        tool.get("unavailableReason").and_then(Value::as_str) == Some("toolsList");
+                    // Tool lists and the family preset are both `tools.*` config.
+                    let tool_list_excluded = matches!(
+                        tool.get("unavailableReason").and_then(Value::as_str),
+                        Some("toolsList" | "family")
+                    );
                     if !enabled {
                         if let Some(env_var) =
                             availability_env_var(name).filter(|_| !tool_list_excluded)

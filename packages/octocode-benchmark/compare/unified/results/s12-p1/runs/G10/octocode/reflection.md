@@ -1,7 +1,0 @@
-1. **Helped:** The first `ghGetHistoryItem` call (operation pullRequest, include body and patches) did most of the work. It returned the PR body, with the author's list of blocking Miri issues, plus most patches. The second call, with `matchString: "cfg_attr(miri, ignore)"` and a `files` filter on the rt_* files, gave compact diffs. They showed the exact ignore reasons, including #5047, "Too slow", and #7010.
-
-2. **Did not help:** The first response was truncated by pagination: 37 files across 2 pages, and `rt_common.rs` was cut off. I never fetched page 2 or the `tcp_*` test patches, even though my second call listed them in `files`. They returned nothing, probably because they were on page 2. I also never opened the Miri PR/issue links or the post-merge test files, so I could not say which test the `readv` leak affects. My answer said this, but it is a real gap. The multi-file output also elided hunks with "...", which made some per-test attributions less certain.
-
-3. **Next time:** Call `ghGetHistoryItem` with `filePage: 2` right away. Then run `ghSearchCode` or a content read at `mergeCommitSha` for `cfg_attr(miri, ignore)` in `tokio/tests`, to get a verified list of what is still ignored.
-
-4. **Confidence:** Medium. The summary of changes and the stated reasons are well supported. The completeness of the "still ignored" list is not, because I skipped page 2 and did not check the merged tree.

@@ -1,7 +1,0 @@
-1. **Helped:** The `gh api -X GET repos/pydantic/pydantic/pulls/13824/files` call with `jq` was the fastest step. It listed the touched files and returned per-file `.patch` hunks, so I could read the key diffs (`counter.rs`, `_generate_schema.py`, `input_python.rs`, `tests/types/test_counter.py`) without cloning. Fetching the pre-PR `_generate_schema.py` through the contents API with `Accept: application/vnd.github.raw` gave me the old `_mapping_schema` for the before/after comparison.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. The first call also dumped a large raw PR JSON blob that I only needed a few fields from. My write to `/tmp/d.diff` failed, so the `.patch` call was effectively the first one that worked, and I fetched `/files` three times. I read hunks only, so I could not check surrounding code or run anything. I never looked at `errors/types.rs` or the Rust serializer.
-
-3. **Next time:** Fetch `/files` once into a shell variable, filter with `jq` from the start, and avoid redirects. I would also pull the issue #13704 text and the old `dict_type` error behaviour instead of inferring them.
-
-4. **Confidence:** Medium-high. The behavioural claims are backed by the diffs and the PR's own tests. The old error type is inferred rather than observed, and nothing was executed.

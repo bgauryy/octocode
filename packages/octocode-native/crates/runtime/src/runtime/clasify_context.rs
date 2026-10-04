@@ -150,13 +150,13 @@ pub(crate) fn unavailable_context_message(tool: &str, available: impl Fn(&str) -
     let gate = id.map(ToolId::availability_env_vars).unwrap_or_default();
     let enable = match id.and_then(ToolId::availability_config_path) {
         Some(path) if !gate.is_empty() => format!(
-            "Enable it with {} (config {path}); tools.enabled/tools.disabled can also exclude it.",
+            "Enable it with {} (config {path}); tools.enabled/tools.disabled/tools.family can also exclude it.",
             gate.iter()
                 .map(|var| format!("{var}=true"))
                 .collect::<Vec<_>>()
                 .join(" or ")
         ),
-        _ => "Check tools.enabled/tools.disabled.".to_owned(),
+        _ => "Check tools.enabled/tools.disabled/tools.family.".to_owned(),
     };
     let enabled = crate::tools::id::clasify_policy::SCOUT_TOOLS
         .iter()

@@ -1,7 +1,0 @@
-**Helped:** The first parallel batch, `ghStructure` on `fastapi/security` at branch `4b3949cd9e` and `ghSearchCode` for "class", gave the module list and every class with its base in two calls. `ghStructure` also returned the full commit SHA. The second batch, `ghGetFileContent` on `__init__.py` and `base.py` with `fullContent`, confirmed the re-exports and `SecurityBase` at the pinned commit.
-
-**Did not help:** `ghSearchCode` searches the indexed default branch, and its result reported `commitSha` `5f9fc5c5`, not the pinned `4b3949cd9e`. The per-module class lists are therefore not verified at the requested commit. I disclosed that in the answer, but I should have closed the gap with a pinned `ghGetFileContent` read of `api_key.py`, `http.py`, `oauth2.py` and `open_id_connect_url.py`. The search output was also noisy, since "class" matched docstring lines. I never opened `utils.py`, so my claim that it holds only functions is an inference.
-
-**Next time:** Skip `ghSearchCode`. Read each module at the pinned SHA in one batched `ghGetFileContent` call, using `matchString: "^class "` to keep the output small. Also read `utils.py`.
-
-**Confidence:** Medium-high. The module list, `__init__.py` and `base.py` were read at the pinned commit. The class hierarchy is very likely identical at that commit but was not checked there.

@@ -1,7 +1,0 @@
-1. **Helped:** My first `localSearch` was a guessed regex on `JsonSerializerInternalReader.cs`. It returned the tracking setup (`:2065`, `:2467`) and the three `Required` checks (`:2682`, `:2701`, `:2705`) in one call. The `localFetch` range `2640-2730` then gave me the whole of `EndProcessProperty`, which holds the actual enforcement logic.
-
-2. **Did not help:** The second `localFetch` query, with `matchString: "EndProcessProperty("`, returned mostly "lines omitted" fragments. It confirmed the call sites at `:2280` and `:2588` but showed almost no context. The `2460-2475` range also omitted `2476-2639`, which is the main read loop. I never read the body of `SetPropertyPresence`. I also never looked at where `HasRequiredOrDefaultValueProperties` is computed, or how `[JsonRequired]` and `[DataMember(IsRequired)]` become `_required`. I didn't flag the first of those clearly in my answer.
-
-3. **Next time:** I would fetch `SetPropertyPresence` (`2726-2750`) and the `2270-2290` region. I would also run a `localSearch` for `HasRequiredOrDefaultValueProperties` in `JsonObjectContract.cs`. I called `:2280` the constructor path from partial context, so reading it directly would have verified that.
-
-4. **Confidence:** High for the core mechanism, because I saw the `EndProcessProperty` lines directly. Medium for completeness, because the presence-setting and contract-resolution steps are inferred or unread. My statement that `SetPropertyPresence` marks a property as having a value or as null is inferred, not read.

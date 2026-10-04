@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh pr view 16403 --json ...` call gave the PR's state, head SHA, file list and the author's note. `gh pr diff` saved to `/tmp/p.diff` let me slice sections with `awk` and `sed` without refetching. The `pyproject.toml` and `_runtime.py` slices were the most informative.
-
-2. **Did not help:** The first `gh pr diff | head -c 30000` was cut off in `_api.py`, so the second fetch duplicated it. My `grep -n` over `_api.py` and `_asgi.py` returned only scattered definitions. My `sed` line-range slices of those files were fragile and skipped chunks. I never read the end of `_asgi.py` (span ending, exception recording) or `_SENSITIVE_QUERY_PARAMETERS`. I never opened the tests or the review threads, and the `reviews` field was empty. I used no local checkout, so line numbers are diff-relative, not commit-pinned.
-
-3. **Next time:** Save the diff to a file on the first call. Read `_api.py` and `_asgi.py` in full. Run `gh api` for review comments and `gh pr checks`. Grep the diff for `_SENSITIVE_QUERY_PARAMETERS` and `_DEFERRED_PROVIDERS`. Fetch the merged files at the merge commit for real `path:line` references.
-
-4. **Confidence:** Medium. The runtime-behavior claims come straight from diff text I read. The risk assessments are my own inference, and the files I only partly read could change some of them.

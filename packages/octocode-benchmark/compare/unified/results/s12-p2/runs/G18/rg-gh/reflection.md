@@ -1,7 +1,0 @@
-1. **Helped:** `gh api -X GET repos/nodejs/undici/contents/...?ref=v6.21.0 --jq .content | base64 -d | grep` was the fastest path. The second call gave `engines` at `package.json:133-135`. The third call gave the default values at `client.js:229-239`. The Client.md docs in the same call confirmed them. The `git/ref/tags/v6.21.0` call gave the tag commit SHA directly.
-
-2. **Did not help:** My first call used `rg`, which isn't installed, and it also wasted a curl to the npm registry. Every shell call with `/dev/null` redirection or curl printed "Operation not permitted". The curl to the registry never returned `gitHead`. That means I never confirmed the published commit from npm metadata. I only have the tag's commit, and I said so in the answer. The second call also repeated work from the first.
-
-3. **Next time:** I'd skip `rg` and curl and use only `gh api` with `grep`. I'd batch the package.json, client.js and tag lookups into one call. To verify the published commit, I'd try `gh api` on the npm-related repo metadata, or compare the tag against the release commit, and I'd say plainly if that stays unverifiable.
-
-4. **Confidence:** High on Node `>=18.17` and the three timeouts, since both source and docs agree. Medium on the commit SHA, because it comes from the tag and not from npm's `gitHead`.

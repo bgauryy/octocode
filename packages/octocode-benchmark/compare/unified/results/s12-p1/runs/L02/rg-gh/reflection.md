@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call was the one that got the answer. `grep -rn "unsaved related object" django` found the error string, and `grep -n "def _prepare_related_fields_for_save" -A45 django/db/models/base.py` in the same call showed the whole function body. The third call (`sed -n 1320,1335p` plus `grep -rn "_prepare_related_fields_for_save" django`) finished the generic-FK branch and listed the callers.
-
-2. **Did not help:** The first call was mostly wasted. `rg` isn't installed, even though the instructions listed it. `git rev-parse HEAD` also failed with `/dev/null: Operation not permitted`. Every Bash call printed the same `/dev/null` error as noise. Because `git` failed, I could not confirm the checkout is at commit 4fab678a07, and I said so in the answer. I never opened the call site at `query.py:1042`, so I could not name the operation it serves. I said that too.
-
-3. **Next time:** I'd use `grep` from the start. I'd read `.git/HEAD` directly with `cat` to verify the commit. I'd also read around `query.py:1042` before listing it as a caller.
-
-4. **Confidence:** High for the check's location and mechanism, because I read the code directly. Medium on the "pinned commit" claim, since I couldn't verify the checkout's commit.

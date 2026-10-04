@@ -1,7 +1,0 @@
-**1. Helped:** The first `ghSearchHistory` call, with two keyword variants in one batch, found both PRs (#18091 and #19399) right away. The batched `ghGetHistoryItem` call with `include: ["body"]` then gave the issue reference (#12024), the merge SHAs and the mix-up explanation in one step. The `commit` lookup on `ea954809ce` gave its date (2026-09-26), which showed both August merges fall before it.
-
-**2. Did not help:** The second search variant returned a lot of noise, such as renovate bumps and the 2020 Docker Swarm PRs. I never checked ancestry directly; I only compared dates. I did not open issue #12024, and I did not read the diffs, so the fix mechanism rests on the PR author's own description. The #18091 body says "Fixes Fixes #12024", a typo I silently normalised.
-
-**3. Next time:** I would run the same first search with just one query. I would also fetch #19399's `files` or a `matchString` on the diff to confirm the per-target client in code, and read issue #12024 to confirm it closed. For ancestry, I'd use a compare or merge-base check instead of dates.
-
-**4. Confidence:** High on the PR numbers, the issue number and the mix-up description, because the PR bodies state them explicitly. Medium-high on both PRs being in `ea954809ce`, since that rests on dates alone.

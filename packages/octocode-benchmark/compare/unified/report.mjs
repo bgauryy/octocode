@@ -4,7 +4,7 @@
 //   node report.mjs --run-id <id>
 import fs from 'node:fs';
 import path from 'node:path';
-import { RESULTS_DIR, TARIFF, UNIFIED_DIR, hashFile, loadQuestions, mean, median, parseArgs, readJson, weightedUsage, writeJson } from './lib.mjs';
+import { RESULTS_DIR, TARIFF, UNIFIED_DIR, hashFile, judgePairs, loadQuestions, mean, median, parseArgs, readJson, readJudgePlan, weightedUsage, writeJson } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 if (!args['run-id']) throw new Error('--run-id is required');
@@ -16,8 +16,7 @@ const workers = manifest.workers;
 const questions = loadQuestions().filter((q) => manifest.questionIds.includes(q.id));
 const maybe = (p) => (fs.existsSync(p) ? readJson(p) : null);
 
-const pairs = [];
-for (let i = 0; i < workers.length; i++) for (let j = i + 1; j < workers.length; j++) pairs.push([workers[i], workers[j]]);
+const pairs = judgePairs(workers, readJudgePlan(runDir)?.anchor);
 
 const k = (n) => (n == null ? '—' : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
 const f1 = (n) => (n == null ? '—' : n.toFixed(1));

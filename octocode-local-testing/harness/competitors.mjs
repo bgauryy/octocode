@@ -410,7 +410,7 @@ const isPaging = ({ name, hint }) => PAGING_NAME.test(name) || PAGING_KEYS.some(
 // A query that asked for a window (range, match, block, view) is partial by
 // request: its omission markers and isPartial flag are not truncation.
 const WINDOW_KEYS = ['matchString', 'ranges', 'startLine', 'endLine', 'block', 'symbol', 'view', 'charLength', 'charOffset', 'offset', 'chunkSize', 'fileFilter', 'matchContext', 'contextLines'];
-const OMISSION = /\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) omitted\] \.\.\.|\[\.\.\.\s*\d+ (?:more|omitted)[^\]]*\]/;
+const OMISSION = /\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) (?:omitted|not requested)\] \.\.\.|\[\.\.\.\s*\d+ (?:more|omitted)[^\]]*\]/;
 
 /** Truncation signals under one row: [{at, signal}], skipping continuation values. */
 function trimSignals(node, at, windowed, out = []) {

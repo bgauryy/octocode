@@ -96,6 +96,10 @@ pub struct SearchMatch {
     pub original_chars: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_chars: Option<usize>,
+    /// The innermost declaration around the hit, `kind [Parent.]name@line`
+    /// (its name line); set on small result pages only.
+    #[serde(rename = "in", skip_serializing_if = "Option::is_none")]
+    pub enclosing: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

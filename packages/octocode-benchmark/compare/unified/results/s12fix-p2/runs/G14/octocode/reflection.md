@@ -1,7 +1,0 @@
-1. **Helped:** One `ghGetFileContent` call on `prometheus/client_golang`, `prometheus/histogram.go`, branch `v1.20.0`, with `matchString` for `DefBuckets` and `len(opts.Buckets) == 0`. It returned the `DefBuckets` values (lines 261-265), the `HistogramOpts.Buckets` doc comment (387-397), the constructor check (563-565) and the pinned commit SHA. Everything needed was in that single read.
-
-2. **Did not help:** The first call, `ghSearchCode` for `DefBuckets` in `histogram.go`, failed with a rate-limit error and was wasted. The file read omitted lines 272-386 and 400-557, and I never read them. I took the repo name from memory and never confirmed it with `ghSearchRepo`. That is why the "official" claim stayed unverified, as I said in the answer.
-
-3. **Next time:** Skip code search for a known file and go straight to `ghGetFileContent`. Add one `ghSearchRepo` row to confirm the repo and its official status. Fetch the native-histogram doc range (about 399-430) to check for other conditions.
-
-4. **Confidence:** High on the default boundaries and the two conditions where they don't apply, because both the doc comment and the code at the pinned tag agree. Medium on the "official" framing, since I only assumed it.

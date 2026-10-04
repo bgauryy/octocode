@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh api -X GET repos/pallets/click/pulls/3866` call gave the PR body, merge SHA and the list of changed files in one request. The second call, `.../pulls/3866/files` with a `select` on `src/click/core.py` and `CHANGES.md`, returned the actual patches. Those patches had the warning conditions and messages, so I didn't need a checkout.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. The output was still correct, but the noise was unexpected and could hide a real error. I never opened the test patches or the upgrade guide. I also had no way to check whether `main` still behaves this way, because I only read the PR diff. Because that was pinned to the PR, line numbers for `core.py` were not available either, so I gave function names instead.
-
-3. **Next time:** I would also fetch the `tests/test_deprecations.py` patch to confirm the exact declarations that warn. I would fetch `core.py` at the merge commit via `gh api repos/pallets/click/contents/...?ref=06b2a678` to get line numbers and check `main`.
-
-4. **Confidence:** Medium-high. The behavior comes straight from the merged diff. I did not confirm it with tests, and I did not check it against current `main`.

@@ -1,7 +1,0 @@
-1. **Helped:** Two calls did all the work. `localSearch` for `def _save_table` in `base.py` gave the exact line (1075) in one hit. A single `localFetch` of lines 1075-1250 then returned the whole decision logic with line numbers: the PK-default force-insert skip, the `pk_set and not force_insert` UPDATE gate, the `NotUpdated` branches and the INSERT fallback. Guessing the literal first, as the server instructions suggest, avoided any broad searching.
-
-2. **Did not help:** Nothing errored and no calls were wasted. My `localFetch` range ended at 1250, in the middle of `_do_update`. The comment at 1239-1246 says existence is re-checked when the UPDATE returns 0, but I never saw that code. I also never looked at `save_base` or `save`, so I haven't confirmed how they call `_save_table`. I disclosed both gaps in the answer.
-
-3. **Next time:** I'd fetch to about line 1270 so `_do_update` is complete. I'd also batch a second `localSearch` for `save_base` in the same call as the first.
-
-4. **Confidence:** High for the core answer. The UPDATE-versus-INSERT decision, the PK-default exception and the `NotUpdated` behavior are all quoted from lines I read. Medium for the `select_on_save` detail, since the tail of `_do_update` is unread.

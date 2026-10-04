@@ -1,7 +1,0 @@
-**1. Helped:** The first `ghSearchCode` for `_transport_for_url` located the method and its call site (line 1005) in one call, and returned the pinned commit SHA. The batched `ghGetFileContent` call (a line range plus a `matchString` for `proxy_map` and `get_environment_proxies`) then showed the decision logic (760-769) and the `_get_proxy_map` and `__init__` mount setup in one round trip.
-
-**2. Did not help:** The `matchString` output was noisy. It elided large stretches ("lines 54-234 omitted") and also matched the async client, so I needed a third `ghGetFileContent` call with explicit `ranges` to see lines 249-251 and 685-722. The ranges call also cut off mid-file, which is why I only saw the end of `_get_proxy_map`. I never read `URLPattern.matches`, `URLPattern`'s ordering, or `get_environment_proxies` in `_utils.py`, so how patterns are matched and ordered stayed unverified. I stated that gap in the answer.
-
-**3. Next time:** In the second call I'd fetch `httpx/_utils.py` for `URLPattern` and `get_environment_proxies`. I'd also use tight explicit ranges from the start instead of `matchString`.
-
-**4. Confidence:** High for the core mechanism: the first matching mount wins, `None` means direct, and no match means direct. All of it was read at the pinned commit. Medium for the details around pattern ordering and environment-variable handling, which I didn't read.

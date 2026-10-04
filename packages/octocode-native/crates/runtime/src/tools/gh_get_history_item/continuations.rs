@@ -309,15 +309,19 @@ pub(super) fn pr_next_menu(
     Value::Object(next.into_iter().take(MENU_CAP).collect())
 }
 
-/// Longest added-line prefix `next.readAtMerge` anchors its read on.
-const MERGE_ANCHOR_CHARS: usize = 60;
+/// Lines `next.readAtMerge` reads around each hunk's new-side span, so the
+/// merged window shows the enclosing code beyond the diff context.
+const MERGE_WINDOW_PAD: usize = 10;
+/// Ranges one `ghGetFileContent` read takes (the contract's `maxItems`).
+const MERGE_WINDOW_RANGES: usize = 10;
 
 /// `next.readAtMerge`: a merged pull request whose patch rows were read
-/// offers its first changed code file (not a test) at the merge commit, as a
-/// block read anchored on that file's first added line, so the fix is
-/// checked in the code that shipped. `None` for unmerged pull requests, for
-/// a `matchString` read (a targeted answer already), and for windows without
-/// such a file or an added line to anchor on.
+/// offers its most-changed code file (not a test) at the merge commit, as
+/// one numbered read of every hunk's new-side lines (padded, merged, at most
+/// [`MERGE_WINDOW_RANGES`] ranges), so the fix is checked in the code that
+/// shipped. `None` for unmerged pull requests, for a `matchString` read (a
+/// targeted answer already), and for windows without such a file or an
+/// added line.
 pub(super) fn read_at_merge(
     query: &HistoryItemRequest,
     raw: &Value,
@@ -332,17 +336,23 @@ pub(super) fn read_at_merge(
         .get("merge_commit_sha")
         .and_then(Value::as_str)
         .filter(|sha| !sha.is_empty())?;
-    let patched = files
+    let (path, ranges) = files
         .as_array()?
         .iter()
         .filter_map(|file| {
             let path = file.get("path")?.as_str()?;
-            Some((path, first_added_line(file.get("patch")?.as_str()?)?))
+            let patch = file.get("patch")?.as_str()?;
+            (classify_file_type(path) == Some(FileType::Code)
+                && !is_test_path(path)
+                && adds_lines(patch))
+            .then_some(())?;
+            let ranges = merge_windows(patch);
+            (!ranges.is_empty()).then(|| (churn(file), path, ranges))
         })
-        .collect::<Vec<_>>();
-    let (path, anchor) = patched.iter().find(|(path, _)| {
-        classify_file_type(path) == Some(FileType::Code) && !is_test_path(path)
-    })?;
+        // The most-changed file; the first of equals.
+        .rev()
+        .max_by_key(|(churn, _, _)| *churn)
+        .map(|(_, path, ranges)| (path, ranges))?;
     Some(json!({
         "tool": ToolId::GhGetFileContent.as_str(),
         "confidence": "high",
@@ -351,31 +361,85 @@ pub(super) fn read_at_merge(
             "repo": query.repo(),
             "branch": sha,
             "path": path,
-            "matchString": anchor,
-            "block": true,
+            "ranges": ranges,
         },
     }))
 }
 
-/// The first added patch line with something to match on (not a lone
-/// brace or a redaction placeholder), trimmed and cut to
-/// [`MERGE_ANCHOR_CHARS`].
-fn first_added_line(patch: &str) -> Option<String> {
+/// A diff line's text without its numbered gutter (`N\t` or `\t`).
+fn diff_text(line: &str) -> &str {
+    match line.split_once(crate::runtime::numbered::SEPARATOR) {
+        Some((gutter, text)) if gutter.bytes().all(|b| b.is_ascii_digit()) => text,
+        _ => line,
+    }
+}
+
+/// Whether a patch adds a line with something to read (not a lone brace or
+/// a redaction placeholder).
+fn adds_lines(patch: &str) -> bool {
     patch
         .lines()
+        .filter(|line| !line.starts_with("@@"))
+        .map(diff_text)
         .filter(|line| !line.starts_with("+++"))
         .filter_map(|line| line.strip_prefix('+'))
-        .map(str::trim)
-        .find(|text| {
+        .any(|text| {
             text.chars().filter(|c| c.is_alphanumeric()).count() >= 3 && !text.contains("[REDACTED")
         })
-        .map(|text| {
-            text.chars()
-                .take(MERGE_ANCHOR_CHARS)
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
-        })
+}
+
+/// Added plus removed lines of a patch row's `stat` (`M +3 -1`).
+fn churn(file: &Value) -> usize {
+    file.get("stat")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .split(' ')
+        .filter_map(|part| part.trim_start_matches(['+', '-']).parse::<usize>().ok())
+        .sum()
+}
+
+/// The new-side span of every hunk header (`@@ -a,b +c,d @@`), padded by
+/// [`MERGE_WINDOW_PAD`] lines and merged where they touch; past
+/// [`MERGE_WINDOW_RANGES`] spans, the closest neighbours merge. Pure
+/// deletions (`+c,0`) have no new-side lines.
+fn merge_windows(patch: &str) -> Vec<String> {
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for header in patch.lines().filter(|line| line.starts_with("@@")) {
+        let Some(side) = header.split(' ').find_map(|part| part.strip_prefix('+')) else {
+            continue;
+        };
+        let mut numbers = side.split(',').map(str::parse::<usize>);
+        let (Some(Ok(start)), count) = (numbers.next(), numbers.next()) else {
+            continue;
+        };
+        let count = match count {
+            Some(Ok(count)) => count,
+            Some(Err(_)) => continue,
+            None => 1,
+        };
+        if count == 0 {
+            continue;
+        }
+        let span = (
+            start.saturating_sub(MERGE_WINDOW_PAD).max(1),
+            start + count - 1 + MERGE_WINDOW_PAD,
+        );
+        match spans.last_mut() {
+            Some(last) if span.0 <= last.1 + 1 => last.1 = last.1.max(span.1),
+            _ => spans.push(span),
+        }
+    }
+    while spans.len() > MERGE_WINDOW_RANGES {
+        let closest = (1..spans.len())
+            .min_by_key(|&i| spans[i].0 - spans[i - 1].1)
+            .unwrap_or(1);
+        spans[closest - 1].1 = spans[closest].1;
+        spans.remove(closest);
+    }
+    spans
+        .into_iter()
+        .map(|(start, end)| format!("{start}-{end}"))
+        .collect()
 }
 
 /// A pull-request `contentPagination` axis: its `next.*` name, the page field
@@ -491,14 +555,13 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
     }
 }
 
-/// The lossless re-read of every patch row whose view is not the raw patch
-/// (rows marked `fullPatchChars`, kept on rows only with `debug`):
-/// `next.readFullPatches` for a `matchString` view (hit lines, clipped long
-/// lines), `next.readUntrimmed` for a minified view (context replaced by
-/// `...`). Both read the selected files with `minify:"none"` and page through
-/// the patch window; more files than one selection holds continue in
-/// `readFullPatches2`, `readFullPatches3`, …. Many narrowed files without an
-/// explicit `matchContext` also get `next.widenContext`.
+/// The lossless re-read of every patch row a `matchString` view narrowed
+/// (hit lines, clipped long lines; rows marked `fullPatchChars`, kept on
+/// rows only with `debug`): `next.readFullPatches` reads the selected files
+/// whole and pages through the patch window; more files than one selection
+/// holds continue in `readFullPatches2`, `readFullPatches3`, …. Many
+/// narrowed files without an explicit `matchContext` also get
+/// `next.widenContext`.
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
     let narrowed = take_reshaped_paths(out.pointer_mut("/pullRequests/0/changedFiles"), q.debug());
     if narrowed.is_empty() {
@@ -511,18 +574,14 @@ pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemReq
     if !out.get("next").is_some_and(Value::is_object) {
         out["next"] = json!({});
     }
-    let name = if q.match_string().is_some() {
-        if narrowed.len() > WIDEN_CONTEXT_FILES && q.match_context().is_none() {
-            let mut widen = nq.clone();
-            widen["matchContext"] = json!(WIDEN_MATCH_CONTEXT);
-            out["next"]["widenContext"] = continuation(widen);
-        }
-        remove_key(&mut nq, "matchString");
-        remove_key(&mut nq, "matchContext");
-        "readFullPatches"
-    } else {
-        "readUntrimmed"
-    };
+    if narrowed.len() > WIDEN_CONTEXT_FILES && q.match_context().is_none() {
+        let mut widen = nq.clone();
+        widen["matchContext"] = json!(WIDEN_MATCH_CONTEXT);
+        out["next"]["widenContext"] = continuation(widen);
+    }
+    remove_key(&mut nq, "matchString");
+    remove_key(&mut nq, "matchContext");
+    let name = "readFullPatches";
     nq["minify"] = json!("none");
     for (index, files) in narrowed.chunks(SELECTED_PATCH_FILES).enumerate() {
         let mut read = nq.clone();
@@ -1050,32 +1109,6 @@ mod tests {
         assert!(out["next"].get("widenContext").is_none(), "{out}");
     }
 
-    /// A minified PR patch view (context replaced by `...`) offers
-    /// `next.readUntrimmed`: the trimmed files only, raw.
-    #[test]
-    fn minified_patch_views_offer_the_untrimmed_patches() {
-        let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
-            "include":["patches"],"charOffset":40
-        }))
-        .expect("pr query");
-        let mut out = json!({"type":"pullRequests","pullRequests":[{"changedFiles":[
-            {"path":"src/a.rs","patch":"@@ -1,40 +1,40 @@\n a\n...\n-x\n+y","fullPatchChars":900},
-            {"path":"src/b.rs","patch":"+short"}
-        ]}]});
-        attach_full_patch_continuation(&mut out, &query);
-        let next = &out["next"]["readUntrimmed"]["query"];
-        assert_eq!(next["minify"], "none", "{out}");
-        assert_eq!(
-            next["content"],
-            json!({"patches":{"mode":"selected","files":["src/a.rs"]}}),
-            "{out}"
-        );
-        assert!(next.get("charOffset").is_none(), "{next}");
-        assert!(out["next"].get("readFullPatches").is_none(), "{out}");
-        assert!(!out.to_string().contains("fullPatchChars"), "{out}");
-    }
-
     /// `next.readRawBody` re-reads only the minified surfaces, raw, from
     /// their first character, on the same comment page.
     #[test]
@@ -1109,7 +1142,7 @@ mod tests {
     fn reshaped_files_past_one_selection_continue_in_numbered_reads() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
-            "include":["patches"]
+            "include":["patches"],"matchString":"x"
         }))
         .expect("pr query");
         let rows = (0..SELECTED_PATCH_FILES + 3)
@@ -1123,14 +1156,18 @@ mod tests {
                 .cloned()
                 .unwrap_or_default()
         };
-        assert_eq!(files("readUntrimmed").len(), SELECTED_PATCH_FILES, "{out}");
         assert_eq!(
-            files("readUntrimmed2"),
+            files("readFullPatches").len(),
+            SELECTED_PATCH_FILES,
+            "{out}"
+        );
+        assert_eq!(
+            files("readFullPatches2"),
             (SELECTED_PATCH_FILES..SELECTED_PATCH_FILES + 3)
                 .map(|i| json!(format!("src/{i}.rs")))
                 .collect::<Vec<_>>()
         );
-        assert!(out["next"].get("readUntrimmed3").is_none(), "{out}");
+        assert!(out["next"].get("readFullPatches3").is_none(), "{out}");
     }
 
     /// Many narrowed files get `widenContext` (matchContext 3) beside the
@@ -1179,8 +1216,9 @@ mod tests {
         }
     }
 
-    /// A merged PR whose patches were read offers the first changed source
-    /// file at the merge commit, anchored on its first added line.
+    /// A merged PR whose patches were read offers its most-changed source
+    /// file at the merge commit: one read of every hunk's new-side lines,
+    /// padded and merged.
     #[test]
     fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
@@ -1189,9 +1227,10 @@ mod tests {
         .expect("pr query");
         let merged = json!({"merged_at":"2026-09-11T15:55:40Z","merge_commit_sha":"8fcd6a6"});
         let files = json!([
-            {"path":"acceptance/testdata/pr/merge.txtar","stat":"M +6 -2","patch":"@@ -33,2 +33,2 @@\n-# Merge\n+# Merge and delete"},
-            {"path":"pkg/cmd/pr/merge/merge.go","stat":"M +2 -2","patch":"@@ -589,7 +589,7 @@ func New() {\n \t\tdeleteBranch: opts.DeleteBranch,\n-\t\tcrossRepoPR: pr.HeadRepositoryOwner.Login != baseRepo.RepoOwner(),\n+\t\t}\n+\t\tcrossRepoPR:        pr.IsCrossRepository,"},
-            {"path":"pkg/cmd/pr/merge/merge_test.go","stat":"M +55 -0","patch":"@@ -1 +1 @@\n+func TestX() {}"}
+            {"path":"acceptance/testdata/pr/merge.txtar","stat":"M +6 -2","patch":"@@ -33,2 +33,2 @@\n\t-# Merge\n33\t+# Merge and delete"},
+            {"path":"pkg/cmd/pr/view.go","stat":"M +1 -0","patch":"@@ -9,1 +9,2 @@\n9\t x\n10\t+y := 1"},
+            {"path":"pkg/cmd/pr/merge/merge.go","stat":"M +2 -2","patch":"@@ -589,7 +589,7 @@ func New() {\n589\t \t\tdeleteBranch: opts.DeleteBranch,\n\t-\t\tcrossRepoPR: x,\n590\t+\t\tcrossRepoPR:        pr.IsCrossRepository,\n@@ -600,3 +600,3 @@\n600\t+\tok := true\n@@ -900,1 +900,1 @@\n900\t+\tdone()"},
+            {"path":"pkg/cmd/pr/merge/merge_test.go","stat":"M +55 -0","patch":"@@ -1 +1 @@\n1\t+func TestX() {}"}
         ]);
         let read = read_at_merge(&query, &merged, &files).expect("offer");
         assert_eq!(read["tool"], "ghGetFileContent");
@@ -1199,7 +1238,7 @@ mod tests {
             read["query"],
             json!({"owner":"cli","repo":"cli","branch":"8fcd6a6",
                 "path":"pkg/cmd/pr/merge/merge.go",
-                "matchString":"crossRepoPR:        pr.IsCrossRepository,","block":true})
+                "ranges":["579-612","890-910"]})
         );
         // Open PRs, inventories without patches, and patches with nothing
         // added offer nothing.
@@ -1207,27 +1246,32 @@ mod tests {
         assert!(read_at_merge(&query, &open, &files).is_none());
         let inventory = json!(["M +2 -2 pkg/cmd/pr/merge/merge.go"]);
         assert!(read_at_merge(&query, &merged, &inventory).is_none());
-        let removed = json!([{"path":"a.go","stat":"M +0 -1","patch":"@@ -1 +0,0 @@\n-x := 1"}]);
+        let removed = json!([{"path":"a.go","stat":"M +0 -1","patch":"@@ -1 +0,0 @@\n\t-x := 1"}]);
         assert!(read_at_merge(&query, &merged, &removed).is_none());
         // Docs and tests are not the shipped fix: no code file, no offer.
         let no_code = json!([
-            {"path":"acceptance/README.md","stat":"M +1 -0","patch":"@@ -1 +1 @@\n+Run the acceptance suite"},
-            {"path":"pkg/cmd/pr/merge/merge_test.go","stat":"M +1 -0","patch":"@@ -1 +1 @@\n+func TestX() {}"}
+            {"path":"acceptance/README.md","stat":"M +1 -0","patch":"@@ -1 +1 @@\n1\t+Run the acceptance suite"},
+            {"path":"pkg/cmd/pr/merge/merge_test.go","stat":"M +1 -0","patch":"@@ -1 +1 @@\n1\t+func TestX() {}"}
         ]);
         assert!(read_at_merge(&query, &merged, &no_code).is_none());
-        // The anchor is a short prefix of the added line.
-        let long = format!(
-            "+\t{}",
-            "fields := []string{\"id\", \"number\", \"state\", \"title\", \"lastCommit\", \"headRefName\"}"
+    }
+
+    /// Hunk spans merge where their padded windows touch, start at line 1,
+    /// skip pure deletions, and fit one read's range cap.
+    #[test]
+    fn merge_windows_fit_one_ranged_read() {
+        assert_eq!(merge_windows("@@ -1,3 +1,4 @@ fn a\n"), ["1-14"]);
+        assert_eq!(merge_windows("@@ -5 +5 @@\n@@ -40,2 +38,0 @@\n"), ["1-15"]);
+        let many = (0..15)
+            .map(|i| format!("@@ -{0},1 +{0},1 @@\n", 100 * (i + 1) + i))
+            .collect::<String>();
+        let ranges = merge_windows(&many);
+        assert_eq!(ranges.len(), MERGE_WINDOW_RANGES, "{ranges:?}");
+        assert!(ranges[0].starts_with("90-"), "{ranges:?}");
+        assert!(
+            ranges[MERGE_WINDOW_RANGES - 1].ends_with("-1524"),
+            "{ranges:?}"
         );
-        let files =
-            json!([{"path":"a.go","stat":"M +1 -0","patch":format!("@@ -1 +1 @@\n{long}")}]);
-        let anchor = read_at_merge(&query, &merged, &files).expect("offer")["query"]["matchString"]
-            .as_str()
-            .map(str::to_owned)
-            .expect("anchor");
-        assert!(anchor.chars().count() <= 60, "{anchor}");
-        assert!(long.contains(&anchor), "{anchor}");
     }
 
     #[test]

@@ -1,7 +1,0 @@
-**1. Helped:** Two calls did all the work. `localSearch` for `function debounce\(` gave the exact line (10403) in `lodash.js`. `localFetch` on lines 10403–10525 returned the whole function body with line numbers, which was enough to answer fully and cite lines.
-
-**2. Did not help:** `localSearch` returned `isPartial: true` and `capped: true` (`binaryQuit`), plus warnings about vendor GIF files. The single match was still the right one, but I could not confirm there were no other definitions. It was noise, and an `include` filter for `*.js` would have avoided it. I could not check that the checkout was actually at commit 2b5e6f7399. No tool I called reported the checked-out SHA, and I took the prompt's word for it. I also did not search for tests or docs that might confirm the `maxWait` behavior.
-
-**3. Next time:** I would scope the search to `*.js` files, and I would try to verify the commit before citing lines as pinned. I would also add a quick check of the `debounce` tests to back up the `maxWait` description with observed behavior rather than code reading alone.
-
-**4. Confidence:** High on the logic description, since every claim traces to lines I read directly. Medium-high on the line numbers being "at the pinned commit", because the commit was assumed rather than verified. I did not run any code.

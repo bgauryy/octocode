@@ -675,6 +675,42 @@ impl ToolRuntime {
                 .is_some_and(|names| names.iter().any(|name| name == tool))
     }
 
+    /// True when the `tools.family` preset leaves the tool out: `local` keeps
+    /// local and remote tools, `github` keeps GitHub and remote tools (core
+    /// `TOOL_POLICIES` family). It only narrows the tool lists.
+    fn excluded_by_family(&self, tool: &str) -> bool {
+        let Some(id) = ToolId::from_name(tool) else {
+            return false;
+        };
+        match self.config.resolved.tools.family.as_str() {
+            "local" => id.is_github(),
+            "github" => id.is_local(),
+            _ => false,
+        }
+    }
+
+    /// MCP presentation switches (`mcp.*` config): the tools/list input view,
+    /// the instructions variant, and the available tools served only through
+    /// the deferred-tool dispatcher.
+    fn presentation(&self) -> Value {
+        let mcp = &self.config.resolved.mcp;
+        let deferred: Vec<&str> = ToolId::ALL
+            .iter()
+            .map(|id| id.as_str())
+            .filter(|name| {
+                mcp.deferred
+                    .as_ref()
+                    .is_some_and(|names| names.iter().any(|deferred| deferred == name))
+                    && self.is_available(name)
+            })
+            .collect();
+        json!({
+            "publishedView": mcp.published_view,
+            "instructions": mcp.instructions,
+            "deferred": deferred,
+        })
+    }
+
     /// CLI `graph ingest`: builds and publishes a code-graph snapshot under
     /// the same path policy and content security as the local tools.
     pub fn graph_ingest(&self, options: &graph_store::IngestOptions) -> graph_store::GraphOutput {
@@ -722,6 +758,7 @@ impl ToolRuntime {
             || id == Some(ToolId::ArtifactSearch)
             || classification)
             && !self.excluded_by_tool_list(tool)
+            && !self.excluded_by_family(tool)
     }
 
     /// Runtime truth only: tool names, availability, grammar capabilities, and
@@ -743,6 +780,8 @@ impl ToolRuntime {
                 });
                 if self.excluded_by_tool_list(name) {
                     entry["unavailableReason"] = json!("toolsList");
+                } else if self.excluded_by_family(name) {
+                    entry["unavailableReason"] = json!("family");
                 } else if self.input.runtime_surface != RuntimeSurface::Cli
                     && ToolId::from_name(name).is_some_and(ToolId::is_cli_only)
                 {
@@ -758,6 +797,7 @@ impl ToolRuntime {
             // Languages whose lspSearch server resolves here (resolution only,
             // cached per process); hosts render it into the lspSearch description.
             "lspServers": octocode_engine::lsp::config::available_server_languages(),
+            "presentation": self.presentation(),
             "tools": tools,
         }))
     }
@@ -1038,6 +1078,13 @@ impl ToolRuntime {
             .filter(|_| clasify.is_none())
             .and_then(|snapshot| self.page_replays.get(&replay_key, snapshot));
         let page_replays = self.page_replays.clone();
+        let family_excluded: Vec<&'static str> = ToolId::ALL
+            .iter()
+            .map(|id| id.as_str())
+            .filter(|name| self.excluded_by_family(name))
+            .collect();
+        let family_scope = (!family_excluded.is_empty())
+            .then(|| format!("tools.family {}", self.config.resolved.tools.family));
         let outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
@@ -1088,6 +1135,15 @@ impl ToolRuntime {
                     &dispatcher,
                     &context,
                 )?;
+                let evaluated = super::read_share::share_window(
+                    id,
+                    &queries,
+                    evaluated,
+                    (!options.explicit()).then_some(auto_page_chars),
+                    |shortened| {
+                        execute_ordinary_queries(id, shortened, None, &dispatcher, &context)
+                    },
+                )?;
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digest = None;
                 let mut failure = None;
@@ -1125,7 +1181,7 @@ impl ToolRuntime {
                 )?;
                 super::clasify_handoff::attach(&mut structured, &tool, &by_row);
                 super::continuations::inherit_briefs(&mut structured, &by_row);
-                super::continuations::filter_unavailable_cross_tool_next(
+                super::continuations::filter_rows_and_disclose(
                     &mut structured,
                     &tool,
                     // An MCP-mode call can never execute a contract `cliOnly`
@@ -1133,6 +1189,12 @@ impl ToolRuntime {
                     |target| {
                         !(mcp && ToolId::from_name(target).is_some_and(ToolId::is_cli_only))
                             && dispatcher.available_tools.contains(&target)
+                    },
+                    // A family preset's cross-family drops are disclosed.
+                    |target| {
+                        family_scope
+                            .as_deref()
+                            .filter(|_| family_excluded.contains(&target))
                     },
                 );
                 let seed = (

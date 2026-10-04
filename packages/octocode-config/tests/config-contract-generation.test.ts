@@ -80,7 +80,7 @@ describe('generated config contract', () => {
       expect.objectContaining({
         version: 1,
         github: { apiUrl: 'https://api.github.com', graphqlEnabled: true },
-        tools: { enabled: null, disabled: null },
+        tools: { enabled: null, disabled: null, family: 'all' },
         network: expect.objectContaining({ timeout: 30_000 }),
         output: expect.objectContaining({ format: 'yaml' }),
       })

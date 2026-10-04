@@ -52,6 +52,8 @@ pub(super) fn finish(
     super::channels::split_hints(&mut structured, tool);
     // A row with pages left says so first, with each remaining count.
     super::page_warnings::disclose_remaining_pages(&mut structured);
+    // A batch with partial rows says so before its first row.
+    super::page_warnings::disclose_incomplete_rows(&mut structured);
     // Validate the complete, sanitized rows before deriving text, error state,
     // or a pagination snapshot from them.
     match isolate_output_rows(tool.as_str(), &mut structured) {

@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh api -X GET repos/tokio-rs/tokio/pulls/8546` plus `/files` call returned the PR description and every patch hunk in one go, so I knew exactly what to look for. The second call, a grep of `block.rs` and `list.rs` for the old patterns (`required_index > self.index`, `start_index + BLOCK_CAP`, `slot_index <`), confirmed each spot at its line number. A `sed` of `list.rs` lines 395-415 gave context.
-
-2. **Did not help:** `rg` isn't installed, so my first local search failed with exit 127 and I had to redo it with grep. Every shell call printed "/dev/null: Operation not permitted" noise. `git log` failed for the same reason, so I never checked whether facc6fc47e actually predates 8513291fda. I said so in the answer but only inferred it.
-
-3. **Next time:** Use grep from the start. Try `gh api repos/tokio-rs/tokio/compare/facc6fc47e...8513291fda` to get ancestry (is the PR's merge commit ahead of the pinned commit). Also grep for `channel_from_index` to confirm the test helpers are absent.
-
-4. **Confidence:** High for the three fix sites. I saw the old code in the checkout and the replacements in the diff. Medium-high on "still has the bug", since ancestry was inferred rather than checked, though the old code being present settles it.

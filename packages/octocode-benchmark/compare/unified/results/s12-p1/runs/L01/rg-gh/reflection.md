@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call (grep on `django/middleware/common.py` plus a repo-wide `grep -rn APPEND_SLASH`) located `CommonMiddleware` immediately. The third call, `sed -n 35,120p` on that file plus a grep of `global_settings.py`, gave me the full logic with line numbers in one shot. The answer rested on those two calls.
-
-2. **Did not help:** The first call used `rg`, which isn't installed ("command not found"), so it was wasted. Every Bash call also printed "/dev/null: Operation not permitted". That noise was harmless but distracting, and it might hide real errors. I never checked git state to confirm the checkout was at the pinned commit, and I never opened `request.get_full_path`, `is_valid_path` or `escape_leading_slashes`. I only inferred what they do, and I said so in the answer. I also skipped `django/middleware/locale.py:59`, so my note on it is thin.
-
-3. **Next time:** Start with `grep` instead of assuming `rg` exists. Run `git -C <repo> rev-parse HEAD` to verify the commit. Open the three helper definitions, and read `locale.py` around line 59.
-
-4. **Confidence:** High for the core mechanism, because I read the code directly. Medium for the details of the unread helpers.

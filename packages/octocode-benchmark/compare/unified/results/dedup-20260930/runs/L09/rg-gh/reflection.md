@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call was the most useful. It combined `git log -1` (which confirmed the pinned SHA) with one `rg` for `StaleNaN|endOfRunStaleness|forEachStale|...`, and that gave me nearly every relevant line number. The second call printed the key functions with `sed -n` ranges. The final two `sed` calls, on lines 1570-1634, confirmed the failed-scrape path, including the "A failed scrape is the same as an empty scrape" comment.
-
-2. **Did not help:** That second call was bloated. It mixed many `sed` ranges with another `rg`, and it never showed the `iterDone` lines that swap `seriesCur` into `seriesPrev`. I flagged that gap in the answer rather than closing it. I also didn't trace the scrape-pool stop path at about line 483, so "target removed → loop stop" rests partly on inference. The shell's working directory changed during the session, and I used absolute paths throughout, so that caused no problem.
-
-3. **Next time:** I would read `iterDone` in full and `rg` for `.stop()` callers in `scrapePool.sync` before answering. I would read the function bodies in fewer, more targeted calls.
-
-4. **Confidence:** High for the three mechanisms and their cited lines, because I saw the code directly. Medium for the pool-level stop and reload behavior, because I did not read it.

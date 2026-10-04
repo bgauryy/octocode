@@ -1,7 +1,0 @@
-1. **Helped:** My one Bash call did nearly all the work. It ran `gh api -X GET search/issues` with the query "sharded blocking queue spawn_blocking", and the `--jq` filter printed number, state, merge date and title on one line each. That surfaced #8337, #7757, #8056, #8057 and #8067 together. The second half of the same call, `repos/.../commits/facc6fc47e`, confirmed the SHA resolves to a real commit (#8515).
-
-2. **Did not help:** The shell printed "/bin/bash: /dev/null: Operation not permitted" three times. It did not stop the output, but it was noise. I made only one call, so nothing was repeated. The `.pull_request.merged_at` field showed null for closed PRs like #8067's neighbours, which I read as "not merged" without checking. I never looked at a PR body, the diff, or the code at the pinned commit, so there are no `path:line` citations. I also never checked that #8337 is an ancestor of facc6fc47e. Its date and number make that likely, but I inferred it.
-
-3. **Next time:** I would make a second call. It would run `gh api repos/tokio-rs/tokio/pulls/8337` and `.../pulls/8067` for the bodies, then `compare/8337-merge-sha...facc6fc47e` to check ancestry. I would also grep the source for the flag name.
-
-4. **Confidence:** Medium. The PR numbers, titles and dates are directly observed. The claim that #8337 took over from #8067 is a guess from titles alone, and I did flag it as one.

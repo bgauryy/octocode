@@ -1,7 +1,0 @@
-1. **Helped:** The recursive `grep -rn "generateEtags"` over `packages/next/src` listed every use at once: config, `renderOpts`, `send-payload.ts`, `router-server.ts` and the app-page template. The follow-up call printed `send-payload.ts` lines 35-120 together with the `router-server.ts`, `base-server.ts` and `pages-handler.ts` call sites. That gave me the behaviour and its evidence in two calls.
-
-2. **Did not help:** `rg` isn't installed, so my first call was wasted. Every call also printed `/dev/null: Operation not permitted`. That was noise, though the output was still usable. In the second call I ran `sed` on `send-payload.ts` before checking that `sendEtagResponse` was in that file. It was, but only because the output happened to include it. I never opened `lib/etag.ts` or the `send` module, and I didn't pin or verify the commit with `git`.
-
-3. **Next time:** I'd use `grep -rn` from the start. I'd also read `lib/etag.ts` and check how `send` handles its `etag` option, so the static-file claim doesn't rest on a code comment.
-
-4. **Confidence:** High for the rendered-response path, because I read the code directly. Medium for the static-file behaviour, because it depends on `send` semantics I didn't check.

@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh api pulls/16403` plus `/files` call gave the metadata, merge SHA and file list in one step. Saving `/files` JSON to `$TMPDIR/f.json` and extracting `.patch` with `jq` gave me the `applications.py`, `routing.py`, `background.py` and `pyproject.toml` diffs. Fetching `_runtime.py` and `_asgi.py` raw at the head SHA let me cite line numbers, and `grep -n` located the key functions.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. The second and third calls (piping `2>/dev/null` into a `cd /tmp` loop) returned nothing or an error and were wasted. I never read `_api.py`, the rest of `_asgi.py`, the tests or the docs. Several claims, such as span naming and what data reaches attributes, are therefore unverified. I cited head-SHA lines, not the merge commit.
-
-3. **Next time:** Write to `$TMPDIR` from the start and skip `2>/dev/null`. Fetch all of `fastapi/telemetry/*.py` in one pass. Read the PR review comments through `gh api pulls/16403/comments` and `/reviews`, which I skipped, so I could say what reviewers actually raised.
-
-4. **Confidence:** Medium. The behavior list rests on diffs I read directly. The reviewer concerns are partly my own inference, and I flagged what I hadn't checked.

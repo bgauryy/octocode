@@ -1,7 +1,0 @@
-1. **Helped:** The first successful `localSearch` (one regex alternation over `runtime/task`) located `store_output`, `take_output`, `try_read_output`, `complete` and `set_join_waker` in one call. The batched `localFetch` with five line ranges then gave me the write, read and wake paths in a single round trip. The last `localSearch` (restricted to `harness.rs`, `join.rs` and `core.rs` by `include`) gave me the exact line numbers for the citations.
-
-2. **Did not help:** My first `localSearch` failed validation because I left out `goal` and `reasoning`. That cost one wasted call. The `localFetch` of `join.rs` 300-345 cut off just before the `try_read_output` call. I needed the extra search to confirm line 346. I never opened `state.rs` or `raw.rs`, and I never opened `harness.rs` around lines 500-560. I therefore did not read `poll_future` itself. My claim about `harness.rs:551` and `harness.rs:508` rests only on grep hits for `store_output`.
-
-3. **Next time:** Include `goal` and `reasoning` on every query. Fetch slightly wider ranges. Read `state.rs` `transition_to_complete` and the `poll_future` context. Then the synchronization claims would be verified rather than partly inferred. I would also skim the ownership rules in the `task/mod.rs` header.
-
-4. **Confidence:** Medium-high. The core mechanism is confirmed from the source I read (stage cell, join waker, `take_output`). The `state.rs` details and the `poll_future` context are unverified.

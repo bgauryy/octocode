@@ -1293,6 +1293,7 @@ describe('resolveTools', () => {
     expect(resolveTools({ enabled: ['a'], disabled: ['c'] })).toEqual({
       enabled: ['a'],
       disabled: ['c'],
+      family: 'all',
     });
 
     process.env['TOOLS_TO_RUN'] = 'x,y';
@@ -1300,6 +1301,7 @@ describe('resolveTools', () => {
     expect(resolveTools({ enabled: ['a'], disabled: ['c'] })).toEqual({
       enabled: ['x', 'y'],
       disabled: ['blocked'],
+      family: 'all',
     });
   });
 });

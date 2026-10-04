@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch` was the fastest step. I guessed literals (`MAX_RUN_LENGTH|MAX_HASH_BUCKET_LENGTH|hashFloodingDetected|HashFloodingCheck`) and scoped it to a few filenames. It returned exact lines in `ImmutableSet.java` and a ready-made `localFetch` hint. A single `localFetch` of lines 640-900 then covered the whole mechanism, and the code comments explained intent. A short second `localFetch` (900-944) confirmed the fallback's `build()`.
-
-**2. Did not help:** My regex mixed literals that don't exist (`MAX_RUN_LENGTH`, `HashFloodingCheck`), which added noise but no harm. The `include` list named files I hadn't confirmed exist, and only two matched. I never opened `RegularImmutableSet`, `JdkBackedImmutableSet`, or the `RegularImmutableMap` code around line 250. I also didn't use `lspSearch` to confirm references. There were no errors.
-
-**3. Next time:** I'd run one `localSearch` for `JdkBacked` across the directory to see every fallback site. Then I'd fetch `RegularImmutableMap.java` around line 250 so the map comparison is verified, not just flagged as likely.
-
-**4. Confidence:** High for the set-builder mechanism, since I read the exact code with line numbers and the comments. Medium for the map aside and for any claim about the final set classes, because I didn't read them.

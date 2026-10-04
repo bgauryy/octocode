@@ -127,6 +127,27 @@ export function nextHints(value, pathLabel = '') {
   return hints;
 }
 
+/** A ghGetHistoryItem patch view without its new-side gutter (`N\t` on kept and added lines, a bare tab on removed ones): the raw patch. */
+export function rawPatch(view) {
+  return (view ?? '').split(/(?<=\n)/).map(line => line.startsWith('@@') ? line : line.replace(/^\d*\t/, '')).join('');
+}
+
+/** Whether every kept/added line of a patch view carries its new-side line number (counted from its `@@ -a,b +c,d @@` header) and every removed line a bare tab. */
+export function patchNumbersOk(view) {
+  let next = null;
+  for (const line of (view ?? '').split('\n')) {
+    if (line === '') continue;
+    const header = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (header) { next = +header[1]; continue; }
+    const m = line.match(/^(\d*)\t([\s\S])/);
+    if (!m || next === null) return false;
+    if (m[2] === '-' || m[2] === '\\') { if (m[1] !== '') return false; continue; }
+    if (+m[1] !== next) return false;
+    next++;
+  }
+  return next !== null;
+}
+
 /** Collect objects matching a predicate anywhere in a value. */
 export function collect(value, predicate, out = []) {
   if (value && typeof value === 'object') {
@@ -333,7 +354,7 @@ export function sourceView(file) {
   const records = content.split('\n');
   const trailing = records.at(-1) === '' ? records.pop() : undefined;
   // A gap marker, or one gap-run marker for single lines (ghGetFileContent).
-  const marker = /^\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) omitted\] \.\.\.$/;
+  const marker = /^\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) (?:omitted|not requested)\] \.\.\.$/;
   const numbered = records.length > 0 && records.some(l => /^\d+\t/.test(l)) && records.every(l => /^\d+\t/.test(l) || marker.test(l));
   if (!numbered) return { text: content, ranges: file?.sourceLineRanges ?? [], numbered: false };
   const ranges = [];

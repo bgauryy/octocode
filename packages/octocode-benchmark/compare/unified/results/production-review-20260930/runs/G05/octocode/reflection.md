@@ -1,7 +1,0 @@
-**1. Helped:** Nothing. I made no tool calls. The prompt described Octocode MCP tools, but none were in my callable tool list, so I couldn't run a search, fetch a file, or pin a commit. The answer came entirely from my recall of `requests/sessions.py`.
-
-**2. Did not help:** I could not read `requests/sessions.py` at `611c6162cb`, so the answer has no `path:line` citations. I also did not try to call a tool by guessing its name. I judged that would be fabricating, and I told the user the answer was unverified.
-
-**3. Next time:** With the tools exposed, I'd read `requests/sessions.py` directly at the pinned commit. I'd start with `resolve_redirects` (using `matchString` to find it), then read `rebuild_method`, `rebuild_auth` and `rebuild_proxies`. I'd check `Session.send` for the `allow_redirects` branch. I'd also check `should_strip_auth` in `utils.py`. That is about four targeted calls, and each claim would get a line number.
-
-**4. Confidence:** Medium on the overall behavior, because this is well-known code I remember well. It is low on the exact details that might differ at this commit: the auth-stripping conditions, the 301/302 method rules, and the rewind handling. It is zero on line numbers, which I deliberately didn't give.

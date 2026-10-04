@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` on `LocalCache.java`, with one regex alternation (`segmentShift|segmentMask|maxSegmentWeight|...|concurrencyLevel`), returned the constructor logic at lines 248-324 with context. That covered the segment-count loop, the per-segment weight split, `segmentFor`, and `evictEntries`. The second `localSearch` over the `cache` directory then got the builder default (4) and `MAX_SEGMENTS` in one call.
-
-2. **Did not help:** The first regex was too broad. It also matched the serialization proxy (lines 4678-4735), which added noise. The second search showed only the first few lines of `getMaximumWeight`, so I reported its odd `return 0` branch without understanding it. I never read lines 301-306 or `CacheBuilder.maximumSize`. I also never confirmed the checkout was at the pinned commit; I took that from the task statement.
-
-3. **Next time:** I would use `localFetch` with a line range for `LocalCache.java` 296-324 and for `CacheBuilder.maximumSize`/`getMaximumWeight`. That would close the gaps instead of leaving them as caveats. I would also narrow the regex to the constructor region.
-
-4. **Confidence:** High on the segment-count, mask/shift and per-segment weight-split claims, since I read the code directly. Medium on the `maximumSize`-to-weight mapping and the segment initial-size detail, which I flagged as unverified.

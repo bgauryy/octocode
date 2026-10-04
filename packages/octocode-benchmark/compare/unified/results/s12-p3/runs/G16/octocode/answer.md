@@ -1,7 +1,0 @@
-I did not check whether ea954809ce itself contains these merges. Both PRs merged in August 2026, and I assumed that is before that commit.
-
-- **Feature PR:** #18091, "scrape: support scraping targets via Unix Domain Sockets", by IngmarStein. It merged on 2026-08-06 as merge commit c5fa89db. Its body says "Fixes #12024", so the issue it closed is **#12024**. I read this from the PR body. I did not open the issue.
-- **Fix PR:** #19399, "scrape: use a dedicated HTTP client per unix socket target", by roidelapluie. It merged on 2026-08-14 as merge commit 05f9eb8b.
-- **The mix-up:** The feature passed the socket path (`__scrape_unix_socket__`) to a shared HTTP client's `DialContext` through the request context. The transport keys idle pooled connections only on scheme and `host:port`. Two targets with the same `__address__` but different socket paths could therefore reuse each other's pooled connections and scrape the wrong endpoint. The same could happen with a plain TCP target that shared that address. The fix gives each unix socket path its own scrape client, cached per scrape pool and rebuilt on reload. This comes from the PR description.
-
-I only read the PR descriptions, not the code diffs.

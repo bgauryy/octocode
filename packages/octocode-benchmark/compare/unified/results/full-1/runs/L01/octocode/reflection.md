@@ -1,7 +1,0 @@
-**1. Helped:** The third call, `localFetch` on `django/middleware/common.py` with `startLine` 1 to 180, gave me everything in one read. It returned `CommonMiddleware`, `should_redirect_with_slash`, `get_full_path_with_slash` and `process_response` together. Guessing the file path directly, without searching first, saved calls.
-
-**2. Did not help:** My first two calls failed schema validation. `localSearch` needed `include` as an array, and `localFetch` needed `goal` and `reasoning`. That cost two round trips, and the `localSearch` call was never re-run. The `localFetch` output has no line numbers, so I counted lines by hand from the raw text. I therefore hedged the line citations as approximate (±2), which is weaker than the evidence format asks for. I never opened `global_settings.py`, `is_valid_path` or the `should_append_slash` decorator. I only said so in the uncertainty note.
-
-**3. Next time:** I would include `goal` and `reasoning` on every query from the start. To get exact line numbers, I would use `localSearch` on `should_redirect_with_slash`, which returns line anchors, or fetch small ranges. I would also batch a read of the `APPEND_SLASH` default and of `is_valid_path` in `django/urls/base.py` into the same call.
-
-**4. Confidence:** High on the mechanism, because I read the code directly. Medium on the exact line numbers. The `APPEND_SLASH` default and `is_valid_path` internals are unverified.

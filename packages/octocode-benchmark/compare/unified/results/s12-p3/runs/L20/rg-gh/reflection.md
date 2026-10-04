@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call, `grep -rIl "ResolveJsonModule" . --include=*.go`, found every Go file touching the option at once. The third call, `grep -rn "ResolveJsonModule\|GetResolveJsonModule" ... | grep -v _test`, then gave exact callers with line numbers. The `sed -n 266,285p` on `compileroptions.go` showed the default logic directly.
-
-2. **Did not help:** `rg` was not installed, so the first call's search produced nothing and I wasted that call. Every Bash call printed `/dev/null: Operation not permitted`. The noise was harmless but cluttered the output. The first call's `git log -1` failed for the same reason, so I never confirmed the checkout was at commit 4f5ddae224. I also never searched testdata or baselines for `--showConfig` output, and I did not read the bodies of `GetEmitModuleKind` or `GetModuleResolutionKind`.
-
-3. **Next time:** Use `grep` from the start, since `rg` is missing. Run a case-insensitive search that also covers string uses of `"resolveJsonModule"`. Check testdata for baselines. Read the two getter functions the default depends on.
-
-4. **Confidence:** High on the code locations and callers, because I saw them directly. Medium on completeness, since the test and baseline impact is unchecked, and the commit pin is unverified.

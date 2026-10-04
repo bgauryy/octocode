@@ -1,7 +1,0 @@
-1. **Helped:** The first two calls ran in parallel. `localSearch` for `ARLASTITEMS` located `arlastitemsCommand` at `t_array.c:1802`. `ghGetHistoryItem` on issue #15874 gave the symptom, a repro, and a pointer to the fix PR. `localFetch` of `t_array.c` lines 1790-1890 confirmed the buggy cap at 1837-1838 in the pinned checkout. `ghGetHistoryItem` on PR #15875 (patches, filtered to `src/t_array.c`) showed the exact change.
-
-2. **Did not help:** The `localSearch` output was noisy. Most matches were `commands.def` boilerplate. The PR patch view was trimmed with `...` elisions, so I only saw hunks, not the whole diff. I could not see the PR's tests or the merge commit's file content. I did not check the `ARGETRANGE` comment the issue cites at line 442.
-
-3. **Next time:** I would add `ghGetHistoryItem` with `include` for test files, or use its `readAtMerge` hint, to check the regression test and read the post-fix function whole. I would also narrow the first `localSearch` to `src/t_array.c`.
-
-4. **Confidence:** High on where the bug is, why it drops elements, and the core fix. The local code and the PR hunks agree. Medium on the full completeness of the fix description, because the patch was trimmed and the tests were unread.

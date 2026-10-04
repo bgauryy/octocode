@@ -1,7 +1,0 @@
-1. **Helped:** The grep on `config/config.go` for `MetricNameValidationScheme` immediately showed the type (`model.ValidationScheme`) and the validation switch. The `go.mod` grep gave the pin (v0.71.0). `gh api` on `model/metric.go?ref=v0.71.0`, piped through `base64 -d`, gave the dependency source at the exact tag. The last combined call printed the enum comments, `Set`, and `isValidLegacyRune` together.
-
-2. **Did not help:** The first call failed because `rg` is not installed, despite the brief, and `git rev-parse` failed too. Every Bash call printed `/dev/null: Operation not permitted`, which was noisy. I fetched `metric.go` three times, and the first grep-only fetch was largely redundant. I never viewed `String()` directly, so the `legacy`/`utf8` strings come from an error message, not from the source. I didn't check `go.mod` for `replace` directives, and I didn't confirm HEAD matched ea954809ce, because `git` failed.
-
-3. **Next time:** Fetch `metric.go` once into a variable and slice it. Use `grep` from the start. Check `go.mod` for `replace` and view `String()` in the same pass.
-
-4. **Confidence:** Medium-high. The pin and the validation rules are directly evidenced. The string names and the absence of a `replace` are not verified.

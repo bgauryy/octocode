@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call (`gh api pulls/8156` plus `/files`) gave the PR body, which named the Miri issues (#5047, #5054), and a per-file change list in one step. The later `jq` calls over `/files` patches, filtered with `grep` for "miri|ignore", pulled the ignore reasons cheaply.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. It was harmless noise, but it made me unsure whether output was being cut off. The second call's `head -150` truncated the output, so I needed a third call for `tcp_socket`, `tcp_stream` and the UDP/UDS files. I never read files at the merge commit, so I couldn't give line numbers or confirm what's on master now. The `+`/`-` filter also dropped context lines, so I couldn't tie each ignore to a specific test name.
-
-3. **Next time:** I'd save the patches once to a temp file, or run a single un-truncated query. Then I'd fetch the key test files at `32312ae` with `gh api repos/tokio-rs/tokio/contents/...?ref=...` to get line numbers and test names. I'd also read the linked Miri issues to confirm their status.
-
-4. **Confidence:** Medium-high on what the PR changes and the listed skip reasons, since those come straight from the patches. Medium on the exact per-test mapping, and unverified against current master. My answer says both of these.

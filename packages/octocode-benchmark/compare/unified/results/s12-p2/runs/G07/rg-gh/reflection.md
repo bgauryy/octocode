@@ -1,7 +1,0 @@
-1. **Helped:** Fetching raw files with `gh api -X GET repos/Kludex/starlette/contents/<path>?ref=63c5760d8a -H "Accept: application/vnd.github.raw"` was the fastest route. Piping through `cat -n` for `exceptions.py` and `_exception_handler.py` gave exact line numbers. The grep pass on `applications.py` located `build_middleware_stack` quickly. The follow-up call returned the function body, the `errors.py` grep, and the `routing.py` grep together.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was noise only, and the outputs were still complete. For `applications.py` I first grepped, then re-fetched with `sed -n 62,85p`, so those line numbers are relative to the slice and I said they were approximate. I only grepped `errors.py` and `routing.py` and never read them in full. That left `ServerErrorMiddleware` behavior and the debug-mode path partly unverified. I also skipped the `max_body_size` and `RequestBodyLimitMiddleware` details.
-
-3. **Next time:** I'd use `cat -n` on every file I cite, in a single batched call. That would avoid the offset ambiguity and the half-read files.
-
-4. **Confidence:** High on stack order and the handler lookup flow, since I read that code directly with line numbers. Medium on the `errors.py` details and the `applications.py` line numbers, which came from grep output and a sliced read.

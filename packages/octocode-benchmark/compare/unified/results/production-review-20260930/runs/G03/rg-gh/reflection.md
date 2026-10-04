@@ -1,7 +1,0 @@
-**1. Helped:** I made one Bash call, `gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files,url; gh pr diff 5881 -R nodejs/undici`. It returned the PR description, file list, merge commit and full diff. The diff's code comments and the added test file explained the bug and the fix, so I needed no further calls.
-
-**2. Did not help:** Nothing failed and I made no repeated calls. The diff was long, mostly because of the 228-line test file. The session had no local undici checkout, so I couldn't cite line numbers at the merge commit. The PR body's "Bug Fixes" section said "N/A", so I had to work out the bug from the rationale text and the diff. I also couldn't run the tests.
-
-**3. Next time:** I would check the linked issue and the PR review comments with `gh pr view --comments` or `gh issue view` to see whether they add context. If line citations mattered, I would fetch the merged files with `gh api repos/nodejs/undici/contents/lib/dispatcher/pool-base.js?ref=da911f0` and grep them for line numbers.
-
-**4. Confidence:** High for the bug mechanism and the fix design, because both come straight from the diff and the PR's own comments. Medium-high overall. The answer has no file:line citations because I didn't read the merged source. I also didn't run the code or the tests.

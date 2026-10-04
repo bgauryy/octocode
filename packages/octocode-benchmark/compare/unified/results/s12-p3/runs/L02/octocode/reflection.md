@@ -1,7 +1,0 @@
-1. **Helped:** The second `localSearch`, for the literal "prohibited to prevent data loss" in `django/db/models` with `contextLines: 20`, found the answer. It returned the whole check block (`base.py:1281-1330`), including the `raise` and the comments, in one call. The third `localSearch`, for `_prepare_related_fields_for_save`, gave the method definition at 1276 and its callers (`base.py:864`, `query.py:794`, `query.py:1042`).
-
-2. **Did not help:** My first `localSearch` was wasted. I searched for `save() prohibited...`, but the source builds that string with `%s` for the operation name, so the literal never appears. The tool's `searchLiteral` hint was useful, but I should have guessed a shorter fragment to begin with. I never opened `query.py:1042`, so I don't know which operation name that call passes. I also didn't read `_is_pk_set()` or the code around `base.py:864`.
-
-3. **Next time:** Start with a short, stable fragment of the message. Then use `localFetch` with `matchString` on `query.py:1042` and on `_is_pk_set` to close those gaps.
-
-4. **Confidence:** High on the location and the check logic, because I read the lines directly. Medium on two details I inferred: that assigning only the raw `_id` skips the check (inferred from the `is_cached` condition), and that a hand-assigned pk counts as set (taken from the source comment, not from reading `_is_pk_set()`).

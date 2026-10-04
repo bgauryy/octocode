@@ -320,7 +320,7 @@ Cost by mode:
 
 Behaviors worth knowing:
 
-- `matchString` selects all occurrences with context and source anchors in `matchedLines`/`matchRanges`; both readers disable minification for matches (redaction still applies). Non-adjacent windows are separated by a `... [lines A-B omitted] ...` line (byte windows: `... [N bytes omitted] ...`), so a gap never reads as contiguous source. In numbered `ghGetFileContent` content, a run of single-line windows (a grep map) shares one `... [N gaps in lines A-B omitted] ...` marker; the line numbers state each gap. Follow character continuations when selected content exceeds a window.
+- `matchString` selects all occurrences with context and source anchors in `matchedLines`/`matchRanges`; both readers disable minification for matches (redaction still applies). Non-adjacent windows are separated by a `... [lines A-B not requested] ...` line (byte windows: `... [N bytes omitted] ...`), so a gap never reads as contiguous source; lines inside a requested span are never elided (a cut page continues through `next.continue`). In numbered `ghGetFileContent` content, a run of single-line windows (a grep map) shares one `... [N gaps in lines A-B not requested] ...` marker; the line numbers state each gap. Follow character continuations when selected content exceeds a window.
 - `minify: "symbols"` returns a paginated outline; read its source-line gutter, then follow up with `startLine`/`endLine` and `minify:"none"`.
 - Continuation offsets are exact — execute `next` unchanged rather than recomputing them.
 - `standard` removes comments and rewrites formatting but does no JS/TS optimization or type-declaration removal; use `none` for source quotes and comment-sensitive evidence. See [minification coverage](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
@@ -422,9 +422,9 @@ commit diffs off until the relevant commit is known. A PR summary offers at
 most three reads: `getChangedFiles` (the body rides along), `reviewPatches`
 (every patch on a small PR, with the body when no file list is offered), and
 `getDiscussion` (comments and reviews). A merged PR whose first patch window
-holds a changed code file (not a test) also offers `readAtMerge`: that file at
-the merge commit, as a `block` read anchored on a short prefix of its first
-added line.
+holds a changed code file (not a test) also offers `readAtMerge`: its
+most-changed such file at the merge commit, as one `ranges` read of every
+hunk's new-side lines (10 lines of padding, at most 10 ranges).
 An inventory read offers `reviewPatches`: up to 30 source files (no tests,
 docs, lockfiles, generated or binary files; tests by each language's layout
 and naming, such as `_test.go`, `test_*.py`, `FooTest.java`, `_spec.rb`, or a
@@ -449,7 +449,14 @@ still have changed). `<- old/path` marks a rename. Patch rows (PR, commit, and
 comparison) are `{path, stat: "M +3 -1", patch}` objects that keep
 `patchUnavailable`, `previousPath`, and `patchPagination` when cut; files not
 reached yet ride the continuation, not empty rows; a pure rename's patch is
-`""`.
+`""`. Patch text keeps GitHub's `@@ -a,b +c,d @@ heading` lines (the heading
+is the enclosing symbol when GitHub supplies one) and numbers the new side
+like `cat -n`: `87\t+added`, `86\t context`, `\t-removed`, so `path:87` is
+citable; dropping each line's gutter (up to its first tab) gives the raw
+patch. A PR patch read that does not fit one response opens with
+`fileSummary`: the page's files as inventory rows with hunk counts
+(`M +10 -10 4 hunks rt_common.rs`), before the patches; `warnings` names the
+unfinished patches and files.
 GitHub lists at most 3000 files. Past that limit the file page reports
 `countScope: "partial"` and `providerLimit.reason: "providerFileListLimit"`.
 
@@ -479,14 +486,9 @@ labels, inventories title, author, and counts), not the full follow-up menu,
 unless `debug: true`.
 
 PR details accept `minify:"none"` or `"standard"`. `none` preserves selected
-body, discussion/inline comments, reviews, and all/selected patch text after
-security redaction. `standard` (the default) compacts Markdown and unchanged
-diff context before computing offsets; it preserves changed source lines
-regardless of language. In a patch over 30 lines it keeps the hunk headers and
-2 context lines around each change, and replaces each run of other context
-lines with one `...` line, so patch lengths differ from GitHub's and line
-numbers cannot be counted from a hunk header across a `...`;
-`hints.readUntrimmed` re-reads those files with `minify:"none"`. When Markdown
+body, discussion/inline comments, and reviews after security redaction.
+`standard` (the default) compacts their Markdown. Patch text is never
+minified: every diff line arrives after redaction, numbered. When Markdown
 compaction drops text from a body, comment, or review, the row says
 `bodyView:"minified"` and `hints.readRawBody` re-reads those surfaces raw.
 Match-filtered reads preserve source anchors.
@@ -500,7 +502,9 @@ windows address different parts of the response.
 
 PR collection reads fetch at most one provider batch per requested source:
 100 discussion comments, inline comments, or reviews, and 50 commit summaries.
-`pageSize` bounds displayed items within each batch (default 30, max 100). A
+`pageSize` bounds displayed items within each batch (default 30, max 100); a
+patch read lists 100 changed files a page by default, so one `continuePatch`
+walk covers every patch of a PR of up to 100 files. A
 patch-free `content.changedFiles` inventory pages by `filePage`; with
 `pageSize` omitted it fills the response page (100–1000 rows), and an explicit
 `pageSize` may reach 1000.

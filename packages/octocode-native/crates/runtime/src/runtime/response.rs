@@ -1159,11 +1159,64 @@ pub fn envelope_in(
             relativize_continuation_paths(&mut row["data"], workspace, 0);
         }
     }
+    let heads = checked_out_heads(tool, &roots);
     let mut value = compact(rows, workspace);
     if tool == ToolId::StructureSearch {
         relativize_listing_dirs(&mut value);
     }
+    attach_heads(&mut value, &heads);
     value
+}
+
+/// HEAD of each row's root for the tools that read the working tree
+/// directly; empty for every other tool. A root is read once per response.
+fn checked_out_heads(tool: ToolId, roots: &[Option<PathBuf>]) -> Vec<Option<String>> {
+    if !matches!(
+        tool,
+        ToolId::LocalSearch | ToolId::LocalFetch | ToolId::StructureSearch
+    ) {
+        return Vec::new();
+    }
+    let mut seen = std::collections::HashMap::<&Path, Option<String>>::new();
+    roots
+        .iter()
+        .map(|root| {
+            let root = root.as_deref()?;
+            seen.entry(root)
+                .or_insert_with(|| super::git_head::head_sha(root))
+                .clone()
+        })
+        .collect()
+}
+
+/// Report the checked-out commit once: `shared.commitSha` when every row
+/// with a root reads the same commit, else `commitSha` on each row that has
+/// one (roots in different repositories, or some outside any repository).
+fn attach_heads(value: &mut Value, heads: &[Option<String>]) {
+    let Some(first) = heads.iter().flatten().next() else {
+        return;
+    };
+    let Some(rows) = value["results"].as_array_mut() else {
+        return;
+    };
+    let shared = rows.iter().zip(heads).all(|(row, head)| {
+        head.as_ref() == Some(first) || (head.is_none() && row["status"] == "error")
+    });
+    if shared {
+        let first = first.clone();
+        match value.get_mut("shared").and_then(Value::as_object_mut) {
+            Some(map) => {
+                map.insert("commitSha".into(), json!(first));
+            }
+            None => value["shared"] = json!({ "commitSha": first }),
+        }
+        return;
+    }
+    for (row, head) in rows.iter_mut().zip(heads) {
+        if let (Some(head), Some(data)) = (head, row["data"].as_object_mut()) {
+            data.insert("commitSha".into(), json!(head));
+        }
+    }
 }
 
 /// Query fields that name a local file or directory in a continuation and
@@ -2046,6 +2099,37 @@ mod tests {
         assert_eq!(refs["uri"], format!("{root}/src/a.rs").as_str(), "{value}");
         assert_eq!(refs["workspaceRoot"], root.as_str(), "{value}");
         assert_resolvable(&ws, &value, "src");
+    }
+
+    /// Local reads report the checked-out commit once per response: shared
+    /// when every row reads the same repository, per row otherwise, and not
+    /// at all outside a repository or for other tools.
+    #[test]
+    fn local_rows_report_the_checked_out_head_once() {
+        let ws = workspace();
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let git = ws.root.join(".git");
+        std::fs::create_dir_all(git.join("refs/heads")).expect("git");
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").expect("head");
+        std::fs::write(git.join("refs/heads/main"), format!("{sha}\n")).expect("ref");
+        let root = ws.root.to_string_lossy().into_owned();
+        let row = |index: u64| json!({"index":index,"data":{"files":[{"path":format!("{root}/src/a.rs")}]}});
+        let src = json!({"path": format!("{root}/src")});
+        let tests = json!({"path": format!("{root}/tests")});
+        for tool in [ToolId::LocalSearch, ToolId::LocalFetch, ToolId::StructureSearch] {
+            let value = envelope_in(vec![row(0), row(1)], tool, &[Some(&src), Some(&tests)], &ws.paths);
+            assert_eq!(value["shared"]["commitSha"], sha, "{tool:?} {value}");
+            assert!(value["results"][0]["data"].get("commitSha").is_none(), "{value}");
+        }
+        let outside = json!({"path": ws.outside.to_string_lossy()});
+        let mixed = envelope_in(vec![row(0), row(1)], ToolId::LocalSearch, &[Some(&src), Some(&outside)], &ws.paths);
+        assert!(mixed["shared"].get("commitSha").is_none(), "{mixed}");
+        assert_eq!(mixed["results"][0]["data"]["commitSha"], sha, "{mixed}");
+        assert!(mixed["results"][1]["data"].get("commitSha").is_none(), "{mixed}");
+        let other = envelope_in(vec![row(0)], ToolId::AstSearch, &[Some(&src)], &ws.paths);
+        assert!(other.get("shared").is_none(), "{other}");
+        let plain = envelope_in(vec![row(0)], ToolId::LocalSearch, &[Some(&outside)], &ws.paths);
+        assert!(plain.get("shared").is_none(), "{plain}");
     }
 
     #[test]

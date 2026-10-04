@@ -90,11 +90,13 @@ flowchart LR
 ### 3.3 Context engineering: instructions, descriptions, schemas
 Each layer is budgeted, and tests enforce the budgets:
 - **Server instructions (MCP):**
-  - The research loop.
+  - One route line per family: local, GitHub (with "skip `ghSearchCode` at a pinned ref"), and packages ("never from memory").
+  - The page rule: follow `next.*` before claiming completeness, or name what stays unread.
   - The PR rule: ask the PR directly with `matchString`/`matchContext`/`fileFilter`, and use the inventory only when there's no literal or path.
   - The clasify use/skip rule.
-  - The evidence rules and the surface map.
+  - The evidence, brief, batch, and stop rules.
   - The whole set is capped at **2,000 characters**, because hosts truncate longer instructions. They are scoped to the tools actually available: without a clasify key, clasify is never mentioned.
+  - [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md) is the long form, with one diagram per flow.
 - **Tool descriptions** are written as triggers: *use when…, not when…, continue with…*. An agent picks the right tool from the description alone.
 - **Schemas** stay lean: descriptions only where a field isn't self-explanatory, enums instead of prose, and examples that validate. `octocode scheme <tool>` shows the full contract on demand, so agents load it only after choosing a tool.
 

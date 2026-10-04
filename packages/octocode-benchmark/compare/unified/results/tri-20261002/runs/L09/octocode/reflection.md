@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` on scrape.go with a regex alternation (StaleNaN, endOfRunStaleness, etc.) located the key lines in one call. The second `localSearch` for `forEachStale|iterDone|seriesCur|seriesPrev|trackStaleness` found the cache mechanism. The `localFetch` with `ranges` and `matchString` then returned the exact code, including the failed-scrape handling at 1610-1630 and the end-of-run function at 1662-1728.
-
-2. **Did not help:** My first `localFetch` failed validation because I used "a,b" ranges instead of "a-b". The multi-range fetch output also had large "lines omitted" gaps, which forced follow-up reads. My `sl.append(` match landed on the report helper at ~2383, which was irrelevant. I never opened the `Pool.Sync`/reload code or the callers of `disableEndOfRunStalenessMarkers`, so those parts are unchecked.
-
-3. **Next time:** Use the "start-end" range format from the start. Use narrower, contiguous ranges to avoid omissions. Add one search for `disableEndOfRunStalenessMarkers` and one for the loop-stop path in `Pool.Sync`.
-
-4. **Confidence:** High for the core mechanism, because every claim cites lines I read directly. Medium for completeness, since the unverified triggers are flagged in the answer.

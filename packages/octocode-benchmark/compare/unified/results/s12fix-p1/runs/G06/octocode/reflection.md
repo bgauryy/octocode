@@ -1,7 +1,0 @@
-**1. Helped:** The first batch of two `ghGetFileContent` calls with `matchString` (`_transport_for_url` and `proxy_map`) did most of the work. It returned the deciding lines in `httpx/_client.py` (760-769, 1005, 239-251, 685-686) with the commit SHA. The second `ghGetFileContent` call, with explicit `ranges`, filled the gaps that the matches left elided (lines 697-716, including the mount sorting).
-
-**2. Did not help:** `matchString` matched both the sync and async classes, and the output elided large ranges, so I needed a second read. My `ghSearchCode` for `get_environment_proxies` used a guessed path (`httpx/_utils.py`) and returned empty. I didn't retry without the path or use `ghStructure`, so I never found where it is defined. I also never read `URLPattern.matches` or its ordering. Both are gaps I disclosed in the answer.
-
-**3. Next time:** I'd run an unscoped `ghSearchCode` for `get_environment_proxies` and `URLPattern`, then read the definitions, instead of stopping at one empty result. I'd also request the sync class ranges directly to avoid the duplicate async hits.
-
-**4. Confidence:** High on the core flow (`_get_proxy_map`, `_mounts`, `_transport_for_url`), since I read those lines directly. Medium on proxy-selection details such as environment variable handling and pattern precedence, which I didn't verify.

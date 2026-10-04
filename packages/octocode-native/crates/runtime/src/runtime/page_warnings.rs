@@ -30,6 +30,90 @@ pub(super) fn disclose_remaining_pages(structured: &mut Value) {
     }
 }
 
+/// Envelope `warnings`, first: a batch whose rows have pages left says so
+/// before any row, e.g. `incomplete — 2 of 3 rows partial (index 1, 2);
+/// follow next.continue on each`. Single-row responses already open
+/// their row with the remaining-pages warning.
+pub(super) fn disclose_incomplete_rows(structured: &mut Value) {
+    let Some(rows) = structured.get("results").and_then(Value::as_array) else {
+        return;
+    };
+    if rows.len() < 2 {
+        return;
+    }
+    let mut partial = Vec::new();
+    let mut pages = Vec::new();
+    for row in rows {
+        let mut names = Vec::new();
+        if let Some(data) = row.get("data") {
+            page_names(data, &mut names);
+        }
+        if names.is_empty() {
+            continue;
+        }
+        partial.push(row.get("index").map_or_else(String::new, Value::to_string));
+        for name in names {
+            if !pages.contains(&name) {
+                pages.push(name);
+            }
+        }
+    }
+    if partial.is_empty() {
+        return;
+    }
+    let follow = pages
+        .iter()
+        .map(|name| format!("next.{name}"))
+        .collect::<Vec<_>>()
+        .join("/");
+    add_envelope_warning(
+        structured,
+        format!(
+            "incomplete — {} of {} rows partial (index {}); follow {follow} on each",
+            partial.len(),
+            rows.len(),
+            partial.join(", ")
+        ),
+    );
+}
+
+/// Page names under every `next` map in a row's data (a read's file list
+/// keeps them per file). Continuation calls are never entered.
+fn page_names(value: &Value, names: &mut Vec<String>) {
+    let Some(object) = value.as_object() else {
+        if let Some(items) = value.as_array() {
+            items.iter().for_each(|item| page_names(item, names));
+        }
+        return;
+    };
+    if object.get("query").is_some() && object.get("tool").is_some_and(Value::is_string) {
+        return;
+    }
+    if let Some(Value::Object(pages)) = object.get(PAGES_KEY) {
+        names.extend(pages.keys().cloned());
+    }
+    for (key, child) in object {
+        if key != PAGES_KEY && key != super::channels::HINTS_KEY {
+            page_names(child, names);
+        }
+    }
+}
+
+/// Appends `warning` to the envelope's `warnings`, which leads the envelope.
+fn add_envelope_warning(structured: &mut Value, warning: String) {
+    let Some(envelope) = structured.as_object_mut() else {
+        return;
+    };
+    let mut warnings = match envelope.shift_remove(WARNINGS) {
+        Some(Value::Array(warnings)) => warnings,
+        _ => Vec::new(),
+    };
+    if !warnings.iter().any(|known| known.as_str() == Some(warning.as_str())) {
+        warnings.push(Value::String(warning));
+    }
+    envelope.shift_insert(0, WARNINGS.to_owned(), Value::Array(warnings));
+}
+
 fn disclose_row(data: &mut Map<String, Value>) {
     let Some(Value::Object(pages)) = data.get(PAGES_KEY) else {
         return;

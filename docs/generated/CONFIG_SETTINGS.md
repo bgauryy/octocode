@@ -23,7 +23,13 @@ This reference is generated from [`packages/octocode-config/config-contract.json
   },
   "tools": {
     "enabled": null,
-    "disabled": null
+    "disabled": null,
+    "family": "all"
+  },
+  "mcp": {
+    "publishedView": "queries",
+    "deferred": null,
+    "instructions": "default"
   },
   "network": {
     "timeout": 30000,
@@ -77,6 +83,10 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. WORKSPACE_ROOT: shell or trusted home .env |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
 | `tools.disabled` | `DISABLE_TOOLS` | unset | string array | Tools removed from the default tool set. |
+| `tools.family` | `OCTOCODE_TOOL_FAMILY` | `"all"` | `all` or `local` or `github` | Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled. |
+| `mcp.publishedView` | `OCTOCODE_PUBLISHED_VIEW` | `"queries"` | `queries` or `flat` | Input shape in tools/list: queries (a queries[] batch) or flat (one row per call). Validation accepts both. |
+| `mcp.deferred` | `OCTOCODE_DEFER_TOOLS` | unset | string array | Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them. |
+| `mcp.instructions` | `OCTOCODE_INSTRUCTIONS` | `"default"` | `default` or `guide` | MCP server instructions: default, or guide (the longer workflow guide). |
 | `network.timeout` | `REQUEST_TIMEOUT` | `30000` | integer (5000–300000) | Request timeout in milliseconds. |
 | `network.maxRetries` | `MAX_RETRIES` | `3` | integer (0–10) | Maximum retries after a failed request. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `false` | boolean | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. OCTOCODE_ALLOW_PRIVATE_REGISTRY: shell or trusted home .env |

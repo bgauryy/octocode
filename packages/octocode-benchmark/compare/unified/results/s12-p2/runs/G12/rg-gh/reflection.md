@@ -1,7 +1,0 @@
-1. **Helped:** Two Bash calls did all the work. The first was `gh api -X GET repos/fastapi/fastapi/contents/fastapi/security?ref=4b3949cd9e --jq '.[].name'`, which listed the modules. The second was a loop over each module that fetched it with `-H "Accept: application/vnd.github.raw"` and piped it through `grep -nE "^class |^from|^import"`. That gave class names, line numbers and base classes for all six files in one call. Pinning `ref=` to the commit kept the line numbers valid.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless, but it is noise and could mask real errors. My `grep` filter showed only class lines, so I never read `SecurityBase`'s body or `utils.py`, and I said so in the answer. I used no `rg` or local checkout, since the repo wasn't local.
-
-3. **Next time:** I would add `^def ` to the grep pattern so `utils.py` is covered. I would also fetch `base.py` in full, since it is small, to see what `SecurityBase` declares.
-
-4. **Confidence:** High for the module list, class names, line numbers and inheritance, since they came straight from the pinned-commit source. Medium-low for what `SecurityBase` and `utils.py` contain, because I didn't read them.

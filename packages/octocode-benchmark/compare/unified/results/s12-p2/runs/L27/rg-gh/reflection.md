@@ -1,7 +1,0 @@
-1. **Helped:** The `grep` on `config/config.go` and `go.mod` in the cd'd checkout found the field type and the pin (`common v0.71.0`) in one call. `gh api repos/prometheus/common/contents/model/metric.go?ref=v0.71.0` with the raw Accept header, piped to `awk` with line numbers, gave the enum, `Set`, `IsValid*Name` and `isValidLegacyRune` at the exact tag.
-
-2. **Did not help:** `rg` isn't installed, so my first call failed. Every call printed `/dev/null: Operation not permitted`, and `git rev-parse HEAD` failed, so I never confirmed the checkout's commit SHA. I only saw `.git/HEAD` say `refs/heads/main`. My `go env GOMODCACHE` probe and the `find /` search were wasted because there was no vendor directory or module cache. Writing to `/tmp` was blocked. A `sed` pipe from `gh` also returned nothing useful, so I refetched with `awk`.
-
-3. **Next time:** Start with `grep` instead of `rg`. Skip the local module-cache hunt and go straight to `gh api` at the pinned tag. Read the `config/config.go:730` code and the go.sum entry, which I skipped.
-
-4. **Confidence:** High on the type, the version, the accepted values and the character rules, because I saw them in the source at v0.71.0. Medium on the claim that the tag matches what the checkout resolves, since I didn't check go.sum. I also couldn't confirm the checkout was at `ea954809ce`.

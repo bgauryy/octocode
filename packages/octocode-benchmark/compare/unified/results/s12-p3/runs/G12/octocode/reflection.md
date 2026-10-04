@@ -1,7 +1,0 @@
-**1. Helped:** `ghStructure` on `fastapi/security` with `branch: 4b3949cd9e` gave the exact file list at the pinned commit, and it returned the full SHA. `ghGetFileContent` on `__init__.py` with the same branch gave the public re-exports. `ghSearchCode` for "class" returned every class declaration with line numbers across all modules in one call, which was the fastest route to the inheritance map.
-
-**2. Did not help:** `ghSearchCode` has no ref parameter, so it searched the default branch. It reported commitSha 5f9fc5c, not 4b3949cd9e. My per-module class lists and line numbers are therefore not verified at the pinned commit, and I said so in the answer. The "class" keyword also matched docstring and comment lines, which added noise. I never opened `utils.py`, so my claim that it holds only helper functions is an assumption.
-
-**3. Next time:** After the search, I would run `ghGetFileContent` at `branch: 4b3949cd9e` on `base.py`, `api_key.py` and `http.py`, using `matchString: "^class "`. I would also read `utils.py`. That would confirm the lines at the pinned commit, and it is a small number of extra calls.
-
-**4. Confidence:** Medium-high. The module list and the exports are verified at the pinned commit. The class hierarchy and line numbers are very likely the same, but I did not confirm them at that commit.

@@ -1,7 +1,0 @@
-1. **Helped:** The first `ghGetHistoryItem` call (body, files, comments) gave the scope, merge SHA `4b3949cd` and the "enabled by default" framing. The second `ghGetHistoryItem` call with `include:["patches"]` for four files showed the runtime wiring in `applications.py`, `routing.py` and `background.py` directly. `ghGetFileContent` with `fullContent` at the merge SHA gave citable lines for `_runtime.py` and `_asgi.py:1-200`.
-
-2. **Did not help:** The `pyproject.toml` patch was truncated at 459 characters. I never followed the `next.continuePatch` lead, so the extras list is partial. Patch hunks have no original-file line numbers, so I could not cite `routing.py` or `applications.py` by line. I used vague locations like "near the redirect handling", which is weaker than the evidence standard requires. The comments call hid one bot comment. I never read `_api.py`, `_asgi.py:200-446`, the tests or the docs.
-
-3. **Next time:** I would batch `ghGetFileContent` reads of `_api.py` and the rest of `_asgi.py` in the same call as the patches. I would use `matchString` at the merge SHA to get line numbers for the `routing.py` and `applications.py` hooks. I would also follow the pagination lead for `pyproject.toml`.
-
-4. **Confidence:** Medium. The behavior summary matches code I read. The reviewer risks around data capture, `legacy_otel` suppression and threadpool context propagation are inferences, and I labeled them unverified.

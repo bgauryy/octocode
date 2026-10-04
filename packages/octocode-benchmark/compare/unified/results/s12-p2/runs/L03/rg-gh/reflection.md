@@ -1,7 +1,0 @@
-1. **Helped:** The `grep -rnE "run_on_commit|on_commit|run_commit_hooks_on_set_autocommit_on" django/db` call found every relevant line in one pass. The following `sed -n` call then printed the exact ranges in base.py (`on_commit`, `run_and_clear_commit_hooks`, `savepoint_rollback`, `set_autocommit`). Together they covered storage, discard and run.
-
-2. **Did not help:** My first call used `rg`, which isn't installed, so it failed and I had to redo it with grep. Every Bash call printed `/dev/null: Operation not permitted`, which was noise but harmless. I never opened `Atomic.__exit__` in transaction.py. My claims about lines 263, 276, 296, 308 and 320 come only from the third call, a grep for names, plus my own assumption about what each line does. I should have read lines 200-325 and didn't.
-
-3. **Next time:** Start with grep, since `rg` is missing. Use the Read tool instead of `sed` for the transaction.py exit path, and check what each cited call site actually does before describing it.
-
-4. **Confidence:** High for the storage, discard and run mechanics, because I read those lines directly. Medium for the `Atomic.__exit__` call-site claims, because I didn't read that code and had only grep matches. I did flag that in my answer.

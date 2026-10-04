@@ -1,3 +1,4 @@
+mod enclosing;
 mod executor;
 mod manifest;
 mod types;
@@ -1028,6 +1029,51 @@ mod tests {
         serde_json::to_value(&result).expect("serialize")
     }
 
+    /// A small page names each hit's enclosing declaration (a definition hit
+    /// names the one around it), and a searched symbol declared on a hit
+    /// line yields an lspSearch references lead anchored on that line. A
+    /// sweep of more hits than one small page stays plain lines.
+    #[test]
+    fn small_pages_name_enclosing_declarations_and_lead_to_references() {
+        let source = "struct Harness;\nimpl Harness {\n    fn try_read_output(&self) {\n        helper();\n    }\n}\n\nfn helper() {}\n\nfn caller() {\n    helper();\n}\n";
+        let body = search_fixture(
+            &[("src/a.rs", source)],
+            ls_query(serde_json::json!({"searchText": "helper"}), None),
+        );
+        let rows = &body["files"][0]["matches"];
+        assert_eq!(rows[0]["line"], 4, "{body}");
+        assert_eq!(rows[0]["in"], "function Harness.try_read_output@3", "{body}");
+        assert_eq!(rows[1]["line"], 8, "{body}");
+        assert!(rows[1].get("in").is_none(), "{body}");
+        assert_eq!(rows[2]["in"], "function caller@10", "{body}");
+        let lead = &body["next"]["verifyReferences"];
+        assert_eq!(lead["tool"], "lspSearch", "{body}");
+        assert_eq!(lead["query"]["operation"], "references", "{body}");
+        assert_eq!(lead["query"]["symbolName"], "helper", "{body}");
+        assert_eq!(lead["query"]["lineHint"], 8, "{body}");
+        let uri = lead["query"]["uri"].as_str().expect("uri");
+        assert!(std::path::Path::new(uri).is_absolute() && uri.ends_with("src/a.rs"), "{uri}");
+
+        let keyword = search_fixture(
+            &[("src/a.rs", source)],
+            ls_query(serde_json::json!({"searchText": "fn helper"}), None),
+        );
+        assert_eq!(keyword["next"]["verifyReferences"]["query"]["lineHint"], 8, "{keyword}");
+        let insensitive = search_fixture(
+            &[("src/a.rs", source)],
+            ls_query(serde_json::json!({"searchText": "helper", "caseMode": "insensitive"}), None),
+        );
+        assert!(insensitive["next"].get("verifyReferences").is_none(), "{insensitive}");
+
+        let sweep = format!("fn many() {{\n{}}}\n", "    helper();\n".repeat(60));
+        let wide = search_fixture(
+            &[("src/b.rs", &sweep)],
+            ls_query(serde_json::json!({"searchText": "helper"}), None),
+        );
+        let text = wide.to_string();
+        assert!(!text.contains("\"in\""), "{text}");
+    }
+
     /// A result within the page budget is shown whole with no paging
     /// metadata, however many hits it has; a larger one opens with 10 rows
     /// per file, and a caller cap always wins.
@@ -1503,15 +1549,16 @@ mod tests {
         ];
         let ranked = ranked_paths(&files, serde_json::json!({"searchText": "parse_config"}));
         assert_eq!(ranked[0], "z/src/config.rs", "{ranked:?}");
-        // The demoted rest keeps a total order: path breaks the tie.
+        // The demoted rest keeps a total order: path breaks the tie, and a
+        // generated file follows every hand-written one.
         assert_eq!(
             &ranked[1..],
             [
                 "a/tests/config.rs",
                 "b/config_test.go",
                 "c/config.test.ts",
-                "d/generated/config.rs",
                 "e/vendor/config.go",
+                "d/generated/config.rs",
             ]
         );
         // Match count still dominates: two test hits beat one source hit.
@@ -2223,9 +2270,11 @@ mod tests {
     }
 
     /// Files binary from their leading bytes (a font's magic, then a NUL)
-    /// are outside a text search, as rg skips them: no partial result, a
-    /// count grouped by extension instead of every path, and an exact
-    /// structureSearch continuation that lists them all.
+    /// are outside a text search, as rg skips them: no partial result. An
+    /// empty result, whose absence they leave unproven, discloses a count
+    /// grouped by extension instead of every path, and an exact
+    /// structureSearch continuation that lists them all; hits are complete
+    /// without them and carry neither.
     #[test]
     fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
         let root = tempfile::tempdir().expect("fixture directory");
@@ -2243,8 +2292,21 @@ mod tests {
             b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR",
         )
         .expect("fixture");
-        fs::write(root.path().join("a.txt"), "alpha\n").expect("fixture");
+        fs::write(root.path().join("a.txt"), "beta\n").expect("fixture");
         let (policy, security) = policy_for(root.path());
+        let hits = ls_query(
+            serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "beta".to_string(), "regex": LocalSearchQueryRegex::Literal}),
+            None,
+        );
+        let found = execute_local_search(&hits, &policy, &security, &NeverCancel, None, None)
+            .expect("search");
+        assert_eq!(found.status, SearchStatus::Success);
+        assert!(found.warnings.is_empty(), "{:?}", found.warnings);
+        assert!(
+            found.next.as_ref().is_none_or(|next| next.get("binarySkipped").is_none()),
+            "{:?}",
+            found.next
+        );
         let request = ls_query(
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
             None,
@@ -2254,7 +2316,7 @@ mod tests {
         let body = serde_json::to_value(&result).expect("serialize");
         assert!(!result.is_partial, "{body}");
         assert!(!result.terminal_limit, "{body}");
-        assert_eq!(result.status, SearchStatus::Success, "{body}");
+        assert_eq!(result.status, SearchStatus::Empty, "{body}");
         assert_eq!(result.stats.cap_reason, None, "{body}");
         assert_eq!(
             result.warnings,
@@ -2305,7 +2367,7 @@ mod tests {
         fs::write(root.path().join("store"), b"SQLite format 3\0alpha").expect("fixture");
         fs::write(root.path().join("x.woff2"), b"wOF2\0\x01\0\0alpha").expect("fixture");
         fs::write(root.path().join("README"), "plain text\n").expect("fixture");
-        fs::write(root.path().join("a.txt"), "alpha\n").expect("fixture");
+        fs::write(root.path().join("a.txt"), "beta\n").expect("fixture");
         let (policy, security) = policy_for(root.path());
         let request = ls_query(
             serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "searchText": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
@@ -2358,12 +2420,23 @@ mod tests {
         assert_ne!(body["isPartial"], true, "{body}");
         assert_ne!(body["terminalLimit"], true, "{body}");
         assert_ne!(body["status"], "partial", "{body}");
+        assert!(body.get("warnings").is_none(), "{body}");
+        let absent = search_fixture(
+            &[
+                ("addon.node", "\u{7f}ELF\u{2}\u{1}\u{1}\u{0}needle\n"),
+                ("a.txt", "other\n"),
+            ],
+            ls_query(
+                serde_json::json!({"searchText": "needle".to_string()}),
+                None,
+            ),
+        );
         assert_eq!(
-            body["warnings"],
+            absent["warnings"],
             serde_json::json!([
                 "binarySkipped: 1 binary file not searched (.node 1); binary from its leading bytes, as rg skips it. next.binarySkipped lists it."
             ]),
-            "{body}"
+            "{absent}"
         );
         assert!(
             body["stats"]

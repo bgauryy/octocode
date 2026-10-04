@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, inventoryRows, rowData, sourceView, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, checks, collect, inventoryRows, patchNumbersOk, rawPatch, rowData, sourceView, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('github');
 const client = await startServer();
@@ -111,7 +111,7 @@ for (const r of Object.values(pinned)) {
   const ranges = mView.ranges;
   const inRanges = hitLines.filter(n => ranges.some(g => g.start <= n && n <= g.end));
   // One block per numbered range: a run of single lines shares one gap marker.
-  const textLines = mView.text.replace(/\n$/, '').split('\n').filter(l => !/^\.\.\. \[.* omitted\] \.\.\.$/.test(l));
+  const textLines = mView.text.replace(/\n$/, '').split('\n').filter(l => !/^\.\.\. \[.* (?:omitted|not requested)\] \.\.\.$/.test(l));
   const blocks = [];
   for (const g of ranges) blocks.push(textLines.splice(0, g.end - g.start + 1).join('\n'));
   const exact = textLines.length === 0 && ranges.every((g, i) => blocks[i] === lines.slice(g.start - 1, g.end).join('\n'));
@@ -242,7 +242,7 @@ for (const r of Object.values(pinned)) {
   const patchOk = numstat.every(n => {
     const f = (withDiff?.files ?? []).find(x => fileRow(x).path === n.f);
     const gitPatch = git(r.dir, 'diff', parent, 'HEAD', '--', n.f).split('\n').filter(l => /^[+-](?![+-])/.test(l));
-    const toolPatch = (f?.patch ?? '').split('\n').filter(l => /^[+-](?![+-])/.test(l));
+    const toolPatch = rawPatch(f?.patch).split('\n').filter(l => /^[+-](?![+-])/.test(l));
     return f && JSON.stringify(toolPatch) === JSON.stringify(gitPatch);
   });
   check('commit includeDiff: +/- lines equal git diff', patchOk);
@@ -263,9 +263,11 @@ for (const r of Object.values(pinned)) {
     const prPatchOk = numstat.every(n => {
       const f = collect(patches, o => (o.path === n.f || o.filename === n.f) && typeof o.patch === 'string')[0];
       const gitPatch = git(r.dir, 'diff', parent, 'HEAD', '--', n.f).split('\n').filter(l => /^[+-](?![+-])/.test(l));
-      return f && JSON.stringify(f.patch.split('\n').filter(l => /^[+-](?![+-])/.test(l))) === JSON.stringify(gitPatch);
+      return f && JSON.stringify(rawPatch(f.patch).split('\n').filter(l => /^[+-](?![+-])/.test(l))) === JSON.stringify(gitPatch);
     });
     check(`PR #${prNumber}: patches equal git diff of the squash commit`, prPatchOk);
+    const prRows = collect(patches, o => typeof o.path === 'string' && typeof o.patch === 'string' && o.patch.startsWith('@@'));
+    check(`PR #${prNumber}: every patch line cites its new-side line number`, prRows.length > 0 && prRows.every(o => patchNumbersOk(o.patch)), prRows.find(o => !patchNumbersOk(o.patch))?.path);
   }
   // Commit search: bounded at the pinned HEAD's commit time, HEAD is listed
   // however far upstream has moved since; rows resolve.

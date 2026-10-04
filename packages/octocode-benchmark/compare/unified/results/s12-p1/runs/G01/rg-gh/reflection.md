@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh api pulls/16403` call plus `/files` gave the metadata and file list in one go. The second call pulled per-file `.patch` for `applications.py`, `background.py`, `routing.py` and `pyproject.toml`, and also fetched the docs page. That covered most of the runtime changes. The third call, reading `_runtime.py` and `_api.py` at the head SHA via `contents?ref=`, gave the line numbers I cited.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. This was harmless noise, but it appeared each time. `rg` is not installed, so my first `_asgi.py` search failed and I had to redo it with `grep`. I never read most of `_asgi.py`. I only saw the `grep` hits and two short `sed` ranges. I did not read the tests, and I did not look at the PR's review comments or discussion.
-
-3. **Next time:** I would check which tools exist before using them, and use `grep` straight away. I would read all of `_asgi.py` in one call. I would also fetch the PR's review comments and issue thread, to see what reviewers already raised.
-
-4. **Confidence:** Medium-high on the description of behavior, because it comes from the diff and source I read. Medium on the reviewer concerns. They are my own inferences from reading the code and I did not test them.

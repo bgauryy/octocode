@@ -1,7 +1,0 @@
-1. **Helped:** The first parallel `localSearch` calls, for `run_on_commit` and `def on_commit`, gave every line anchor in one round: the storage, reset and run lines in `base.py`, and the wrapper in `transaction.py`. Batched `localFetch` line-range reads then returned the exact bodies. The `localSearch` for `run_commit_hooks_on_set_autocommit_on` (with `contextLines: 2`) showed how the hooks get triggered.
-
-2. **Did not help:** I wasted two `localFetch` calls on validation errors. The first omitted the required `goal` and `reasoning` fields. The second passed six queries against a limit of five. I did not read `atomic.__exit__` in `transaction.py`, so the link from the outer atomic block to `commit()` and the autocommit restore is inferred. I also did not read `commit()` itself (around line 320), only the `run_commit_hooks_on_set_autocommit_on = True` line. My update to the user came after several silent calls.
-
-3. **Next time:** I would fill in every required field and stay within five queries per call. I would also add one `localSearch` or `localFetch` for `atomic.__exit__` and `commit()` in the first batch, so the full chain is verified rather than partly inferred.
-
-4. **Confidence:** High for storage, discard and run behaviour, because I read each of those lines directly. Medium for the atomic-exit trigger, since I did not read that code.

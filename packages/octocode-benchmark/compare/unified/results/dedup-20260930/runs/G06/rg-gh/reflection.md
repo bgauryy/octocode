@@ -1,7 +1,0 @@
-1. **Helped:** The `gh api repos/encode/httpx/commits/b5addb64f0 --jq .sha` call confirmed the commit exists. It ran in parallel with a `find` for a local checkout, which found nothing. Fetching `_client.py` through `gh api contents?ref=<sha>`, decoding it with base64 and saving it to /tmp gave me a file pinned to the right commit. One `grep -n` for proxy, `_mounts` and `_transport_for_url` found every relevant line. A single `sed` and `grep -A45` call then showed the code around those lines and `get_environment_proxies`.
-
-2. **Did not help:** The first `gh api` call failed because zsh treated the unquoted `?ref=` as a glob. The `find` for a local checkout was wasted, since none existed. I never opened `URLPattern` in `_utils.py`, so its matching and sort-order behaviour is unverified. I also didn't check `_send_single_request` directly. I only saw the `_transport_for_url` call site at line 1005 in a grep result.
-
-3. **Next time:** Quote the URLs from the start. Skip the local `find` when the task names a public repo. Fetch the `URLPattern` class in the same call as `_utils.py`, so the answer doesn't depend on inference.
-
-4. **Confidence:** High on the core flow: proxy map, `_mounts`, and the choice in `_transport_for_url`. I saw that code and its line numbers directly. Medium on the sort-order claim, which I marked as inferred in my answer.

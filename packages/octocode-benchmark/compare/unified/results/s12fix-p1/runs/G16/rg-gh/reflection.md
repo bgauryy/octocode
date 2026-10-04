@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call, `gh api -X GET search/issues` with two queries, surfaced both PRs (#18091 and #19399) right away. The second call, `repos/.../pulls/$n` for both PRs, gave the merge dates and SHAs and the PR bodies. The bodies held the "Fixes #12024" line and the mix-up explanation. The `compare/05f9eb8b3b8e...ea954809ce` call returned "ahead", which confirmed the target commit includes both merges.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless but noisy. I never opened issue #12024 itself, so its number rests on the PR text, which has a typo ("Fixes Fixes #12024"). I also did not read the diffs or check the source at `ea954809ce`, so I cited no `path:line`. The compare call only proves #19399's merge SHA is an ancestor of the target commit. It does not show that #18091's merge is, though that follows from the dates.
-
-3. **Next time:** I would fetch `issues/12024` to confirm it was closed by #18091. I would also run `rg` for `__scrape_unix_socket__` in a checkout, or fetch the file contents at the pinned ref, to give line-level evidence. And I would compare `c5fa89db` against the target commit as well.
-
-4. **Confidence:** Medium-high. The PR numbers and the mix-up are directly supported by the PR bodies. The issue link is slightly less certain because I did not check the issue.

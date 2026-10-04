@@ -1,7 +1,0 @@
-1. **Helped:** The first `ghGetFileContent` batch with `matchString` ("def _transport_for_url" and "proxy_map = self._get_proxy_map") and `contextLines` returned the routing function and the `__init__` mount-building code in one call. The second batch (`_get_proxy_map` in `_client.py`, `get_environment_proxies` in `_utils.py`) filled in where the map comes from. Batching through `queries[]` kept it to two calls.
-
-2. **Did not help:** Each `matchString` matched both the sync and async classes, so about half the output was async duplicates. The `get_environment_proxies` read cut off partway through the `NO_PROXY` loop, so I never saw the end of that function. I also never read `URLPattern.matches` or its ordering, and I said so. The line numbers I gave came from `matchedLines` anchors rather than a full-file read, so they are approximate. I passed the short SHA as `branch` and it resolved, but I never confirmed it was the pinned commit.
-
-3. **Next time:** I would add a third query for `URLPattern` in `_urlparse.py` or `_utils.py` and read the rest of `get_environment_proxies` with a larger `contextLines`. That would remove both gaps. I would also use `startLine`/`endLine` ranges to avoid the async duplicates.
-
-4. **Confidence:** Medium-high. The routing logic and map construction were read directly. The claim that sorting puts specific patterns first rests on the `sorted(...)` call and not on a read of the comparison method.

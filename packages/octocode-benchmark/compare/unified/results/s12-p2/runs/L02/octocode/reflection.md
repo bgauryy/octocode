@@ -1,7 +1,0 @@
-1. **Helped:** The second `localSearch` (`"prohibited to prevent data loss"`, `contextLines: 15`) worked best. It returned almost the whole `_prepare_related_fields_for_save` body with line numbers, which covered the FK check and the GenericForeignKey branch. The next pair of calls ran in parallel: `localSearch` for `_prepare_related_fields_for_save` found all three callers, and `localFetch` of `base.py` 1276-1286 gave the method header and the intent comment.
-
-2. **Did not help:** My first `localSearch` used a long phrase from memory (`save() prohibited to prevent data loss due to unsaved related object`) and returned empty. The real message is built from `%s()` plus split string literals, so that literal could not match. I did not use `lspSearch` or `astSearch`.
-
-3. **Next time:** I would start with a short, stable fragment, or search for the method name directly. I would also use `lspSearch` references to confirm the callers rather than relying on a text search.
-
-4. **Confidence:** High on the main answer, which is the `ValueError` raised at `base.py:1296-1303`, because I saw those lines directly. Medium on the `query.py:794` and `query.py:1042` caller citations. I saw them only as search snippets, not full reads, and my closing "I read all the code cited here" overstated that. I assumed the checkout matched the pinned commit and did not verify it, and I did not look at the tests.

@@ -1,7 +1,0 @@
-1. **Helped:** The first `ghGetHistoryItem` call (operation pullRequest, include body and patches) gave the PR description and the small-file diffs in one shot. The description named the two open Miri issues. The second call, with `matchString: "miri"` and a `files` filter for the twelve truncated test files, was the most efficient. It returned only the Miri-relevant diff lines, including the ignore reasons for `tcp_socket.rs` and `tcp_shutdown.rs`.
-
-2. **Did not help:** The first call was truncated by pagination (37 files, only 30 shown, with `rt_common.rs` cut off). I never fetched page 2 (`filePage: 2`), so some files are unseen. The `matchString` output drops test function names, because hunks show only the attribute line. I could not name the specific `rt_common.rs` tests or tie the `readv` leak (miri#5054) to a test. I also didn't read the final files at the merge commit.
-
-3. **Next time:** I would fetch page 2 of changed files. I would use `ghGetFileContent` on `rt_common.rs` at the merge commit to get test names. I would run `ghSearchCode` for `cfg_attr(miri, ignore` to get a full list of remaining ignores.
-
-4. **Confidence:** Medium. The PR summary and the ignore reasons are directly backed by diff text. The "still ignored" list is probably incomplete, and I flagged that in the answer.

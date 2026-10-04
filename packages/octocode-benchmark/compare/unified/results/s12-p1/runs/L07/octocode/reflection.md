@@ -1,7 +1,0 @@
-1. **Helped:** The first batch worked well. `localSearch` for `isRedirectError|getURLFromRedirectError|...` under `src/server` found the consumers fast: `app-render.tsx`, `app-route/module.ts` and `action-handler.ts`. `localFetch` of the whole of `redirect.ts` gave the digest format and both throwers. The second `localSearch` on `app-render.tsx` with `contextLines:3` showed the `location` header and status-code lines. The `localFetch` of `module.ts` lines 415–450 confirmed the route-handler 303/307/308 logic.
-
-2. **Did not help:** The `include` globs in the first search limited it to a few files, and `app-render.tsx` was missing from its results. I only found that file by guessing it. The context-line output for `app-render.tsx` was awkward: the `line` field and `matchLines` differ because the value embeds numbered context. I never opened `redirect-error.ts`, the body of the `action-handler.ts` helper near line 388, or `app-render.tsx` lines 4391–4400. That leaves the server-action path unverified, and I never established where the meta-tag fallback comes from.
-
-3. **Next time:** I'd run `localFetch` with `matchString` on `action-handler.ts` (the tool suggested exactly that) and read `redirect-error.ts`. I'd also read the enclosing functions in `app-render.tsx` to see when each catch path runs.
-
-4. **Confidence:** High for the throw mechanism and the route-handler path. Medium-high for the page path. Medium for server actions, because the 303 behaviour rests on a doc comment.

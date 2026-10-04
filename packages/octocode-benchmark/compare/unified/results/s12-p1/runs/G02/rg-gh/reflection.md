@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call, `gh api .../pulls/13824/files` piped through `jq` with a filename regex, returned the patches for the core files in one shot: `_generate_schema.py`, `validators/counter.rs`, the input_* files, `json_schema.py` and `tests/types/test_counter.py`. The first call (PR metadata plus the file list) showed the scope and head SHA. The tests and docs patches gave me behavior statements I could cite directly.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. The output was still correct, but it was noise. Because I only read the patch hunks, I never saw the pre-PR `_mapping_schema` code or the old tests. The "before" half of the comparison therefore rests on removed lines and the PR description. I also never looked at `counter.rs` in the serializers, the error-type text, or subclass handling. Patch lines also carry no absolute file line numbers, so most of my citations are to file and function names, not `path:line`.
-
-3. **Next time:** I'd add a third call: `gh api repos/pydantic/pydantic/contents/pydantic/_internal/_generate_schema.py?ref=<base sha>` to read the old `_mapping_schema`, and I'd fetch issue #13704 to see what the constraint bug was. I'd also fetch the head-commit file contents for real line numbers.
-
-4. **Confidence:** Medium-high on the after-PR behavior, since it comes straight from merged code and tests. Medium-low on the before-PR specifics.

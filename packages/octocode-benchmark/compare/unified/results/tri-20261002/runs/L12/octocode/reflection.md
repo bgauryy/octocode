@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` for "lifo" in the multi_thread directory did most of the work. With `resultView: detailed`, it returned the `lifo_slot` doc comment, `MAX_LIFO_POLLS_PER_TICK`, the poll loop with the budget check and cap, `reset_lifo_enabled`, and the `schedule_local` branch, all with line numbers. The single `localFetch` of `worker.rs:1340-1425` then gave me `schedule_task` and `schedule_local` in full, so I could cite exact lines for the push conditions.
-
-2. **Did not help:** The search output was large and included noise, such as the `counters.rs` hits and the park/assert hits. I never read the poll loop (`:709-795`) in full. I only saw it through search snippets, which end partway through the loop. I made no call to find who passes `is_yield=true`, or to read the `disable_lifo_slot` builder docs. Those gaps are why I flagged uncertainty rather than guessing.
-
-3. **Next time:** I would make one more `localFetch` of `worker.rs:700-800` to confirm the full loop, and a `localSearch` for `disable_lifo_slot` in the builder. I could run both in parallel with the first fetch.
-
-4. **Confidence:** Medium-high. The line citations come directly from fetched bytes. The mechanism and limits are well supported. The main residual risk is the unread part of the poll loop and the unchecked yield callers.

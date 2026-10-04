@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
-import {startServer,rowData,collect,nextHints,checks,writeResults,REPOS,inventoryRows,sourceView} from './mcp-client.mjs';
+import {startServer,rowData,collect,nextHints,checks,writeResults,REPOS,inventoryRows,sourceView,rawPatch} from './mcp-client.mjs';
 const {check,summary}=checks('review');const c=await startServer();const calls=[];
 const root=path.join(REPOS,'rust');const git=(...args)=>execFileSync('git',['-C',root,...args],{encoding:'utf8'}).trimEnd();
 const sha=git('rev-parse','HEAD'),parent=git('rev-parse','HEAD^');const number=Number(git('log','-1','--format=%s').match(/#(\d+)\)/)?.[1]);
 const repo={owner:'tokio-rs',repo:'tokio'};const pr={...repo,operation:'pullRequest',number};
 const stats=git('diff','--numstat',parent,sha).split('\n').map(l=>{const[a,d,file]=l.split('\t');return{file,additions:+a,deletions:+d}});
-const delta=s=>(s??'').split('\n').filter(l=>/^[+-](?![+-])/.test(l));
+const delta=s=>rawPatch(s).split('\n').filter(l=>/^[+-](?![+-])/.test(l));
 const invoke=async(label,tool,q,raw=false)=>{const e=raw?await c.raw(tool,q):await c.call(tool,q);calls.push({label,tool,ms:e.ms,bytes:Buffer.byteLength(e.text),error:e.isError||e.rowErrors>0,args:q,data:e.sc});check(label+' succeeds',!e.isError&&!e.rowErrors,e.text.slice(0,90));return e};
 try{
 const meta=await invoke('PR metadata','ghGetHistoryItem',pr);const m=rowData(meta)?.pullRequests?.[0];check('PR pins source and merge SHA',/^[a-f0-9]{40}$/.test(m?.sourceSha)&&m?.mergeCommitSha===sha);

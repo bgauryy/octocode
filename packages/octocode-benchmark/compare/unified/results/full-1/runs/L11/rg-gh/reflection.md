@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call did most of the work. It confirmed the checkout HEAD matched the pinned SHA. In the same command, an `rg` for names like `store_output`, `take_output`, `try_read_output`, `wake_join` and `COMPLETE|JOIN_INTEREST` across `core.rs`, `harness.rs` and `state.rs` located the whole mechanism at once. Two `sed` reads followed, and they were enough to trace the producer and consumer paths with line numbers.
-
-2. **Did not help:** The second `sed` pair was partly redundant, since I had already seen `complete` and `can_read_output` in the first read. I also cited some line numbers without seeing them exactly. `state.rs:381` and the `drop_join_handle_slow` range came from grep output and a partial read. I never opened `task/mod.rs`, which holds the safety rules the code comments refer to. I also never traced the vtable wiring from `RawTask` to `Harness::try_read_output`.
-
-3. **Next time:** I would add one `rg` on `try_read_output` in `raw.rs` to confirm the vtable path. I would also read the top of `task/mod.rs`, and use `sed -n` with exact line ranges for every line I cite.
-
-4. **Confidence:** High for the overall mechanism, because I read the code directly. Medium for a few exact line numbers, and for the description of the rules in `task/mod.rs`, which I only saw in comments.

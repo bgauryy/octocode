@@ -1,7 +1,0 @@
-**1. Helped:** The `ghGetFileContent` call on `prometheus/client_golang`, `prometheus/histogram.go`, with `branch: v1.20.0` and `matchString: ["DefBuckets", ...]`, answered almost everything in one read. It returned the `DefBuckets` value (line 265), the `HistogramOpts.Buckets` doc comment (387-397) and the applying condition (563-565), all pinned to the tag.
-
-**2. Did not help:** The parallel `ghSearchCode` call (keyword `DefBuckets`, path-scoped) returned empty. It searches the default-branch index, so it was redundant next to the tagged read. My second `matchString`, `len(opts.Buckets) == 0`, matched nothing, and the real condition only appeared because `DefBuckets` hit line 564. I never ran `ghSearchRepo` or `ghStructure`, so the repo identity came from my own knowledge, not a tool. The response gave a `commitSha` for the read, but I never separately confirmed it is the v1.20.0 tag commit. Lines 272-386 and 400-557 were omitted, and I didn't read them.
-
-**3. Next time:** I'd skip the empty search and go straight to the tagged `ghGetFileContent` read. I'd also run a quick `ghSearchRepo` to confirm the repo, and use looser match strings.
-
-**4. Confidence:** High. The doc comment and the code condition agree, and both were read at the tagged ref. The residual risk is the unverified tag-to-SHA mapping and the unread middle sections.

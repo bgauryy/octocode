@@ -1,7 +1,0 @@
-1. **Helped:** I made two `ghGetFileContent` calls, both pinned to branch `63c5760d8a`. The first used `matchString: "def build_middleware_stack"` with `contextLines: 40`. It returned `__init__`, the build method and `__call__` in one shot. The second fetched `starlette/middleware/exceptions.py` and `starlette/_exception_handler.py` with `fullContent`. Together these covered both halves of the question. Each result included `commitSha`, which confirmed the pin. Guessing the file paths from my knowledge of Starlette skipped discovery calls.
-
-2. **Did not help:** Nothing errored and I made no redundant calls. Line numbers weren't reported for the matched-context view, so I counted them by hand from `sourceLineRanges`. I never read `ServerErrorMiddleware` or `RequestBodyLimitMiddleware`, and I didn't open the router to check where else `wrap_app_handling_exceptions` is used. I marked those points as unverified in the answer.
-
-3. **Next time:** I would add a `ghGetFileContent` read of `starlette/middleware/errors.py` and a `ghSearchCode` for `wrap_app_handling_exceptions` in `routing.py`. That would let me confirm the outermost-handler behavior and the per-route usage instead of inferring them.
-
-4. **Confidence:** High for the stack order and the handler-lookup logic, because I read that code directly. Medium for the `ServerErrorMiddleware` behavior and the routing usage, which I inferred and flagged as such.

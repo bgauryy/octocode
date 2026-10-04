@@ -750,6 +750,22 @@ pub fn execute_local_search(
     if !list && files.iter().any(|file| !exhausted(file)) {
         files.retain(|file| !exhausted(file));
     }
+    // A small page names each hit's enclosing declaration; a searched
+    // symbol declared on a shown hit line gets an lspSearch references lead.
+    let symbol = (!list
+        && case != LocalSearchQueryCaseMode::Insensitive
+        && regex != LocalSearchQueryRegex::Pcre2
+        && query.invert_match != Some(true))
+    .then(|| super::enclosing::searched_symbol(&query.search_text))
+    .flatten();
+    let definition = annotate_enclosing(
+        &mut files,
+        symbol,
+        output_root,
+        page_budget,
+        &|source| expected_digest(source),
+        security,
+    );
     let binary_files = binary_file_list(
         parsed.stats.binary_files.as_deref().unwrap_or_default(),
         parsed.stats.binary_file_count.unwrap_or(0),
@@ -876,13 +892,15 @@ pub fn execute_local_search(
             map.insert(name, expansion);
         }
     }
-    // Files binary from their leading bytes are outside a text search, not a
-    // coverage gap: disclosed as a count by extension, with a listing.
+    // Files binary from their leading bytes are outside a text search, as
+    // they are for rg: hits are complete without them. Only an empty result,
+    // whose absence they leave unproven, discloses them as a count by
+    // extension with a listing.
     let leading_binaries = parsed
         .stats
         .skipped_binary_extensions
         .as_deref()
-        .filter(|groups| !root.is_file() && !groups.is_empty());
+        .filter(|groups| empty && !root.is_file() && !groups.is_empty());
     if let Some(groups) = leading_binaries {
         warnings.push(leading_binary_warning(groups));
         if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
@@ -954,6 +972,24 @@ pub fn execute_local_search(
             map.insert("includeIgnored".into(), found.lead);
         }
     }
+    if let (Some(symbol), Some((uri, line))) = (symbol, definition)
+        && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
+    {
+        map.insert(
+            "verifyReferences".into(),
+            json!({
+                "tool": ToolId::LspSearch.as_str(),
+                "query": {
+                    "uri": uri,
+                    "operation": "references",
+                    "symbolName": symbol,
+                    "lineHint": line,
+                },
+                "why": "References of the searched symbol's declaration.",
+                "confidence": "high",
+            }),
+        );
+    }
     Ok(LocalSearchResult {
         status,
         stats,
@@ -982,6 +1018,113 @@ pub fn execute_local_search(
         source_snapshot: Some(result_identity),
         source_root: output_root.to_path_buf(),
     })
+}
+
+/// Hit rows a page may show and still name each hit's enclosing
+/// declaration: a sweep of more hits is read as lines, not functions.
+const ENCLOSING_MAX_ROWS: usize = 50;
+/// Shown files checked for the searched symbol's declaration when the page
+/// is too large to annotate.
+const DEFINITION_MAX_FILES: usize = 3;
+/// Serialized chars an `in` field adds besides its value: `,"in":""`.
+const ENCLOSING_FIELD_CHARS: usize = 8;
+
+/// The current outline of a shown file, or `None` when it is too large,
+/// unreadable, unsupported, or no longer the bytes a stored scan matched.
+fn shown_outline(
+    source: &std::path::Path,
+    expected: Option<Option<super::manifest::Digest>>,
+    security: &ContentSecurity,
+) -> Option<super::enclosing::Outline> {
+    let limit = crate::tools::ast_search::MAX_PARSE_SOURCE_BYTES;
+    let meta = std::fs::metadata(source).ok()?;
+    if !meta.is_file() || meta.len() > limit as u64 {
+        return None;
+    }
+    let bytes = std::fs::read(source).ok()?;
+    if let Some(expected) = expected
+        && expected != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
+    {
+        return None;
+    }
+    let text = security.decode_source_bytes(&bytes, limit).ok()?;
+    super::enclosing::Outline::of(&text, &source.to_string_lossy())
+}
+
+/// Lines a shown row stands for: every matched line of a merged block.
+fn row_lines(row: &SearchMatch) -> Vec<u32> {
+    row.match_lines.clone().unwrap_or_else(|| vec![row.line])
+}
+
+/// Set `in` on every hit row of a page of at most [`ENCLOSING_MAX_ROWS`]
+/// rows whose names fit the page budget, and find the first shown hit that
+/// declares `symbol` (absolute path, line). Each file is parsed once.
+fn annotate_enclosing(
+    files: &mut [SearchFile],
+    symbol: Option<&str>,
+    output_root: &std::path::Path,
+    page_budget: usize,
+    expected: &dyn Fn(&std::path::Path) -> Option<Option<super::manifest::Digest>>,
+    security: &ContentSecurity,
+) -> Option<(String, u32)> {
+    let rows: usize = files
+        .iter()
+        .map(|file| file.matches.as_ref().map_or(0, Vec::len))
+        .sum();
+    let annotate = rows > 0 && rows <= ENCLOSING_MAX_ROWS;
+    if !annotate && symbol.is_none() {
+        return None;
+    }
+    let mut names: Vec<Vec<Option<String>>> = Vec::with_capacity(files.len());
+    let mut definition = None;
+    for (position, file) in files.iter().enumerate() {
+        let Some(matches) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
+            names.push(Vec::new());
+            continue;
+        };
+        if !annotate && (definition.is_some() || position >= DEFINITION_MAX_FILES) {
+            break;
+        }
+        let source = output_root.join(&file.path);
+        let Some(outline) = shown_outline(&source, expected(&source), security) else {
+            names.push(Vec::new());
+            continue;
+        };
+        if definition.is_none()
+            && let Some(symbol) = symbol
+            && let Some(line) = matches
+                .iter()
+                .flat_map(row_lines)
+                .find(|line| outline.declares(symbol, *line))
+        {
+            definition = Some((source.to_string_lossy().into_owned(), line));
+        }
+        names.push(if annotate {
+            matches
+                .iter()
+                .map(|row| outline.enclosing(row_lines(row)[0]))
+                .collect()
+        } else {
+            Vec::new()
+        });
+    }
+    if annotate {
+        let added: usize = names
+            .iter()
+            .flatten()
+            .flatten()
+            .map(|name| crate::tools::stream_page::json_text_chars(name) + ENCLOSING_FIELD_CHARS)
+            .sum();
+        let page = serde_json::to_string(&*files).map_or(usize::MAX, |text| text.len());
+        if page.saturating_add(added) <= page_budget {
+            for (file, names) in files.iter_mut().zip(names) {
+                for (row, name) in file.matches.iter_mut().flatten().zip(names) {
+                    row.enclosing = name;
+                }
+            }
+        }
+    }
+    definition
 }
 
 /// Serialized chars of one file entry around its rows and path,
@@ -1955,6 +2098,7 @@ fn project_match(
             truncated: true,
             original_chars: Some(matched.value.chars().count()),
             returned_chars: Some(chars),
+            enclosing: None,
         };
     }
     // Content-view path: the engine already clipped the assembled snippet to
@@ -1970,6 +2114,7 @@ fn project_match(
         truncated,
         original_chars: matched.original_chars.map(|chars| chars as usize),
         returned_chars: truncated.then(|| matched.value.chars().count()),
+        enclosing: None,
     }
 }
 
@@ -2558,6 +2703,7 @@ mod merge_tests {
             truncated: false,
             original_chars: None,
             returned_chars: None,
+            enclosing: None,
         }
     }
 

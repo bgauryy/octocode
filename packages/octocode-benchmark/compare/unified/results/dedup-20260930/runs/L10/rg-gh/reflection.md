@@ -1,7 +1,0 @@
-1. **Helped:** The first call combined `git rev-parse HEAD` with an `rg -n "func extrapolatedRate|..."` search. It confirmed the pinned commit and gave exact function line numbers in one step. The second call, `sed -n 425,640p`, read the whole function, and the `funcRate`/`funcIncrease` wrappers came from a second `sed` range in the same call. Two calls were enough.
-
-2. **Did not help:** I used `sed` without line numbers (`rg -n` or `cat -n` would have shown them), so the per-step line citations in my answer were estimated from the start line and offsets, not read. I said so at the end, but I should have fixed it instead of hedging. Some of those citations may be off by several lines. I also did not read `extendedRate`, `extendedHistogramRate`, `histogramRate`, `correctForCounterResetsHistogram`, or the docs, so the answer says nothing about those paths.
-
-3. **Next time:** I would print the range with `cat -n` or `rg -n ''` so every cited line is verified. I would also open `histogramRate` and `extendedRate`, since the question did not limit itself to float counters.
-
-4. **Confidence:** Medium-high on the algorithm, because I read the code directly. The exact function start lines are reliable. The per-step line citations are medium confidence.

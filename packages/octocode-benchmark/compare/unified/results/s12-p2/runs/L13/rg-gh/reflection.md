@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call (grep for `getGenericCommand` and `expireIfNeeded` in `src/t_string.c` and `src/db.c`) located the entry points. The third call, which used `sed -n` on `src/db.c` 280-380 and 2940-3110, showed `lookupKey`, `keyIsExpired` and `expireIfNeeded` with their comments, which was most of the answer. The `deleteKeyAndPropagate` and `propagateDeletion` reads confirmed the DEL propagation and the `expired` event.
-
-2. **Did not help:** The first Bash call failed because `rg` is not installed, and the stray `/dev/null: Operation not permitted` errors showed up on every call. `git rev-parse HEAD` failed, so I never verified the checkout was at the pinned commit. The `sed` outputs had no line-number prefixes, so several line numbers in my answer were approximate. I marked those with `~` instead of rereading with `grep -n` or `nl`.
-
-3. **Next time:** Use `grep -n` throughout, or `nl -ba`, so every cited line is exact. Confirm the commit through `.git/HEAD` or `gh api`. Cite lines only from numbered output.
-
-4. **Confidence:** Medium-high on the behavior, since I read the actual code. Medium on the exact line numbers and on the pinned commit, which I did not confirm.

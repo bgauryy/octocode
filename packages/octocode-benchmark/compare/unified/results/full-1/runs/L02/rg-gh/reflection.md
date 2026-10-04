@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call combined `git rev-parse HEAD` with `rg -n "unsaved related object|_prepare_related_fields_for_save" django`. It confirmed the pinned commit and found the message string, the method definition and its callers in one step. The second call, `sed -n 1270,1340p base.py` plus `sed -n 858,868p`, gave the whole method body and the `save()` call site. That was enough to answer.
-
-2. **Did not help:** Nothing errored and I made no repeated calls. The `| head` on the `rg` output could have cut off callers, though only five lines came back. I did not open `query.py:1042`, so I could not say which operation that caller belongs to. I also did not check for other places that might raise a similar error, such as `bulk_update` or related-manager paths. I also did not check the tests or git history for context.
-
-3. **Next time:** I would drop `head` and read the `query.py:1042` context with a small `sed`. I would also run a broader `rg` for "prohibited to prevent data loss" to be sure no other check exists.
-
-4. **Confidence:** High for the main claim, that `_prepare_related_fields_for_save` at `base.py:1276`, called from `save()` at `base.py:864`, raises `ValueError`. I read the code directly at the confirmed SHA. Medium-high for completeness, because I did not scan for other checks.

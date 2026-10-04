@@ -1,7 +1,0 @@
-**1. Helped:** `artifactSearch` (npm, undici 6.21.0) was the fastest step. One call gave `engines >=18.17`, the publish date, and a release-source SHA hint. The batched `ghGetFileContent` call with `matchString` for the three timeout names returned the exact lines (229, 238, 239) without reading the whole 622-line file. The same batch confirmed `package.json` line 134. `ghGetHistoryItem` on `v6.21.0` confirmed the tag resolves to the same SHA.
-
-**2. Did not help:** Nothing failed and I made no repeat calls. The `matchString` output was noisy: many omitted-line blocks and matches on validation code I didn't need. The `artifactSearch` hint labelled the SHA "unverified", so I needed the tag lookup to corroborate it. No tool could compare the published npm tarball with the git tag.
-
-**3. Next time:** I would use tighter `matchString` patterns, such as `? 4e3` or `300e3`, to skip validation lines. I would also fetch the default values from the docs (`docs/docs/api/Client.md`) as a cross-check.
-
-**4. Confidence:** High for engines, the SHA and the timeout defaults, because I saw each value directly at the pinned commit. Medium-high that the tarball matches the tag, since I never verified that.

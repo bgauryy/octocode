@@ -44,7 +44,7 @@
     },
     {
       "name": "ghSearchCode",
-      "description": "Find indexed code or file paths in a GitHub owner or repo"
+      "description": "Find default-branch code or file paths in a GitHub owner or repo"
     },
     {
       "name": "ghStructure",
@@ -64,7 +64,7 @@
     },
     {
       "name": "artifactSearch",
-      "description": "Find packages, dependency metadata, or upstream source"
+      "description": "Find package versions, dependencies, or upstream release source"
     },
     {
       "name": "localSearch",
@@ -88,7 +88,7 @@
     },
     {
       "name": "lspSearch",
-      "description": "Resolve symbols, references, calls, types, or diagnostics"
+      "description": "Resolve callers, references, same-name symbols, types, or diagnostics"
     }
   ],
   "keywords": [

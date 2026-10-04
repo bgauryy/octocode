@@ -137,6 +137,45 @@
           "env": {
             "DISABLE_TOOLS": { "priority": 0 }
           }
+        },
+        "family": {
+          "type": "enum",
+          "values": ["all", "local", "github"],
+          "description": "Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled.",
+          "env": {
+            "OCTOCODE_TOOL_FAMILY": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+          }
+        }
+      }
+    },
+    "mcp": {
+      "title": "MCP presentation",
+      "file": true,
+      "resolved": true,
+      "fields": {
+        "publishedView": {
+          "type": "enum",
+          "values": ["queries", "flat"],
+          "description": "Input shape in tools/list: queries (a queries[] batch) or flat (one row per call). Validation accepts both.",
+          "env": {
+            "OCTOCODE_PUBLISHED_VIEW": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+          }
+        },
+        "deferred": {
+          "type": "stringArray",
+          "default": null,
+          "description": "Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them.",
+          "env": {
+            "OCTOCODE_DEFER_TOOLS": { "priority": 0 }
+          }
+        },
+        "instructions": {
+          "type": "enum",
+          "values": ["default", "guide"],
+          "description": "MCP server instructions: default, or guide (the longer workflow guide).",
+          "env": {
+            "OCTOCODE_INSTRUCTIONS": { "priority": 0, "normalize": "lower", "invalid": "skip" }
+          }
         }
       }
     },

@@ -211,7 +211,7 @@ mod tests {
             .expect("serializable");
         assert_eq!(
             wire["content"],
-            "l2\nhit3\nl4\n... [lines 5-23 omitted] ...\nl24\nhit25\nl26\n"
+            "l2\nhit3\nl4\n... [lines 5-23 not requested] ...\nl24\nhit25\nl26\n"
         );
         assert_eq!(
             wire["sourceLineRanges"],
@@ -260,7 +260,7 @@ mod tests {
         let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         assert_eq!(
             r.content.as_deref(),
-            Some("hit\n... [lines 3-8 omitted] ...\nhit [REDACTED]\n")
+            Some("hit\n... [lines 3-8 not requested] ...\nhit [REDACTED]\n")
         );
         // Redaction keeps line counts, so the anchors stay; the warning says
         // the text is not verbatim.
@@ -297,7 +297,7 @@ mod tests {
         let first = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         assert_eq!(
             first.content.as_deref(),
-            Some("l2\nhit3\nl4\n... [lines 5-23 omitted] ...\n")
+            Some("l2\nhit3\nl4\n... [lines 5-23 not requested] ...\n")
         );
         assert_eq!(
             first.source_line_ranges,
@@ -744,7 +744,7 @@ mod tests {
         assert_eq!(
             r.content.as_deref(),
             Some(
-                "l2\nl3\nl4\n... [lines 5-19 omitted] ...\nl20\nl21\n... [lines 22-28 omitted] ...\nl29\nl30\n"
+                "l2\nl3\nl4\n... [lines 5-19 not requested] ...\nl20\nl21\n... [lines 22-28 not requested] ...\nl29\nl30\n"
             )
         );
         assert_eq!(
@@ -833,7 +833,7 @@ mod tests {
         let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
         assert_eq!(
             r.content.as_deref(),
-            Some("def a|b\n... [lines 5-8 omitted] ...\nx.y\n")
+            Some("def a|b\n... [lines 5-8 not requested] ...\nx.y\n")
         );
         assert_eq!(r.matched_lines, vec![4, 9]);
         let one = qj(

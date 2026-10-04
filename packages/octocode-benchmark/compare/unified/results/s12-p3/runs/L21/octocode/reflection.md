@@ -1,7 +1,0 @@
-1. **Helped:** The first call, `localSearch` for `begin_shutdown` under `tokio/src` with `resultView: detailed`, found all four definitions and the caller in one pass. Its context lines showed the dispatch at `pool.rs:576-579`. The second call, a batched `localFetch` of `pool.rs` 153-185 and 305-350 plus `sharded.rs` 333-375, gave the exact bodies and `BlockingPool::shutdown`. Two calls were enough.
-
-2. **Did not help:** Nothing errored. The fetch printed an "omitted lines" notice and a range-adjustment warning, both harmless. I never saw the enclosing `impl` headers for `pool.rs:740` or `sharded.rs:336`, so I did not confirm the struct names that hold them. I labelled them "Locked variant" and "Sharded variant" because the dispatcher pointed there. I also did not check how the pool picks a variant.
-
-3. **Next time:** I would add one `localFetch` or `astSearch` for the `impl` headers around those two functions. I would also say plainly that the struct names are inferred.
-
-4. **Confidence:** Medium-high. The call order and each function's actions come directly from the code I read, with line numbers. My closing "no uncertainty" overstated it, because the struct names and variant selection were not verified.

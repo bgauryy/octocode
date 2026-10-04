@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import {startServer,rowData,nextHints,checks,writeResults,RESULTS} from './mcp-client.mjs';
+import {startServer,rowData,nextHints,checks,writeResults,RESULTS,rawPatch,patchNumbersOk} from './mcp-client.mjs';
 const prior=JSON.parse(fs.readFileSync(RESULTS+'/review-large.json'));let e=prior.calls.at(-1);
 const c=await startServer();const {check,summary}=checks('review-large-patch');const calls=[];let patch='',pages=0;
 try {
@@ -11,5 +11,5 @@ try {
  check('patch pagination terminates',!e);
  const res=await fetch('https://api.github.com/repos/microsoft/TypeScript/pulls/51387/files?per_page=100&page=2',{headers:{'User-Agent':'octocode-review-audit'}});if(!res.ok)throw Error('oracle HTTP '+res.status);
  const f=(await res.json()).find(f=>f.filename==='src/compiler/transformers/utilities.ts');
- check('assembled raw patch exactly equals independent API',patch===f?.patch,'chars '+patch.length);
+ check('assembled raw patch exactly equals independent API',rawPatch(patch)===f?.patch,'chars '+patch.length);check('assembled patch numbers every new-side line',patchNumbersOk(patch));
 } catch(err){check('audit completes',false,err.message)}finally {const result=summary();writeResults('review-large-patch',{...result,pages,calls});c.close();process.exitCode=result.failed.length?1:0}

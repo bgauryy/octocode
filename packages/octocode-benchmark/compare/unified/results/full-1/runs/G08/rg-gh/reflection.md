@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call did most of the work. It combined `gh issue view 18837 --json title,body,state,comments`, `gh pr view 18838 --json body,files,mergeCommit` and `gh pr diff 18838`. That returned the issue's repro, the PR's stated intent, and the actual `proxy.js` change in one round trip. The first call's `gh pr list --search "18837" --json ...` found PR #18838 directly.
-
-2. **Did not help:** In the first call, `gh issue view --comments | head -100` printed nothing. Only the JSON from `gh pr list` appeared, so I had to re-run the issue view. I never found out why it was empty. I didn't use the local checkouts, and they weren't Svelte anyway. I never looked at the post-merge `proxy.js`, so I have no line numbers for it and I never saw the `has` trap's code.
-
-3. **Next time:** I'd use `--json` output from the start instead of piping `--comments` through `head`. I'd also run `gh api` or `gh search code` against the merge commit `a72dc8ea` to read the `has` trap and get `path:line` citations.
-
-4. **Confidence:** High on the root cause and the fix, because the issue body, the PR description and the diff all agree. Medium-high on my claim that the old code created no dependency where no source existed. I inferred that from the diff and didn't verify it in the full file. I ran no tests, and I said so in the answer.

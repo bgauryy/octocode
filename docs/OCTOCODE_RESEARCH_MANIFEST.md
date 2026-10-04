@@ -2,7 +2,7 @@
 
 Octocode research connects a question to inspectable code evidence. The agent chooses scope and evaluates evidence; tools retrieve source, syntax, repository topology, language-server results, and provider records. A search locates a candidate — it does not establish identity, completeness, or behavior.
 
-This page owns tool selection: choosing and combining the 16 public tools for local, remote and history research. The concept and research loop are in [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md); parameters are in the [tool reference](OCTOCODE_TOOLS.md); executable workflows are in the [research skill](../skills/octocode-research/SKILL.md); validation requirements are in the [contributor acceptance guide](../skills-dev/octocode-dev/docs/TOOL_QUALITY.md).
+This page owns tool selection: choosing and combining the 16 public tools for local, remote and history research. The concept and research loop are in [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md); the per-flow diagrams are in [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md); parameters are in the [tool reference](OCTOCODE_TOOLS.md); executable workflows are in the [research skill](../skills/octocode-research/SKILL.md); validation requirements are in the [contributor acceptance guide](../skills-dev/octocode-dev/docs/TOOL_QUALITY.md).
 
 ## Discover the contract before the query
 

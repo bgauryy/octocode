@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` (regex on function definitions) found `getGenericCommand` and `expireIfNeeded` in one call. The parallel `localFetch` calls on `t_string.c:456-475` and `db.c:2940-3110` then gave the deciding lines directly. The third `localSearch` on `expireIfNeeded\(|keyspace_misses` with context lines showed the lookupKey call site and the miss accounting without reading the whole file.
-
-2. **Did not help:** The first search's `next.read` hint pointed at `t_string.c` for a regex that mostly matched `db.c`, which I ignored. The third search was noisy: it matched `expireIfNeeded` in SCAN, RANDOMKEY and DEL, and returned `src/db.c` line numbers that were off from the content (e.g. match 48 vs. snippet 45-49). I never read `lookupKeyReadOrReply` itself or `deleteKeyAndPropagate`. I only saw `db.c:316-352` as a search snippet, so the propagation and null-reply claims rest on comments and a call site, not on the code that does the work.
-
-3. **Next time:** I'd fetch `lookupKeyReadWithFlags` and `deleteKeyAndPropagate` with `localFetch` and a line range, to confirm the DEL/UNLINK propagation and the shared-null reply directly.
-
-4. **Confidence:** Medium-high on the core behavior (null reply, lazy delete on master, replica caveats). Medium on propagation details, since I did not read the code that implements them.

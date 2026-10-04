@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { continuationChannel } from '@octocodeai/config/schema';
+import { DEFERRED_TOOL_DISPATCHER } from '@octocodeai/config/mcp';
 import { RESULTS_DIR, TARIFF, parseArgs, readJson, weightedUsage } from './lib.mjs';
 
 // `next` holds page continuations and `hints` holds leads. Legacy streams
@@ -63,6 +64,13 @@ function loose(hint, input) {
   return merged.some(row => paging.every(k => canonical(row?.[k]) === canonical(query[k])) && IDENTITY_KEYS.every(k => query[k] === undefined || canonical(row?.[k]) === canonical(query[k])));
 }
 
+/** `run({tool, query})` → the tool it runs and that tool's input. */
+export function dispatched(tool, input) {
+  return tool === DEFERRED_TOOL_DISPATCHER && typeof input?.tool === 'string' && input.query && typeof input.query === 'object'
+    ? { tool: input.tool, input: input.query }
+    : { tool, input };
+}
+
 /** Follow rate of one session's stream: offered page hints, followed (loose) and followed verbatim. */
 export function followRate(streamText) {
   const events = String(streamText).split('\n').filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
@@ -74,9 +82,10 @@ export function followRate(streamText) {
     if (e.type === 'assistant' && !e.parent_tool_use_id) {
       for (const c of e.message?.content ?? []) {
         if (c.type !== 'tool_use') continue;
-        const tool = String(c.name).split('__').at(-1);
+        // A deferred-tool dispatcher call is a call of the tool it runs.
+        const { tool, input } = dispatched(String(c.name).split('__').at(-1), c.input ?? {});
         toolOf.set(c.id, tool);
-        calls.push({ at: calls.length, tool, input: c.input ?? {} });
+        calls.push({ at: calls.length, tool, input });
       }
     } else if (e.type === 'user') {
       for (const c of e.message?.content ?? []) {
@@ -122,6 +131,13 @@ function selfTest() {
   assert(pageHints({ hints: { readFixPr: lead }, next: { continuePatch: page } }).length === 1, 'hints leads are not page hints');
   assert(pageHints({ queries: [{ next: { clasify: { tool: 'clasify', query: {} }, read: lead } }] }).length === 1, 'clasify walk is a page, its read a lead (legacy shape)');
   assert(pageHints({ results: [{ data: { next: { clasify: { tool: 'clasify', query: {} } } } }] }, 'localSearch').length === 0, 'a clasify handoff on another tool is a lead (legacy shape)');
+  const repoPage = { tool: 'ghSearchRepo', query: { keywords: ['x'], page: 2 } };
+  const viaRun = followRate([
+    call('r1', DEFERRED_TOOL_DISPATCHER, { tool: 'ghSearchRepo', query: { keywords: ['x'] } }),
+    result('r1', { results: [{ data: { next: { nextPage: repoPage } } }] }),
+    call('r2', DEFERRED_TOOL_DISPATCHER, { ...repoPage, confidence: 'medium' }),
+  ].join('\n'));
+  assert(viaRun.offered === 1 && viaRun.verbatim === 1, 'a page of a deferred tool followed through the dispatcher counts');
   console.log('metrics self-test: ok');
 }
 

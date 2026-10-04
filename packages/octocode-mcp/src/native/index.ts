@@ -18,8 +18,11 @@ import {
 } from '@octocodeai/config/schema';
 import {
   buildMcpInstructions,
+  DEFERRED_TOOL_DISPATCHER,
+  deferredDispatcherDefinition,
   publishedInputSchema,
   type GrammarCapability,
+  type PublishedView,
 } from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 import packageJson from '../../package.json';
@@ -45,6 +48,16 @@ export interface NativeCatalog {
   grammarCapabilities?: GrammarCapability[];
   /** Language labels whose LSP server resolves on this machine. */
   lspServers?: string[];
+  /**
+   * MCP presentation switches resolved by native from config `mcp.*`:
+   * tools/list input view, instructions variant, and the available tools
+   * served only through the deferred-tool dispatcher.
+   */
+  presentation?: {
+    publishedView?: PublishedView;
+    instructions?: 'default' | 'guide';
+    deferred?: string[];
+  };
 }
 
 export interface NativeRuntime {
@@ -223,13 +236,11 @@ export function normalizingSchema(
  */
 export function toolInputSchema(
   definition: Pick<ToolDefinition, 'name' | 'schema' | 'inputSchema'>,
-  normalize: (value: unknown) => unknown
-): unknown {
-  const canonical = z.toJSONSchema(definition.inputSchema, {
-    io: 'input',
-    unrepresentable: 'any',
-  }) as Record<string, unknown>;
-  const advertised = publishedInputSchema(definition.name, canonical);
+  normalize: (value: unknown) => unknown,
+  view: PublishedView = 'queries'
+): StandardSchema {
+  const canonical = canonicalInputSchema(definition);
+  const advertised = publishedInputSchema(definition.name, canonical, view);
   const properties = canonical.properties;
   const queriesEnvelope =
     !!properties &&
@@ -249,6 +260,47 @@ export function toolInputSchema(
     advertised,
   });
 }
+
+function canonicalInputSchema(
+  definition: Pick<ToolDefinition, 'inputSchema'>
+): Record<string, unknown> {
+  return z.toJSONSchema(definition.inputSchema, {
+    io: 'input',
+    unrepresentable: 'any',
+  }) as Record<string, unknown>;
+}
+
+/** The SDK's rejection text, so agents and harnesses see one shape. */
+function invalidArguments(tool: string, issues: readonly unknown[]) {
+  const text = (issues as { message?: string; path?: unknown[] }[])
+    .map(issue => {
+      const path = (issue.path ?? [])
+        .map(part =>
+          String(
+            part && typeof part === 'object' && 'key' in part
+              ? (part as { key: unknown }).key
+              : part
+          )
+        )
+        .join('.');
+      return path ? `${path}: ${issue.message}` : String(issue.message);
+    })
+    .join(', ');
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Input validation error: Invalid arguments for tool ${tool}: ${text}`,
+      },
+    ],
+    isError: true,
+  };
+}
+
+/** The `run` dispatcher's input: a `{tool, query}` lead, extra keys ignored. */
+const DispatchInputSchema = z
+  .object({ tool: z.string(), query: z.record(z.string(), z.unknown()) })
+  .passthrough();
 
 /**
  * Keep the schema's accept/reject decisions, but rewrite rejection issues
@@ -390,32 +442,92 @@ export function createNativeMcp({
     title: 'Octocode MCP',
     version: packageJson.version,
   };
+  // Presentation switches (config `mcp.*`, resolved by native). Deferred
+  // tools stay available but leave tools/list; `run` executes them.
+  const presentation = catalog.presentation ?? {};
+  const view: PublishedView =
+    presentation.publishedView === 'flat' ? 'flat' : 'queries';
+  const availableNames = availableTools.map(tool => tool.name);
+  const deferred = availableNames.filter(name =>
+    presentation.deferred?.includes(name)
+  );
+  const listed = availableTools.filter(tool => !deferred.includes(tool.name));
   const server = new McpServer(implementation, {
     capabilities: { tools: { listChanged: false } },
     // Availability-scoped instructions, built by core from the tools the
     // native runtime actually enables — the native catalog carries none.
     // Hosts truncate instructions near 2 KB, so the grammar inventory stays
     // with `octocode scheme` rather than being appended here.
-    instructions: buildMcpInstructions(availableTools.map(tool => tool.name)),
+    instructions: buildMcpInstructions(
+      listed.map(tool => tool.name),
+      {
+        view,
+        deferred,
+        ...(presentation.instructions === 'guide' && { variant: 'guide' }),
+      }
+    ),
   });
   const registerTool = server.registerTool.bind(server) as RegisterTool;
 
   const definitions = new Map(
     getDirectToolDefinitionsWithAddons({
-      availableTools: availableTools.map(tool => tool.name),
+      availableTools: availableNames,
       ...(catalog.lspServers && { lspServers: catalog.lspServers }),
     }).map(definition => [definition.name, definition])
   );
 
+  const execute = async (
+    toolName: string,
+    args: unknown,
+    context: ToolCallContext
+  ): Promise<unknown> => {
+    const signal = context.mcpReq?.signal ?? context.signal;
+    const requestId = String(
+      context.mcpReq?.id ?? context.requestId ?? randomUUID()
+    );
+    signal?.throwIfAborted();
+    const cancel = () => runtime.cancel(requestId);
+    signal?.addEventListener('abort', cancel, { once: true });
+    try {
+      return ensureTextContent(
+        await runtime.executeMcp(requestId, toolName, args)
+      );
+    } catch (error) {
+      // A thrown rejection here is an internal/native failure (not a normal
+      // tool error, which is returned in the result envelope). The SDK would
+      // surface its raw message verbatim to the client, so backstop it:
+      // cancellations propagate unchanged; everything else is logged to
+      // stderr and replaced with a generic client-facing message so paths,
+      // ids, or token fragments in native error text never leak.
+      if (signal?.aborted) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(
+        `[octocode-mcp] ${toolName} execution error: ${detail}\n`
+      );
+      throw new Error(
+        `Tool ${toolName} failed to execute; see the server logs for detail.`,
+        { cause: error }
+      );
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+    }
+  };
+
+  const schemas = new Map<string, StandardSchema>();
   for (const tool of availableTools) {
     const definition = definitions.get(tool.name);
     if (!definition) {
       void runtime.close();
       throw new Error(`Native catalog tool has no contract: ${tool.name}`);
     }
-    const inputSchema = toolInputSchema(definition, value =>
-      value === undefined ? value : runtime.normalizeInput(tool.name, value)
+    const inputSchema = toolInputSchema(
+      definition,
+      value =>
+        value === undefined ? value : runtime.normalizeInput(tool.name, value),
+      view
     );
+    schemas.set(tool.name, inputSchema);
+    if (deferred.includes(tool.name)) continue;
     registerTool(
       tool.name,
       {
@@ -423,37 +535,48 @@ export function createNativeMcp({
         description: definition.description,
         inputSchema,
       },
+      (args, context = {}) => execute(tool.name, args, context)
+    );
+  }
+
+  if (deferred.length) {
+    // Every next/hints lead is `{tool, query}`, so a lead naming a deferred
+    // tool runs here verbatim; its query validates against that tool's
+    // canonical schema exactly as a direct call would.
+    const dispatcher = deferredDispatcherDefinition(
+      deferred.map(name => ({
+        name,
+        canonical: canonicalInputSchema(definitions.get(name)!),
+      }))
+    );
+    registerTool(
+      dispatcher.name,
+      {
+        title: dispatcher.title,
+        description: dispatcher.description,
+        inputSchema: actionableIssuesSchema(
+          DispatchInputSchema as unknown as StandardSchema,
+          {
+            normalize: value => value,
+            jsonSchema: () => dispatcher.inputSchema,
+            advertised: dispatcher.inputSchema,
+          }
+        ),
+      },
       async (args, context = {}) => {
-        const signal = context.mcpReq?.signal ?? context.signal;
-        const requestId = String(
-          context.mcpReq?.id ?? context.requestId ?? randomUUID()
-        );
-        signal?.throwIfAborted();
-        const cancel = () => runtime.cancel(requestId);
-        signal?.addEventListener('abort', cancel, { once: true });
-        try {
-          return ensureTextContent(
-            await runtime.executeMcp(requestId, tool.name, args)
-          );
-        } catch (error) {
-          // A thrown rejection here is an internal/native failure (not a normal
-          // tool error, which is returned in the result envelope). The SDK would
-          // surface its raw message verbatim to the client, so backstop it:
-          // cancellations propagate unchanged; everything else is logged to
-          // stderr and replaced with a generic client-facing message so paths,
-          // ids, or token fragments in native error text never leak.
-          if (signal?.aborted) throw error;
-          const detail = error instanceof Error ? error.message : String(error);
-          process.stderr.write(
-            `[octocode-mcp] ${tool.name} execution error: ${detail}\n`
-          );
-          throw new Error(
-            `Tool ${tool.name} failed to execute; see the server logs for detail.`,
-            { cause: error }
-          );
-        } finally {
-          signal?.removeEventListener('abort', cancel);
+        const { tool, query } = args as { tool: string; query: unknown };
+        const schema = schemas.get(tool);
+        if (!schema) {
+          return invalidArguments(DEFERRED_TOOL_DISPATCHER, [
+            {
+              path: ['tool'],
+              message: `${tool} is not available; use one of ${[...schemas.keys()].join(', ')}`,
+            },
+          ]);
         }
+        const result = await schema['~standard'].validate(query);
+        if (result.issues) return invalidArguments(tool, result.issues);
+        return execute(tool, (result as { value: unknown }).value, context);
       }
     );
   }

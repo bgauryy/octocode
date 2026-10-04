@@ -1,7 +1,0 @@
-**Helped:** The first batch was the fastest step. One `localSearch` on `isRedirectError|getRedirectStatusCodeFromError|...` under `server/` returned every catch site with line numbers. Running a `localFetch` of `redirect.ts` in parallel gave the thrown digest format. The second batch of four `localFetch` calls with explicit `ranges` read only the deciding lines at each site. That is why I needed just two rounds.
-
-**Did not help:** Nothing errored. The `app-render.tsx` fetch returned an "omitted lines" marker between the two ranges, which was harmless but noisy. I did not read the code after the `app-render.tsx` catch branches (for example the `createRedirectRenderResult` body or where `x-action-redirect` is set). I flagged both as unverified in the answer.
-
-**Next time:** I would add one `localSearch` for `x-action-redirect` and one on `createRedirectRenderResult`. That would close the fetch-action gap. I would also read a few lines past `app-render.tsx:4403` to see which body the error-recovery render sends.
-
-**Confidence:** High for the core mechanism: throw a digest error, catch it, set the status and `Location`. All of it is backed by lines I read. Medium for fetch-action details and for the page-path body, since those parts of the flow were not read.

@@ -48,6 +48,19 @@ fn no_outline(path: &str) -> String {
     )
 }
 
+/// The innermost declaration (up to [`BLOCK_MAX_LINES`]) enclosing each hit,
+/// or `None` when the file type has no declaration outline.
+pub fn enclosing(content: &str, path: &str, hits: &[usize]) -> Option<Vec<LineRange>> {
+    let spans = declaration_spans(content, path)?;
+    Some(
+        hits.iter()
+            .filter_map(|&hit| innermost(&spans, hit))
+            .filter(|(start, end)| end + 1 - start <= BLOCK_MAX_LINES)
+            .map(|(start, end)| LineRange { start, end })
+            .collect(),
+    )
+}
+
 /// Widen each range to the innermost declaration containing its first line.
 /// A declaration over [`BLOCK_MAX_LINES`] keeps the range start and reads at
 /// most that many lines of it; the lines it stops before go to `rest`.

@@ -1,7 +1,0 @@
-1. **Helped:** `ghGetFileContent` on `src/requests/sessions.py` at the pinned SHA. Using `matchString: "def resolve_redirects"` with `contextLines: 100` returned most of the loop in one call. A second call with `startLine` 286 to 400 covered the loop's end, `rebuild_auth`, `rebuild_proxies` and `rebuild_method`. Two reads were enough. I skipped search and structure calls because I already knew the file.
-
-2. **Did not help:** three of my calls failed validation. I passed `queries` as a string instead of an array, `contextLines` was capped at 100, and `goal` and `reasoning` were required. Each cost a round trip. The first content chunk carried no per-line numbers, only `sourceLineRanges` and one `matchedLines` entry (186). So my line citations are counted or estimated, and I said so in the answer. I never read where `Session.send` calls `resolve_redirects`, or where `allow_redirects` is handled.
-
-3. **Next time:** read the tool schemas first and send valid queries from the start. Ask for explicit `startLine` and `endLine` ranges so the returned line numbers can be cited exactly. Add one `matchString` read on `resolve_redirects(` in `Session.send` to close the gap on `allow_redirects`.
-
-4. **Confidence:** high on the behaviour. I read the code directly at the pinned commit, and every listed change comes from those lines. Medium on the exact line numbers, since most are approximate.

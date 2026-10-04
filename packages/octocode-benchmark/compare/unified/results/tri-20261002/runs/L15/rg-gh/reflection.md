@@ -1,7 +1,0 @@
-1. **Helped:** The first `rg` call (for `maxRunBeforeFallback`, `hashFloodingDetected` and similar names) found the mechanism in `ImmutableSet.java` straight away. The second call then printed the relevant ranges with `sed` and listed every `JdkBackedSetBuilderImpl` reference, so I could cite lines without a third call.
-
-2. **Did not help:** Both calls printed `/bin/bash: /dev/null: Operation not permitted`. This was harmless noise, but it hides real errors. My `sed` ranges were guessed, and the output had no line numbers, so I derived the cited line numbers by counting from the ranges I requested. Some of them may be off by a few lines. The `sed` output also skipped the body of `hashFloodingDetected`, and it showed `return false;` in a place that looks like a mangled, truncated print. I did not notice that at the time. I also never opened the `Builder` code near line 446, so my mention of it is thin.
-
-3. **Next time:** Use `rg -n -C` or `nl -ba | sed -n` so line numbers come from the tool output. Read the full `hashFloodingDetected` body. Check `RegularImmutableSet` and `copyOf` for the other construction paths.
-
-4. **Confidence:** Medium. The mechanism and the constants (13, `log2` of the table size, the `HashSet` fallback) are well supported. The exact line citations and the claim about the build-time scan are less certain.

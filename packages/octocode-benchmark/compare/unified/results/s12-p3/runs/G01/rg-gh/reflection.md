@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh api pulls/16403` plus `/files` call gave metadata and the file list in one go. The `/files` call with `jq` selecting `.patch` for applications.py, background.py, routing.py and pyproject.toml gave the actual runtime diffs. The raw-contents fetch of the docs page described defaults and behavior clearly.
-
-2. **Did not help:** My first three attempts used `2>/dev/null` or wrote to `/tmp/files.json`, and the sandbox blocked both. That wasted two or three calls and left `/dev/null` noise in every output. The grep over `_runtime.py` and `_asgi.py` was shallow. I never read `_api.py`, the rest of `_asgi.py`, or any tests, so several claims rest on inference from grep hits and docs. The patch output also gives hunk-header lines, not lines at the pinned commit.
-
-3. **Next time:** Skip redirects and temp files and pipe straight to `jq`. Fetch `_api.py` and `_asgi.py` in full at the pinned SHA and read them. Skim a few tests. Check PR review comments and linked issues for known problems.
-
-4. **Confidence:** Medium. The changed-file summary and the routing, application and dependency changes come straight from diffs. The claims about provider registration, middleware overhead and double-instrumentation avoidance are only partly verified.

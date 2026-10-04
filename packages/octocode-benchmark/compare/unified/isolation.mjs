@@ -87,6 +87,25 @@ export function upstreamCommand(repoRoot, server) {
   return [command, ...(server.args ?? [])];
 }
 
+// Write tools are never offered to a solver, whatever the profile says.
+const WRITE_TOOLS = ['astRewrite', 'ghCloneRepo'];
+
+/**
+ * The upstream native MCP environment: evaluator env, then the profile
+ * server's `env` (catalog-shape switches such as OCTOCODE_PUBLISHED_VIEW),
+ * then the evaluator-owned isolation keys, which a profile cannot override.
+ * A profile DISABLE_TOOLS adds to the write tools; it never re-enables one.
+ */
+export function upstreamEnv(base, serverEnv = {}, { corpus, repoRoot, statsHome, githubToken }) {
+  const disabled = [...new Set([...WRITE_TOOLS, ...String(serverEnv.DISABLE_TOOLS ?? '').split(',').map(s => s.trim()).filter(Boolean)])];
+  return {
+    ...base, ...serverEnv,
+    ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}),
+    OCTOCODE_HOME: statsHome, OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: 'persistent', ENABLE_LOCAL: 'true',
+    WORKSPACE_ROOT: corpus[0] ?? repoRoot, ALLOWED_PATHS: corpus.join(','), DISABLE_TOOLS: disabled.join(','),
+  };
+}
+
 function upstreamMcp(corpus, repoRoot, statsHome, githubToken, server) {
   const env = { ...process.env };
   propagateOctocodeEnv({ cwd: repoRoot, env });
@@ -96,7 +115,7 @@ function upstreamMcp(corpus, repoRoot, statsHome, githubToken, server) {
   const config = path.join(getOctocodeHome(), '.octocoderc');
   if (fs.existsSync(config)) fs.copyFileSync(config, path.join(statsHome, '.octocoderc'));
   const child = spawn('/usr/bin/sandbox-exec', ['-f', nativeProfile, ...upstreamCommand(repoRoot, server)], {
-    detached: true, cwd: server?.cwd ?? repoRoot, env: { ...env, ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}), OCTOCODE_HOME: statsHome, OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: 'persistent', ENABLE_LOCAL: 'true', WORKSPACE_ROOT: corpus[0] ?? repoRoot, ALLOWED_PATHS: corpus.join(','), DISABLE_TOOLS: 'astRewrite,ghCloneRepo' }, stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true, cwd: server?.cwd ?? repoRoot, env: upstreamEnv(env, server?.env, { corpus, repoRoot, statsHome, githubToken }), stdio: ['pipe', 'pipe', 'pipe'],
   });
   let buffer = '', id = 0;
   const waiting = new Map();
@@ -115,7 +134,7 @@ function upstreamMcp(corpus, repoRoot, statsHome, githubToken, server) {
   });
   return { child, async rpc(message) {
     if (!['initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping'].includes(message.method)) throw new Error('MCP method denied');
-    if (message.method === 'tools/call' && ['astRewrite', 'ghCloneRepo'].includes(message.params?.name)) throw new Error('Write tool denied');
+    if (message.method === 'tools/call' && WRITE_TOOLS.includes(message.params?.name)) throw new Error('Write tool denied');
     if (message.id === undefined) { child.stdin.write(JSON.stringify(message) + '\n'); return null; }
     const originalId = message.id, nextId = ++id;
     const response = await new Promise((resolve, reject) => {

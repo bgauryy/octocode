@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call pulled the issue body with `gh api -X GET repos/redis/redis/issues/15874`. It pointed straight at `src/t_array.c:1837`. The `sed -n 1800,1900p src/t_array.c` call then showed the buggy function in the pinned checkout. `gh api .../pulls/15875` and `.../files` gave the PR description and diff, so I could describe the fix without needing the post-fix code.
-
-2. **Did not help:** `rg` isn't installed, so that part of the first call failed. Every Bash call printed `/dev/null: Operation not permitted`, which was noise, and `git log -1` failed, so I never confirmed the checkout's HEAD SHA. My `grep` for limit constants returned nothing useful, though `ARGETRANGE_MAX_ITEMS` showed up in the earlier output. The search call and the timeline call could have been one call.
-
-3. **Next time:** I would use `grep -n` from the start. I would also read the PR diff before the source so I'd know which lines matter. Finally, I'd try `git -C ... rev-parse HEAD` or read `.git/HEAD` to confirm the pin.
-
-4. **Confidence:** High on the cause and the fix's behavior, since I saw both the source and the diff. Medium on exact line numbers: the `:1836-1838` range is my reading of the `sed` output, which wasn't line-numbered. I did not verify the merge SHA.

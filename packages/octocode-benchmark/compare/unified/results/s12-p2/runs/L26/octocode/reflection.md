@@ -1,7 +1,0 @@
-**1. Helped:** Two calls did the work. The `localSearch` regex for `def _save_table|def _do_update|def _save_parents` in base.py gave exact line anchors at once. Its `hints.read` then pointed at the right next step. The single `localFetch` with range `1075,1290` returned `_save_table`, `_do_update` and `_do_insert` in one read, so every cited line came from fetched bytes.
-
-**2. Did not help:** Nothing errored and I made no redundant calls. I never opened `save_base` or `_save_parents`. So I couldn't say how `force_insert` and `force_update` get passed down per table, and I flagged that gap in my answer. I also didn't run `lspSearch` to find callers of `_save_table`, which would have closed it.
-
-**3. Next time:** I'd add a second `localFetch`, or an `lspSearch` references lookup, for `_save_table` callers in `save_base` and `_save_parents`. That would cover the multi-table inheritance path. I'd batch it with the first read, since the two are independent.
-
-**4. Confidence:** High for the single-table decision logic and the zero-row behaviour. I read the exact branches, and the line numbers come straight from the fetch output. Medium for anything about inheritance or how flags propagate across tables, because I didn't read that code.

@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` call (regex `keep_stack|ref_stack|skip_stack|callback_stack` on json_sax.hpp) mapped every stack use in one pass, so I knew where to read. The batched `localFetch` with five line ranges then returned the deciding code (`key()`, `end_object`, `end_array`, `handle_value`) in one call. The third `localSearch`, with `contextLines` and a combined regex, found both `remove_discarded_value` and the parser.hpp root-null handling.
-
-2. **Did not help:** The first search returned about 100 matches, which was noisy. My guessed ranges in `localFetch` skipped lines 536-579, 601-619, 701-743 and 813-994. That left `start_array`'s body and the diagnostic-position code unread, and I had to say so in the answer. I never verified how `parser::parse` selects the callback builder. I relied on the `sdp` variable seen in the parser.hpp context lines. I did not use any history or `lspSearch` tools. Nothing errored.
-
-3. **Next time:** I would use `astSearch` or a tighter `matchString` to fetch whole function bodies instead of guessing ranges. I would also read the parser.hpp lines around 100-134 directly to confirm the dispatch.
-
-4. **Confidence:** Medium-high. The core mechanism rests on code I read directly. The gaps are the unread ranges and the parser dispatch, which I inferred from context lines.

@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch` (regex for `StaleNaN|endOfRunStaleness|forEachStale`) located all the key symbols in one call. The follow-up `localSearch` for `updateStaleMarkers|disableEndOfRunStalenessMarkers\(` with `contextLines:3` showed the call sites, including the V2 appender in `scrape_append_v2.go`, without extra reads. `localFetch` with multiple `ranges` gave exact lines for `endOfRunStaleness`, `forEachStale` and the empty-scrape branch. The last `localSearch` (`append\(\[\]byte\{\}|Scrape failed|reportStale\(`) confirmed the failed-scrape path.
-
-**2. Did not help:** The second call batched a `localSearch` with a `localFetch`, and the broad pattern returned many incidental matches. Omitted-range markers in the `localFetch` output hid some lines, so I never read the code around `manager.go:559` or the loop-exit code near line 1416. I flagged that gap as uncertain instead of fixing it.
-
-**3. Next time:** I would read `manager.go` around line 559 and lines 1405–1420 directly. That would have closed the gap on when end-of-run markers are disabled. I would also use a narrower first regex.
-
-**4. Confidence:** High on the stale-marking mechanisms, because each was read in source with line numbers. Medium on the disable-trigger details, which I did not verify.

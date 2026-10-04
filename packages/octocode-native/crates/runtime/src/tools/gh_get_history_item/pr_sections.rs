@@ -206,8 +206,8 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
     Ok(())
 }
 
-/// A PR commit's file rows show the PR's patch view (minified or narrowed to
-/// `matchString` hits); a commit read is never reshaped, so it returns every
+/// A PR commit's file rows show the PR's patch view (narrowed to
+/// `matchString` hits); a commit read is never narrowed, so it returns every
 /// patch of that commit whole, paged.
 fn attach_raw_commit_read(commit: &mut Value, query: &HistoryItemRequest, sha: &str) {
     if !commit.get("next").is_some_and(Value::is_object) {

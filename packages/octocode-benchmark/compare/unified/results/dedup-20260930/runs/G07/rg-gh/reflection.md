@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call fetched `applications.py` and `middleware/exceptions.py` with `gh api ...contents/...?ref=63c5760d8a --jq .content | base64 -d`, then ran `grep -n "def build_middleware_stack" -A45` and `cat -n`. That gave the assembly logic and `ExceptionMiddleware` with line numbers in one call. The third call did the same for `_exception_handler.py` and `errors.py`, and it grepped `routing.py` for the `wrap_app_handling_exceptions` call sites. Together these covered the question in three calls.
-
-2. **Did not help:** The first call failed with a zsh "no matches found" error because the unquoted `?ref=` was treated as a glob. That cost one call. The first call also lined up with no local checkout, so I fetched everything remotely.
-
-3. **Next time:** Quote the URLs from the start. Clone the repo at the pinned commit, or fetch a tarball, so `rg` and `sed` work on it locally. I would also open `RequestBodyLimitMiddleware` and the routing call sites, which I left unread.
-
-4. **Confidence:** High on the stack order and handler lookup, because I read those lines directly at the pinned ref. Medium on the per-route wrapping in `routing.py`, because I only saw the grep hits (`:65`, `:84`) and not the code around them. The explanation of how it interacts with the exception handlers stored in the scope is my inference.

@@ -1,7 +1,0 @@
-**1. Helped:** The first `ghSearchHistory` call ran two PR queries in parallel ("unix socket", merged; "unix domain socket" + "scrape"). Both PRs came back in one round trip: #18091 and #19399, whose title pointed straight at the fix. The follow-up `ghGetHistoryItem` with `include: ["body"]` for both PRs gave the issue number (#12024), the merge SHAs, and the explanation of the connection mix-up.
-
-**2. Did not help:** Neither call could tie results to commit ea954809ce. I never checked that the two merge commits are ancestors of it. I flagged this in my answer, but it remains a gap. I also never opened issue #12024 to confirm it was closed, and I did not read the diff or code for #19399. The mix-up explanation comes only from the PR author's description. The search returned unrelated Docker socket PRs, which was minor noise.
-
-**3. Next time:** I would add a `ghSearchHistory` commit lookup, or a `ghGetHistoryItem` call, to confirm ea954809ce contains both merge SHAs. I would fetch issue #12024 and read the changed files of #19399 (`include: ["files"]`) to verify the description against the code.
-
-**4. Confidence:** High for PR numbers, the issue reference, and the description of the mix-up, since they come directly from the PR bodies. Medium for the "as of ea954809ce" framing and for the claim that the issue was closed, since I did not verify either.

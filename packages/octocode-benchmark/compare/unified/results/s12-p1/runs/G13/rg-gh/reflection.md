@@ -1,7 +1,0 @@
-**1. Helped:** The second Bash call fetched `node_exporter.go?ref=v1.8.2` through `gh api --jq .content | base64 -d | grep -n`. It gave exact line numbers for `web.telemetry-path` (161-163) and `web.max-requests` (169-171), pinned to the tag. The third call found the `:9100` argument at line 179 and the `go.mod` pin to exporter-toolkit v0.11.0. Reading the toolkit's `flag.go` confirmed what that argument controls.
-
-**2. Did not help:** The first call failed because `rg` is not installed, and I had been told it would be. That cost one call. Every call also printed `/dev/null: Operation not permitted`, which was noise but harmless. My `flag.go` fetch had no `?ref=`, so it read the default branch rather than the version pinned in `go.mod`. I disclosed that gap in the answer instead of closing it.
-
-**3. Next time:** Use `grep` from the start. Fetch `flag.go` with `?ref=v0.11.0`. Check the repo description with `gh api repos/prometheus/node_exporter` so "official" is verified, not assumed.
-
-**4. Confidence:** High for the three defaults, since each comes from a line I saw at the v1.8.2 tag. The only small gap is the unpinned `flag.go`, which does not change the `:9100` result because that value is passed in from `node_exporter.go`.

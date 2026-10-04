@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` for `generateEtags` across `packages/next/src` did most of the work. In one call it returned every site: config declaration, default, schema, `base-server`, `next-server`, `pages-handler`, `router-server` and `send-payload`, each with surrounding lines. The `localFetch` of `send-payload.ts` lines 30-125 then showed the deciding branch at lines 66-71.
-
-2. **Did not help:** I requested `endLine` 125 on a 93-line file. The tool clamped it, which was harmless, but I needed a second `localFetch` (lines 1-33) for `sendEtagResponse`. One whole-file fetch would have covered both. I did not read `generateETag` in `lib/etag` or the `serveStatic` implementation, so those parts rest on the call sites and a code comment. I also did not search for other `sendEtagResponse` callers, such as app-route or app-page paths. My answer flagged these gaps but did not close them. The tools themselves worked fine.
-
-3. **Next time:** I would fetch `send-payload.ts` in full once. I would run a `localSearch` for `sendEtagResponse` and `generateETag` to check for ETag paths that ignore the option. I would also read `lib/etag`.
-
-4. **Confidence:** High for the page-response flow and the static-file wiring, since I read those lines directly. Medium that nothing else sets ETags independently of the option, because I did not search for it.

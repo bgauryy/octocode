@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call, a `grep -rn -i "flooding|MAX_RUN_MULTIPLIER|maxRunBeforeFallback"` over ImmutableSet/RegularImmutableSet/ImmutableMap/RegularImmutableMap, pointed straight at the relevant lines. The third call, a `sed -n` on lines 660-760 and 805-935 of ImmutableSet.java, showed the code and javadoc, which was enough to answer.
-
-2. **Did not help:** The first Bash call used `rg`, which isn't installed ("command not found"), so it was wasted. Every Bash call also printed "/dev/null: Operation not permitted", which was noise but didn't change results. I never checked the commit SHA with git, though the checkout was stated to be pinned, and I did not read the tests or the RegularImmutableMap code. My statement about the line ~101 comment came from a grep hit only.
-
-3. **Next time:** I'd use grep from the start, since the prompt says `rg` is available but it wasn't. I'd also read the RegularImmutableMap lines ~99 and the `ImmutableSetTest` false-positive test, so the claims about both aren't left partly unverified.
-
-4. **Confidence:** High for the ImmutableSet mechanism, because I read the code directly. Medium for the line numbers I labeled approximate (`~`), and for the map and test claims, which I did not verify in detail.

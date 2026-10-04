@@ -1,7 +1,0 @@
-1. **Helped:** The first batched `ghGetFileContent` call (three rows, branch `63c5760d8a`) did most of the work. `matchString: "def build_middleware_stack"` with context lines returned the assembly code, and full reads of `middleware/exceptions.py` and `_exception_handler.py` covered the handler path. It also returned the pinned full SHA. The `matchString` read of `errors.py` was cheap and gave the `ServerErrorMiddleware` flow.
-
-2. **Did not help:** `ghSearchCode` for `wrap_app_handling_exceptions` searched the default branch and reported `6beaa2e39d33…`, not the pinned commit. I only got the `routing.py` call-site lines (65, 84) from it. I never read `routing.py` at the pinned commit, so I couldn't verify the route-level wrapping there. The `errors.py` read started at line 104 and skipped `debug_response` and `error_response`. The search tool couldn't be pinned to a commit.
-
-3. **Next time:** I'd read `routing.py` at the pinned ref with `matchString: "wrap_app_handling_exceptions"` in the first batch. I'd also skip `ghSearchCode` when exact-commit evidence matters.
-
-4. **Confidence:** High for stack assembly and the `ExceptionMiddleware`, `wrap_app_handling_exceptions` and `ServerErrorMiddleware` logic, since I read those at the pinned commit. Medium for the route-level wrapping claim, which rests on default-branch search output. I flagged that in the answer.

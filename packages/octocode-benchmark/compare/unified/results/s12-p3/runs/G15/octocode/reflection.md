@@ -1,7 +1,0 @@
-**1. Helped:** The two parallel `ghSearchHistory` PR searches (keywords "sharded"+"blocking" and "shard"+"spawn_blocking") surfaced #8337, #7757, #8057 and #8135 with merge dates in one step. The batched `ghGetHistoryItem` call for #8057 and #8337 gave the key evidence: the revert rationale (hang in #8056, still present with `NUM_SHARDS=1`) and #8337's "re-lands ... disabled by default" wording, plus the builder method and env var names.
-
-**2. Did not help:** The two searches overlapped heavily, so the second was mostly redundant. Neither call could confirm that commit `facc6fc47e` contains #8337's merge. I never read #8337's diff, #8135's body, the 1.52.0 release contents, or issue #8056 directly. Those were inferred from titles, dates and PR text, and I flagged that in the answer. #7973 (closed, shard inject queue) is a different queue, and I didn't open it.
-
-**3. Next time:** I'd run one search, then fetch #8337 with `include: ["files"]` to verify the builder and env var in code. I'd also check ancestry of `facc6fc47e`, perhaps with `ghGetFileContent` at that ref on the builder file, to confirm the opt-in exists there.
-
-**4. Confidence:** High on the PR identity and the revert story, since both come from PR bodies I read. Medium on the #8135 and 1.52.0 connections, which are inferred.

@@ -77,7 +77,7 @@ After native changes, rebuild native and affected interfaces, then exercise `$OC
 
 ## Tools, skills, and documentation owners
 
-The [catalog](docs/OCTOCODE_TOOLS.md) has sixteen tools; `$OCTO scheme` is authoritative. `ghCloneRepo` and `astRewrite` are CLI-only. Topology/rewrite require `OCTOCODE_BETA=1`; classification requires `OCTOCODE_CLASSIFICATION_API`. MCP registers available read tools.
+The [catalog](docs/OCTOCODE_TOOLS.md) has sixteen tools; `$OCTO scheme` is authoritative. [Workflows](docs/OCTOCODE_WORKFLOWS.md) maps each research flow (routes, `next` pages, `hints`, clasify, briefs) with one diagram per flow. `ghCloneRepo` and `astRewrite` are CLI-only. Topology/rewrite require `OCTOCODE_BETA=1`; classification requires `OCTOCODE_CLASSIFICATION_API`. MCP registers available read tools.
 
 Public skills live in [skills/](skills/README.md); tested skills in `skills-beta/`; repository development skills in `skills-dev/`. `.agents/skills/` entries must be symlinks to canonical folders, never copies. Edit canonical sources.
 

@@ -1,7 +1,0 @@
-1. **Helped:** The second `localSearch` call, with `def static\(`, was the most useful. It found exactly the three definitions and identified which file held each one. The first `localSearch` call, a broad regex over `*.py`, gave the call sites. Its matches in `forms/widgets.py` (lines 13, 121, 228) and `admin_list.py` (lines 24, 187) were the answer. Running both calls in parallel kept the work to one round.
-
-2. **Did not help:** The first regex was noisy. `static_url` matched `STATIC_URL` in about 20 files, which buried the real hits. I never used `lspSearch` references, which would have confirmed the callers by symbol identity instead of by text. I also never opened any file with `localFetch`, so the call sites rest on grep lines only. I did not check whether `StaticNode` in `templatetags/static.py` calls `static()` itself. My search would have caught that only if the call sat on a line matching my pattern.
-
-3. **Next time:** I would run `def static\(` first, then `lspSearch` find-references on `templatetags/static.py:174`. A `localFetch` of lines 115–135 would settle the `StaticNode` question. I would also use a case-sensitive, tighter pattern to avoid the `STATIC_URL` noise.
-
-4. **Confidence:** Medium-high. The two callers are well supported, but a missed caller through an alias or an unusual import form is still possible.

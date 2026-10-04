@@ -1,7 +1,0 @@
-**1. Helped:** Two calls did all the work. `ghGetHistoryItem` (issue 13786) returned the full issue body, including the `core_config()` snippet and the parent/child output. Its `closedBy` field and the `readFixPr` hint pointed straight to PR 13825. `ghGetHistoryItem` (pullRequest 13825, `include: body, patches`) then returned the diff, the PR description and the new tests in one response.
-
-**2. Did not help:** The PR patch output was truncated (`isPartial`, `contentPagination`). The `tests/test_model_signature.py` patch was cut off, and many hunks showed as `...`. I didn't follow `next.continuePatch`. I also didn't fetch the merge commit SHA or read the post-fix file, so I gave no `path:line` citations at a pinned commit, only diff hunks. The issue lists PR 13794 as closing it, but I didn't check why it was closed unmerged.
-
-**3. Next time:** I would call `ghGetHistoryItem` with `content.patches` limited to `_config.py` and `tests/test_config.py`, which avoids the truncation. I'd also fetch `_config.py` at the merge commit with `ghGetFileContent` to get exact line numbers, and look at 13794 briefly.
-
-**4. Confidence:** High on the root cause and the shape of the fix, because the issue text and the merged diff agree. Medium on completeness, since I saw no pinned line numbers and only part of the patch set.

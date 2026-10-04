@@ -1,7 +1,0 @@
-1. **Helped:** The second `ghGetHistoryItem` call, with `matchString: "miri, ignore"` and `files: ["tokio/tests/"]`, was the most useful. It returned compact hunks showing every added or removed ignore, with the reason comments. That gave me the remaining-skips list almost directly. The first call (body + files + patches) gave the PR motivation, the CI bump and the doc changes.
-
-2. **Did not help:** The first call was truncated: `isPartial` came back true, 12 files had unfinished patches, and 37 files over 2 pages were never fully read. I never fetched page 2 or the raw `rt_common.rs` patch, and I never read any test file at the merge commit. So I can't tie `SO_LINGER` or `readv` to specific tests, and the tests blocked by the `readv` leak (miri#5054) are unidentified. I also never verified the remaining skips against merged source. The `matchString` view shows only hunk lines, so test names often weren't visible.
-
-3. **Next time:** I'd do the targeted `matchString` query first, then page through `filePage: 2`. I'd also read the key test files at `mergeCommitSha` with `ghGetFileContent`, using `matchString: "miri"`. That would confirm which tests are still ignored and attach the right reason to each.
-
-4. **Confidence:** Medium-high on what the PR changes, since that comes straight from the patches. Medium on the completeness of the skip list, because of the unread page 2 and the partial `rt_common` patch.

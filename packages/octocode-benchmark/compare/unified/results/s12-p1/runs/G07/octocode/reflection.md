@@ -1,7 +1,0 @@
-**1. Helped:** The first batch of three parallel `ghGetFileContent` calls was the fastest step. Using `matchString: "def build_middleware_stack"` on `applications.py` and full reads of `middleware/exceptions.py` and `_exception_handler.py` covered most of the question in one round. Pinning `branch: 63c5760d8a` returned the right commit SHA, so the line numbers are trustworthy. The `matchString` read of `errors.py` on `async def __call__` found `ServerErrorMiddleware` cleanly.
-
-**2. Did not help:** The `ghSearchCode` for `wrap_app_handling_exceptions` ran against the default branch, not my pinned commit. It returned commit `6beaa2e`, so the `routing.py` lines 65 and 84 are from a different commit. I never read `routing.py` at `63c5760d8a`, which left a gap. The `errors.py` `matchString` read started mid-file in HTML template text, so I got a little noise.
-
-**3. Next time:** I would use `ghGetFileContent` on `routing.py` with `matchString: "wrap_app_handling_exceptions"` at the pinned commit, instead of a code search. I would put it in the first parallel batch. I'd also read `RequestBodyLimitMiddleware` if the question touched it.
-
-**4. Confidence:** High for stack assembly and the handler lookup, because I read those lines directly at the pinned commit. Medium for the per-route wrapping, which is inferred from search hits on a different commit. I said so in the answer.

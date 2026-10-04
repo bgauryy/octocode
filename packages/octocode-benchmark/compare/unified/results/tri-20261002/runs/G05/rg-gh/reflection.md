@@ -1,7 +1,0 @@
-1. **Helped:** Piping `gh api -X GET "repos/psf/requests/contents/src/requests/sessions.py?ref=611c6162cb" --jq .content | base64 -d | awk 'NR>=a&&NR<=b{print NR": "$0}'` worked best. It pinned the commit and gave exact line numbers with no local checkout. Two ranged reads (95-330, then 330-440) covered `resolve_redirects`, `rebuild_*` and `should_strip_auth`. The `grep -n` for `resolve_redirects|allow_redirects|def send` in the second call located `Session.send`, and a third read (798-835) showed how it consumes the generator.
-
-2. **Did not help:** My first call was wasted. It tried to `cd` into a local `repos/python` and to run `find /` for a psf checkout. It also wrote to `/tmp/sessions.py`, and both failed. The sandbox blocks writes to `/tmp`, so I should have piped from the start. Every call printed `/dev/null: Operation not permitted`, which is noise but harmless. I re-fetched the same file three times, since nothing could be cached on disk.
-
-3. **Next time:** Fetch the file once into a shell variable, or use one `awk` with several ranges. I would also read `Response.is_redirect`, `rewind_body` and `resolve_proxies`, which I skipped.
-
-4. **Confidence:** High for the core mechanics and line citations, since I read the pinned source directly. Medium for edge-case behavior in the modules I did not open.

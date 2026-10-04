@@ -398,7 +398,7 @@ try {
           assert.equal(
             content,
             matched
-              ? 'needle 🌍\r\n... [line 3 omitted] ...\nneedle café\n'
+              ? 'needle 🌍\r\n... [line 3 not requested] ...\nneedle café\n'
               : source
           );
         }

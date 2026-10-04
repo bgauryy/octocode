@@ -1,7 +1,0 @@
-1. **Helped:** The `localSearch` call for `tracing::trace!` in `batch_semaphore.rs`, with context lines, listed every event site with line numbers in one call. The `localFetch` of lines 296-375 and 535-585 then showed `add_permits_locked` and `assign_permits` together, which is the whole mechanism. `ghGetHistoryItem` on issue #8541, run in parallel with the search, confirmed the trigger (`permits_obtained`) and gave the Miri trace pointing at `queue.last()`.
-
-2. **Did not help:** My first `localFetch` failed validation because I passed a JS expression, so I wasted a call. The issue body was long, and its pagination cut off at 12,000 of 14,366 characters. I never read the rest. I also never read PR #8542, which would have shown the actual fix and confirmed the diagnosis. Lines 376-534 and the `Acquire` poll and drop code stayed unread.
-
-3. **Next time:** I would send plain JSON ranges and fetch the `Acquire::poll` and `Drop` code. I would also read PR #8542 with `include: ["files"]` as the hint suggested, so the answer rests on the fix and not only on the reporter's account.
-
-4. **Confidence:** High on the event location and the unwind-skips-`pop_back` reasoning, since I read both in the source. Medium on the later steps (completion, free, dangling pointer), which come from the issue text and not from code I read. I said so in the answer.

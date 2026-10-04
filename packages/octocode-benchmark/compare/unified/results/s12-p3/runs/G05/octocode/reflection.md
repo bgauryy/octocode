@@ -1,7 +1,0 @@
-1. **Helped:** The second `ghGetFileContent` call, with `ranges: ["134-400"]`, did nearly all the work. It returned the whole redirect machinery with line numbers in one read: `get_redirect_target`, `should_strip_auth`, `resolve_redirects`, `rebuild_auth`, `rebuild_proxies` and `rebuild_method`. The third call, with `matchString` on `resolve_redirects(` and `allow_redirects`, showed how `Session.send` invokes the generator at `:802-824`. I needed that part for the answer.
-
-2. **Did not help:** The first call used `matchString` with five `def` names and returned mostly "lines omitted" stubs, so I had to read the file again. The third call repeated lines I already had (`:186-303`) and left gaps (`:809-813`) that I could not see. I did not read `Response.is_redirect` or `Response.next`, so I took their behavior from comments and call sites. I could not run any code.
-
-3. **Next time:** I would skip the multi-`matchString` probe and read the line range directly once I knew the file. I would use a tighter `matchString` for the `send` call site, or a range such as `770-825`.
-
-4. **Confidence:** High. Every claim cites lines I actually saw at the pinned commit (611c6162cbc4). The one soft spot is that I never opened `is_redirect` itself.

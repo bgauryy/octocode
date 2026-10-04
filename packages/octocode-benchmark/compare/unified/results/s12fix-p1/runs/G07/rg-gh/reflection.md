@@ -1,7 +1,0 @@
-1. **Helped:** Fetching raw files with `gh api -X GET repos/Kludex/starlette/contents/<path>?ref=63c5760d8a` and the raw Accept header worked best. The `applications.py` call, with grep plus `sed -n 60,100p`, gave the assembly logic in one shot. The paired `cat -n` of `exceptions.py` and `_exception_handler.py` gave exact line numbers for the handler dispatch. The third call (grep on `errors.py` and `routing.py`) confirmed the outer catch and the per-route wrapping.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless noise, but it could mask real errors. The third call had no `sed`/`cat -n` on `errors.py`, so its line numbers come from `grep -n`, which is fine. The `routing.py` grep showed only the import and two call sites. I never opened the surrounding code, so "applied per route and per websocket session" rests on the line numbers and function names alone. I also never opened `middleware/__init__.py`, as I disclosed.
-
-3. **Next time:** I would include `Middleware`/`_MiddlewareFactory` in the first batch of fetches. I would also view a few lines around the `routing.py:65` and `:84` call sites to confirm what is wrapped.
-
-4. **Confidence:** High on the assembly order and the handler lookup, since I read the source directly at the pinned ref. Medium-high on the routing.py claim, since it was inferred from grep hits only.

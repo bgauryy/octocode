@@ -1,6 +1,6 @@
 # Octocode interfaces
 
-Load when invocation, availability, or recovery is unclear. Live `scheme` output is authoritative.
+Load when invocation, availability, or recovery is unclear. Live `scheme` output is authoritative. Per-flow diagrams (local, GitHub, history, external → local, pages, hints, clasify): [OCTOCODE_WORKFLOWS.md](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md).
 
 ```bash
 node packages/octocode/out/octocode.js scheme --compact          # or: npx -y octocode scheme --compact

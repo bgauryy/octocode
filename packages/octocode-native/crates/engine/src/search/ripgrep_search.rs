@@ -333,6 +333,9 @@ struct FileRec {
     line_weight: u32,
     /// `relevance` only: a test, generated, or vendored path below the root.
     demoted: bool,
+    /// `relevance` only: a generated file, by its path below the root or its
+    /// header; it ranks after every hand-written file.
+    generated: bool,
     /// `relevance` identifier search only: a matched line declares the name
     /// (see [`identifier_search`]).
     declares: bool,
@@ -1219,6 +1222,12 @@ fn collect<M: Matcher + Sync>(
                     return WalkState::Continue;
                 }
             };
+            let relative = path.strip_prefix(&opts.path).unwrap_or(path).to_string_lossy();
+            let generated = ranks_by_relevance(opts)
+                && outcome.matched_lines > 0
+                && (relevance::is_generated_path(&relative)
+                    || read_prefix(&file, relevance::GENERATED_HEADER_BYTES)
+                        .is_ok_and(|prefix| relevance::has_generated_header(&prefix)));
             drop(file);
             if outcome.span_cap_reached {
                 state.span_capped.store(true, Ordering::Relaxed);
@@ -1247,13 +1256,8 @@ fn collect<M: Matcher + Sync>(
                 return WalkState::Continue;
             }
 
-            let demoted = ranks_by_relevance(opts)
-                && relevance::is_demoted_path(
-                    &path
-                        .strip_prefix(&opts.path)
-                        .unwrap_or(path)
-                        .to_string_lossy(),
-                );
+            let demoted =
+                generated || (ranks_by_relevance(opts) && relevance::is_demoted_path(&relative));
             worker_recs.push(FileRec {
                 path: dent.path().to_string_lossy().into_owned(),
                 entry: outcome.entry,
@@ -1263,6 +1267,7 @@ fn collect<M: Matcher + Sync>(
                 sort_time: capture_sort_time(opts, &dent),
                 line_weight: outcome.line_weight,
                 demoted,
+                generated,
                 declares: outcome.declares && identifier,
             });
             WalkState::Continue
@@ -1331,11 +1336,16 @@ fn compare_recs(
             .then_with(|| a.path.cmp(&b.path)),
         Some("relevance") if lists_match_density(mode) => (b.declares && !b.demoted)
             .cmp(&(a.declares && !a.demoted))
+            .then_with(|| a.generated.cmp(&b.generated))
             .then_with(|| rank_weight(opts, mode, b).cmp(&rank_weight(opts, mode, a)))
             .then_with(|| a.demoted.cmp(&b.demoted))
             .then_with(|| b.line_weight.cmp(&a.line_weight))
             .then_with(|| a.path.cmp(&b.path)),
-        Some("relevance") => a.demoted.cmp(&b.demoted).then_with(|| a.path.cmp(&b.path)),
+        Some("relevance") => a
+            .generated
+            .cmp(&b.generated)
+            .then_with(|| a.demoted.cmp(&b.demoted))
+            .then_with(|| a.path.cmp(&b.path)),
         _ => a.path.cmp(&b.path),
     };
     if opts.sort_reverse.unwrap_or(false) {

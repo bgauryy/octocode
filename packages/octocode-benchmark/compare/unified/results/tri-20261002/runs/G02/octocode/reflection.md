@@ -1,7 +1,0 @@
-**1. Helped:** The first `ghGetHistoryItem` call (pullRequest, with body, files and patches) gave the PR body, the docs and the core_schema/error-type diffs, and `lax_counter`/`strict_counter` in `input_python.rs`. The second call, filtered with `files` to `_generate_schema.py`, `_validators.py`, `_known_annotated_metadata.py` and `tests/types/test_counter.py`, was the most useful. It showed both the removed `_mapping_schema` lines (the "before") and the tests that state the new behavior.
-
-**2. Did not help:** The first call was only partial. Patches were truncated at about 1.8k characters, 18 files were unfinished, and the file list was on page 1 of 2. It returned a lot of docs and boilerplate I didn't need. I never fetched page 2 or `validators/counter.rs`. I also never read the pre-PR code with `ghGetFileContent`.
-
-**3. Next time:** I'd request the `files` filter on the first call. I'd read the Rust validator and `ob_type.rs`, and read `_generate_schema.py` at the parent commit to confirm the old error type and the old strict-mode behavior. I stated both of those loosely.
-
-**4. Confidence:** Medium-high. The new behavior is backed by diff lines and tests. The "before" behavior is inferred from removed lines, and the old error message is unverified, which I flagged in my answer.

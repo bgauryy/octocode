@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call fixed it. It looped over the five files in `httpx/_transports/` with `gh api -X GET .../contents/...?ref=b5addb64f0` and the raw Accept header. It then ran `grep -nE` for `^class`, `handle_request`, `handle_async_request` and `__all__`. That gave pinned-commit line numbers, base classes and handler methods in one pass. The directory listing in the first call also confirmed the file set.
-
-2. **Did not help:** The first Bash call used `rg`, which isn't installed (exit 127), so that loop's grep step produced nothing and I had to rerun it with `grep`. Every call also printed `/dev/null: Operation not permitted`. That was harmless noise here, but it could hide real errors. I never checked `__init__.py` exports or the `Client`/`AsyncClient` code.
-
-3. **Next time:** I'd use `grep` from the start, or check for `rg` first. I'd also fetch `httpx/_transports/__init__.py` and grep `_client.py` for the transport type checks, so the sync/async answer rests on more than inference.
-
-4. **Confidence:** High for which modules define which classes and their base classes, since those came straight from the pinned files. Medium for the sync/async split, because it's inferred from base classes and handler methods rather than from the client code. I said so in the answer.

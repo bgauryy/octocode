@@ -1,7 +1,0 @@
-1. **Helped:** The `gh api -X GET repos/Kludex/starlette/contents/...?ref=63c5760d8a --jq .content | base64 -d | grep -n ""` calls were the fastest route. They gave pinned-commit file contents with line numbers. Fetching `applications.py`, then `middleware/exceptions.py`, `_exception_handler.py` and `errors.py` in one batched call covered most of the answer. A final `grep` over `routing.py` and `middleware/__init__.py` confirmed the per-route wrapping call sites and the `Middleware.__iter__` definition.
-
-2. **Did not help:** My first call, an `ls`/`find` over the local repos directory, failed with "Operation not permitted". I never learned whether a local checkout existed, so that call was wasted. Every shell call also printed `/dev/null: Operation not permitted`, which was noisy but harmless. I never read `routing.py` around lines 47-84 or `Middleware.__iter__` in full, so my answer says that route-level handling and `__iter__` rest on grep hits only.
-
-3. **Next time:** I'd skip the local filesystem probe and go straight to `gh api` at the pinned SHA. I'd also fetch the relevant `routing.py` lines and the `Middleware` class body to close those gaps.
-
-4. **Confidence:** High for the stack order and the handler lookup, since I read that code directly. Medium for the route-level wrapping detail, since I only saw call sites.

@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch` for the literal `generateEtags` under `packages/next/src` did most of the work. In one call it returned the whole chain: config schema and default, `base-server.ts`, `pages-handler.ts`, `send-payload.ts` and `router-server.ts`. The `localFetch` of `send-payload.ts` showed the actual behavior at `:66-71`, and the second fetch showed where the header is set at `:23`.
-
-**2. Did not help:** My first `localFetch` asked for lines 30-120 and missed the top of the file, so I needed a second fetch for lines 1-33. One fetch of the whole 93-line file would have covered both. The search returned `isPartial: true` with `capped` and `binaryQuit` because of the font binaries. I reported it as partial but never narrowed the path or re-ran it to close the gap.
-
-**3. Next time:** I would exclude binaries or target `*.ts` files, then fetch the whole file once. I would also read `lib/etag.ts` and the `serveStatic` implementation, and check the app-router, image and edge paths.
-
-**4. Confidence:** High for the pages and `sendRenderResult` path, since I read those lines directly. Medium for the static-file claim. It rests on the `router-server.ts:665` comment, and I did not check that `serveStatic` forwards `etag` to the `send` library. The answer may also miss other consumers of the option.

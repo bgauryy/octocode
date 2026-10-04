@@ -1,7 +1,0 @@
-1. **Helped:** My first `ghGetFileContent` call was a batch of three reads at branch `63c5760d8a`. It fetched `applications.py` (using `matchString: "def build_middleware_stack"`), plus `middleware/exceptions.py` and `_exception_handler.py` in full. That covered stack assembly and the handler lookup in one round trip, and the response returned the full commit SHA, which confirmed the pin. The second call used `matchString` on `errors.py` (`async def __call__`) and on `routing.py` (`wrap_app_handling_exceptions`). It was cheap and covered the outer catch-all and the route-level wrapping.
-
-2. **Did not help:** Nothing errored and I made no repeated calls. The `routing.py` match came back with large omitted ranges (lines 20–61 and 69–80), so I saw only the call sites. I did not look at how `Router` or `Route` build their endpoints, and I stated that gap in the answer. I also never verified the `errors.py` imports or the `debug_response` and `error_response` bodies. I cited them from the `__call__` branches only.
-
-3. **Next time:** I would add a third call to read the `routing.py` function bodies around lines 40–90, using a line range. I would also run `ghSearchCode` for other `starlette.exception_handlers` users, such as `Mount` or `Router`, to confirm I hadn't missed one.
-
-4. **Confidence:** High for the stack order and the handler dispatch, because I read that code directly at the pinned commit. Medium-high for the claim about routes wrapping themselves, because I saw only the two call sites, not their surrounding functions.

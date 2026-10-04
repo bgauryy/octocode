@@ -1,7 +1,0 @@
-**Helped:** The `localSearch` for `self\._chain\(\)` on query.py returned all 24 call sites with line numbers in one call. The `localSearch` for `^    (async )?def \w+` with `resultView: matchOnly` gave every method start line, so I could map each call to its enclosing method without reading bodies.
-
-**Did not help:** The `astSearch` match for `self._chain()` repeated the text search and added no method context, so it was redundant. The `lspSearch` callers call failed validation because it needed `lineHint`, and I never retried it with one. It might have given enclosing methods directly. The def-line search was noisy: it returned all methods from every class in the file, so I had to filter by line range.
-
-**Next time:** I'd skip `astSearch` and retry `lspSearch` callers with a `lineHint`. Or I'd use `localFetch` on a few ambiguous call sites, like `complex_filter` (1770) and `get` (736), to confirm the enclosing method and the conditions.
-
-**Confidence:** Medium-high. The list of call lines is complete for query.py. The line-to-method mapping is by position only, and I never read the bodies. The claim that `complex_filter` calls it in a nested block is inferred from indentation alone. I also did not check for a `QuerySet` class boundary near line 2437, though the mapping suggests all calls sit before it.

@@ -1,7 +1,0 @@
-**Helped:** The first `ghGetFileContent` call (matchString `def resolve_redirects`, pinned to 611c6162cb) returned the whole generator loop and the helpers above it. The second call, with `ranges: ["286-420"]`, finished the loop and covered `rebuild_auth`, `rebuild_proxies` and `rebuild_method`. The parallel `matchString: allow_redirects` call showed how `Session.send` hands off to `resolve_redirects` (lines 773-824). Together that was three reads, with no search step needed.
-
-**Did not help:** `contextLines: 130` was silently clamped to 100, so I needed a follow-up read. The `allow_redirects` read returned many irrelevant matches (docstrings, `get`/`options`/`head`) and omitted chunks, including lines 782-793.
-
-**Next time:** I would request `startLine`/`endLine` explicitly, and read `rewind_body` in `utils.py` and the omitted `send` lines.
-
-**Confidence:** High for the redirect flow, URL, method, header, cookie, auth and proxy handling, since each is backed by lines I read. Two claims are slightly weaker. I said the unread `send` lines 782-793 don't affect redirect logic, which I did not verify. I described `UnrewindableBodyError` from a code comment, not from `rewind_body` itself.

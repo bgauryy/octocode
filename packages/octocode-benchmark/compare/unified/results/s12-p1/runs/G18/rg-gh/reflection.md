@@ -1,7 +1,0 @@
-1. **Helped:** `gh api -X GET repos/nodejs/undici/git/ref/tags/v6.21.0` gave the commit SHA directly. Fetching `package.json` and `lib/dispatcher/client.js` at `ref=v6.21.0`, piped through `base64 -d | grep -n`, gave the engines field and numbered lines. The last grep for `300e3|600e3|1e3` found the defaults on lines 229-239 in one call, after the broader `timeout|keepAlive` grep had only shown validation code.
-
-2. **Did not help:** `rg` isn't installed, so my first two calls failed and I had to redo them with `grep`. Every shell call printed `/dev/null: Operation not permitted`, which was noisy but harmless. `curl` to the npm registry failed silently, so I never saw `gitHead`. I should have said that in the first call's output rather than guessing it would work. I also ran the first batch in parallel with a dependent assumption (`rg`), which wasted two calls.
-
-3. **Next time:** use `grep` from the start. Try `gh api` for the registry data if it's reachable, or check the release workflow to confirm the tag-to-publish link. Fetch the file once into a variable so I don't hit the API repeatedly.
-
-4. **Confidence:** high on the engines range and the timeout defaults, because I read them at the tagged lines. Medium on "published from" the tag commit, because I couldn't verify `gitHead` from npm.

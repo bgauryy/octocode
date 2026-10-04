@@ -1,7 +1,0 @@
-**1. Helped:** The first `gh api pulls/16403` plus `/files` call gave the metadata, file list and merge state in one shot. The `--jq` patch filter on `applications.py`, `routing.py` and `pyproject.toml` gave the runtime-behavior diffs. Fetching `_api.py` and `_runtime.py` raw at the pinned head SHA let me cite exact lines.
-
-**2. Did not help:** `rg` isn't installed, so that grep call was wasted. Every call printed `/dev/null: Operation not permitted` noise. My jq filter `background.py` also matched `tests/test_telemetry/test_background.py`, which flooded the output. I never fully read `_asgi.py`, which is the core span and metric logic. I only grepped its definitions, and that grep output had doubled line numbers from `cat -n`.
-
-**3. Next time:** Fetch `_asgi.py` in full first. Use `grep`, not `rg`. Anchor the jq filters. Check the PR comments and review threads via `gh api`, since I never looked at the discussion.
-
-**4. Confidence:** Medium. The change inventory is well grounded. Two statements in the answer overreach. I said I didn't read the tests, but I did cite a test assertion from the stray test diff. I also said Sentry is handled by duck-typing, but I only saw Logfire-specific code. The `BackgroundTasks` subclass risk and the redirect-mismatch risk are speculation, not verified. Items 1 and 3 depend on `_asgi.py`, which I read only in part.

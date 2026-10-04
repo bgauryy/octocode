@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 static CACHE: OnceLock<Mutex<BoundedCache<String>>> = OnceLock::new();
 
-pub(super) fn extract(
+pub(crate) fn extract(
     source: &str,
     canonical_path: &str,
     cpp_header: bool,

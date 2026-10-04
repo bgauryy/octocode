@@ -1,7 +1,0 @@
-**1. Helped:** The first `ghGetFileContent` batch did most of the work. A `matchString` read of `build_middleware_stack` in `applications.py` and a full read of `middleware/exceptions.py` gave the stack order and handler registration. The second batch added the full `_exception_handler.py`, which covers handler lookup, and a `matchString` read of `ServerErrorMiddleware.__call__`. Passing the short SHA `63c5760d8a` as `branch` resolved to the full commit, shown in `shared.commitSha`.
-
-**2. Did not help:** I typed the repo as `starlette/` in two calls, the `_exception_handler.py` read in the first batch and a junk probe with path `x` in the second. Both returned 404. The first was a typo, and the second was a pointless call I should not have made. I also read only part of `errors.py` (a `matchString` window), so I never saw its imports or `error_response`/`debug_response`.
-
-**3. Next time:** I would batch all four files correctly in one call. To close the gap I flagged, I would run a `ghSearchCode` for `wrap_app_handling_exceptions` to confirm its other callers in the routing code. I did not do that, so the answer states it as unverified.
-
-**4. Confidence:** High for the stack order, handler lookup and 500 behavior, because I read each of those lines directly at the pinned commit. The one claim I could not verify is the other call sites of `wrap_app_handling_exceptions`, which I flagged as unverified.

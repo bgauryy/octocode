@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch` was the key call. A regex for `go (func|name\()` with `*_test.go` excluded returned all seven `go` statements in one step. The batched `localFetch` calls with line ranges then showed what each goroutine does. A later `localSearch` for the `func (sp *scrapePool)` declarations let me place lines 399 and 485 inside `restartLoops` and `sync`.
-
-**2. Did not help:** The `localFetch` range output elided large middle sections, so I never saw the enclosing function signatures for `manager.go:310` and `manager.go:434`. My final answer still named them, which I should not have done. I attributed 310 to `reload` and flagged 434 as inferred, but the one at 434 is more likely `ApplyConfig`. I also wrote "six functions" and then listed more entries than that, because `Stop` (which uses `errgroup`) and the two unconfirmed ones muddied the count. I never read the middle of `reloader` (lines 276-334).
-
-**3. Next time:** I would run `lspSearch` or `astSearch` on the enclosing declarations, or fetch with a `matchString` on `^func`, to pin down function names before claiming them. I would also state the count only after the list was final.
-
-**4. Confidence:** Medium. I am confident about which `go` statements exist and what each goroutine body does. The attribution of lines 310 and 434 to specific functions is the weak point and may be wrong.

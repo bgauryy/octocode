@@ -128,12 +128,64 @@ fn fill_brief(continuation: &mut Value, brief: &Map<String, Value>) {
 }
 
 /// Drop optional cross-tool next actions the current surface cannot execute.
+/// Returns the target of every dropped action, in walk order.
 pub fn filter_unavailable_cross_tool_next(
     value: &mut Value,
     current_tool: &str,
     is_available: impl Fn(&str) -> bool,
-) {
-    filter_walk(value, current_tool, &is_available);
+) -> Vec<String> {
+    let mut dropped = Vec::new();
+    filter_walk(value, current_tool, &is_available, &mut dropped);
+    dropped
+}
+
+/// [`filter_unavailable_cross_tool_next`] for each result row, then the
+/// envelope. A row whose dropped targets `disclose` names (with the reason)
+/// gets one warning that counts them, so a scoped surface never loses a lead
+/// silently; drops `disclose` skips (a tool the user disabled) stay silent.
+/// Returns the number of dropped actions.
+pub fn filter_rows_and_disclose<'a>(
+    structured: &mut Value,
+    current_tool: &str,
+    is_available: impl Fn(&str) -> bool,
+    disclose: impl Fn(&str) -> Option<&'a str>,
+) -> usize {
+    let mut total = 0;
+    for row in structured
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let dropped = filter_unavailable_cross_tool_next(row, current_tool, &is_available);
+        total += dropped.len();
+        let named: Vec<(&str, &str)> = dropped
+            .iter()
+            .filter_map(|target| disclose(target).map(|reason| (target.as_str(), reason)))
+            .collect();
+        let Some(&(_, reason)) = named.first() else {
+            continue;
+        };
+        let mut tools: Vec<&str> = named.iter().map(|(target, _)| *target).collect();
+        tools.sort_unstable();
+        tools.dedup();
+        let count = named.len();
+        let warning = format!(
+            "Dropped {count} lead{} to {}: outside {reason}.",
+            if count == 1 { "" } else { "s" },
+            tools.join(", ")
+        );
+        if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) {
+            match data
+                .entry("warnings")
+                .or_insert_with(|| Value::Array(Vec::new()))
+            {
+                Value::Array(warnings) => warnings.push(Value::String(warning)),
+                other => *other = Value::Array(vec![Value::String(warning)]),
+            }
+        }
+    }
+    total + filter_unavailable_cross_tool_next(structured, current_tool, &is_available).len()
 }
 
 fn continuation_target(value: &Value) -> Option<&str> {
@@ -144,7 +196,12 @@ fn continuation_target(value: &Value) -> Option<&str> {
         .as_str()
 }
 
-fn filter_walk(value: &mut Value, current_tool: &str, is_available: &impl Fn(&str) -> bool) {
+fn filter_walk(
+    value: &mut Value,
+    current_tool: &str,
+    is_available: &impl Fn(&str) -> bool,
+    dropped: &mut Vec<String>,
+) {
     // A continuation query is caller content, not another output tree.
     if continuation_target(value).is_some() {
         return;
@@ -152,12 +209,12 @@ fn filter_walk(value: &mut Value, current_tool: &str, is_available: &impl Fn(&st
     match value {
         Value::Array(items) => items
             .iter_mut()
-            .for_each(|item| filter_walk(item, current_tool, is_available)),
+            .for_each(|item| filter_walk(item, current_tool, is_available, dropped)),
         Value::Object(map) => map.retain(|key, child| {
             if key == PAGES_KEY || key == HINTS_KEY {
-                filter_next(child, current_tool, is_available)
+                filter_next(child, current_tool, is_available, dropped)
             } else {
-                filter_walk(child, current_tool, is_available);
+                filter_walk(child, current_tool, is_available, dropped);
                 true
             }
         }),
@@ -165,16 +222,28 @@ fn filter_walk(value: &mut Value, current_tool: &str, is_available: &impl Fn(&st
     }
 }
 
-fn filter_next(next: &mut Value, current_tool: &str, is_available: &impl Fn(&str) -> bool) -> bool {
+fn filter_next(
+    next: &mut Value,
+    current_tool: &str,
+    is_available: &impl Fn(&str) -> bool,
+    dropped: &mut Vec<String>,
+) -> bool {
+    let keep = |target: &str, dropped: &mut Vec<String>| {
+        let kept = target == current_tool || is_available(target);
+        if !kept {
+            dropped.push(target.to_owned());
+        }
+        kept
+    };
     if let Some(target) = continuation_target(next) {
-        return target == current_tool || is_available(target);
+        return keep(target, dropped);
     }
     if let Some(map) = next.as_object_mut() {
         map.retain(|_, action| {
             if let Some(target) = continuation_target(action) {
-                target == current_tool || is_available(target)
+                keep(target, dropped)
             } else {
-                filter_walk(action, current_tool, is_available);
+                filter_walk(action, current_tool, is_available, dropped);
                 true
             }
         });
@@ -418,6 +487,62 @@ mod tests {
         assert_eq!(
             out["results"][0]["data"]["nestedEvidence"]["next"]["nextPage"]["tool"],
             "ghSearchCode"
+        );
+    }
+
+    #[test]
+    fn filter_reports_every_dropped_target() {
+        let mut out = json!({"results":[{"data":{"next":{
+            "readTopMatch":{"tool":"ghGetFileContent","query":{"path":"a.rs"}},
+            "readHits2":{"tool":"ghGetFileContent","query":{"path":"b.rs"}},
+            "nextPage":{"tool":"ghSearchCode","query":{"page":2}}
+        },"hints":{"searchLocal":{"tool":"localSearch","query":{"path":"/x"}}}}}]});
+        let dropped = filter_unavailable_cross_tool_next(&mut out, "ghSearchCode", |target| {
+            target == "localSearch"
+        });
+        assert_eq!(dropped, vec!["ghGetFileContent", "ghGetFileContent"]);
+        assert_eq!(
+            out["results"][0]["data"]["next"]["nextPage"]["tool"],
+            "ghSearchCode"
+        );
+        assert_eq!(
+            out["results"][0]["data"]["hints"]["searchLocal"]["tool"],
+            "localSearch"
+        );
+    }
+
+    #[test]
+    fn rows_disclose_only_drops_the_disclose_rule_names() {
+        let mut out = json!({"results":[
+            {"data":{"next":{"materialized":{"tool":"localSearch","query":{"path":"/x"}},
+                             "clasify":{"tool":"clasify","query":{}}},
+                     "warnings":["tool warning"]}},
+            {"data":{"next":{"clasify":{"tool":"clasify","query":{}}}}},
+            {"data":{"hints":{"a":{"tool":"localFetch","query":{"path":"/a"}},
+                              "b":{"tool":"localSearch","query":{"path":"/b"}},
+                              "c":{"tool":"localFetch","query":{"path":"/c"}}}}}
+        ]});
+        let dropped = filter_rows_and_disclose(
+            &mut out,
+            "ghStructure",
+            |_| false,
+            |target| (target != "clasify").then_some("tools.family github"),
+        );
+        assert_eq!(dropped, 6);
+        let rows = out["results"].as_array().unwrap();
+        assert_eq!(
+            rows[0]["data"]["warnings"],
+            json!([
+                "tool warning",
+                "Dropped 1 lead to localSearch: outside tools.family github."
+            ])
+        );
+        assert!(rows[0]["data"].get("next").is_none());
+        // A drop the rule does not name (a disabled tool) stays silent.
+        assert!(rows[1]["data"].get("warnings").is_none());
+        assert_eq!(
+            rows[2]["data"]["warnings"],
+            json!(["Dropped 3 leads to localFetch, localSearch: outside tools.family github."])
         );
     }
 

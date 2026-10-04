@@ -1,7 +1,0 @@
-1. **Helped:** The first call was `rg -il resolveJsonModule --glob '*.go'`. It showed right away that the Go compiler lives under `tsc/internal`. The second call, `rg -n -i` with the test and generated-file globs excluded, gave every real usage in one pass. The third call read the getter body and the main call sites (`project.go`, `resolver.go`, `tsconfigparsing.go`, `declscompiler.go`). That gave me most of the evidence.
-
-2. **Did not help:** The second `rg` did not exclude `diagnostics/loc/*.generated.json`, so the localized translations flooded the output. I also never looked for where TS5070 and TS5071 are emitted, so that gap is in my answer. I did not read the test files, so the claim that baselines would change is an inference. I did not read `module/util.go:140-175` beyond the grep hit, so my TS7042 description rests on the message name and the `needResolveJsonModule` helper name. I did not verify `fileloader.go:681` beyond the grep line. Its role in loading files is my reading of the field name.
-
-3. **Next time:** I would restrict the search with `--type go` from the start. I would also run one `rg` for `GetEmitModuleKind|GetModuleResolutionKind` and one for `5070|5071` to close the open questions.
-
-4. **Confidence:** Medium-high. The getter and its call sites are confirmed by line numbers I saw. The parts I left open are the TS5070/5071 emission and the effect on tests.

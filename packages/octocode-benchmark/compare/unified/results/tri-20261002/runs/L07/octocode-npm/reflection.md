@@ -1,7 +1,0 @@
-**1. Helped:** The first batch was the most useful. `localGetFileContent` on `redirect.ts` with `fullContent` showed the digest format, the 307/308 split, and the helper functions in one read. The `localSearch` for `getURLFromRedirectError` in `server/` listed every consumer in four files (app-render, action-handler, make-get-server-inserted-html, app-route module) in a single call. The second batch of five `localGetFileContent` line-range reads, each a few lines either side of a match, proved each catch site with exact line numbers.
-
-**2. Did not help:** I did not call the LSP tools. The search matches were unambiguous, but that means the symbol-level checks (definitions and references) were not done. The app-render.tsx line ranges were large, so I read only about 40 lines each and did not see what surrounds the second catch site. I skipped `redirect-error.ts` and `redirect-status-code.ts`, so the enum values (307/308/303) rest on the doc comments and usage, not on the definition. I found nothing about middleware or `next.config` redirects.
-
-**3. Next time:** Add `redirect-error.ts` and `redirect-status-code.ts` to the first batch. Run one search for `x-action-redirect` and `createRedirectRenderResult` to close the server-action gap.
-
-**4. Confidence:** High for the core flow (throw, catch, status and `Location`) because every claim comes from exact reads. Medium for the edge cases I flagged as unchecked.

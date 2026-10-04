@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { getOctocodeHome, propagateOctocodeEnv } from '@octocodeai/config';
 import {
   CORPUS_ROOT, HARNESS_FILES, REFERENCES_DIR, REPO_ROOT, RESULTS_DIR, UNIFIED_DIR, applyCounters, buildPrompt,
-  commonFlags, configurationHashes, corpusPaths, freshCwd, hashFile, isolationCheck, loadQuestions, loadWorkers, mcpServersFor, parseArgs,
+  commonFlags, configurationHashes, corpusPaths, freshCwd, hashFile, isolationCheck, loadQuestions, loadWorkers, mcpServersFor, parseArgs, sessionServerEnv,
   parseStream, pool, readJson, runClaude, selectQuestions, sha256, tokenAccounting, toolCounts, workerFlags, writeJson, stopChildren, hashTree, recordedProbe, failedProbeDetails, resumedAccounting,
 } from './lib.mjs';
 
@@ -127,14 +127,15 @@ function workerMcpConfig(worker) {
 
 const REFLECT_PROMPT = fs.readFileSync(path.join(UNIFIED_DIR, 'REFLECT.md'), 'utf8');
 
-async function session({ dir, prompt, worker, label, turns = maxTurns, timeout = timeoutMs, reflect = false }) {
+async function session({ dir, prompt, worker, label, turns = maxTurns, timeout = timeoutMs, reflect = false, serverEnv = {} }) {
   fs.mkdirSync(dir, { recursive: true });
   const cwd = freshCwd(label);
   let boundary;
   let completed;
   try {
     const hasMcp = Object.keys(worker.profile.mcpServers ?? {}).length > 0;
-    const mcpServer = hasMcp ? mcpServersFor(worker, corpus).octocode ?? null : null;
+    const configured = hasMcp ? mcpServersFor(worker, corpus).octocode ?? null : null;
+    const mcpServer = configured && { ...configured, env: { ...configured.env, ...serverEnv } };
     boundary = await solverBoundary({ cwd, corpus, repoRoot: REPO_ROOT, mcp: hasMcp, mcpServer, statsHome: path.join(dir, 'native-home'), ...credentials });
     const doc = path.join(cwd, 'WORKER.md');
     fs.copyFileSync(worker.docPath, doc);
@@ -198,9 +199,11 @@ async function runOne(q, worker, mcpPath) {
   const recordPath = path.join(dir, 'run.json');
   if (fs.existsSync(recordPath)) return readJson(recordPath);
   const prompt = buildPrompt(q);
-  const { res, m, started, reflection, classificationProvider, nativeCalls, gatewayTraffic, nativeGithubUsage } = await session({ dir, prompt, worker, mcpPath, label: `${q.id}-${worker.id}`, reflect: true });
+  const serverEnv = sessionServerEnv(worker.profile, q);
+  const { res, m, started, reflection, classificationProvider, nativeCalls, gatewayTraffic, nativeGithubUsage } = await session({ dir, prompt, worker, mcpPath, label: `${q.id}-${worker.id}`, reflect: true, serverEnv });
   const record = summarize({ q, worker, res, m, started, prompt });
   record.reflection = reflection;
+  if (Object.keys(serverEnv).length) record.serverEnv = serverEnv;
   record.classificationProvider = classificationProvider;
   record.nativeCalls = nativeCalls;
   record.gatewayTraffic = gatewayTraffic;

@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` was a regex alternation over `JsonSerializerInternalReader.cs` (`Required.Always|Required.AllowNull|MissingMemberHandling…`). It surfaced the enforcement lines (2682-2705) in one call, and its hint pointed straight to `localFetch`. The `localFetch` of range 2640-2725 then gave the full `EndProcessProperty` body with exact line numbers. The parallel `localSearch` for `EndProcessProperty|HandleError|_required` found the call sites (2280, 2588) and the `resolvedRequired` expression (2677).
-
-2. **Did not help:** The `localFetch` with `matchString: "PropertyPresence"` returned a heavily elided view, with long "lines omitted" gaps. It was still enough to cite the dictionary setup (2467-2469) and `SetPropertyPresence` (2726-2749), but I could not read the constructor-path context. I guessed the file path from convention rather than locating it first, and that happened to work. No errors occurred.
-
-3. **Next time:** I would fetch around line 2280 (the creator-path call) and 2128-2178. I would also search for where `HasRequiredOrDefaultValueProperties` is computed and where `JsonProperty._required` is set, so I wouldn't have to leave those unread.
-
-4. **Confidence:** Medium-high. The core mechanism (presence tracking, then `EndProcessProperty` checks and messages) is directly verified from the code. The constructor-path details and the exact trigger for tracking are less verified, and I stated that in the answer.

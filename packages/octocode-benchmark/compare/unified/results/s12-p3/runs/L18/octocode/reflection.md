@@ -1,7 +1,0 @@
-1. **Helped:** The two `localFetch` line-range reads of `json_sax.hpp` (375-780, then 780-1130) did most of the work. They gave the whole `json_sax_dom_callback_parser` class, including `handle_value` and `remove_discarded_value`. The `localSearch` on `parser.hpp` (`is_discarded|sax_parse_internal|callback`) found the dispatch at lines 98-101 and the null-root fallback at 128-133 in one call.
-
-2. **Did not help:** My first `localSearch` on `json_sax.hpp` was too broad. The pattern `ref_stack` matched 109 lines, mostly in the plain DOM parser, so it only confirmed I needed the callback class lower in the file. I also never ran anything, so the behavior comes from reading the code, not observing it. I did not check `parser.hpp` beyond the matched lines, so I can't say whether anything else in `parse()` alters the result.
-
-3. **Next time:** I'd search for the literal `class json_sax_dom_callback_parser` first and fetch from that line. I'd also check the repo's `git log` or the upstream version to confirm my suspicion that the duplicate-key stash is a local modification. I only had memory to compare against.
-
-4. **Confidence:** High on the mechanism, because every claim cites lines I read. Medium-low on whether this tree differs from upstream, since that rests on my recollection.

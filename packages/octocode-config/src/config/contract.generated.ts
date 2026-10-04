@@ -35,6 +35,20 @@ export interface ToolsConfigOptions {
 
   /** Tools removed from the default tool set. */
   disabled?: string[] | null;
+
+  /** Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled. */
+  family?: "all" | "local" | "github";
+}
+
+export interface McpConfigOptions {
+  /** Input shape in tools/list: queries (a queries[] batch) or flat (one row per call). Validation accepts both. */
+  publishedView?: "queries" | "flat";
+
+  /** Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them. */
+  deferred?: string[] | null;
+
+  /** MCP server instructions: default, or guide (the longer workflow guide). */
+  instructions?: "default" | "guide";
 }
 
 export interface NetworkConfigOptions {
@@ -122,6 +136,8 @@ export interface OctocodeConfig {
 
   tools?: ToolsConfigOptions;
 
+  mcp?: McpConfigOptions;
+
   network?: NetworkConfigOptions;
 
   lsp?: LspConfigOptions;
@@ -152,6 +168,13 @@ export interface RequiredLocalConfig {
 export interface RequiredToolsConfig {
   enabled: string[] | null;
   disabled: string[] | null;
+  family: "all" | "local" | "github";
+}
+
+export interface RequiredMcpConfig {
+  publishedView: "queries" | "flat";
+  deferred: string[] | null;
+  instructions: "default" | "guide";
 }
 
 export interface RequiredNetworkConfig {
@@ -206,6 +229,7 @@ export interface ResolvedConfigData {
   github: RequiredGitHubConfig;
   local: RequiredLocalConfig;
   tools: RequiredToolsConfig;
+  mcp: RequiredMcpConfig;
   network: RequiredNetworkConfig;
   lsp: RequiredLspConfig;
   output: RequiredOutputConfig;
@@ -406,6 +430,93 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       }
     ],
     "defaultValue": null
+  },
+  {
+    "path": "tools.family",
+    "section": "tools",
+    "key": "family",
+    "type": "enum",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled.",
+    "env": [
+      {
+        "name": "OCTOCODE_TOOL_FAMILY",
+        "priority": 0,
+        "normalize": "lower",
+        "invalid": "skip"
+      }
+    ],
+    "defaultValue": "all",
+    "values": [
+      "all",
+      "local",
+      "github"
+    ]
+  },
+  {
+    "path": "mcp.publishedView",
+    "section": "mcp",
+    "key": "publishedView",
+    "type": "enum",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Input shape in tools/list: queries (a queries[] batch) or flat (one row per call). Validation accepts both.",
+    "env": [
+      {
+        "name": "OCTOCODE_PUBLISHED_VIEW",
+        "priority": 0,
+        "normalize": "lower",
+        "invalid": "skip"
+      }
+    ],
+    "defaultValue": "queries",
+    "values": [
+      "queries",
+      "flat"
+    ]
+  },
+  {
+    "path": "mcp.deferred",
+    "section": "mcp",
+    "key": "deferred",
+    "type": "stringArray",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them.",
+    "env": [
+      {
+        "name": "OCTOCODE_DEFER_TOOLS",
+        "priority": 0
+      }
+    ],
+    "defaultValue": null
+  },
+  {
+    "path": "mcp.instructions",
+    "section": "mcp",
+    "key": "instructions",
+    "type": "enum",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "MCP server instructions: default, or guide (the longer workflow guide).",
+    "env": [
+      {
+        "name": "OCTOCODE_INSTRUCTIONS",
+        "priority": 0,
+        "normalize": "lower",
+        "invalid": "skip"
+      }
+    ],
+    "defaultValue": "default",
+    "values": [
+      "default",
+      "guide"
+    ]
   },
   {
     "path": "network.timeout",
@@ -767,9 +878,9 @@ export const ENV_TOKEN_VARS = ["OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHU
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
 export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_HOME","OCTOCODE_TS_SERVER_PATH","OCTOCODE_RUST_SERVER_PATH","OCTOCODE_GO_SERVER_PATH","OCTOCODE_PYTHON_SERVER_PATH","OCTOCODE_JAVA_SERVER_PATH","OCTOCODE_CLANGD_SERVER_PATH","OCTOCODE_CSHARP_SERVER_PATH","OCTOCODE_SCALA_SERVER_PATH","OCTOCODE_ASM_SERVER_PATH","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_TS_SERVER_PATH","OCTOCODE_RUST_SERVER_PATH","OCTOCODE_GO_SERVER_PATH","OCTOCODE_PYTHON_SERVER_PATH","OCTOCODE_JAVA_SERVER_PATH","OCTOCODE_CLANGD_SERVER_PATH","OCTOCODE_CSHARP_SERVER_PATH","OCTOCODE_SCALA_SERVER_PATH","OCTOCODE_ASM_SERVER_PATH","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_STORAGE_MODE","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_CACHE_TTL_MS","OCTOCODE_MAX_CACHE_SIZE","OCTOCODE_MAX_CLONES","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY","OCTOCODE_ENABLE_STATS"] as const;
+export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","OCTOCODE_TOOL_FAMILY","OCTOCODE_PUBLISHED_VIEW","OCTOCODE_DEFER_TOOLS","OCTOCODE_INSTRUCTIONS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_CACHE_TTL_MS","OCTOCODE_MAX_CACHE_SIZE","OCTOCODE_MAX_CLONES","OCTOCODE_EXTENSION_STORAGE_MODE","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY","OCTOCODE_ENABLE_STATS"] as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "maxConcurrency": 10, "type": "jev" }, "cloneCache": { "maxClones": 50, "maxSize": 2147483648, "ttl": 86400000 }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 50000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "tools": { "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "session": { "enableStats": false }, "classification": { "maxConcurrency": 10, "type": "jev" }, "cloneCache": { "maxClones": 50, "maxSize": 2147483648, "ttl": 86400000 }, "storage": { "mode": "persistent" }, "output": { "pagination": { "defaultCharLength": 50000 }, "redactEmails": false, "format": "yaml" }, "lsp": { "configPath": undefined }, "network": { "allowPrivateRegistry": false, "maxRetries": 3, "timeout": 30000 }, "mcp": { "instructions": "default", "deferred": null, "publishedView": "queries" }, "tools": { "family": "all", "disabled": null, "enabled": null }, "local": { "workspaceRoot": undefined, "allowedPaths": [], "beta": false, "enabled": true }, "github": { "graphqlEnabled": true, "apiUrl": "https://api.github.com" }, "version": 1, "extension": { "storage": { "mode": "persistent" } } };
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com" as const;
 export const DEFAULT_GITHUB_GRAPHQL_ENABLED = true as const;
 export const DEFAULT_LOCAL_ENABLED = true as const;
@@ -778,6 +889,10 @@ export const DEFAULT_LOCAL_ALLOWED_PATHS = [] as const;
 export const DEFAULT_LOCAL_WORKSPACE_ROOT = null;
 export const DEFAULT_TOOLS_ENABLED = null;
 export const DEFAULT_TOOLS_DISABLED = null;
+export const DEFAULT_TOOLS_FAMILY = "all" as const;
+export const DEFAULT_MCP_PUBLISHED_VIEW = "queries" as const;
+export const DEFAULT_MCP_DEFERRED = null;
+export const DEFAULT_MCP_INSTRUCTIONS = "default" as const;
 export const DEFAULT_NETWORK_TIMEOUT = 30000 as const;
 export const MIN_TIMEOUT = 5000;
 export const MAX_TIMEOUT = 300000;

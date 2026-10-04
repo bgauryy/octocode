@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch`, a regex over scrape.go for `StaleNaN|iterDone|forEachStale|endOfRunStaleness`, located every key function in one call. The two-call batch that followed (a `localFetch` with four line ranges, plus a `localSearch` for `seriesCur|seriesPrev|disableEndOfRunStalenessMarkers`) gave me the full mechanism. The last `localFetch` verified the `run` defer, the empty-scrape path in `append`, and the `trackStaleness` call sites.
-
-**2. Did not help:** The multi-range `localFetch` calls elided large middle sections, which hid code I wanted. That includes lines 1841-1959, where the non-empty-scrape staleness handling would be, and the rest of `reportStale` past line 2345. I flagged both gaps in my answer. The second `localSearch` returned noise, such as "stopped" comments. I never found where `scrapePool.disableEndOfRunStalenessMarkers` is called, so I could not say when that path fires.
-
-**3. Next time:** I would fetch narrower ranges, such as 1841-1960 and 2345-2360, instead of wide spans that get truncated. I would also run `lspSearch` references on `disableEndOfRunStalenessMarkers` to find its callers.
-
-**4. Confidence:** Medium-high. The core mechanism rests on lines I read directly: the `seriesPrev`/`seriesCur` diff, `updateStaleMarkers`, and `endOfRunStaleness`. The gaps I listed are the weaker spots.

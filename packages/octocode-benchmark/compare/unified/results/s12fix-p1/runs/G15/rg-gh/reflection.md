@@ -1,7 +1,0 @@
-1. **Helped:** My single Bash call did most of the work. The `gh api -X GET search/issues` query for "sharded blocking queue spawn_blocking" returned #8337, #7757, #8056, #8057 and #8067 together. The `--jq` formatting put number, state and merged_at on one line, so I could read the history without opening anything. The same call also ran `commits?sha=facc6fc47e`, which confirmed the pinned commit exists and is #8515.
-
-2. **Did not help:** `/bin/bash: /dev/null: Operation not permitted` appeared three times. It didn't break the output, but it was noisy. I made only one call, so I verified little. I did not read the #8337 diff or the PR bodies, so the unstable-flag gating and the link between #8337, #7757 and #8067 are unconfirmed. I also did not check that #8337 is an ancestor of facc6fc47e. I inferred that from its merge date and PR number.
-
-3. **Next time:** I would add `gh api repos/tokio-rs/tokio/pulls/8337` and `.../pulls/8337/files`, plus `compare/8337-merge-sha...facc6fc47e`. That would confirm the cfg gating, the PR description, and whether #8337 is in the pinned history. I would also read the #8057 revert description.
-
-4. **Confidence:** Medium-high on the PR numbers, titles and merge dates, because they come straight from API output. Medium on "opt-in, unstable" and on ancestry, because I inferred both.

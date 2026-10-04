@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call did most of the work. It ran `git rev-parse HEAD` to confirm the pinned commit, then one `rg` over `core.rs`, `harness.rs`, `state.rs` and `join.rs` for the join-related function and flag names. That gave me the whole path: `store_output`, `complete`, `wake_join`, `try_read_output` and `can_read_output`. The second call with `sed -n` ranges then confirmed the code.
-
-2. **Did not help:** The third call was a bundle of greps and seds with guessed line ranges. I guessed `poll_future`'s location and used `grep -n ... -A32 | grep`, so some output was fragmentary. I had to infer the `can_read_output` ready branch because my range stopped at line 460. I also cited `drop_join_handle_slow` as `~290-330`, which is approximate. I never opened `task/mod.rs`, so I only have the ownership rules secondhand from comments. The shell sandbox also shifted the working directory mid-session, which could have caused path mistakes.
-
-3. **Next time:** Use wider, exact ranges. Read `can_read_output` through to its end and open the `task/mod.rs` rules section. Cite only lines I've seen. Use absolute paths rather than `cd`.
-
-4. **Confidence:** High for the overall mechanism, because the code I read directly matches it. Medium for the `can_read_output` ready branch and the `drop_join_handle_slow` line range, since I inferred one and approximated the other.

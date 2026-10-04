@@ -1,7 +1,0 @@
-**Helped:** The first `localSearch` call, with a regex over `segmentShift|segmentMask|segmentCount|concurrencyLevel` on `LocalCache.java`, found the constructor logic at lines 250 and 285-293 in one step. The batched `localFetch` of lines 245-325 and 1960-2005 then gave the sizing loop, the per-segment weight split and `initTable`. The `localSearch` on `CacheBuilder.java` gave the line numbers for the defaults and the declarations.
-
-**Did not help:** My first `localSearch` call failed validation because I left out the required `goal` and `reasoning`, which wasted a call. The search output truncated matches at 10 per page with "moreLines" hints. I did not need the rest, but it hid `MAX_SEGMENTS` and the other occurrences.
-
-**Next time:** I would include `goal` and `reasoning` in every query from the start. I would also fetch the `MAX_SEGMENTS` definition and the bodies of `CacheBuilder.maximumSize` and `concurrencyLevel`. I skipped both, so my answer names the cap but not its value, and cites those two methods only by declaration line.
-
-**Confidence:** High for the segment sizing and eviction split, because I read the source directly and cited lines. Medium-high for the `initTable` threshold detail, which I cited from the `Segment` range I fetched. I did not verify the `MAX_SEGMENTS` value and said so.

@@ -1,7 +1,0 @@
-1. **Helped:** The `grep -n` for `stack.get|stack.set|stack['delete']|function equalArrays|equalObjects|baseIsEqualDeep|equalByTag` was the fastest step. It gave line anchors for every stack operation in one call. The follow-up `sed -n` calls (5706-5730, 5758-5766, 5826-5842, 5878-5890, 5918-5926, 3356-3382) then showed the actual cycle-check code.
-
-2. **Did not help:** My first call used `rg`, which isn't installed, so it failed. `git rev-parse HEAD` also failed with `/dev/null: Operation not permitted`. I therefore never confirmed the checkout was at 2b5e6f7399, and I did flag that in the answer. `sed` prints no line numbers, so I worked out several cited lines by counting from each range's start line. Examples are `5717-5719`, `5830-5833`, `3372-3373` and `5881-5884`. They are probably right, but I didn't see them printed, and the answer didn't say so. I also ran no cyclic test case.
-
-3. **Next time:** I'd start with `grep -n` rather than `rg`. I'd use `sed -n 'N,Mp' file | cat -n`, or `grep -n` on the exact lines, so every citation is printed. I'd read `.git/HEAD` directly to check the commit.
-
-4. **Confidence:** High on the mechanism and the equality rules, because I read the code. Medium on a few exact line numbers, for the reason above.

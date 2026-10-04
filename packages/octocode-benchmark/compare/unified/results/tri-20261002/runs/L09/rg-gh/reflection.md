@@ -1,7 +1,0 @@
-1. **Helped:** The first `rg` on `scrape/scrape.go` for `StaleNaN|forEachStale|iterDone|endOfRunStaleness` located nearly every relevant function in one call. The second `sed -n` batch then read the real code, so I could cite lines. The `rg` for `updateStaleMarkers|endOfRunStaleness|app.append(` showed every caller.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. It was harmless but noisy. In the second `rg` I passed `scrape/*.go` plus a `grep -v`, and the output was partly duplicated. My `sed` ranges were guesses, so some printed irrelevant code. I never read the lines around `:1590-1600`, where the scrape-failure branch sits. In my answer I listed the scrape-failure empty-append as a third case, but I only inferred it from `:1625`. I flagged that as inference, but I could have verified it. I also did not open the tests, `manager.go` context, or the git history.
-
-3. **Next time:** I would use `rg -n -C5` instead of guessed `sed` ranges. I would read the branch around the scrape-failure path directly. I would also check `manager.go:559` and `scrape.go:364` to see when end-of-run staleness is disabled.
-
-4. **Confidence:** Medium-high. The core mechanism is directly supported by code I read. The failed-scrape case and the conditions for disabling markers are the weaker parts.

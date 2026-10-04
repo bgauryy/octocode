@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call fetched `pulls/13824/files` patches, filtered by `select(.filename|test(...))`. It gave me validator, input, schema-generation, JSON-schema and test diffs in one shot, which carried most of the answer. The first call, `pulls/13824` plus the file list, gave the merge SHA and scope cheaply.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. This was harmless noise, but it made me unsure whether stderr redirects were hiding real failures. `rg` was missing even though the instructions listed it, which wasted the third call. My "before" fetch used `ref=<sha>~1`. That worked, but only by luck, since the contents API wants a real ref. I never checked the `~1` ref resolved to the parent commit. I printed the `_mapping_schema` function but never ran `git blame` or looked at the base diff to confirm what "before" did for the Counter error type.
-
-3. **Next time:** Use `grep` from the start, and get the parent SHA from the commits API before fetching old files. I would also read `_validators.py` for the "different map" the Counter entry moved to, rather than leaving that vague, and open the subclass and docs-table cases I listed as unverified.
-
-4. **Confidence:** Medium-high. The new behaviour is backed by diffs and the PR's own tests. The "before" error type is inferred, and I never ran any code.

@@ -69,16 +69,17 @@ Hosts show agents the structured JSON, so source evidence carries its own line n
 ```text
 95	        self._thread_sharing_count = 0
 96	
-... [lines 97-254 omitted] ...
+... [lines 97-254 not requested] ...
 255	    def close(self):
 ```
 
 - Each returned line is `<line>` + TAB + the source text. The prefix is not part of the source: strip everything up to the first TAB before copying text into an edit or a `matchString`.
-- Line-omission markers between non-adjacent windows (`... [lines A-B omitted] ...`) stay unnumbered. In `ghGetFileContent` rows, two or more gaps that only single lines separate share one marker at the first gap, `... [N gaps in lines A-B omitted] ...`; each gap is the span between two consecutive numbers.
+- Gap markers between non-adjacent requested windows (`... [lines A-B not requested] ...`) stay unnumbered. In `ghGetFileContent` rows, two or more gaps that only single lines separate share one marker at the first gap, `... [N gaps in lines A-B not requested] ...`; each gap is the span between two consecutive numbers.
 - The numbers state the returned source lines, so `sourceLineRanges` is omitted from a numbered row (and a numbered `localFetch` row omits `startLine`, `endLine`, and `returnedLines`); `matchedLines` is omitted when every returned line matched (a grep-style map).
 - Size counts (`returnedChars`, and the debug-only `sourceBytes`/`returnedBytes`) measure the source text, not the line-number prefixes.
 - Views whose lines are not source lines stay verbatim and keep `sourceLineRanges` when they have one: `minify:"standard"`/`"symbols"` views (`contentView`), byte windows (`contextBytes`, long minified lines) and `chunkType:"bytes"` pages, whose offsets count the returned text, and content whose lines no longer map one-to-one onto the source range.
 - Both text encodings render from the same numbered content. The runtime helper is `packages/octocode-native/crates/runtime/src/runtime/numbered.rs`; other tools that return multi-line source text reuse it rather than inventing a format.
+- `ghGetHistoryItem` patch text (PR, commit, comparison) uses the same separator on the new side of each hunk: `87\t+added`, `86\t context`, and `\t-removed` (a removed line or `\ No newline` marker has no new-side number). `@@ -a,b +c,d @@ heading` lines stay unnumbered and verbatim. Patch windows (`charOffset`) count the numbered text.
 - Search rows use the same form. A `localSearch` row with `contextLines > 0` numbers its window (`matchLines` still lists which lines matched; a truncated window stays verbatim). A repo-scoped `ghSearchCode` `match:"file"` row lists its keyword lines as `lines: ["<line>\t<text>", …]` (see below).
 
 ### Search result shapes

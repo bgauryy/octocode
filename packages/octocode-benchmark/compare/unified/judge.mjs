@@ -6,7 +6,7 @@
 // Every pair is judged twice with the order swapped; if a worker's two quality scores differ by
 // more than 2, a third (tie-break) judgment runs. Final quality = mean of 2, or median of 3.
 //
-//   node judge.mjs --run-id <id> [--questions all] [--concurrency 4] [--model opus] [--max-turns 30]
+//   node judge.mjs --run-id <id> [--questions all] [--concurrency 4] [--model opus] [--max-turns 30] [--anchor rg-gh]
 //
 // Resumable: judge calls whose judge.json exists are reused.
 import fs from 'node:fs';
@@ -17,6 +17,7 @@ import { randomInt } from 'node:crypto';
 import {
   REFERENCES_DIR, RESULTS_DIR, commonFlags, corpusPaths, freshCwd, loadQuestions, median, parseArgs, parseStream,
   pool, readJson, runClaude, selectQuestions, sha256, tokenAccounting, toolCounts, writeJson, hashFile, UNIFIED_DIR, REPO_ROOT,
+  judgePairs, readJudgePlan,
 } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2), { questions: 'all', concurrency: '4', model: 'opus', 'max-turns': '30', 'timeout-min': '20' });
@@ -182,9 +183,12 @@ async function judgeQuestion(q, a, b) {
 }
 
 async function main() {
-  const ws = manifest.workers;
-  const pairs = [];
-  for (let i = 0; i < ws.length; i++) for (let j = i + 1; j < ws.length; j++) pairs.push([ws[i], ws[j]]);
+  // --anchor <worker>: judge each other worker only against the anchor; the plan is frozen per run.
+  const plan = readJudgePlan(runDir);
+  const anchor = args.anchor ? String(args.anchor) : plan?.anchor ?? null;
+  if (plan && (plan.anchor ?? null) !== anchor) throw new Error(`run ${args['run-id']} was judged with anchor ${plan.anchor}`);
+  const pairs = judgePairs(manifest.workers, anchor);
+  if (anchor && !plan) writeJson(path.join(runDir, 'judge', 'plan.json'), { anchor });
   // Each question job runs its two ordered calls in parallel, so halve the pool to stay within the process cap.
   const jobs = questions.flatMap((q) => pairs.map(([a, b]) => () => judgeQuestion(q, a, b)));
   console.log(`judge: ${jobs.length} question-pairs, ≤${concurrency} judge processes`);

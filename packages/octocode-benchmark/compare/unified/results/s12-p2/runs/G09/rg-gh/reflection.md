@@ -1,7 +1,0 @@
-**1. Helped:** The first `gh api` call on `issues/13786` plus its `/timeline` gave the full issue body (root cause with code) and the three cross-referenced PRs (#13787, #13794, #13825) in one shot. The second call looped over `pulls/$n` and `pulls/$n/files`, which showed that only #13825 was merged. It also returned each PR's description and file list.
-
-**2. Did not help:** Both Bash calls printed `/bin/bash: /dev/null: Operation not permitted`. The output was still intact, so it was only noise. The timeline's `closed` event had `commit_id: null`, so I couldn't link the close to a specific commit. I never fetched the actual diff of #13825 or its merge commit.
-
-**3. Next time:** I would run `gh api repos/pydantic/pydantic/pulls/13825` with `.merged_at` and `.merge_commit_sha`, and fetch the `_config.py` patch from `pulls/13825/files` to cite concrete lines at the pinned commit. I would also check the release notes or tags to see which version shipped the fix.
-
-**4. Confidence:** Medium-high on the root cause, because the issue body and PR #13787's description agree and quote the offending code. Medium on the fix. #13825 is merged and says "Fixes #13786", but I haven't read its diff or confirmed it closed the issue. I also didn't give line numbers, which the task format prefers.

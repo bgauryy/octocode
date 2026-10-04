@@ -1,7 +1,0 @@
-1. **Helped:** The single batched `ghGetFileContent` call (three rows at `branch: v2.32.3`) did most of the work. `setup.py` held `python_requires`, `install_requires` and `extras_require`. The `matchString` read of `adapters.py` returned the four `DEFAULT_*` constants and the `__init__` signature with line numbers, and the response included `shared.commitSha`. The first call, `artifactSearch` on PyPI, cross-checked `requiresPython >=3.8` and the dependency count of 4, and it gave the repository URL.
-
-2. **Did not help:** `artifactSearch` returned only a dependency count, not the list, and no extras. I included `pyproject.toml` on a guess, and it held only isort and pytest config. My multi-line `matchString` for `__init__` was awkward. The output omitted lines 213-237, and I never read how `DEFAULT_POOL_TIMEOUT` is used. I couldn't confirm that the PyPI artifact matches the tag, since the tools can't fetch the sdist or wheel `METADATA`.
-
-3. **Next time:** I would use `matchString: "DEFAULT_"` alone with a wider context range to read the full `__init__`. I would skip `pyproject.toml` and read `setup.py` first. I would also try `ghSearchHistory` on the tag to confirm the commit SHA independently.
-
-4. **Confidence:** High for the Python version, dependencies, extras and adapter defaults, since I read them directly from the tagged source. Medium for "source for this release", because I inferred it from the tag and did not compare it against the published artifact.

@@ -113,6 +113,10 @@ export function buildPrompt(q) {
  *   isolation        { allowedToolPattern: regex source every offered/called tool must match,
  *                      requiredMcpServers: string[], forbidMcpServers: boolean }
  *   counters         [{ label, tool?: regex source, inputKey?: string }]  usage counters for the report
+ *   familySelector   "checkout" (optional): per-session OCTOCODE_TOOL_FAMILY from sessionServerEnv
+ *
+ * mcpServers.octocode.env reaches the evaluator-owned native MCP server (isolation.mjs upstreamEnv),
+ * so a catalog-shape arm is a profile env switch, e.g. OCTOCODE_PUBLISHED_VIEW=flat.
  */
 export function loadWorkers(filter) {
   const ids = fs.readdirSync(WORKERS_DIR).filter((d) => fs.existsSync(path.join(WORKERS_DIR, d, 'profile.json'))).sort();
@@ -147,6 +151,42 @@ export function workerFlags(worker, corpus, mcpConfigPath) {
 
 export function mcpServersFor(worker, corpus) {
   return expand(worker.profile.mcpServers ?? {}, { REPO_ROOT, CORPUS_ROOT, CORPUS_PATHS: corpus.join(',') });
+}
+
+/**
+ * Judged worker pairs. Default: every pair. With an anchor (e.g. rg-gh), only
+ * (worker, anchor) for each other worker, so N arms cost N judged pairs and
+ * every arm's quality comes from a pair with the same anchor answer.
+ */
+export function judgePairs(workers, anchor) {
+  if (anchor) {
+    if (!workers.includes(anchor)) throw new Error(`judge anchor ${anchor} is not a run worker`);
+    return workers.filter((w) => w !== anchor).map((w) => [w, anchor]);
+  }
+  const pairs = [];
+  for (let i = 0; i < workers.length; i++) for (let j = i + 1; j < workers.length; j++) pairs.push([workers[i], workers[j]]);
+  return pairs;
+}
+
+/** The judge plan of a run (`{anchor}`), or null when every pair is judged. */
+export function readJudgePlan(runDir) {
+  const file = path.join(runDir, 'judge', 'plan.json');
+  return fs.existsSync(file) ? readJson(file) : null;
+}
+
+/**
+ * Per-session server env from the profile's `familySelector` (none: {}).
+ * `checkout` is the rule a host applies at session start, never the
+ * question category: a session that opens in a local checkout (the prompt
+ * names one, see buildPrompt) starts the local family (local + remote tools);
+ * any other session starts the github family (GitHub + remote tools).
+ */
+export function sessionServerEnv(profile, q) {
+  const selector = profile.familySelector;
+  if (!selector) return {};
+  if (selector !== 'checkout') throw new Error(`unknown familySelector: ${selector}`);
+  const checkout = (q?.repos ?? []).some((r) => r.path);
+  return { OCTOCODE_TOOL_FAMILY: checkout ? 'local' : 'github' };
 }
 
 /** Flags shared by every worker and the judge: clean lab, no settings/memory/skills, headless, stream-json. */

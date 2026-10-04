@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call, a `grep -nE` for function names across `core.rs`, `harness.rs`, `state.rs`, `join.rs` and `raw.rs`, gave a map of the whole path in one shot. The third call, a batch of `sed -n` ranges, then returned the exact bodies with line numbers. Two well-aimed calls were enough.
-
-2. **Did not help:** The first call used `rg`, which isn't installed, and it also tried `git log`. The failure cost one call. Every call printed `/dev/null: Operation not permitted`, which was noise. `git` could not run, so I could not confirm the checkout was at `facc6fc`. I also never opened `task/mod.rs`, so the "rules" the comments cite are unverified. I saw only the `Stage::Finished` and `Consumed` usages, not the `Stage` definition. I cited `harness.rs` ranges by function start. The `poll_future` store_output line has no exact number because I did not print it with line numbers.
-
-3. **Next time:** Use `grep` from the start. Print with `grep -n` or `nl -ba` so every cited line is exact. Also grep for `enum Stage` and read the rules in `mod.rs`. Run `git rev-parse HEAD` with stderr handled, or read `.git/HEAD` directly, to confirm the commit.
-
-4. **Confidence:** High on the overall mechanism, because I read the code directly. Medium on the exact line numbers outside the function starts.

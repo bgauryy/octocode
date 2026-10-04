@@ -1,7 +1,0 @@
-1. **Helped:** `artifactSearch` (npm, undici 6.21.0) was the fastest step. It returned `engines >=18.17` and a release-source SHA in one call. `ghGetHistoryItem` on ref `v6.21.0` independently confirmed that SHA as the tag commit. `ghGetFileContent` with `matchString` on the three timeout names returned the exact default lines (229, 231, 238, 239) without reading the whole 622-line file.
-
-2. **Did not help:** the `ghSearchCode` call on `lib/dispatcher/client.js` came back empty, probably because the code index only covers the default branch, so that call was wasted. I should have gone straight to `ghGetFileContent`. The release-source hint was marked "unverified", so I needed the tag check anyway. The engines value came from registry metadata, not a read of `package.json`. I never read the keep-alive header override logic, so I flagged it as unread in the answer.
-
-3. **Next time:** run `artifactSearch`, `ghGetHistoryItem` and `ghGetFileContent` in a single parallel batch, and skip `ghSearchCode` for tagged releases. I would also fetch `package.json` at the tag with `matchString: "engines"` to cite the line directly.
-
-4. **Confidence:** high for the SHA and the three defaults, since each was read at the pinned commit. Medium-high for `engines`, since it rests on registry metadata rather than a file read at the tag.

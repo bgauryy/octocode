@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call did most of the work. It ran `git rev-parse HEAD` to confirm the pinned commit. In the same call, an `rg` for flooding-related identifiers (`maxRunBeforeFallback`, `hashFloodingDetected`, `MAX_HASH_BUCKET_LENGTH`) across the collect files pointed straight at `ImmutableSet.java`, `RegularImmutableMap.java` and `RegularImmutableMultiset.java`. The second call read the relevant `ImmutableSet.java` ranges with `sed -n`. That covered the online probe limit, the whole-table check and the JDK fallback.
-
-2. **Did not help:** The `rg` output included the `maxRunBeforeFallback` lines but not the `JdkBackedSetBuilderImpl` definition, so I needed a second read. My filter `grep -v "/android/"` had no effect. I didn't use the `ImmutableSet` tests and skipped most of `build()`. I also didn't read where `RegularImmutableMap` catches `BucketOverflowException`. I said so in the answer's uncertainty section.
-
-3. **Next time:** I'd include the fallback class name in the first `rg` pattern. I'd also grep for `catch (BucketOverflowException` so the map claim is complete.
-
-4. **Confidence:** High for the `ImmutableSet` mechanism. I saw the code directly, and the line numbers come from the printed output. Medium for the claims about `RegularImmutableMap` and `RegularImmutableMultiset`. For the map I only saw the throw site, and for the multiset only the fallback call and the check.

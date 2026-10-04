@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call did most of the work. It combined `cat client/components/redirect.ts | head -120` with an `rg` for `isRedirectError|getURLFromRedirectError|getRedirectStatusCodeFromError` across `server/`. That gave me the throw site and every catch site in one pass. The second call read the specific line ranges in `app-render.tsx`, `app-route/module.ts`, `action-handler.ts` and `make-get-server-inserted-html.tsx`. It also read `redirect-error.ts`.
-
-2. **Did not help:** Not much was wasted, since I made only two calls. I never opened `createRedirectRenderResult`, so how `x-action-redirect` is set is unverified, and I said so in the answer. I also did not confirm the commit or check `git log`. The checkout was assumed to be at the pinned SHA. The `sed` ranges were guessed from `rg` hits, so I did not confirm the exact line numbers around 4386 and 9833.
-
-3. **Next time:** I would use `rg -n` with `-C` on `createRedirectRenderResult` and `x-action-redirect`. I would also run `git rev-parse HEAD` to confirm the pin, and use `nl -ba` when quoting line numbers.
-
-4. **Confidence:** Medium-high on the main flow: the digest, the 307/308 status, the `location` header, the route-handler 303 for actions, and the MPA 303. Medium on the exact line numbers. I cited some as approximate and did not verify them with numbered output.

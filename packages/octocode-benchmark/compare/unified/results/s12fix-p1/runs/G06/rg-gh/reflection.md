@@ -1,7 +1,0 @@
-**1. Helped:** The second call, `gh api -X GET repos/encode/httpx/contents/httpx/_client.py?ref=b5addb64f0` with the raw Accept header piped into `grep -nE "proxy|proxies|mounts|_transport_for_url|..."`, found every relevant line at once. The third call, which used `sed -n` on the ranges that grep located (239-253, 680-720, 760-772), gave me the code itself. Fetching the file at the pinned SHA kept the line numbers valid.
-
-**2. Did not help:** My first call failed. It tried to write to `/tmp/c.py`, which the sandbox blocks, and it used `rg`, which isn't installed. Every shell call also printed `/dev/null: Operation not permitted`, though the output was still usable. I fetched the file twice instead of holding it in a variable.
-
-**3. Next time:** I'd skip the temp file and `rg` from the start. I'd also make one more `gh api` call to `_utils.py` and read the bodies of `get_environment_proxies`, `URLPattern.matches` and `__lt__`, which I only located with grep.
-
-**4. Confidence:** High for the dispatch flow in `_client.py`, because I read that code directly. Medium for two details I didn't read in `_utils.py`: that `NO_PROXY` produces `None` mounts, and how patterns are ordered. I inferred the first from the `None if url is None` branch and the return type, and I said so in the answer.

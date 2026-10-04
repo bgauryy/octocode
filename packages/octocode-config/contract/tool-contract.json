@@ -112,7 +112,7 @@
     "pagesKey": "next"
   },
   "contractFormatVersion": 2,
-  "fingerprint": "a2a9ec26c982ec6c13ecb20ff322e2ff8246800fd761d906698dd35d3747f0d5",
+  "fingerprint": "279f7b732b9bcaa3a4a3b350b0ee2bfd51f449b7ae366217c1c55051082911ad",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -37885,7 +37885,7 @@
           "phase": "validate"
         }
       ],
-      "shortDescription": "Find indexed code or file paths in a GitHub owner or repo.",
+      "shortDescription": "Find default-branch code or file paths in a GitHub owner or repo.",
       "variants": [],
       "verbosePaths": [
         "results[].cache",
@@ -45706,7 +45706,7 @@
                       "type": "array"
                     }
                   ],
-                  "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B omitted] ...`.",
+                  "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B not requested] ...`.",
                   "title": "MatchString"
                 },
                 "matchStringCaseSensitive": {
@@ -53543,7 +53543,7 @@
                 "type": "array"
               }
             ],
-            "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B omitted] ...`.",
+            "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B not requested] ...`.",
             "title": "MatchString"
           },
           "matchStringCaseSensitive": {
@@ -84823,7 +84823,7 @@
           "phase": "validate"
         }
       ],
-      "shortDescription": "Find packages, dependency metadata, or upstream source.",
+      "shortDescription": "Find package versions, dependencies, or upstream release source.",
       "variants": [],
       "verbosePaths": [
         "results[].cache",
@@ -141305,7 +141305,7 @@
                       "type": "array"
                     }
                   ],
-                  "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B omitted] ...`.",
+                  "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B not requested] ...`.",
                   "title": "MatchString"
                 },
                 "matchStringCaseSensitive": {
@@ -148887,7 +148887,7 @@
                 "type": "array"
               }
             ],
-            "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B omitted] ...`.",
+            "description": "Literal by default, or a list matching any (grep map); gaps show `... [lines A-B not requested] ...`.",
             "title": "MatchString"
           },
           "matchStringCaseSensitive": {
@@ -159438,7 +159438,7 @@
           "phase": "validate"
         }
       ],
-      "shortDescription": "Resolve symbols, references, calls, types, or diagnostics.",
+      "shortDescription": "Resolve callers, references, same-name symbols, types, or diagnostics.",
       "variants": [
         {
           "example": {

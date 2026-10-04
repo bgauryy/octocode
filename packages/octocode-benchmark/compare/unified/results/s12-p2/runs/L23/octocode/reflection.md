@@ -1,7 +1,0 @@
-1. **Helped:** The `localSearch` for `self\._chain\(\)` gave all 24 call sites with line numbers in one call. The `astSearch` symbols listing then gave method line ranges, so I could map each line to its enclosing method without reading the file. The `localFetch` of lines 2046-2060 confirmed `using` and `fetch_mode`.
-
-2. **Did not help:** My `astSearch` name filter was a long guessed list, and it still returned about 93 declarations, including unrelated `RawQuerySet` and `Prefetch` ones. That was noisy, and it suggests the filter may not have applied. I never read the other call sites. Their method assignments are inferred from the ranges, for example `__getitem__` at 520/532, which is likely right. I also never read `__or__` or `__xor__`, so I just flagged that as uncertain. I could have read lines 540-590 in one `localFetch`. I also did not check that `get` at line 736 is the only conditional call.
-
-3. **Next time:** After the text search I would do one batched `localFetch` with several ranges, covering `__or__`, `__xor__` and a few spot-checks, instead of asserting the mappings from declaration ranges. I would also pass a narrower `astSearch` query.
-
-4. **Confidence:** Medium-high. The call-site lines come straight from the search output, and the range mapping is deterministic. Most mappings were not directly read. The `__or__`/`__xor__` question is unverified.

@@ -7,6 +7,7 @@ Two AI workers answer the same code-research questions, and a blind judge grades
 | `octocode` | Octocode MCP tools (latest local build, clasify included); no shell | [workers/octocode/WORKER.md](workers/octocode/WORKER.md) |
 | `octocode-npm` | Published `octocode-mcp@19.1.0` via `npx -y` (exact pin; 9 tools, no clasify/structure/AST tools); no shell | Same doc as `octocode`: [workers/octocode-npm/WORKER.md](workers/octocode-npm/WORKER.md) |
 | `rg-gh` | A shell: `rg`, `gh` and any Linux command; no Octocode | [workers/rg-gh/WORKER.md](workers/rg-gh/WORKER.md) |
+| `octocode-minus-clasify`, `octocode-flat`, `octocode-defer`, `octocode-family`, `octocode-guide` | Catalog-shape arms (RFC S13): the `octocode` worker with one server switch each: `DISABLE_TOOLS=clasify`, `OCTOCODE_PUBLISHED_VIEW=flat`, `OCTOCODE_DEFER_TOOLS` (tools behind the `run` dispatcher), `OCTOCODE_INSTRUCTIONS=guide`, or `familySelector: "checkout"` (`OCTOCODE_TOOL_FAMILY` per session) | Same doc as `octocode` |
 
 Both workers use the same model (Sonnet 5.5) and the same goal paragraph. Neither doc teaches solution steps. The judge is Opus 5.5.
 
@@ -30,7 +31,7 @@ Both workers use the same model (Sonnet 5.5) and the same goal paragraph. Neithe
 ```bash
 cd packages/octocode-benchmark/compare/unified
 node run.mjs --run-id <id> --model claude-sonnet-5-5 --probes           # workers answer (+ overhead and isolation probes)
-node judge.mjs --run-id <id> --model claude-opus-5-5                  # blind judge, both answer orders
+node judge.mjs --run-id <id> --model claude-opus-5-5                  # blind judge, both answer orders; --anchor rg-gh judges each worker only against rg-gh
 node report.mjs --run-id <id>                 # results/<id>/REPORT.md
 node metrics.mjs --run-id <id> [--json]      # weighted tokens, Q/$, page follow rate, schema errors
 node reflect.mjs --run-id <id>                # results/<id>/reflections/<worker>/REFLECT.md
@@ -79,3 +80,4 @@ Reference files are never protected by chmod. The solver OS boundary prevents ac
 
 - **A question:** add it to `questions/questions.json` and `QUESTIONS.md` as a plain developer question, plus a judge key in `references/<id>.md`.
 - **A worker:** add `workers/<id>/WORKER.md` and `profile.json`.
+- **A server-switch arm:** copy the `octocode` profile and add the switch to `mcpServers.octocode.env`; `isolation.mjs` `upstreamEnv` passes it to the native server, and the isolation keys and write-tool deny list stay evaluator-owned. `familySelector: "checkout"` sets `OCTOCODE_TOOL_FAMILY` per session by the host rule: a session opened in a local checkout (the prompt names one) gets `local` (local + remote tools), any other gets `github` (GitHub + remote tools). It never reads the question category.

@@ -2,6 +2,6 @@
   "sourcePackage": "@octocodeai/octocode-core",
   "sourceVersion": "19.1.6",
   "contractFormatVersion": 2,
-  "contractFingerprint": "a2a9ec26c982ec6c13ecb20ff322e2ff8246800fd761d906698dd35d3747f0d5",
-  "contractSha256": "a16f73f9ab5e7fa892299d31d060b7b039f768268c4b97341ddc0cb13f767ea9"
+  "contractFingerprint": "279f7b732b9bcaa3a4a3b350b0ee2bfd51f449b7ae366217c1c55051082911ad",
+  "contractSha256": "1bcac2466bf8eae83a797905dc24f2d7ab2ba414b34613290ba07eca9efaafcd"
 }

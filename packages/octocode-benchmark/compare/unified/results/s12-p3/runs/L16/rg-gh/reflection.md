@@ -1,7 +1,0 @@
-1. **Helped:** The second Bash call ran `grep -nE` on `LocalCache.java` and `CacheBuilder.java` for segment and concurrency terms. It returned nearly every needed line at once: constructor lines 250-321 and the builder defaults. The third call (`sed -n 305,324p`, plus `grep getMaximumWeight`) filled in the per-segment weight split and how `maximumSize` becomes max weight.
-
-2. **Did not help:** The first call used `rg`, which isn't installed. It failed four times and wasted a call. The initial `find` also returned the GWT and android copies of `LocalCache.java`, so I had to pick the main `guava/src` one. Every Bash call printed `/dev/null: Operation not permitted`. The output was fine, but it's noise. I did not use `gh` or check git history, so I never confirmed the checkout was at the pinned SHA.
-
-3. **Next time:** Use `grep -n` from the start, and go straight to `guava/src/com/google/common/cache/`. I'd also read the `Segment.evictEntries` body (around lines 2658-2680) instead of relying on grep hits. I'd run `git rev-parse HEAD` as well.
-
-4. **Confidence:** High on the segment-count and per-segment weight logic, since I read those lines directly. Medium on the eviction claims, because they rest only on grep hits at lines 2666 and 2672.

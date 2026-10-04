@@ -1,7 +1,0 @@
-1. **Helped:** `ghStructure` on `fastapi/security` with the pinned SHA gave the module list at 4b3949cd9e in one call. `ghSearchCode` with keyword `class` then listed every class and its base across all modules at once. `ghGetFileContent` on `__init__.py` and `base.py` (pinned full SHA) confirmed the public exports and the root class `SecurityBase`.
-
-2. **Did not help:** `ghSearchCode` ignores the ref. It returned commitSha 5f9fc5c, not the pinned commit, so my per-module class lists and line numbers are not verified at 4b3949cd9e. I flagged that in the answer but did not close the gap. I also never opened `utils.py` or the other modules. The search was run without a `branch` parameter, which may be why it fell back to the default branch. The first call used the short SHA as the branch, and it happened to resolve.
-
-3. **Next time:** I would read `api_key.py`, `http.py`, `oauth2.py` and `open_id_connect_url.py` with `ghGetFileContent` at the pinned SHA, batched in one call, using `matchString: "^class "`. I would also open `utils.py` rather than infer it has no classes from a search that may have missed it.
-
-4. **Confidence:** medium-high. The module list, `__init__.py` exports and `SecurityBase` are verified at the pinned commit. The subclass relationships and line numbers come from a different commit. They are very likely unchanged, but I did not check.

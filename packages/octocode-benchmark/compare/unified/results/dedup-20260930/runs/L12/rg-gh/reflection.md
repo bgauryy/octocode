@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call combined `git rev-parse HEAD` with `rg -n "lifo" worker.rs`. It confirmed the pinned commit and showed every relevant line in one step. The second call printed the run loop (700–796) and `schedule_local` (1360–1430). It also grepped `MAX_LIFO_POLLS_PER_TICK` with context and `lifo` in `builder.rs`. That covered almost all of the answer in two calls.
-
-2. **Did not help:** There were no errors and no repeated calls. Because the shell cwd kept changing, I used absolute paths. I never opened the code around `worker.rs:479` and `:573`. My claim about the hand-off on park rests on grep hits and their comments. I also ran a stray `sed -n 1250,1270p` that returned only unrelated `transition_from_parked` code. I did not check whether `disable_lifo_slot` had other effects.
-
-3. **Next time:** I would add a `sed -n 470,490p` and `sed -n 565,580p` to the second call to verify the park and reset behavior. I would also check that the `schedule_task` entry point and its caller context really do what I described.
-
-4. **Confidence:** Medium-high overall. I read the main mechanism directly: the slot, the cap of 3, the budget check, yields, and displacement. The park hand-off is the less certain part. I stated that uncertainty in my answer.

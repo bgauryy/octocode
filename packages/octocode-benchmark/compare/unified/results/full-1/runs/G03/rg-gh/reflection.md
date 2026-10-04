@@ -1,7 +1,0 @@
-1. **Helped:** I made one Bash call that ran `gh pr view 5881 -R nodejs/undici --json title,body,state,mergeCommit,files` followed by `gh pr diff 5881`. It returned the PR rationale, the merge SHA and the full diff together. That was enough to answer, and the added test file confirmed the intended behavior.
-
-2. **Did not help:** Nothing failed and I made no repeated calls. The diff was long, mostly the 228-line test file, so it cost tokens. The diff shows only changed hunks. It did not show `kRemoveClient`'s callers or the `clientTtl` eviction code. That means my claim about the TTL path is inferred from the tests and comments, not seen directly. I also didn't open the PR's review comments or a linked issue, so I have no maintainer discussion of the root cause.
-
-3. **Next time:** I would run `gh pr view` with `--json comments,reviews` and `gh api` for the linked issue. I would also `rg kRemoveClient` against a checkout, or fetch the file at the merge SHA, to confirm the TTL eviction path.
-
-4. **Confidence:** High for the core mechanism, because the PR body and the diff agree with each other. Medium for the `clientTtl` detail, because I never saw that code. I also didn't run the tests.

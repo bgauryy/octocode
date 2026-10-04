@@ -1,7 +1,0 @@
-1. **Helped:** `gh api -X GET "repos/psf/requests/contents/<file>?ref=v2.32.3"` with the raw Accept header was the fastest step. It returned `setup.py`, `adapters.py` and `__version__.py` at the pinned tag. Piping through `cat -n | grep` gave line numbers cheaply. The final `sed -n '60,68p;99,128p'` confirmed the exact dependency, classifier and extras blocks.
-
-2. **Did not help:** The first call used `rg`, which isn't installed, so it failed on all four files. I wasted a round on that and should have checked first. Every call also printed `/dev/null: Operation not permitted`, which was noise but harmless. The first tag lookup returned a tag-object SHA, not the commit SHA, so it needed a second call to dereference. I never opened PyPI metadata or `pyproject.toml`, so I could not check the published `Requires-Dist` fields. I also lacked exact line numbers for the classifiers, and I said so in the answer.
-
-3. **Next time:** Use `grep` from the start. Fetch the tag and dereference it in one step. Fetch `pyproject.toml` and, if the gateway allows it, the PyPI JSON to cross-check the declared metadata.
-
-4. **Confidence:** High for the Python version, dependencies, extras and adapter defaults, since I read them directly at the tagged source. Medium for matching the published PyPI metadata, because I did not compare against it.

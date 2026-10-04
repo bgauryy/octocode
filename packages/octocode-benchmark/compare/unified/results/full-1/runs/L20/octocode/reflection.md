@@ -1,7 +1,0 @@
-1. **Helped:** The `localSearch` for `ResolveJsonModule` (excluding test and generated files, `contextLines: 2`) was the key call. It listed every non-test Go caller with context in one pass. The `localFetch` of `compileroptions.go` lines 268-285 gave the exact default logic. The first `localSearch` with `resultView: files` also showed the checkout contained the Go compiler under `tsc/internal`.
-
-2. **Did not help:** My first two calls failed on schema validation. I left out the `queries` wrapper and passed strings where arrays were expected. My second attempt also omitted the required `goal` and `reasoning`. The `structureSearch` for Go files returned only 20 of 5118, so it was noise. The `localFetch` output showed paths relative to a base directory, which meant I had to reconstruct full paths myself.
-
-3. **Next time:** I would check the schemas before the first call and send well-formed queries at once. I'd skip the file-listing query. I would also open the callers' bodies, `declscompiler.go`, the diagnostics file and the test files, which I never read. I would use `lspSearch` references on `GetResolveJsonModule` to confirm the caller list, since text search can miss aliased uses.
-
-4. **Confidence:** Medium-high. The default logic and caller list are directly observed. The gap is that I did not read the caller bodies or the tests, so my impact claims for them are inferred from names and snippets.

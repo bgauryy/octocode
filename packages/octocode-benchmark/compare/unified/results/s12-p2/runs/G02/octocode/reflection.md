@@ -1,7 +1,0 @@
-1. **Helped:** The first `ghGetHistoryItem` call (body, files, patches) returned the schema, error type, docs and input-layer diffs in one pass. The second call, with a `files` filter on `_generate_schema.py`, `_validators.py`, `_known_annotated_metadata.py` and `validators/counter.rs`, gave me the before/after lines and the validator logic. The `next.continuePatch` hint pointed me straight to the right files.
-
-2. **Did not help:** The first response was truncated: patches were paginated, and `infer.rs` was cut mid-diff. Because of that, I never read the serializer files, `json_schema.py`, `pipeline.py` or the tests. I made no call at all to read the old `_mapping_schema` or the issue #13704 text. As a result, my "before" behavior (the generic mapping error, constraints not applying) is inferred from the PR body and diffs. I did flag that in the answer.
-
-3. **Next time:** I'd fetch `tests/types/test_counter.py` and `json_schema.py` patches in the second call. I'd also read `_mapping_schema` at the parent commit with `ghGetFileContent`, and read issue #13704 with `ghGetHistoryItem`. That would let me confirm the old strict-mode and error behavior instead of inferring it.
-
-4. **Confidence:** Medium-high on the after-behavior, since I read the code. Medium on the before-comparison, since parts of it are inferred.

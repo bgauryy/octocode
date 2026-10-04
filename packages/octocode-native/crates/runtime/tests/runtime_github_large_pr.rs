@@ -37,6 +37,21 @@ fn pr(changed_files: usize) -> Value {
     })
 }
 
+/// A numbered patch view without its new-side gutter (`N\t` on kept and
+/// added lines, a bare tab on removed ones): the raw patch.
+fn raw_patch(view: &str) -> String {
+    view.split_inclusive('\n')
+        .map(|line| match line.split_once('\t') {
+            Some((gutter, text))
+                if !line.starts_with("@@") && gutter.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                text
+            }
+            _ => line,
+        })
+        .collect()
+}
+
 fn rest_file(name: &str, patch: Option<&str>, additions: u64, deletions: u64) -> Value {
     let mut file = json!({
         "sha": "1111111111111111111111111111111111111111", "filename": name,
@@ -501,7 +516,7 @@ async fn selected_patch_scan_reads_file_batches_concurrently() {
     let elapsed = started.elapsed();
     let file = &data["pullRequests"][0]["changedFiles"][0];
     assert_eq!(file["path"], "src/late.rs", "{data}");
-    assert_eq!(file["patch"], "@@ -1 +1 @@\n-a\n+late");
+    assert_eq!(file["patch"], "@@ -1 +1 @@\n\t-a\n1\t+late");
     assert!(
         elapsed < Duration::from_millis(1_200),
         "sequential scan: {elapsed:?}"
@@ -535,7 +550,10 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     assert_eq!(files.as_array().map(Vec::len), Some(1), "{data}");
     let patch = files[0]["patch"].as_str().expect("patch");
     // Hit lines only by default (matchContext 0).
-    assert_eq!(patch, "@@ -201,1 +201,1 @@\n-old esbuild\n+new esbuild\n");
+    assert_eq!(
+        patch,
+        "@@ -201,1 +201,1 @@\n\t-old esbuild\n201\t+new esbuild\n"
+    );
     assert!(patch.len() < 200, "{patch}");
     // The narrowed-view marker selects the continuation; rows omit it.
     assert!(files[0].get("fullPatchChars").is_none(), "{data}");
@@ -573,7 +591,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     .await;
     assert_eq!(
         only_hits["pullRequests"][0]["changedFiles"][0]["patch"],
-        "@@ -201,1 +201,1 @@\n-old esbuild\n+new esbuild\n"
+        "@@ -201,1 +201,1 @@\n\t-old esbuild\n201\t+new esbuild\n"
     );
     // An explicit matchContext still narrows the patch: the whole patch
     // stays reachable.
@@ -587,22 +605,23 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         json!(["src/big.rs"]),
         "{data}"
     );
-    // Following the read returns the raw patch.
+    // Following the read returns the whole patch, numbered.
     let mut full = data["hints"]["readFullPatches"]["query"].clone();
     for key in ["operation", "owner", "repo", "number"] {
         full.as_object_mut().map(|q| q.remove(key));
     }
     let full = run(&server, full).await;
-    assert_eq!(
-        full["pullRequests"][0]["changedFiles"][0]["patch"], big,
-        "{full}"
-    );
+    let whole = full["pullRequests"][0]["changedFiles"][0]["patch"]
+        .as_str()
+        .unwrap_or("");
+    assert_eq!(raw_patch(whole), big, "{full}");
+    assert!(whole.contains("\n201\t+new esbuild\n"), "{full}");
 }
 
-/// The default minified PR view trims long patch context to `...` and drops
-/// markdown noise (HTML comments, badges) from bodies, comments and reviews:
-/// the response says so and carries the raw re-reads, which return every
-/// byte.
+/// The default minified PR view drops markdown noise (HTML comments,
+/// badges) from bodies, comments and reviews, and says so with a lossless
+/// raw re-read; code hunks are never minified: every context line arrives,
+/// numbered on the new side.
 #[tokio::test]
 async fn minified_pr_views_carry_lossless_raw_reads() {
     let server = MockServer::start().await;
@@ -615,7 +634,7 @@ async fn minified_pr_views_carry_lossless_raw_reads() {
         .mount(&server)
         .await;
     let context = (1..=60).map(|n| format!(" ctx {n}\n")).collect::<String>();
-    let big = format!("@@ -1,121 +1,121 @@\n{context}-old\n+new\n{context}");
+    let big = format!("@@ -1,121 +1,121 @@ fn cache()\n{context}-old\n+new\n{context}");
     let small = "@@ -1 +1 @@\n-a\n+b";
     mount_file_batches(
         &server,
@@ -638,37 +657,28 @@ async fn minified_pr_views_carry_lossless_raw_reads() {
         "{row}"
     );
     let files = row["changedFiles"].as_array().expect("files");
-    let trimmed = files
+    let whole = files
         .iter()
         .find(|f| f["path"] == "src/big.rs")
+        .and_then(|f| f["patch"].as_str())
         .expect("big");
+    assert_eq!(raw_patch(whole), big, "{whole}");
     assert!(
-        trimmed["patch"].as_str().unwrap_or("").contains("..."),
-        "{trimmed}"
+        whole.starts_with("@@ -1,121 +1,121 @@ fn cache()\n1\t ctx 1\n"),
+        "{whole}"
     );
-    assert!(trimmed.get("fullPatchChars").is_none(), "{trimmed}");
-    let untrimmed = &data["hints"]["readUntrimmed"]["query"];
-    assert_eq!(
-        untrimmed["content"]["patches"]["files"],
-        json!(["src/big.rs"]),
-        "{data}"
+    assert!(
+        whole.contains("\n\t-old\n61\t+new\n62\t ctx 1\n"),
+        "{whole}"
     );
+    assert!(data.pointer("/hints/readUntrimmed").is_none(), "{data}");
     let raw_read = &data["hints"]["readRawBody"]["query"];
     assert_eq!(raw_read["minify"], "none", "{data}");
-    let follow = |query: &Value| {
-        let mut query = query.clone();
-        for key in ["operation", "owner", "repo", "number"] {
-            query.as_object_mut().map(|q| q.remove(key));
-        }
-        query
-    };
-    let full = run(&server, follow(untrimmed)).await;
-    assert_eq!(
-        full["pullRequests"][0]["changedFiles"][0]["patch"], big,
-        "{full}"
-    );
-    assert!(full.pointer("/hints/readUntrimmed").is_none(), "{full}");
-    let body = run(&server, follow(raw_read)).await;
+    let mut follow = raw_read.clone();
+    for key in ["operation", "owner", "repo", "number"] {
+        follow.as_object_mut().map(|q| q.remove(key));
+    }
+    let body = run(&server, follow).await;
     assert_eq!(body["pullRequests"][0]["body"], raw_body, "{body}");
     assert!(body["pullRequests"][0].get("bodyView").is_none(), "{body}");
     // A raw read is never flagged.
@@ -677,7 +687,6 @@ async fn minified_pr_views_carry_lossless_raw_reads() {
         json!({"content": {"body": true, "patches": {"mode": "all"}}, "minify": "none"}),
     )
     .await;
-    assert!(plain.pointer("/hints/readUntrimmed").is_none(), "{plain}");
     assert!(plain.pointer("/hints/readRawBody").is_none(), "{plain}");
 }
 
@@ -982,9 +991,13 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
     let (explicit_calls, explicit_read) = walk(Some(50_000), None).await;
     let (_, oversized_read) = walk(None, Some(80_000)).await;
     for (path, patch) in ["src/a.rs", "src/b.rs"].iter().zip(&patches) {
-        assert_eq!(default_read.get(*path), Some(patch), "{path}");
-        assert_eq!(explicit_read.get(*path), Some(patch), "{path}");
-        assert_eq!(oversized_read.get(*path), Some(patch), "{path}");
+        for read in [&default_read, &explicit_read, &oversized_read] {
+            assert_eq!(
+                read.get(*path).map(|view| raw_patch(view)).as_ref(),
+                Some(patch),
+                "{path}"
+            );
+        }
     }
     assert!(
         default_calls <= explicit_calls + 1,

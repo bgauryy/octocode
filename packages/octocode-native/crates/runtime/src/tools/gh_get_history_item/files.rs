@@ -1,6 +1,6 @@
 //! Changed files: selection filters, path scopes, per-file shaping and the
 //! shared patch char window.
-use super::util::{minified_view, needle, str_at, string, usize_at};
+use super::util::{needle, str_at, string, usize_at};
 use super::window::WindowState;
 use super::{HistoryItemRequest, MAX_COLLECTION_PAGE, default_page_size};
 use crate::tools::result::remove_nulls;
@@ -146,7 +146,7 @@ const INVENTORY_ROW_CHARS: usize = 60;
 
 /// Changed files per page. A patch-free inventory defaults to as many compact
 /// rows as fit one automatic response page (100–1000); a page carrying
-/// patches keeps provider-sized pages.
+/// patches defaults to one provider batch.
 pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize {
     match (query.page_size(), patches) {
         // A literal search returns every hit file of the PR on one page:
@@ -154,7 +154,11 @@ pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize
         (None, true) if query.match_string().is_some() => {
             super::window::MAX_FILE_BATCHES * MAX_COLLECTION_PAGE
         }
-        (_, true) => query.collection_page_size(),
+        // Patches pack into one char window whatever the page size, so a
+        // patch read lists a whole provider batch: one continuation stream
+        // walks every patch of a PR of up to that many files.
+        (None, true) => super::window::PROVIDER_BATCH,
+        (Some(_), true) => query.collection_page_size(),
         (Some(size), false) => size.clamp(1, max_inventory_page()),
         (None, false) => (auto_page(query.auto_page_chars) / INVENTORY_ROW_CHARS)
             .clamp(MAX_COLLECTION_PAGE, max_inventory_page())
@@ -202,6 +206,48 @@ fn inventory_row(file: &Value, name: &str) -> String {
 /// consecutive files in one directory becomes `{"dir/": [rows]}` whose rows
 /// name files relative to it; every other file is a full-path row.
 fn compact_inventory(files: &[Value]) -> Vec<Value> {
+    group_by_directory(files, inventory_row)
+}
+
+/// One patch-page summary row of a provider file: the inventory row with
+/// the patch's hunk count after the change counts
+/// (`M +3 -1 2 hunks name[ <- old/path]`), or why GitHub sent no patch
+/// (`M +3 -1 !tooLarge name`).
+fn summary_row(file: &Value, name: &str) -> String {
+    let mut row = format!(
+        "{} +{} -{}",
+        status_code(str_at(file, "/status").unwrap_or("")),
+        usize_at(file, "/additions"),
+        usize_at(file, "/deletions")
+    );
+    match str_at(file, "/patch") {
+        Some(patch) => {
+            let hunks = patch.lines().filter(|line| line.starts_with("@@")).count();
+            let unit = if hunks == 1 { "hunk" } else { "hunks" };
+            row.push_str(&format!(" {hunks} {unit}"));
+        }
+        None => {
+            if file.get("sha").is_some()
+                && let Some(reason) = missing_patch_reason(file)
+            {
+                row.push_str(" !");
+                row.push_str(reason);
+            }
+        }
+    }
+    row.push(' ');
+    row.push_str(name);
+    if let Some(previous) = str_at(file, "/previous_filename") {
+        row.push_str(" <- ");
+        row.push_str(previous);
+    }
+    row
+}
+
+/// Group consecutive rows of one directory: a run of two or more files in
+/// one directory becomes `{"dir/": [rows]}` whose rows name files relative
+/// to it; every other file is a full-path row, in provider order.
+fn group_by_directory(files: &[Value], render: fn(&Value, &str) -> String) -> Vec<Value> {
     let dir_of = |file: &Value| {
         str_at(file, "/filename")
             .unwrap_or("")
@@ -224,7 +270,7 @@ fn compact_inventory(files: &[Value]) -> Vec<Value> {
                 .iter()
                 .map(|file| {
                     let path = str_at(file, "/filename").unwrap_or("");
-                    json!(inventory_row(file, &path[dir.len() + 1..]))
+                    json!(render(file, &path[dir.len() + 1..]))
                 })
                 .collect::<Vec<_>>();
             let mut group = Map::new();
@@ -232,9 +278,8 @@ fn compact_inventory(files: &[Value]) -> Vec<Value> {
             out.push(Value::Object(group));
         } else {
             out.extend(
-                run.iter().map(|file| {
-                    json!(inventory_row(file, str_at(file, "/filename").unwrap_or("")))
-                }),
+                run.iter()
+                    .map(|file| json!(render(file, str_at(file, "/filename").unwrap_or("")))),
             );
         }
         start = end;
@@ -424,6 +469,10 @@ pub(super) fn shape_pr_files(
             file
         })
         .collect::<Vec<_>>();
+    // A patch read that does not fit one response lists its page's files
+    // first (status, change counts, hunks), then the patches in file order.
+    let summary = (patch_mode != "none" && query.char_offset().unwrap_or(0) == 0)
+        .then(|| group_by_directory(&slice, summary_row));
     // The patch continuation narrows the selection to the unfinished files,
     // so its cursor is relative to the first of them.
     let patches = shape_patch_page(
@@ -453,6 +502,13 @@ pub(super) fn shape_pr_files(
             shaped
         })
         .collect::<Vec<_>>();
+    let more_files = page.get("hasMore").and_then(Value::as_bool) == Some(true);
+    if let Some(summary) = summary
+        && (patches.cursor.is_some() || more_files)
+        && !summary.is_empty()
+    {
+        row["fileSummary"] = Value::Array(summary);
+    }
     if !shaped.is_empty() {
         row["changedFiles"] = Value::Array(shaped);
     }
@@ -538,7 +594,11 @@ fn unsearched_files(
         .collect()
 }
 
-fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
+/// The patch view of one changed file and whether it narrows the raw patch:
+/// a `matchString` view keeps only the matching hunks; every other read is
+/// the whole patch. Code hunks are never minified. Either view is numbered
+/// (see [`number_patch`]).
+fn history_patch_view(value: &str, query: &HistoryItemRequest) -> (String, bool) {
     if let Some(needle) = needle(query)
         && let Some(hunks) = matching_hunks(
             value,
@@ -546,20 +606,48 @@ fn history_patch_view(value: &str, query: &HistoryItemRequest) -> String {
             query.match_context().unwrap_or(MATCH_CONTEXT_LINES),
         )
     {
-        return hunks;
+        return (number_patch(&hunks), true);
     }
-    if minified_view(query) {
-        octocode_engine::portable::filter_patch(
-            value,
-            Some(octocode_engine::types::FilterPatchOptions {
-                trim_context: Some(true),
-                context_lines: Some(2),
-                ..Default::default()
-            }),
-        )
-    } else {
-        value.to_owned()
+    (number_patch(value), false)
+}
+
+/// Number a unified diff on its new side, `cat -n`-like: each kept or added
+/// line opens with its new-file line number and a tab (`86\t ctx`,
+/// `87\t+added`), each removed line or `\ No newline` marker with a bare tab
+/// (`\t-removed`). `@@ -a,b +c,d @@ heading` lines stay as GitHub sent them
+/// (the heading is the enclosing symbol). Text that does not open with a
+/// hunk header (empty, or already a line-filtered `+N:` view) is returned
+/// unchanged. Removing the gutter (up to the first tab of each non-header
+/// line) restores the raw patch.
+pub(super) fn number_patch(patch: &str) -> String {
+    if !patch.starts_with("@@") {
+        return patch.to_owned();
     }
+    let sep = crate::runtime::numbered::SEPARATOR;
+    let mut out = String::with_capacity(patch.len() + patch.len() / 8);
+    let mut new = 0usize;
+    for line in patch.split_inclusive('\n') {
+        if line.starts_with("@@") {
+            new = line
+                .split(' ')
+                .find_map(|side| side.strip_prefix('+'))
+                .and_then(|side| side.split(',').next())
+                .and_then(|start| start.parse().ok())
+                .unwrap_or(0);
+            out.push_str(line);
+            continue;
+        }
+        match line.as_bytes().first() {
+            Some(b'-' | b'\\') => {}
+            _ => {
+                out.push_str(&new.to_string());
+                new += 1;
+            }
+        }
+        out.push(sep);
+        out.push_str(line);
+    }
+    out
 }
 
 /// Diff lines kept around each `matchString` hit when `matchContext` is
@@ -830,7 +918,7 @@ pub(super) fn shape_patch_page(
             cursor: None,
         };
     }
-    let views = files
+    let shaped = files
         .iter()
         .map(|file| {
             file.get("patch")
@@ -838,22 +926,24 @@ pub(super) fn shape_patch_page(
                 .map(|patch| history_patch_view(patch, query))
         })
         .collect::<Vec<_>>();
+    // A `matchString` view narrowed to matching hunks names the whole
+    // patch's size: the row marker selects the lossless re-read
+    // (`next.readFullPatches`).
+    let narrowed = files
+        .iter()
+        .zip(&shaped)
+        .map(|(file, view)| {
+            let patch = str_at(file, "/patch")?;
+            matches!(view, Some((_, true))).then(|| patch.chars().count())
+        })
+        .collect::<Vec<_>>();
+    let views = shaped
+        .into_iter()
+        .map(|view| view.map(|(text, _)| text))
+        .collect::<Vec<_>>();
     let lengths = views
         .iter()
         .map(|view| view.as_deref().map_or(0, |v| v.chars().count()))
-        .collect::<Vec<_>>();
-    // A view that is not the raw patch (a `matchString` view narrowed to
-    // matching hunks, or a minified view with context replaced by `...`)
-    // names the whole patch's size: the row marker selects the lossless
-    // re-read (`next.readFullPatches` / `next.readUntrimmed`).
-    let reshaped = needle(query).is_some() || minified_view(query);
-    let narrowed = files
-        .iter()
-        .zip(&views)
-        .map(|(file, view)| {
-            let patch = str_at(file, "/patch")?;
-            (reshaped && view.as_deref() != Some(patch)).then(|| patch.chars().count())
-        })
         .collect::<Vec<_>>();
     let total = lengths.iter().sum::<usize>();
     let offset = query.char_offset().unwrap_or(0).min(total);
@@ -1661,43 +1751,102 @@ mod tests {
             &query,
             PatchCursor::FirstUnfinished,
         );
-        assert_eq!(page.rows[0]["patch"], view);
+        assert_eq!(page.rows[0]["patch"], number_patch(&view));
         assert_eq!(page.rows[0]["fullPatchChars"], patch.chars().count());
     }
 
-    /// The default minified PR view replaces long context runs with `...`:
-    /// such a row is marked with its whole patch size (the marker selects
-    /// `next.readUntrimmed`); an untouched patch and `minify:"none"` are not.
+    /// Every patch view numbers its new side: kept and added lines carry
+    /// their new-file line, removed lines and `\ No newline` markers a bare
+    /// tab; headers (and their enclosing-symbol heading) stay verbatim, and
+    /// dropping the gutter restores the raw patch.
     #[test]
-    fn minified_patch_rows_are_marked_for_the_untrimmed_read() {
-        let long = (1..=40)
-            .map(|n| format!(" ctx {n}\n"))
-            .chain(["-old\n".to_owned(), "+new\n".to_owned()])
+    fn patches_number_the_new_side_and_keep_hunk_headers() {
+        let patch = "@@ -84,4 +84,4 @@ cfg_io_util! {\n \n-    old\r\n+    new\r\n     const X: usize = 1;\n@@ -1 +0,0 @@\n-gone\n\\ No newline at end of file\n@@ -0,0 +7,2 @@ impl A\n+a\n+b";
+        let numbered = number_patch(patch);
+        assert_eq!(
+            numbered,
+            "@@ -84,4 +84,4 @@ cfg_io_util! {\n84\t \n\t-    old\r\n85\t+    new\r\n86\t     const X: usize = 1;\n@@ -1 +0,0 @@\n\t-gone\n\t\\ No newline at end of file\n@@ -0,0 +7,2 @@ impl A\n7\t+a\n8\t+b"
+        );
+        let raw = numbered
+            .split_inclusive('\n')
+            .map(|line| match line.split_once('\t') {
+                Some((_, text)) if !line.starts_with("@@") => text,
+                _ => line,
+            })
             .collect::<String>();
-        let short = "@@ -1,2 +1,2 @@\n a\n-b\n+c\n";
-        let query = patch_request(json!({"minify":"standard"}));
-        let page = shape_patch_page(
-            vec![file("big.rs", &long), file("small.rs", short)],
-            true,
-            &query,
-            PatchCursor::FirstUnfinished,
+        assert_eq!(raw, patch);
+        // Not a hunk stream (a line-filtered `+N:` view, empty): unchanged.
+        assert_eq!(number_patch("+3: x"), "+3: x");
+        assert_eq!(number_patch(""), "");
+    }
+
+    /// A patch-reading page that does not fit one response lists every file
+    /// of the page first: status, change counts, hunks, and why a file has
+    /// no patch. A page that fits shows the patches alone.
+    #[test]
+    fn unfinished_patch_pages_open_with_a_per_file_summary() {
+        let files = vec![
+            json!({"filename":"src/a.rs","status":"modified","additions":2,"deletions":1,"sha":"1",
+                   "patch":"@@ -1,2 +1,3 @@ fn a\n x\n+y\n@@ -9 +10 @@\n-p\n+q"}),
+            json!({"filename":"src/b.rs","status":"added","additions":900,"deletions":0,"sha":"2"}),
+            json!({"filename":"README.md","status":"renamed","additions":1,"deletions":0,"sha":"3",
+                   "previous_filename":"OLD.md","patch":"@@ -1 +1,2 @@\n x\n+y"}),
+        ];
+        let summary = |fields: Value| {
+            let mut row = json!({});
+            let mut pagination = Map::new();
+            shape_pr_files(
+                &mut row,
+                &mut pagination,
+                files.clone(),
+                WindowState::COMPLETE,
+                &patch_request(fields),
+                None,
+                "all",
+                None,
+            );
+            row.get("fileSummary").cloned()
+        };
+        assert_eq!(
+            summary(json!({"charLength":20})),
+            Some(json!([
+                {"src/": ["M +2 -1 2 hunks a.rs", "A +900 -0 !tooLarge b.rs"]},
+                "R +1 -0 1 hunk README.md <- OLD.md"
+            ]))
         );
-        let view = page.rows[0]["patch"].as_str().expect("patch");
-        assert!(view.contains("..."), "{view}");
-        assert_eq!(page.rows[0]["fullPatchChars"], long.chars().count());
-        assert!(
-            page.rows[1].get("fullPatchChars").is_none(),
-            "{:?}",
-            page.rows
-        );
-        let raw = shape_patch_page(
-            vec![file("big.rs", &long)],
-            true,
-            &patch_request(json!({})),
-            PatchCursor::FirstUnfinished,
-        );
-        assert_eq!(raw.rows[0]["patch"], long);
-        assert!(raw.rows[0].get("fullPatchChars").is_none());
+        assert_eq!(summary(json!({})), None);
+        // A continuation window does not repeat it.
+        assert_eq!(summary(json!({"charOffset":5,"charLength":20})), None);
+    }
+
+    /// Code hunks are never minified: the default PR view (`minify`
+    /// omitted or `standard`) returns every context line, so no row is
+    /// marked for a re-read.
+    #[test]
+    fn patch_rows_are_never_minified() {
+        let long = "@@ -1,41 +1,41 @@\n".to_owned()
+            + &(1..=40)
+                .map(|n| format!(" ctx {n}\n"))
+                .chain(["-old\n".to_owned(), "+new\n".to_owned()])
+                .collect::<String>();
+        for query in [
+            patch_request(json!({"minify":"standard"})),
+            patch_request(json!({})),
+        ] {
+            let page = shape_patch_page(
+                vec![file("big.rs", &long)],
+                true,
+                &query,
+                PatchCursor::FirstUnfinished,
+            );
+            assert_eq!(page.rows[0]["patch"], number_patch(&long));
+            assert!(!number_patch(&long).contains("\n...\n"));
+            assert!(
+                page.rows[0].get("fullPatchChars").is_none(),
+                "{:?}",
+                page.rows
+            );
+        }
     }
 
     /// `matchString` keeps only the hit lines by default (matchContext
@@ -1708,7 +1857,10 @@ mod tests {
         let query = patch_request(json!({"matchString":"miri"}));
         assert_eq!(
             history_patch_view(patch, &query),
-            "@@ -2,1 +2,1 @@\n-old miri\n+new miri\n"
+            (
+                "@@ -2,1 +2,1 @@\n\t-old miri\n2\t+new miri\n".to_owned(),
+                true
+            )
         );
         assert_eq!(
             file_page_size(&query, true),
@@ -1981,14 +2133,21 @@ mod tests {
         assert!(InventoryFilter::from_query(&invalid).is_err());
     }
 
-    /// An omitted pageSize sizes a patch-free inventory to the response page;
-    /// an explicit one may exceed a provider batch only without patches.
+    /// An omitted pageSize sizes a patch-free inventory to the response page
+    /// and a patch read to one provider batch (one continuation stream walks
+    /// every patch of such a PR); an explicit one may exceed a provider
+    /// batch only without patches.
     #[test]
     fn inventory_page_size_fills_the_response_page() {
         let mut query = inventory_request(json!({}));
         query.auto_page_chars = Some(50_000);
         assert_eq!(file_page_size(&query, false), 833);
-        assert_eq!(file_page_size(&query, true), default_page_size());
+        assert_eq!(
+            file_page_size(&query, true),
+            super::super::window::PROVIDER_BATCH
+        );
+        let small = inventory_request(json!({"pageSize":5}));
+        assert_eq!(file_page_size(&small, true), 5);
         query.auto_page_chars = Some(1_000);
         assert_eq!(file_page_size(&query, false), MAX_COLLECTION_PAGE);
         let explicit = inventory_request(json!({"pageSize":1000}));

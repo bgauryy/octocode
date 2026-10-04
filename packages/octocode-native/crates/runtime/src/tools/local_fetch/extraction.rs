@@ -30,13 +30,14 @@ const LONG_LINE_CONTEXT_BYTES: usize = 200;
 /// View-line sentinel for an omission marker (source lines are 1-based).
 pub const OMISSION_LINE: usize = 0;
 
-/// Separates non-adjacent match windows so readers never mistake a gap for
-/// contiguous source.
+/// Separates non-adjacent requested windows (ranges or match windows) so
+/// readers never mistake a gap for contiguous source, nor for lines cut from
+/// a span they asked for: a requested span is never elided.
 pub fn omission_marker(start: usize, end: usize) -> String {
     if start == end {
-        format!("... [line {start} omitted] ...\n")
+        format!("... [line {start} not requested] ...\n")
     } else {
-        format!("... [lines {start}-{end} omitted] ...\n")
+        format!("... [lines {start}-{end} not requested] ...\n")
     }
 }
 fn records(s: &str) -> Vec<&str> {
@@ -346,6 +347,19 @@ fn match_extract(
                     "Read the requested context lines beyond the clamped maximum.",
                 )
             });
+    }
+    // A context window that stops inside its enclosing declaration offers
+    // the declaration's unseen lines as a lead; exact-line reads
+    // (`contextLines: 0`) and byte windows asked for no more.
+    if !q.block()
+        && q.context_bytes().is_none()
+        && q.context_lines() != Some(0)
+        && !hits.iter().any(|line| lines[line - 1].len() > LONG_LINE_BYTES)
+        && let Some(blocks) = super::block::enclosing(content, q.path(), &hits)
+    {
+        next.read_block = line_read(q, &uncovered(&merge_ranges(blocks), &ranges)).and_then(
+            |query| follow_up(query, "Read the rest of each declaration the match windows cut."),
+        );
     }
     // `selected` maps each emitted view line to its source line; omission
     // markers between non-adjacent windows map to OMISSION_LINE.

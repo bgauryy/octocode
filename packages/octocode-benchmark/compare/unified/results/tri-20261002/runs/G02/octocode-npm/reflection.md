@@ -1,7 +1,0 @@
-1. **Helped:** `ghGetHistoryItem` with `changedFiles` and no patches gave the file list and the PR body cheaply. The `patches: {mode: "selected", files: [...]}` calls were the best step. They returned only the validator, schema generation, known-metadata, input and error-type diffs. That was enough to answer the before/after question, and it also showed the removed `MAPPING_ORIGIN_MAP` entries.
-
-2. **Did not help:** My first call used `patches: {mode: "all"}` and returned about 64K characters. The output was saved to a file, and I could not read it. `localGetFileContent` rejected the path because it was outside the allowed directories, so that call was wasted. The patch output was also partly elided with `...`, and the `changedFiles` list was paginated, so I never saw page 2 (file 31). I did not fetch comments or reviews. I never read the test files, so I did not confirm behavior from tests, and I did not read files at the merge commit.
-
-3. **Next time:** I would start with `changedFiles` and then fetch selected patches. I would include `tests/types/test_counter.py` and `pydantic-core/tests/validators/test_counter.py`, and read the PR discussion and review comments. For the exact "before" behavior, I would use `githubGetFileContent` on the parent commit.
-
-4. **Confidence:** medium. The new behavior is well supported by patch text. The "before" behavior and the `typing.Counter` question are inferred, not verified.

@@ -1,7 +1,0 @@
-1. **Helped:** The first `ghGetHistoryItem` call, with `body` and `changedFiles`, gave the PR's scope, merge SHA and file inventory in one response. Selected-file patches for `applications.py`, `routing.py`, `_api.py`, `_runtime.py` and `pyproject.toml` then covered most of the runtime behavior. Batching several rows per call saved turns.
-
-2. **Did not help:** My second call asked for four files plus `_api.py` and `_runtime.py` across two rows. The response paginated and truncated mid-patch, so I had to re-request `routing.py`, `_runtime.py` and `pyproject.toml` in later calls. That was about two wasted calls. I never fetched `fastapi/telemetry/_asgi.py`, the largest file at 446 lines, even though the tool output offered it as a next step. The final answer therefore leaves the span and metric content, `_legacy_otel` and `exclude` handling unverified. I read none of the tests or docs, and I could not see line numbers at the merge commit from patch views.
-
-3. **Next time:** I would request one or two files per row and start with `_asgi.py`. I would use `matchString` with `matchContext:0` to narrow large patches. I would also read `_asgi.py` at `mergeCommitSha` with `ghGetFileContent`, so I could cite real `path:line` numbers.
-
-4. **Confidence:** Medium. The behavior I describe for the files I read is accurate. The gap is in the span and metric details from the unread `_asgi.py`, and I flagged that gap in the answer.

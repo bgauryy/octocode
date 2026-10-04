@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch` call was the quickest. One regex (`APPEND_SLASH|should_redirect_with_slash|def get_full_path`) restricted to three files returned every relevant line number and a ready-made `localFetch` hint. The two parallel `localFetch` calls with line ranges (`common.py` 34-125, `request.py` 218-245) then showed the full logic without reading whole files.
-
-**2. Did not help:** Nothing errored and no calls were repeated. The gaps were in my own scoping. I never looked up `is_valid_path` (its import and behavior), the `response_redirect_class` definition, or where `should_append_slash` is set (the `no_append_slash` decorator). I did not search tests or docs either. I also didn't confirm the commit SHA of the checkout, and relied on the prompt saying it was pinned.
-
-**3. Next time:** I'd add a third parallel row to the first batch, a `localSearch` for `def is_valid_path|response_redirect_class|should_append_slash`, so the answer wouldn't need the "I expect 301" hedge. I'd also use `lspSearch` for the definition of `is_valid_path`.
-
-**4. Confidence:** High on the mechanism and line citations, since I read the exact source lines. Medium-high on completeness. The 301 detail and the opt-out decorator are unverified, and I flagged both in the answer.

@@ -775,7 +775,7 @@ fn keep_row_next(value: &mut Value, share: PartShare) {
 /// Page-one share of `capacity` for rows of `sizes`: an equal split, where a
 /// row smaller than its share keeps only its size and leaves the rest to the
 /// larger rows.
-fn fair_shares(sizes: &[usize], capacity: usize) -> Vec<usize> {
+pub(crate) fn fair_shares(sizes: &[usize], capacity: usize) -> Vec<usize> {
     let mut order: Vec<usize> = (0..sizes.len()).collect();
     order.sort_by_key(|&row| (sizes[row], row));
     let mut shares = vec![0; sizes.len()];
@@ -804,6 +804,9 @@ struct Placed {
 /// continues; the rest of each row follows in row order, and a split row's
 /// page continuations ride its last part ([`PartShare`]). Pages are assigned
 /// from fragment sizes; only the requested page is built.
+/// Upper bound of the `incomplete — …` envelope warning and its key.
+const INCOMPLETE_BANNER_CHARS: usize = 160;
+
 fn paginate_rows(
     mut structured: Map<String, Value>,
     full: &str,
@@ -821,7 +824,10 @@ fn paginate_rows(
         .map(|fields| fields.as_ref().map_or(0, volatile_reserve))
         .collect();
     let overhead = json_chars(&Value::Object(structured.clone())) + "\"results\":[],".len();
-    let row_budget = budget.saturating_sub(overhead).max(1);
+    // Room for the envelope warning a page with rows left over leads with.
+    let row_budget = budget
+        .saturating_sub(overhead + INCOMPLETE_BANNER_CHARS)
+        .max(1);
     let sizes: Vec<usize> = rows
         .iter()
         .zip(&reserves)
@@ -940,7 +946,28 @@ fn paginate_rows(
         })
         .collect();
     let has_more = requested + 1 < total_pages;
+    let mut later: Vec<usize> = placed
+        .iter()
+        .filter(|p| p.page > requested)
+        .map(|p| p.row)
+        .collect();
+    later.sort_unstable();
+    later.dedup();
     structured.insert("results".into(), Value::Array(selected));
+    if !later.is_empty() {
+        // Leads the envelope, so a reader meets it before the rows.
+        let banner = Value::String(format!(
+            "incomplete — {} of {} rows continue on later response pages; follow responsePagination.next",
+            later.len(),
+            sizes.len()
+        ));
+        let mut warnings = match structured.shift_remove("warnings") {
+            Some(Value::Array(warnings)) => warnings,
+            _ => Vec::new(),
+        };
+        warnings.push(banner);
+        structured.shift_insert(0, "warnings".into(), Value::Array(warnings));
+    }
     let char_length = json_chars(&Value::Object(structured.clone()));
     (
         structured,
@@ -1875,6 +1902,27 @@ mod lazy_page_tests {
     /// B2: one broad row must not fill the first pages alone; every row of a
     /// batch shows its head on page one, within the budget. Each split row's
     /// page continuation waits for its last part.
+    #[test]
+    fn a_page_with_rows_left_over_leads_with_an_incomplete_warning() {
+        let rows = (0..3)
+            .map(|index| json!({"index": index, "data": {"content": "x".repeat(9_000)}}))
+            .collect::<Vec<_>>();
+        let structured = json!({"results": rows}).as_object().cloned().expect("object");
+        let pages = walk(&structured, 12_000);
+        assert!(pages.len() > 1);
+        let (first, _) = &pages[0];
+        assert_eq!(first.keys().next().map(String::as_str), Some("warnings"));
+        let banner = first["warnings"][0].as_str().expect("banner");
+        assert!(banner.starts_with("incomplete — 2 of 3 rows continue"), "{banner}");
+        assert!(banner.contains("responsePagination.next"), "{banner}");
+        let (last, pagination) = pages.last().expect("last");
+        assert!(!pagination.has_more);
+        assert!(last.get("warnings").is_none(), "{last:?}");
+        for (_, pagination) in &pages {
+            assert!(pagination.oversized.is_none());
+        }
+    }
+
     #[test]
     fn the_first_page_shows_every_rows_head() {
         let rows = (0..5)

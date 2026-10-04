@@ -1,7 +1,0 @@
-1. **Helped:** Two parallel calls did nearly all the work. `ghGetHistoryItem` (issue #18837, with body and comments) gave the bug report. `ghSearchHistory` (pullRequest, keyword "18837") found PR #18838 in one hit. The follow-up `ghGetHistoryItem` on #18838 with `patches: {mode: "all"}` returned the whole diff, including the fix, the test and the changeset, plus a PR body that states the intent. The PR was small, so a single unfiltered patch read was cheap.
-
-2. **Did not help:** Nothing errored and I made no redundant calls. The issue had no comments, so the discussion fetch added nothing. I never opened `proxy.js` with `ghGetFileContent`. I therefore have no pinned-commit line numbers, only diff hunk offsets. I also never read the `has` trap, so my statement that the fix reuses its eligibility logic rests only on the `this.has?.()` call in the diff and the PR body. The PR body's test counts are self-reported and I couldn't check them.
-
-3. **Next time:** I'd add a `ghGetFileContent` read of `proxy.js` at the merge commit or `sourceSha`. It would give me the `has` trap and exact `path:line` citations. I'd also check the PR's linked issue comments and reviews for maintainer discussion of the root cause.
-
-4. **Confidence:** medium-high. The mechanism follows directly from the diff and the issue title, but the `has` trap semantics and line numbers are unverified.

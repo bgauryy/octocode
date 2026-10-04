@@ -1,7 +1,0 @@
-1. **Helped:** The second call, `ghGetFileContent` on `prometheus/client_golang`, `prometheus/histogram.go`, with `branch: v1.20.0` and `matchString: "DefBuckets"`. It read the file at the pinned tag and returned the `DefBuckets` definition at line 265. It also returned the `HistogramOpts.Buckets` doc comment and the fallback condition at line 563-565, all in one response. The `commitSha` and `matchedLines` fields made citing easy.
-
-2. **Did not help:** The first call, `ghSearchCode` scoped to `histogram.go`, came back empty. Search covers only the indexed default branch, so it can't target a tag, and I should have gone straight to the file read. The omitted ranges in the fetch (272-386, 400-557) meant I never saw the native histogram option docs or the rest of the constructor. I didn't use `ghSearchRepo` to confirm the repo is the official one. I relied on prior knowledge, and the successful fetch only shows the repo exists.
-
-3. **Next time:** I'd skip code search for a tag-specific question and use `ghGetFileContent` with `matchString` directly. If I wanted the claim confirmed, I'd add a `ghSearchRepo` call.
-
-4. **Confidence:** High on the bucket values and the two cases where defaults don't apply, since I read both the doc comment and the code. Medium-high on the repo being the official library, since that part rests on background knowledge.

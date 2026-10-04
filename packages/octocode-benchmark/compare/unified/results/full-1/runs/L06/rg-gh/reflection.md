@@ -1,7 +1,0 @@
-1. **Helped:** The first `rg -n "generateEtags"` call, with globs excluding tests, docs and markdown, gave every relevant call site in one pass. The second call combined `sed` ranges on `send-payload.ts`, `router-server.ts` and `base-server.ts`. It showed the actual ETag logic and the static-file `etag` option together, so I needed only two calls.
-
-2. **Did not help:** The `rg` output was noisy in `app-page-runtime.ts`, which had about 10 near-identical hits. I never opened `sendEtagResponse`, `generateETag` or `serve-static.ts`. My answer describes what `sendEtagResponse` does from its name and call site, and I said so in the answer. The last `rg -i etag` in the second call returned only comments, so it added little. The working directory changed between calls, which was harmless.
-
-3. **Next time:** I would add one more call, `rg -n "sendEtagResponse|generateETag|export.*serveStatic" -A15`, to read those definitions. That would replace the inference with evidence, and it would also confirm the `send` mapping.
-
-4. **Confidence:** High for the routing of the flag and the `send-payload.ts` gating logic, because I read that code directly. Medium for the exact behavior of `sendEtagResponse` and `serveStatic`, which I inferred from names and call sites.

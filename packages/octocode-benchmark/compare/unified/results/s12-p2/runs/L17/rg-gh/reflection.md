@@ -1,7 +1,0 @@
-1. **Helped:** The `grep -n "Required\|RequiredProperties"` call on `JsonSerializerInternalReader.cs` found the `Required.*` checks at `:2677-2705` right away. The following `sed -n 2655,2730p` plus a grep for `PropertyPresence|EndProcessProperty` gave the full enforcement logic and the call sites. Reading `Required.cs` through `cat` gave the enum semantics.
-
-2. **Did not help:** The first call used `rg`, which isn't installed, so I had to redo it with `grep`. Every Bash call also printed `/dev/null: Operation not permitted`, which was noise but didn't stop the commands. `sed` output has no line numbers, so I had to infer some citations.
-
-3. **Next time:** I'd use `grep -n` from the start, or `sed -n` through `cat -n`, so every cited line is read directly. I'd also open `JsonObjectContract.cs:143` and the attribute-to-`_required` mapping, which I left unchecked.
-
-4. **Confidence:** Medium-high on the behavior, since the code and messages were read directly. Lower on a few exact line numbers. The `:2682-2685` and `:2705-2708` ranges, the `:2712` for `IsErrorHandled`, and the `:2671-2720` span were counted from nearby grep hits rather than shown in the output. They may be off by a line or two.

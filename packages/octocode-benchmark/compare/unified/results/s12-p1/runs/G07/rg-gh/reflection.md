@@ -1,7 +1,0 @@
-1. **Helped:** `gh api -X GET repos/Kludex/starlette/contents/<path>?ref=63c5760d8a --jq .content | base64 -d | cat -n` was the fastest step. It returned pinned, line-numbered source, so I could cite `applications.py`, `exceptions.py`, `_exception_handler.py` and `errors.py` directly. My first call used grep on `applications.py` and pointed me at the right files. Fetching four files in one batched command saved round trips.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. The first call's `ls` also failed, so the local-checkout probe was wasted; the sandbox seems to block `/dev/null` redirects. I never tried `rg` or a local checkout, so I don't know if either would have worked. The two final grep calls for `wrap_app_handling_exceptions` in `routing.py` and `class Middleware` were thin. I did not read the code around the `routing.py` hits or `Middleware.__iter__`, so my remark on per-route wrapping is a guess from the names.
-
-3. **Next time:** Skip the local-checkout probe and go straight to `gh api`. Read `routing.py` around lines 65 and 84 and `Middleware.__iter__` to remove the open questions.
-
-4. **Confidence:** High for stack order and handler lookup, since I read the code with line numbers at the pinned commit. Medium for the routing.py per-route wrapping.

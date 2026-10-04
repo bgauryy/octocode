@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh api -X GET repos/tokio-rs/tokio/pulls/8156` call, which also fetched `/files`, returned the PR metadata, the motivation text and every patch in one call. The second Bash call, a grep over the saved output for `^=== ` and miri lines, gave a compact per-file view of the 43KB result. Together they covered nearly the whole answer.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`, which was harmless noise. The first output was truncated into a file, so I needed the second call. I never opened the merged tree. That left `net_lookup_host` unchecked, and I could not cite line numbers at the pinned commit, as the task asked. I also did not check the state of Miri#5047 and #5054.
-
-3. **Next time:** I would filter the `jq` output to the miri lines in the first call to avoid the truncation. I would fetch the merged tree with `gh api repos/tokio-rs/tokio/contents/...?ref=32312ae0` or `rg` for a few of the remaining `cfg(not(miri))` gates, which would give a verified list with line numbers. I would also query the two Miri issues.
-
-4. **Confidence:** Medium-high. The PR summary and the ignore reasons come directly from the diff. The "still not run" table is incomplete, and I said so, because it covers only the Miri-specific reasons visible in the diff.

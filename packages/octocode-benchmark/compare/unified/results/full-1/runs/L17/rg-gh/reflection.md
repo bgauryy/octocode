@@ -1,7 +1,0 @@
-1. **Helped:** The first `rg` call for `Required.Always|DisallowNull|MissingMemberHandling…` in `JsonSerializerInternalReader.cs` found `EndProcessProperty` (line 2677) straight away. The `sed -n 2660,2725p` read that followed gave the full check logic. The second `rg`/`sed` batch then showed both call sites (lines 2280 and 2588) and where `_required` is set in `DefaultContractResolver.cs` (lines 1519–1587). Guessing the file name from prior knowledge meant I needed no directory exploration.
-
-2. **Did not help:** In my last answer I said `Required.Default`/`DataMember` set `AllowNull` at line 1577 without reading that block. I only saw the grep hit, so I inferred the surrounding context. I never opened `SetPropertyPresence` or `HasRequiredOrDefaultValueProperties`, and I disclosed that gap. The `git log -1` call was redundant because the SHA was already given. The working directory changed after my `cd`, which was harmless.
-
-3. **Next time:** I would run one `rg -n "SetPropertyPresence|HasRequiredOrDefaultValueProperties" -A12` to close the gap on the two unread pieces. I would also `sed` the block around line 1577 to check the `DataMember` claim.
-
-4. **Confidence:** High for the core mechanism, since I read `EndProcessProperty` and both call sites directly. Medium for the `DataMember` detail, which I inferred from a grep hit.

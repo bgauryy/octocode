@@ -1,7 +1,0 @@
-**1. Helped:** Two calls did nearly all the work. `ghGetHistoryItem` on issue #18837 gave the bug report and its `closedBy` link to PR #18838, and its `readFixPr` hint gave me the exact next query. The second `ghGetHistoryItem` on PR #18838 with `include: ["body","patches"]` returned the author's explanation and the full diff in one response, so no file reads were needed.
-
-**2. Did not help:** Nothing errored and I made no wasted calls. The limits are in what I didn't do. I never read `proxy.js` at the merge commit, though the `readAtMerge` hint offered it. I never opened the `has` trap, so what it does comes only from the PR description. The pre-fix behaviour comes only from the removed lines in the patch.
-
-**3. Next time:** I would make one `ghGetFileContent` call on `proxy.js` at the merge commit, using `matchString` on `getOwnPropertyDescriptor` and on the `has` trap. That would confirm the post-fix code, give real line numbers, and let me verify how `has` creates sources rather than relaying the PR text.
-
-**4. Confidence:** Medium-high. The issue, the diff and the PR body agree on the root cause and the fix. The remaining uncertainty is the `has`-trap mechanism and the line numbers, and I flagged both in my answer.

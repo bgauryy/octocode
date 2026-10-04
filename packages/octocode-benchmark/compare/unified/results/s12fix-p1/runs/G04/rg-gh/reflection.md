@@ -1,7 +1,0 @@
-1. **Helped:** The first `gh api -X GET repos/pallets/click/pulls/3866` call with `--jq` returned the PR body, merge SHA and title in one shot, and the same call listed the changed files. The second call, which fetched the `.patch` for `src/click/core.py` and `CHANGES.md`, gave the actual warning logic and messages. Filtering with `--jq` kept the output small.
-
-2. **Did not help:** Every Bash call printed `/dev/null: Operation not permitted`. It was harmless but noisy. I used `head -150` on the patch, so the diff was truncated. That is why I could not see the `Argument` and `Parameter` call sites for `_check_name_is_usable`. I never opened the test files, which would have confirmed exactly which declarations warn. I also did not fetch the file at the merge commit, so I have no `path:line` citations, only diff hunks.
-
-3. **Next time:** I would fetch the full patch without `head`, or grep it for `_check_name_is_usable`. I would also pull `tests/test_deprecations.py` and `tests/test_options.py` to confirm the declaration examples. I would read `core.py` at `06b2a67` via `gh api repos/pallets/click/contents/...?ref=06b2a67` to get real line numbers.
-
-4. **Confidence:** Medium. The deprecation categories and the Option-side behavior come straight from the diff and PR body. The `Argument` and `Parameter` coverage rests on the PR description rather than code I saw. The "`--from` is also covered" claim is an inference I did not verify. The example declarations such as `["Foo", "--bar"]` are my own illustrations, not taken from the tests.

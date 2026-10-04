@@ -1,7 +1,0 @@
-1. **Helped:** My first call combined `git rev-parse HEAD` with an `rg` for `extrapolatedRate|funcRate|funcIncrease|isCounter` in `promql/functions.go`. It confirmed the pinned commit and located the whole implementation at once. The second call, `sed -n 444,640p` plus `sed -n 805,822p`, printed the full function and the `funcRate`/`funcIncrease` wrappers. Two calls were enough.
-
-2. **Did not help:** Nothing errored and I made no repeated calls. The first `rg` output was noisy: it matched many `isCounter` hits in the interpolation and histogram helpers that were not relevant. I used `sed` for file reading, although the instructions said to prefer dedicated tools; the only tool I had was Bash. I did not read `histogramRate`, `extendedRate`, `isStartTimestampReset` or `checkStartTimeOverlap`. My descriptions of them rest on call sites and comments.
-
-3. **Next time:** I would read `histogramRate` and `extendedRate` with one more `sed` if the question needed depth. I would also check the docs or tests, such as `promql/promqltest` testdata, to confirm the behaviour. I would give line citations for the sub-ranges (`:509`, `:519-532`, `:588-590`) only after checking them against the printed output. I cited those from reading the output rather than from numbered lines, so they may be off by a few.
-
-4. **Confidence:** Medium-high on the algorithm, because I saw the code directly. Medium on the exact line numbers. The `sed` output had no line numbers, so I estimated the sub-range citations from the `:452` and `:811` anchors.

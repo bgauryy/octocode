@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch` on `JsonSerializerInternalReader.cs` (regex on `Required.*|MissingMemberHandling`) landed on lines 2682-2705 immediately. The second `localSearch` (`EndProcessProperty|resolvedRequired|requiredProperties...`) mapped every related site in one call. `localFetch` with range `2650-2730` gave the full enforcement logic. The `2465-2472, 2570-2592` fetch confirmed the dictionary setup and the post-loop call.
-
-**2. Did not help:** The first search's regex was broader than needed, and it included irrelevant `MissingMemberHandling` hits. My second search was too wide and brought in `HasFlag` noise. The fetch stopped at line 2730, so I never read the `SetPropertyPresence` body.
-
-**3. Next time:** I would fetch `SetPropertyPresence` (about lines 2726-2750) and check where `HasRequiredOrDefaultValueProperties` is set in `JsonObjectContract`. I would also open the call near line 2280.
-
-**4. Confidence:** High for the enforcement logic in `EndProcessProperty`, the dictionary setup, and the post-loop call, since I read those lines directly. Medium for my description of how `SetPropertyPresence` marks "present" versus `Null`. I inferred that from the signature, the names and the line 2747 match. I overstated it by saying I "read" lines 2726-2747, when the search only returned lines 2726, 2728 and 2747. Lines 2065 and 2280 were also seen only as search hits, not read in context.

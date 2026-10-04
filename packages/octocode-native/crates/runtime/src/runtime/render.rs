@@ -79,6 +79,25 @@ impl RenderFamily {
 }
 
 pub fn render_tool(tool: ToolId, response: &Value, query: &Value, format: TextFormat) -> String {
+    // Envelope warnings (an incomplete batch) lead the text as they lead the
+    // structured envelope.
+    if let Some(warnings) = response
+        .get("warnings")
+        .filter(|warnings| warnings.is_array())
+    {
+        let mut body = response.clone();
+        if let Some(envelope) = body.as_object_mut() {
+            envelope.shift_remove("warnings");
+        }
+        let text = render_tool(tool, &body, query, format);
+        return match format {
+            TextFormat::Yaml => format!("{}{text}", yaml(json!({"warnings": warnings}), &[])),
+            TextFormat::Json => match text.strip_prefix('{') {
+                Some(rest) if rest != "}" => format!("{{\"warnings\":{warnings},{rest}"),
+                _ => text,
+            },
+        };
+    }
     let family = RenderFamily::of(tool);
     match family {
         RenderFamily::FileText(FileLayout::Inline) => render_inline_file(response, format),
@@ -461,8 +480,8 @@ fn render_structured(response: Value, format: TextFormat) -> String {
 /// follows the metadata verbatim under one header that folds the row in:
 /// `=== patch M +3 -1 path[ <- old/path] (<span>) ===`, where the span is
 /// `n chars`, `n of F chars` (a `matchString` view of an F-char patch) or
-/// `chars a-b of T` (a window). Diff lines start with ` `, `+`, `-`, `@` or
-/// `\`, so a header cannot be mistaken for patch text. Structured content
+/// `chars a-b of T` (a window). Diff lines start with a line number, a tab,
+/// or `@@`, so a header cannot be mistaken for patch text. Structured content
 /// keeps every row; JSON text keeps the structured encoding unchanged.
 fn render_diff(mut response: Value, format: TextFormat) -> String {
     if format == TextFormat::Json {

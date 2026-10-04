@@ -1,7 +1,0 @@
-**1. Helped:** A single `ghGetHistoryItem` call (operation `pullRequest`, #5881) with `body`, `changedFiles` and `patches: all` returned the description, all four changed files and the patches. That was enough to explain the bug and the fix without further calls. The new test file's header comments and test names also confirmed the intended behavior.
-
-**2. Did not help:** The patches were abbreviated, with `...` elisions and hunks cut down. I got no reliable post-merge line numbers, so I cited by file and symbol rather than `path:line`. I never read the merged files at the merge SHA, which would have proved the final code. The `clientTtl` explanation is partly inferred from the removed `client.close(() => {})` line plus the test comments and names. I did not see the full old `kRemoveClient`. I also skipped comments, reviews and commits, which might have shown whether the design changed during review.
-
-**3. Next time:** Add a second call to read `lib/dispatcher/pool-base.js` at the merge commit (`githubGetFileContent` with `matchString` on `kRetireClient`). That would give exact lines and confirm the `kRetiring`, `closeClients` and `kDestroy` details. I would also fetch the PR comments and reviews to check the author's rationale against the code.
-
-**4. Confidence:** Medium-high. The mechanism comes straight from the diff and matches the PR body and tests. The remaining doubt is the elided hunks and the missing line numbers.

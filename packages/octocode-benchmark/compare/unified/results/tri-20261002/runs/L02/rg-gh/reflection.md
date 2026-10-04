@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call, `rg -n "unsaved|save\(\) prohibited" django/db/models/base.py`, found the error message at line 1301 in one step. The second call, `sed -n 1280,1340p` on `base.py`, showed the full check. I chained `rg -n "_prepare_related_fields_for_save" django` in the same call and got every caller from it.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. This was harmless noise, but it was unexpected. `git rev-parse HEAD` failed outright with `fatal: could not open '/dev/null'`, so I could not confirm the checkout was at 4fab678a07. I said this in the answer. My `sed` range started at 1280, so I missed the method's opening lines and docstring. I also never read `query.py:1042`.
-
-3. **Next time:** I would read from about line 1270 so I get the method signature and docstring. I would open `query.py:1042` before citing it. I would check the pinned commit another way, such as reading `.git/HEAD` directly with `cat`, or using `gh api` to fetch the commit.
-
-4. **Confidence:** High for the core claim: the check is in `base.py` at 1276-1330, it raises `ValueError`, and the test is `_is_pk_set()`. I read those lines directly. Medium on the exact commit match, because I could not verify it, and low on the `query.py:1042` caller, which I only saw in the `rg` output.

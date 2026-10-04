@@ -1,7 +1,0 @@
-1. **Helped:** My single Bash call did the work. `gh api -X GET search/issues` with `repo:tokio-rs/tokio sharded blocking queue spawn_blocking` returned #8337, #7757, #8056, #8057 and #8067 in one pass. The `--jq` filter showed number, state and merged_at, so the merged/closed/open status was readable immediately. The same call's second command confirmed that `facc6fc47e` resolves.
-
-2. **Did not help:** The shell printed "/dev/null: Operation not permitted" three times. It was harmless but noisy. I made only one call, so I never read the PR bodies or diffs. I also never checked whether #8337 is an ancestor of `facc6fc47e`, for example with the compare endpoint or by looking for the code in the source. Search results alone show titles and dates, not what a PR does or why it was reverted.
-
-3. **Next time:** I would add `gh api repos/tokio-rs/tokio/pulls/8337` to read its description and merge commit. I would use the compare API against `facc6fc47e` to check ancestry. I would use `rg` or the contents API to cite the `path:line` of the opt-in in the source. I would read #8057 or #8056 to confirm the reason for the revert.
-
-4. **Confidence:** Medium. The PR numbers, titles and states are directly observed. The claim that the opt-in is in `facc6fc47e`, and the revert's cause, are inferred from titles and dates.

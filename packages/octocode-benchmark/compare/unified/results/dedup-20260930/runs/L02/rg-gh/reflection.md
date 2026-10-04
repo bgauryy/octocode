@@ -1,7 +1,0 @@
-1. **Helped:** The second `rg -n "prohibited to prevent data loss|unsaved related object" django` call found the error message at `base.py:1301` and `:1329`. The third call then printed `base.py:1280-1340` and ran `rg -n "_prepare_related_fields_for_save"` for the call sites. Together they gave the whole answer. The first call also printed `git rev-parse HEAD`, which confirmed the checkout was at the pinned commit.
-
-2. **Did not help:** My first `rg` searched for a message string I had guessed, `save() prohibited to prevent data loss due to unsaved...`. The real message is built with `%s` and split across lines, so that search returned nothing. That call was wasted. I never opened `query.py` near lines 794 and 1042. I reported the line 1042 caller as "probably bulk_update" without checking, and I flagged that guess in the answer.
-
-3. **Next time:** I would search for the short fragment `prohibited to prevent data loss` first. I would also open `query.py:1042` in the same call as the main read, so the caller list is complete.
-
-4. **Confidence:** High for the core answer. I read the function body directly and the line numbers come from that output. Medium for the `query.py` call sites, because I saw them only in grep output and didn't read the surrounding code.

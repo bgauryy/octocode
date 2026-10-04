@@ -1,7 +1,0 @@
-1. **Helped:** Two Bash calls did all the work. The first was `gh api` on `issues/18837` plus its `/timeline`, filtered with jq. It gave the issue body and the linked PR #18838 and merge commit `a72dc8e` in one step. The second was `gh api` on `pulls/18838` and `pulls/18838/files`. It returned the PR description and the full patch, so I could explain the root cause and the fix from the diff.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was harmless, but it adds noise. I never read `proxy.js` at the fix commit, because I didn't fetch it. The patch was truncated after the `enumerable: true, configurable: true` lines, so I couldn't cite exact post-fix `path:line` numbers. I cited the file and described the changes instead.
-
-3. **Next time:** I would add a third call, `gh api repos/sveltejs/svelte/contents/packages/svelte/src/internal/client/proxy.js?ref=a72dc8e`, to get exact line numbers and the complete trap. I would also compare it with the `has` trap to check the claim that eligibility rules match, which I took from the PR description.
-
-4. **Confidence:** High on the root cause and the fix, because the issue, the PR body and the diff agree. Medium on fine detail, such as the exact post-fix trap code and line numbers, since I didn't view the whole file.

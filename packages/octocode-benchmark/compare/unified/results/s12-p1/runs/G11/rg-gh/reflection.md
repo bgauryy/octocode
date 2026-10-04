@@ -1,7 +1,0 @@
-1. **Helped:** One Bash call did nearly all the work. It listed the tree at b5addb64f0 with `gh api .../git/trees/...?recursive=1`, filtered to `httpx/_transports`, and then fetched the five modules raw with `grep -nE` on `^class` and the handler method names. That gave me class names, base classes, handler methods and line numbers, with no guessed numbers.
-
-2. **Did not help:** The call printed `/bin/bash: /dev/null: Operation not permitted` three times. It was harmless, but unexplained noise from the sandbox. The grep only showed signatures, so I never read `MockTransport`'s body or any docstrings. I also never opened `_client.py`.
-
-3. **Next time:** I would add one more call that greps `_client.py` for the `transport` parameter annotations (`BaseTransport` vs `AsyncBaseTransport`) and checks which transports `httpx/__init__.py` exports. That would confirm the Client/AsyncClient compatibility directly instead of inferring it from the base classes.
-
-4. **Confidence:** High for the module locations, class names and line numbers, since they came straight from the file output. Medium-high for the sync/async compatibility column, because it rests on the base-class inference, and I flagged that in the answer.

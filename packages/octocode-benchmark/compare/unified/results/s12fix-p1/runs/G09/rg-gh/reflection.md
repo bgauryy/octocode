@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call, `gh api -X GET repos/pydantic/pydantic/issues/13786` with the `/timeline` query, gave me the issue body and the three cross-referenced PRs (#13787, #13794, #13825) in one round trip. The second call, `pulls/$n` and `pulls/$n/files` for each PR, showed that only #13825 was merged and gave me its description and file list.
-
-2. **Did not help:** Every Bash call printed `/bin/bash: /dev/null: Operation not permitted`. It was noise, and the output still came through. I never fetched #13825's diff or the source file at a pinned commit, so I never confirmed the fix mechanism or got `path:line` citations. My answer cites the issue's quoted code and the PR descriptions instead. I also never opened the issue comments, because that output was cut off by `head -40` and the PR bodies filled it.
-
-3. **Next time:** I would add one call to read `pulls/13825` as a diff, or fetch `_config.py` with `gh api repos/.../contents/pydantic/_internal/_config.py?ref=5da36b5...`. That would give verified line numbers and the actual mechanism. I would also read the maintainers' comments on the issue.
-
-4. **Confidence:** High on the root cause, because the issue body states it and #13787 and #13794 describe it independently. High that #13825 is the merged fix. Medium on how #13825 implements it, because I read only its description and file list, not the diff.

@@ -5,10 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { parseStream, tokenAccounting, toolCounts, runClaude, configurationHashes, sha256, recordedProbe, failedProbeDetails, pool, freshCwd, REPO_ROOT, resumedAccounting } from './lib.mjs';
+import { parseStream, tokenAccounting, toolCounts, runClaude, configurationHashes, sha256, recordedProbe, failedProbeDetails, pool, freshCwd, REPO_ROOT, resumedAccounting, loadWorkers, sessionServerEnv, loadQuestions, judgePairs } from './lib.mjs';
 import { getConfigFilePath, getProjectConfigFilePath, propagateOctocodeEnv } from '@octocodeai/config';
 import { parseVerdict } from './verdict.mjs';
-import { solverBoundary, sandboxPolicy, nativeSandboxPolicy } from './isolation.mjs';
+import { solverBoundary, sandboxPolicy, nativeSandboxPolicy, upstreamEnv } from './isolation.mjs';
 
 
 test('canonical global and workspace configuration bytes invalidate the frozen input key', () => {
@@ -240,4 +240,46 @@ test('deadline kills inherited descendants even when the parent closes first', {
     await new Promise(resolve => setTimeout(resolve, 100));
     assert.throws(() => process.kill(pid, 0), /ESRCH/);
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
+});
+
+
+test('profile server env reaches native MCP, but never re-enables a write tool or moves isolation roots', () => {
+  const env = upstreamEnv({ PATH: '/bin', DISABLE_TOOLS: 'x' }, { DISABLE_TOOLS: 'clasify, astRewrite', OCTOCODE_PUBLISHED_VIEW: 'flat', WORKSPACE_ROOT: '/elsewhere', OCTOCODE_HOME: '/elsewhere' }, { corpus: ['/c/a', '/c/b'], repoRoot: '/r', statsHome: '/s', githubToken: 't' });
+  assert.equal(env.DISABLE_TOOLS, 'astRewrite,ghCloneRepo,clasify');
+  assert.equal(env.OCTOCODE_PUBLISHED_VIEW, 'flat');
+  assert.equal(env.WORKSPACE_ROOT, '/c/a');
+  assert.equal(env.ALLOWED_PATHS, '/c/a,/c/b');
+  assert.equal(env.OCTOCODE_HOME, '/s');
+  assert.equal(env.GITHUB_TOKEN, 't');
+  assert.equal(upstreamEnv({}, undefined, { corpus: [], repoRoot: '/r', statsHome: '/s' }).DISABLE_TOOLS, 'astRewrite,ghCloneRepo', 'control profile keeps the write-tool deny list');
+});
+
+test('family selector follows the session checkout, never the question category', () => {
+  const local = { id: 'X1', category: 'github-pr-review', repos: [{ repo: 'o/r', path: '/c/r' }] };
+  const remote = { id: 'X2', category: 'local-trace', repos: [{ repo: 'o/r' }] };
+  assert.deepEqual(sessionServerEnv({ familySelector: 'checkout' }, local), { OCTOCODE_TOOL_FAMILY: 'local' });
+  assert.deepEqual(sessionServerEnv({ familySelector: 'checkout' }, remote), { OCTOCODE_TOOL_FAMILY: 'github' });
+  assert.deepEqual(sessionServerEnv({}, local), {});
+  assert.throws(() => sessionServerEnv({ familySelector: 'category' }, local), /unknown familySelector/);
+  // Every mixed question has a checkout, so the selector starts it local (the measured risk).
+  for (const q of loadQuestions().filter(q => q.category === 'mixed')) assert.equal(sessionServerEnv({ familySelector: 'checkout' }, q).OCTOCODE_TOOL_FAMILY, 'local', q.id);
+});
+
+test('S13 arm workers differ from the octocode control only by server switches', () => {
+  const [control, ...arms] = loadWorkers('octocode,octocode-minus-clasify,octocode-flat,octocode-defer,octocode-family,octocode-guide');
+  for (const arm of arms) {
+    assert.equal(arm.docSha, control.docSha, `${arm.id}: same WORKER.md`);
+    const { env: armEnv, ...armServer } = arm.profile.mcpServers.octocode;
+    const { env: controlEnv, ...controlServer } = control.profile.mcpServers.octocode;
+    assert.deepEqual(armServer, controlServer, `${arm.id}: same server command`);
+    for (const [key, value] of Object.entries(controlEnv)) assert.equal(armEnv[key], value, `${arm.id}: keeps ${key}`);
+    assert.deepEqual(arm.profile.isolation, control.profile.isolation, `${arm.id}: same isolation`);
+    assert.equal(arm.profile.tools, control.profile.tools);
+  }
+});
+
+test('an anchored judge plan pairs every other worker with the anchor only', () => {
+  assert.deepEqual(judgePairs(['a', 'b', 'c']), [['a', 'b'], ['a', 'c'], ['b', 'c']]);
+  assert.deepEqual(judgePairs(['octocode', 'octocode-flat', 'rg-gh'], 'rg-gh'), [['octocode', 'rg-gh'], ['octocode-flat', 'rg-gh']]);
+  assert.throws(() => judgePairs(['a'], 'rg-gh'), /not a run worker/);
 });

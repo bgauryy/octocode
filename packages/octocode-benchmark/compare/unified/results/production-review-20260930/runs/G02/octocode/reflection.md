@@ -1,7 +1,0 @@
-1. **Helped:** Two `ghGetHistoryItem` calls did nearly all the work. The first was a PR overview with `changedFiles`, which gave the file inventory, the body, and the merge SHA. The second used `patches: selected` on six files (`validators/counter.rs`, `_generate_schema.py`, `_validators.py`, `_known_annotated_metadata.py`, `input_python.rs`, and the docs). It returned the before-and-after lines directly, so no source checkout was needed.
-
-2. **Did not help:** The "before" side is thin. The diff only shows removed lines, not the old `_mapping_schema` or the old behavior, and I did not open issue #13704 to learn what was actually broken. I never read `input_json.rs`, `input_string.rs`, the serializer, or `tests/types/test_counter.py`, so I could not describe JSON input, strict-mode edge cases, or behavior the tests pin down. `input_python.rs` came back with `...` elisions in the patch.
-
-3. **Next time:** Batch more in the second call. I would request `tests/types/test_counter.py` and `input_json.rs` with it. I would also fetch issue #13704 with `ghGetHistoryItem` (`operation: issue`). To see the old behavior, I would read `_mapping_schema` with `ghGetFileContent` at the parent commit of `mergeCommitSha`.
-
-4. **Confidence:** Medium-high for the "after" behavior, because I read it in the patches. Medium-low for the "before" side and edge cases, because I inferred those from removed lines. I said so in the answer.

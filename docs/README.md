@@ -16,6 +16,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 
 | Doc | Owns |
 |---|---|
+| [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md) | The flow map for agents: one diagram and decidable rules per flow (local, GitHub, history, external → local, pages, hints, minification, clasify, briefs, debug) |
 | [OCTOCODE_RESEARCH_MANIFEST.md](OCTOCODE_RESEARCH_MANIFEST.md) | Choosing and combining tools for local, remote and history research; evidence boundaries |
 | [OCTOCODE_TOOLS.md](OCTOCODE_TOOLS.md) | Every tool's fields, defaults, limits, results and continuations |
 | [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request/result envelope and how evidence, `next.*` pages, and `hints.*` leads carry between tools |

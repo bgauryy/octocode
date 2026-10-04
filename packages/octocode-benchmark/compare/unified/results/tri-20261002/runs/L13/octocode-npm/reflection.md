@@ -1,7 +1,0 @@
-**1. Helped:** The first `localSearch` (regex alternation over `db.c` and `t_string.c`) found `getGenericCommand` immediately. The parallel `localGetFileContent` at `t_string.c:456-485` and the `localSearch` for `expireIfNeeded|lookupKey|keyIsExpired` gave exact line numbers. The two `localGetFileContent` reads of `db.c:296-350` and `db.c:2940-3090` held the core logic: the full `expireIfNeeded` flow and its flags.
-
-**2. Did not help:** The final `localSearch` for `deleteExpiredKeyAndPropagate|lookupKeyReadOrReply` matched the wrong regions. It truncated `lookupKeyReadOrReply`'s body and returned only the tail of `deleteKeyAndPropagate` ("..." cut-offs). I never followed up with a targeted `localGetFileContent`. That left two gaps: how `lookupKeyReadOrReply` calls `lookupKey`, and whether DEL or UNLINK is propagated. I called out both as unverified. The `lookupKey` read also stopped at line 350, so the miss branch is only partly seen.
-
-**3. Next time:** Read `lookupKeyReadOrReply` and the head of `deleteKeyAndPropagate` directly (about 20 lines each) instead of relying on search context output. A call-chain tool like LSP call hierarchy would also have proven the link from GET to `expireIfNeeded` more cleanly than reading by hand.
-
-**4. Confidence:** High on the core behavior (null reply, lazy delete on a master, replica and flag exceptions), since the code was read at exact lines. Medium on the details of the delete and propagation step, because I did not read the head of `deleteKeyAndPropagate`.

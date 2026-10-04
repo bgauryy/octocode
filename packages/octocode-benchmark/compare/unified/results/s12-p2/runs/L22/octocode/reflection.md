@@ -1,7 +1,0 @@
-**1. Helped:** The second `localSearch` for `def static\(` found all three definitions, with paths and lines, in one call. The first, broad regex `localSearch` listed the import sites and call lines (`widgets.py:121,228`, `admin_list.py:187`). I ran the two in parallel, so the whole session took two calls.
-
-**2. Did not help:** The broad regex (`\.static\b`, `static as`) was noisy. It returned unrelated hits like `staticfiles` imports, `django/views/static` and `STATICFILES_STORAGE_ALIAS`. I never used `lspSearch` references, which would have given exact callers of `templatetags/static.py:174` instead of text matching. I also never opened any call site with `localFetch`. So I did not confirm which method contains `widgets.py:121`, and I only inferred the line 228 context from its docstring.
-
-**3. Next time:** Use `lspSearch` find-references on line 174 of `templatetags/static.py`. Then use `localFetch` with `matchString` on each hit. I would also check for `getattr` or re-export uses, and for in-package template usage of `{% static %}`.
-
-**4. Confidence:** Medium-high. Direct imports of the right `static` and the call lines are solid. Completeness is less certain, since I didn't check indirect callers or call-site context, and I flagged that in the answer.

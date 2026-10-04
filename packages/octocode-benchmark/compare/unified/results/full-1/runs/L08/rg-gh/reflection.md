@@ -1,7 +1,0 @@
-1. **Helped:** The first Bash call did the most work. `git log -1 --format=%H` confirmed the checkout was at the pinned commit. In the same call, `rg -n -i "sampleLimit|errSampleLimit|SampleLimit" scrape/scrape.go` returned the whole flow: config copy, `appenderWithLimits`, `checkAddError` and the metric increment. The second call used `sed -n` on specific ranges of `scrape/scrape.go` and `scrape/target.go` to read the `limitAppender` code. That gave exact line numbers and the stale-marker bypass.
-
-2. **Did not help:** The first `rg` covered only `scrape.go`, so the `errSampleLimit` definition and the V2 appender in `target.go` and `scrape_append_v2.go` turned up only later. That cost a third call. Nothing errored. I did not check the tests or the `up` metric handling, and I said so in the answer.
-
-3. **Next time:** I would run `rg` across the whole `scrape/` directory, excluding `_test`, in the first call. I would also look at the caller of the scrape error to see how a failed scrape sets `up`.
-
-4. **Confidence:** High for the enforcement mechanism, because I read every cited line directly. Medium for completeness. The `up` behaviour and the wider scrape-failure path are not traced.

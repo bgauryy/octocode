@@ -1,4 +1,4 @@
-mod declarations_cache;
+pub(crate) mod declarations_cache;
 mod matches;
 #[cfg(test)]
 mod policy_tests;

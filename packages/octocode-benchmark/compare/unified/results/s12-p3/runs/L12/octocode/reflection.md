@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch`, one regex alternation (`lifo_slot|lifo_enabled|MAX_LIFO_POLLS|lifo_polls`) over `src/runtime` with the detailed view, did most of the work. It returned the struct field, the constant, the poll loop, `schedule_local`, the doc comments and the builder option, each with surrounding lines. The second call, `localFetch` with three ranges, filled in the budget check at `:736-750`, the cap at `:763`, and `schedule_task` at `:1360-1376`.
-
-2. **Did not help:** The search output was noisy. It repeated `assert_lifo_enabled_is_correct` and builder or config matches that I didn't need. `localFetch` elided lines 771-1359 and 1393-1408. I got 1398-1406 only because the first search had shown them. I did not read how the LIFO task's poll is finished or timed. I never used `lspSearch` to check references or `clasify`. There were no errors and no repeated calls.
-
-3. **Next time:** I would exclude the builder and config files from the search, or use a narrower regex. I would also fetch the full `schedule_local` range in one call, so no quoted line depends on an earlier search.
-
-4. **Confidence:** High on the mechanism and the limits, because each claim cites lines I read at the pinned checkout. Medium-high on completeness, since I skipped the unread stretch of the file and did not check commit history.

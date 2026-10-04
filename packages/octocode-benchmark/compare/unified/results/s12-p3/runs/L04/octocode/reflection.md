@@ -1,7 +1,0 @@
-1. **Helped:** The first `localSearch` (regex `parse_docstring|def _get_filtered_args|...` over `tools/`) found `base.py`, `convert.py` and `structured.py` in one call. `localFetch` on `base.py` 95-360 then showed the whole schema-building path. `localSearch` for `def _create_subset_model` with `contextLines:45` and `resultView:content` returned the v1 and v2 builders together. The `args_block|arg_descriptions\[` search with `resultView:detailed` filled in the end of the parser.
-
-2. **Did not help:** One `localFetch` batch failed validation because I passed a bare `"190"` as a range instead of `"start-end"`, so I had to refetch. The `localSearch` for `def _parse_google_docstring` with `contextLines:60` returned 60 lines of unrelated code above the match. It then truncated at 4000 characters, before the end of the parser, so I needed a second search. The `_get_filtered_args` and `_filter_schema_args` guesses in my first regex matched nothing.
-
-3. **Next time:** I would use `matchString` or an `astSearch` on the function name and fetch exact line ranges, not large context windows. I would read the top of `convert.py` (~205-300) in the same batch as the other reads, since I skipped it and left `tool_description` unverified.
-
-4. **Confidence:** High on the call chain, the parser behaviour and the subset-model construction, because I read all of that code directly. Medium on the final tool description, since I didn't read how `tool_description` is derived in `convert.py` or what `_filter_schema_args` returns.

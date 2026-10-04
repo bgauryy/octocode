@@ -3,7 +3,7 @@
 //! Hosts show agents the `structuredContent` JSON, so a read's `content`
 //! carries its own source line numbers there, `cat -n`-like:
 //! `<line>\t<text>` per line, no padding. Line-omission markers between
-//! non-adjacent windows (`... [lines A-B omitted] ...`) stay unnumbered.
+//! non-adjacent windows (`... [lines A-B not requested] ...`) stay unnumbered.
 //! Only views whose lines map one-to-one onto original source lines are
 //! numbered; transformed views (`contentView`), byte windows, and content
 //! whose lines do not align with `sourceLineRanges` stay verbatim.
@@ -54,12 +54,12 @@ pub fn number_lines(content: &str, ranges: &[(u64, u64)]) -> Option<String> {
     (index == records.len()).then_some(output)
 }
 
-/// `(start, end)` of a `... [line N omitted] ...` / `... [lines A-B omitted] ...` marker.
+/// `(start, end)` of a `... [line N not requested] ...` / `... [lines A-B not requested] ...` marker.
 fn omission_span(record: &str) -> Option<(u64, u64)> {
     let inner = record
         .trim_end_matches(['\n', '\r'])
         .strip_prefix("... [")?
-        .strip_suffix(" omitted] ...")?;
+        .strip_suffix(" not requested] ...")?;
     if let Some(span) = inner.strip_prefix("lines ") {
         let (start, end) = span.split_once('-')?;
         Some((start.parse().ok()?, end.parse().ok()?))
@@ -70,13 +70,13 @@ fn omission_span(record: &str) -> Option<(u64, u64)> {
 }
 
 /// `(gaps, start, end)` of a gap-run marker
-/// `... [N gaps in lines A-B omitted] ...`: N line-omission gaps, each
+/// `... [N gaps in lines A-B not requested] ...`: N line-omission gaps, each
 /// between two numbered lines, all inside lines A-B.
 fn gap_run_span(record: &str) -> Option<(u64, u64, u64)> {
     let inner = record
         .trim_end_matches(['\n', '\r'])
         .strip_prefix("... [")?
-        .strip_suffix(" omitted] ...")?;
+        .strip_suffix(" not requested] ...")?;
     let (gaps, span) = inner.split_once(" gaps in lines ")?;
     let (start, end) = span.split_once('-')?;
     Some((gaps.parse().ok()?, start.parse().ok()?, end.parse().ok()?))
@@ -84,7 +84,7 @@ fn gap_run_span(record: &str) -> Option<(u64, u64, u64)> {
 
 /// Collapse each run of two or more line-omission markers that only single
 /// numbered lines separate into one gap-run marker at the run's first gap
-/// (`... [N gaps in lines A-B omitted] ...`). Every line keeps its number,
+/// (`... [N gaps in lines A-B not requested] ...`). Every line keeps its number,
 /// so each gap is still exactly the span between two numbers.
 #[must_use]
 pub fn collapse_gap_runs(numbered: &str) -> String {
@@ -115,7 +115,7 @@ pub fn collapse_gap_runs(numbered: &str) -> String {
             continue;
         }
         output.push_str(&format!(
-            "... [{gaps} gaps in lines {start}-{end} omitted] ...\n"
+            "... [{gaps} gaps in lines {start}-{end} not requested] ...\n"
         ));
         for line in (index + 1..cursor).step_by(2) {
             output.push_str(records[line]);
@@ -313,8 +313,8 @@ mod tests {
             Some("4\ta\n5\tb\n")
         );
         assert_eq!(
-            number_lines("a\n... [lines 3-8 omitted] ...\nb\n", &[(2, 2), (9, 9)]).as_deref(),
-            Some("2\ta\n... [lines 3-8 omitted] ...\n9\tb\n")
+            number_lines("a\n... [lines 3-8 not requested] ...\nb\n", &[(2, 2), (9, 9)]).as_deref(),
+            Some("2\ta\n... [lines 3-8 not requested] ...\n9\tb\n")
         );
         // Last line without a trailing newline keeps that shape.
         assert_eq!(
@@ -340,13 +340,13 @@ mod tests {
     #[test]
     fn recognizes_numbered_content_only() {
         assert!(is_numbered("4\ta\n5\tb\n"));
-        assert!(is_numbered("2\ta\n... [lines 3-8 omitted] ...\n9\tb\n"));
+        assert!(is_numbered("2\ta\n... [lines 3-8 not requested] ...\n9\tb\n"));
         assert!(is_numbered("7\t"));
         assert!(!is_numbered("4\ta\n6\tb\n"));
         assert!(!is_numbered("a\tb\n"));
         assert!(!is_numbered("0\ta\n"));
         assert!(!is_numbered(""));
-        assert!(!is_numbered("2\ta\n... [lines 4-8 omitted] ...\n9\tb\n"));
+        assert!(!is_numbered("2\ta\n... [lines 4-8 not requested] ...\n9\tb\n"));
     }
 
     /// A grep map of single lines carries one gap-run marker, not one marker
@@ -355,12 +355,12 @@ mod tests {
     #[test]
     fn single_line_windows_share_one_gap_marker_and_round_trip() {
         let ranges = [(3, 3), (10, 10), (20, 23), (40, 40), (50, 50)];
-        let content = "c\n... [lines 4-9 omitted] ...\nj\n... [lines 11-19 omitted] ...\nt\nu\nv\nw\n... [lines 24-39 omitted] ...\nN\n... [lines 41-49 omitted] ...\nX\n";
+        let content = "c\n... [lines 4-9 not requested] ...\nj\n... [lines 11-19 not requested] ...\nt\nu\nv\nw\n... [lines 24-39 not requested] ...\nN\n... [lines 41-49 not requested] ...\nX\n";
         let numbered = number_lines(content, &ranges).expect("numbered");
         let collapsed = collapse_gap_runs(&numbered);
         assert_eq!(
             collapsed,
-            "3\tc\n... [2 gaps in lines 4-19 omitted] ...\n10\tj\n20\tt\n21\tu\n22\tv\n23\tw\n... [2 gaps in lines 24-49 omitted] ...\n40\tN\n50\tX\n"
+            "3\tc\n... [2 gaps in lines 4-19 not requested] ...\n10\tj\n20\tt\n21\tu\n22\tv\n23\tw\n... [2 gaps in lines 24-49 not requested] ...\n40\tN\n50\tX\n"
         );
         assert!(collapsed.len() < numbered.len());
         assert!(is_numbered(&collapsed));
@@ -379,17 +379,17 @@ mod tests {
         assert_eq!(restored, ranges);
         // A lone gap keeps its own marker; nothing to collapse.
         let lone =
-            number_lines("a\n... [lines 3-8 omitted] ...\nb\n", &[(2, 2), (9, 9)]).expect("lone");
+            number_lines("a\n... [lines 3-8 not requested] ...\nb\n", &[(2, 2), (9, 9)]).expect("lone");
         assert_eq!(collapse_gap_runs(&lone), lone);
         // A miscounted or misplaced run is not numbered content.
         assert!(!is_numbered(
-            "3\tc\n... [3 gaps in lines 4-19 omitted] ...\n10\tj\n20\tt\n"
+            "3\tc\n... [3 gaps in lines 4-19 not requested] ...\n10\tj\n20\tt\n"
         ));
         assert!(!is_numbered(
-            "3\tc\n... [2 gaps in lines 5-19 omitted] ...\n10\tj\n20\tt\n"
+            "3\tc\n... [2 gaps in lines 5-19 not requested] ...\n10\tj\n20\tt\n"
         ));
         assert!(!is_numbered(
-            "3\tc\n... [2 gaps in lines 4-19 omitted] ...\n10\tj\n21\tt\n"
+            "3\tc\n... [2 gaps in lines 4-19 not requested] ...\n10\tj\n21\tt\n"
         ));
     }
 
@@ -399,7 +399,7 @@ mod tests {
     fn local_fetch_single_line_windows_share_gap_markers_and_round_trip() {
         let mut local = json!({"results":[{"index":0,"data":{
             "path":"a.rs",
-            "content":"c\n... [lines 4-9 omitted] ...\nj\n... [lines 11-19 omitted] ...\nt\n",
+            "content":"c\n... [lines 4-9 not requested] ...\nj\n... [lines 11-19 not requested] ...\nt\n",
             "sourceLineRanges":[{"start":3,"end":3},{"start":10,"end":10},{"start":20,"end":20}],
             "matchedLines":[3,10,20]}}]});
         number_read_rows(ToolId::LocalFetch, &mut local);
@@ -408,7 +408,7 @@ mod tests {
             .expect("content");
         assert_eq!(
             content,
-            "3\tc\n... [2 gaps in lines 4-19 omitted] ...\n10\tj\n20\tt\n"
+            "3\tc\n... [2 gaps in lines 4-19 not requested] ...\n10\tj\n20\tt\n"
         );
         assert!(is_numbered(content));
         let lines = content
@@ -435,13 +435,13 @@ mod tests {
         assert_eq!(window["results"][0]["data"]["matchedLines"], json!([8]));
         // Two windows: the gutter states the first, last and returned lines.
         let mut windows = json!({"results":[{"index":0,"data":{
-            "content":"x\n... [lines 8-9 omitted] ...\ny\n",
+            "content":"x\n... [lines 8-9 not requested] ...\ny\n",
             "sourceLineRanges":[{"start":7,"end":7},{"start":10,"end":10}],
             "startLine":7,"endLine":10,"returnedLines":3,"totalLines":12}}]});
         number_read_rows(ToolId::LocalFetch, &mut windows);
         assert_eq!(
             windows["results"][0]["data"],
-            json!({"content":"7\tx\n... [lines 8-9 omitted] ...\n10\ty\n","totalLines":12})
+            json!({"content":"7\tx\n... [lines 8-9 not requested] ...\n10\ty\n","totalLines":12})
         );
         let mut remote = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":[
             {"path":"a.py","content":"x\n","sourceLineRanges":[{"start":3,"end":3}],
